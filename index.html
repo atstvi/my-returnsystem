@@ -13,6 +13,17 @@
   --green:#4a7a50;--greenBg:#eaf2eb;--yellow:#7a6030;--red:#8a3a3a;--redBg:#f5eaea;
   --radius:12px;--shadow:0 2px 12px rgba(0,0,0,.07);
 }
+/* 잠금 화면 */
+#lockScreen{position:fixed;inset:0;background:var(--bg);z-index:9999;display:flex;align-items:center;justify-content:center;}
+.lock-box{width:100%;max-width:340px;padding:0 24px;text-align:center;}
+.lock-icon{font-size:36px;margin-bottom:20px;}
+.lock-title{font-family:Georgia,serif;font-size:22px;font-weight:400;color:var(--text);margin-bottom:8px;}
+.lock-sub{font-size:13px;color:var(--textF);margin-bottom:28px;line-height:1.7;}
+.lock-inp{width:100%;padding:14px 16px;border:1px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:16px;background:var(--surface);color:var(--text);text-align:center;letter-spacing:4px;margin-bottom:10px;transition:border-color .2s;}
+.lock-inp:focus{outline:none;border-color:var(--accentL);}
+.lock-btn{width:100%;padding:15px;background:var(--accent);border:none;color:#fff;font-family:inherit;font-size:15px;border-radius:var(--radius);cursor:pointer;transition:opacity .2s;}
+.lock-btn:hover{opacity:.88;}
+.lock-err{font-size:13px;color:var(--red);margin-top:10px;min-height:20px;}
 body{font-family:-apple-system,'Apple SD Gothic Neo','Noto Sans KR',system-ui,sans-serif;font-weight:300;background:var(--bg);color:var(--text);font-size:15px;min-height:100vh}
 .tab-bar{display:flex;border-bottom:1px solid var(--border);background:var(--surface);position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,.06)}
 .tab-btn{flex:1;padding:13px 2px;background:none;border:none;border-bottom:2px solid transparent;font-family:inherit;font-size:12px;font-weight:300;color:var(--textF);cursor:pointer;transition:all .2s}
@@ -196,6 +207,19 @@ textarea:focus{outline:none;border-color:var(--accentL)}
 </style>
 </head>
 <body>
+<!-- 잠금 화면 -->
+<div id="lockScreen">
+  <div class="lock-box">
+    <div class="lock-icon">🔒</div>
+    <div class="lock-title">나의 돌아오는 시스템</div>
+    <div class="lock-sub">비밀번호를 입력해야 들어올 수 있어.</div>
+    <input id="lockInp" class="lock-inp" type="password" placeholder="••••••" maxlength="20"
+      onkeydown="if(event.key==='Enter')tryUnlock()">
+    <button class="lock-btn" onclick="tryUnlock()">들어가기</button>
+    <div class="lock-err" id="lockErr"></div>
+  </div>
+</div>
+
 <div class="tab-bar">
   <button class="tab-btn active" onclick="goTab('home')">홈</button>
   <button class="tab-btn" onclick="startCheck()">체크</button>
@@ -335,6 +359,25 @@ textarea:focus{outline:none;border-color:var(--accentL)}
         </div>
       </div>
 
+      <!-- 비밀번호 -->
+      <div class="set-section">
+        <div class="set-section-head" onclick="toggleSection('sec-pw')">
+          <div class="set-section-title">🔒 비밀번호 변경</div>
+          <div class="set-section-arrow" id="arr-sec-pw">▼</div>
+        </div>
+        <div class="set-section-body" id="sec-pw">
+          <div class="setting-lbl">새 비밀번호</div>
+          <input id="newPwInp" class="setting-inp" type="password" placeholder="새 비밀번호 입력">
+          <div class="setting-lbl" style="margin-top:12px">새 비밀번호 확인</div>
+          <input id="newPwInp2" class="setting-inp" type="password" placeholder="한 번 더 입력">
+          <div class="btn-row" style="margin-top:12px">
+            <button class="btn-primary" onclick="changePassword()">변경</button>
+          </div>
+          <div class="setting-hint" style="margin-top:10px">비밀번호는 이 기기 브라우저에 저장돼. 잊어버리면 아래 방법으로 초기화할 수 있어.<br><br>
+          초기화: 브라우저 콘솔(F12)에서 <code style="background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px">localStorage.removeItem('app_pw')</code> 실행</div>
+        </div>
+      </div>
+
       <!-- Firebase 동기화 -->
       <div class="set-section">
         <div class="set-section-head" onclick="toggleSection('sec-firebase')">
@@ -417,6 +460,57 @@ textarea:focus{outline:none;border-color:var(--accentL)}
 <div class="toast" id="toast"></div>
 
 <script>
+// ── 비밀번호 잠금 ─────────────────────────────────────────
+const DEFAULT_PW = 'myreturn2024'; // ← 여기서 기본 비밀번호 변경 가능
+const SALT = 'nds_v1_';
+
+async function hashPw(pw){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(SALT+pw));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+async function initLock(){
+  // 저장된 해시가 없으면 기본 비밀번호로 초기화
+  if(!localStorage.getItem('app_pw')){
+    localStorage.setItem('app_pw', await hashPw(DEFAULT_PW));
+  }
+  // 세션 중 이미 인증됐으면 바로 통과
+  if(sessionStorage.getItem('unlocked')==='1'){
+    document.getElementById('lockScreen').style.display='none';
+    return;
+  }
+  document.getElementById('lockInp').focus();
+}
+
+async function tryUnlock(){
+  const val = document.getElementById('lockInp').value;
+  const err = document.getElementById('lockErr');
+  if(!val){err.textContent='비밀번호를 입력해줘';return;}
+  const hash = await hashPw(val);
+  const saved = localStorage.getItem('app_pw');
+  if(hash === saved){
+    sessionStorage.setItem('unlocked','1');
+    document.getElementById('lockScreen').style.display='none';
+    err.textContent='';
+  } else {
+    err.textContent='비밀번호가 틀렸어';
+    document.getElementById('lockInp').value='';
+    document.getElementById('lockInp').focus();
+  }
+}
+
+async function changePassword(){
+  const p1 = document.getElementById('newPwInp').value;
+  const p2 = document.getElementById('newPwInp2').value;
+  if(!p1){showToast('새 비밀번호를 입력해줘');return;}
+  if(p1 !== p2){showToast('두 비밀번호가 달라');return;}
+  if(p1.length < 4){showToast('4자 이상으로 해줘');return;}
+  localStorage.setItem('app_pw', await hashPw(p1));
+  document.getElementById('newPwInp').value='';
+  document.getElementById('newPwInp2').value='';
+  showToast('비밀번호 변경됐어!');
+}
+
 // ── 기본 데이터 ───────────────────────────────────────────
 const BASE_PHIL=[
   {tag:"중심 가치",title:"행복하게 살자",body:"원하는 대로만 살아봤더니 행복하지 않았다. 한두 달 해보니 나가는 일이 없을수록 몸이 망가지고 피곤해졌다. 어차피 살 거라면 행복하게 살겠다."},
@@ -1088,6 +1182,7 @@ const _fbHook=()=>{if(fbUser)fbSaveAll();};
 // ── window.onload 확장 ────────────────────────────────────
 const _origOnload=window.onload;
 window.onload=()=>{
+  initLock();
   _origOnload&&_origOnload();
   if(fbConfigSaved)initFirebase();
 };
