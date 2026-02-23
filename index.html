@@ -181,6 +181,18 @@ textarea:focus{outline:none;border-color:var(--accentL)}
 
 .toast{position:fixed;bottom:28px;left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:13px;padding:11px 22px;border-radius:22px;z-index:999;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
 .toast.show{opacity:1}
+.sync-bar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accentDim);border-bottom:1px solid var(--border);font-size:12px;color:var(--textDim)}
+.sync-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--textF)}
+.sync-dot.connected{background:var(--green)}
+.sync-dot.syncing{background:var(--yellow);animation:pulse 1s infinite}
+.sync-dot.error{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.firebase-user{margin-left:auto;font-size:11px;color:var(--textF)}
+.fb-login-btn{padding:9px 16px;background:var(--surface);border:1px solid var(--border);color:var(--textDim);font-family:inherit;font-size:13px;border-radius:10px;cursor:pointer;width:100%;margin-bottom:8px;text-align:left;display:flex;align-items:center;gap:10px}
+.fb-login-btn:hover{border-color:var(--accentL)}
+.fb-login-btn svg{flex-shrink:0}
+.btn-danger-outline{padding:11px 16px;background:transparent;border:1px solid #d0a0a0;color:var(--red);font-family:inherit;font-size:13px;border-radius:10px;cursor:pointer}
+.export-import-row{display:flex;gap:10px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -189,6 +201,11 @@ textarea:focus{outline:none;border-color:var(--accentL)}
   <button class="tab-btn" onclick="startCheck()">체크</button>
   <button class="tab-btn" onclick="goTab('memo')">기록</button>
   <button class="tab-btn" onclick="goTab('settings')">설정</button>
+</div>
+<div class="sync-bar" id="syncBar">
+  <div class="sync-dot" id="syncDot"></div>
+  <span id="syncStatus">Firebase 미연결 — 기기 간 동기화 안 됨</span>
+  <span class="firebase-user" id="fbUserLabel"></span>
 </div>
 
 <!-- 홈 -->
@@ -318,15 +335,78 @@ textarea:focus{outline:none;border-color:var(--accentL)}
         </div>
       </div>
 
+      <!-- Firebase 동기화 -->
+      <div class="set-section">
+        <div class="set-section-head" onclick="toggleSection('sec-firebase')">
+          <div class="set-section-title">☁️ Firebase 동기화 (기기 연동)</div>
+          <div class="set-section-arrow" id="arr-sec-firebase">▼</div>
+        </div>
+        <div class="set-section-body" id="sec-firebase">
+          <p class="setting-hint" style="margin-bottom:14px;line-height:1.75">Firebase를 연결하면 폰·패드·컴퓨터 어디서든 같은 데이터를 볼 수 있어. 구글 계정으로 로그인하면 자동으로 동기화돼. <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accentL)">Firebase 콘솔</a>에서 프로젝트를 만들고 아래에 설정값을 넣어줘.</p>
+
+          <div id="fbConfigForm">
+            <div class="setting-lbl">Firebase 설정값</div>
+            <div class="setting-hint" style="margin-bottom:10px">Firebase 콘솔 → 프로젝트 설정 → 내 앱 → 웹 앱 추가 → firebaseConfig 안의 값들</div>
+            <input id="fbApiKey" class="setting-inp" type="password" placeholder="apiKey" style="margin-bottom:6px">
+            <input id="fbAuthDomain" class="setting-inp" type="text" placeholder="authDomain (예: myapp.firebaseapp.com)" style="margin-bottom:6px">
+            <input id="fbProjectId" class="setting-inp" type="text" placeholder="projectId" style="margin-bottom:6px">
+            <div class="btn-row" style="margin-top:10px">
+              <button class="btn-primary" onclick="saveFbConfig()">저장 및 연결</button>
+              <button class="btn-ghost" onclick="clearFbConfig()">연결 해제</button>
+            </div>
+          </div>
+
+          <div style="margin-top:16px" id="fbLoginSection" style="display:none">
+            <div class="setting-lbl">로그인</div>
+            <div id="fbLoginArea">
+              <button class="fb-login-btn" onclick="fbGoogleLogin()">
+                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.2l6.8-6.8C35.8 2.5 30.2 0 24 0 14.7 0 6.8 5.4 3.1 13.4l7.9 6.2C12.9 13.2 18 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8C43.6 37.4 46.5 31.4 46.5 24.5z"/><path fill="#FBBC05" d="M11 28.6C10.3 26.8 10 24.9 10 23s.4-3.8 1-5.6L3.1 11.2C1.1 15 0 19.4 0 24s1.1 9 3.1 12.8l7.9-6.2z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.5-5.8c-2 1.4-4.6 2.2-7.7 2.2-6 0-11.1-3.7-13-9.1L3.1 36.1C6.8 43.6 14.7 48 24 48z"/></svg>
+                Google 계정으로 로그인
+              </button>
+            </div>
+          </div>
+
+          <div id="fbStatusArea" style="display:none;margin-top:12px">
+            <div class="api-status">
+              <div class="status-dot ok"></div>
+              <span id="fbLoggedUser" style="color:var(--green)"></span>
+            </div>
+            <div class="btn-row" style="margin-top:10px">
+              <button class="btn-secondary" onclick="fbForceSync()">지금 동기화</button>
+              <button class="btn-ghost" onclick="fbLogout()">로그아웃</button>
+            </div>
+          </div>
+
+          <div style="margin-top:14px;padding:12px 14px;background:var(--accentDim2);border-radius:10px">
+            <div style="font-size:11px;color:var(--accentL);font-weight:600;margin-bottom:6px;letter-spacing:1px">설정 방법 요약</div>
+            <div style="font-size:12px;color:var(--textDim);line-height:2">
+              1. <a href="https://console.firebase.google.com" target="_blank" style="color:var(--accentL)">Firebase 콘솔</a>에서 프로젝트 새로 만들기<br>
+              2. Authentication → Google 로그인 활성화<br>
+              3. Firestore Database 만들기 (테스트 모드)<br>
+              4. 프로젝트 설정 → 웹 앱 추가 → apiKey, authDomain, projectId 복사<br>
+              5. 위 칸에 붙여넣기 후 저장 → Google 로그인
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- 데이터 -->
       <div class="set-section">
         <div class="set-section-head" onclick="toggleSection('sec-data')">
-          <div class="set-section-title">데이터 관리</div>
+          <div class="set-section-title">데이터 관리 · 백업</div>
           <div class="set-section-arrow" id="arr-sec-data">▼</div>
         </div>
         <div class="set-section-body" id="sec-data">
-          <p class="setting-hint" style="margin-bottom:14px">기록은 브라우저 localStorage에 저장돼. 캐시를 지우면 사라지니 중요한 내용은 따로 백업해둬.</p>
-          <button class="danger-btn" onclick="clearAllData()">모든 기록 삭제</button>
+          <p class="setting-hint" style="margin-bottom:14px">기록을 파일로 내보내거나, 다른 기기에서 가져올 수 있어. Firebase 없이 수동 백업할 때 유용해.</p>
+          <div class="export-import-row">
+            <button class="btn-primary" onclick="exportData()">📥 내보내기 (JSON)</button>
+            <label class="btn-secondary" style="cursor:pointer;padding:11px 16px;display:inline-block">
+              📤 가져오기
+              <input type="file" accept=".json" onchange="importData(event)" style="display:none">
+            </label>
+          </div>
+          <div class="divider"></div>
+          <button class="btn-danger-outline" onclick="clearAllData()">모든 기록 삭제</button>
         </div>
       </div>
 
@@ -444,6 +524,7 @@ function saveSettings(){
     extraPrompt:document.getElementById('setExtraPrompt')?.value||''
   };
   localStorage.setItem('ai_settings',JSON.stringify(aiSettings));
+  if(fbUser)fbSaveAll();
 }
 
 // ── 가치관 편집 ───────────────────────────────────────────
@@ -466,6 +547,7 @@ function delPhilCard(i){philCards.splice(i,1);renderPhilEdit();}
 function savePhilCards(){
   localStorage.setItem('phil_cards',JSON.stringify(philCards));
   renderPhil();showToast('가치관 저장됐어');
+  if(fbUser)fbSaveAll();
 }
 function resetPhilCards(){
   philCards=JSON.parse(JSON.stringify(BASE_PHIL));
@@ -493,6 +575,7 @@ function delQuestion(i){questionSet.splice(i,1);renderQEdit();}
 function saveQuestionSet(){
   localStorage.setItem('question_set',JSON.stringify(questionSet));
   showToast('질문 저장됐어');
+  if(fbUser)fbSaveAll();
 }
 function resetQuestions(){
   questionSet=JSON.parse(JSON.stringify(BASE_QUESTIONS));
@@ -739,6 +822,7 @@ function saveResult(){
   localStorage.setItem('memos_v5',JSON.stringify(memos));
   renderMemos();
   showToast('기록 탭에 저장됐어');
+  if(fbUser)fbSaveAll();
 }
 
 // ── AI 호출 (Groq) ────────────────────────────────────────
@@ -766,8 +850,9 @@ function addMemoFromId(taId){
   memos=[{id:Date.now(),type:'memo',text:el.value.trim(),date:new Date().toLocaleDateString('ko-KR')},...memos];
   localStorage.setItem('memos_v5',JSON.stringify(memos));
   el.value='';renderMemos();showToast('저장됐어');
+  if(fbUser)fbSaveAll();
 }
-function deleteMemo(id){memos=memos.filter(m=>m.id!==id);localStorage.setItem('memos_v5',JSON.stringify(memos));renderMemos();}
+function deleteMemo(id){memos=memos.filter(m=>m.id!==id);localStorage.setItem('memos_v5',JSON.stringify(memos));renderMemos();if(fbUser)fbSaveAll();}
 function renderMemos(){
   const el=document.getElementById('memoList');if(!el)return;
   if(memos.length===0){el.innerHTML=`<div class="memo-empty">아직 기록이 없어.<br>오늘 느낀 것 한 줄이라도 남겨두자.</div>`;return;}
@@ -798,7 +883,214 @@ function toggleExpand(id){
   el.nextElementSibling.textContent=isCollapsed?'접기 ▲':'전체 보기 ▼';
 }
 
-// ── 유틸 ─────────────────────────────────────────────────
+// ── 데이터 내보내기 / 가져오기 ─────────────────────────────
+function exportData(){
+  const data={
+    version:1,
+    exportedAt:new Date().toISOString(),
+    memos:memos,
+    philCards:philCards,
+    questionSet:questionSet,
+    aiSettings:aiSettings
+  };
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`나의돌아오는시스템_백업_${new Date().toLocaleDateString('ko-KR').replace(/\. /g,'-').replace('.','')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('내보내기 완료!');
+}
+
+function importData(e){
+  const file=e.target.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try{
+      const data=JSON.parse(ev.target.result);
+      if(!data.version)throw new Error('올바른 백업 파일이 아니야.');
+      if(!confirm(`${data.exportedAt?.slice(0,10)||'알 수 없는 날짜'} 백업을 불러올까? 현재 데이터는 덮어씌워져.`))return;
+      if(data.memos){memos=data.memos;localStorage.setItem('memos_v5',JSON.stringify(memos));renderMemos();}
+      if(data.philCards){philCards=data.philCards;localStorage.setItem('phil_cards',JSON.stringify(philCards));renderPhil();renderPhilEdit();}
+      if(data.questionSet){questionSet=data.questionSet;localStorage.setItem('question_set',JSON.stringify(questionSet));renderQEdit();}
+      if(data.aiSettings){aiSettings=data.aiSettings;localStorage.setItem('ai_settings',JSON.stringify(aiSettings));loadAiSettings();}
+      if(fbUser)fbSaveAll();
+      showToast('가져오기 완료!');
+    }catch(err){showToast('오류: '+err.message);}
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
+
+// ── Firebase ──────────────────────────────────────────────
+let fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
+let fbConfigSaved=JSON.parse(localStorage.getItem('fb_config')||'null');
+
+function saveFbConfig(){
+  const apiKey=document.getElementById('fbApiKey').value.trim();
+  const authDomain=document.getElementById('fbAuthDomain').value.trim();
+  const projectId=document.getElementById('fbProjectId').value.trim();
+  if(!apiKey||!authDomain||!projectId){showToast('세 칸 모두 입력해줘');return;}
+  fbConfigSaved={apiKey,authDomain,projectId};
+  localStorage.setItem('fb_config',JSON.stringify(fbConfigSaved));
+  showToast('저장됐어. Firebase 연결 중...');
+  initFirebase();
+}
+
+function clearFbConfig(){
+  if(!confirm('Firebase 연결을 해제할까? 데이터는 이 기기에 그대로 남아.'))return;
+  localStorage.removeItem('fb_config');
+  fbConfigSaved=null;fbUser=null;fbAuth=null;fbDb=null;fbApp=null;
+  setSyncStatus('disconnected');
+  document.getElementById('fbStatusArea').style.display='none';
+  document.getElementById('fbLoginSection').style.display='none';
+  document.getElementById('fbApiKey').value='';
+  document.getElementById('fbAuthDomain').value='';
+  document.getElementById('fbProjectId').value='';
+  showToast('연결 해제됐어');
+}
+
+async function initFirebase(){
+  if(!fbConfigSaved)return;
+  try{
+    // 동적으로 Firebase SDK 로드
+    if(!window.firebase){
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+    }
+    const cfg={...fbConfigSaved,storageBucket:'',messagingSenderId:'',appId:''};
+    // 이미 앱이 있으면 재사용
+    try{fbApp=firebase.app();}catch{fbApp=firebase.initializeApp(cfg);}
+    fbAuth=firebase.auth();
+    fbDb=firebase.firestore();
+    setSyncStatus('disconnected');
+    document.getElementById('fbLoginSection').style.display='block';
+    // 저장된 설정값 표시
+    document.getElementById('fbApiKey').value=fbConfigSaved.apiKey;
+    document.getElementById('fbAuthDomain').value=fbConfigSaved.authDomain;
+    document.getElementById('fbProjectId').value=fbConfigSaved.projectId;
+    fbAuth.onAuthStateChanged(user=>{
+      if(user){
+        fbUser=user;
+        setSyncStatus('connected');
+        document.getElementById('fbLoggedUser').textContent=user.email||user.displayName||'로그인됨';
+        document.getElementById('fbStatusArea').style.display='block';
+        document.getElementById('fbLoginSection').style.display='none';
+        document.getElementById('fbUserLabel').textContent=user.email||user.displayName||'';
+        fbLoadAll();
+      } else {
+        fbUser=null;
+        setSyncStatus('disconnected');
+        document.getElementById('fbStatusArea').style.display='none';
+        document.getElementById('fbLoginSection').style.display='block';
+        document.getElementById('fbUserLabel').textContent='';
+      }
+    });
+  }catch(err){
+    setSyncStatus('error');
+    showToast('Firebase 오류: '+err.message);
+    console.error(err);
+  }
+}
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script');
+    s.src=src;s.onload=res;s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+function setSyncStatus(status){
+  const dot=document.getElementById('syncDot');
+  const label=document.getElementById('syncStatus');
+  if(status==='connected'){
+    dot.className='sync-dot connected';
+    label.textContent='Firebase 연결됨 — 자동 동기화 중';
+  } else if(status==='syncing'){
+    dot.className='sync-dot syncing';
+    label.textContent='동기화 중...';
+  } else if(status==='error'){
+    dot.className='sync-dot error';
+    label.textContent='동기화 오류 — 로컬에만 저장됨';
+  } else {
+    dot.className='sync-dot';
+    label.textContent='Firebase 미연결 — 기기 간 동기화 안 됨';
+  }
+}
+
+async function fbGoogleLogin(){
+  if(!fbAuth){showToast('먼저 Firebase 설정을 저장해줘');return;}
+  try{
+    const provider=new firebase.auth.GoogleAuthProvider();
+    await fbAuth.signInWithPopup(provider);
+  }catch(err){showToast('로그인 실패: '+err.message);}
+}
+
+async function fbLogout(){
+  if(!fbAuth)return;
+  await fbAuth.signOut();
+  showToast('로그아웃됐어');
+}
+
+async function fbSaveAll(){
+  if(!fbUser||!fbDb)return;
+  setSyncStatus('syncing');
+  try{
+    const uid=fbUser.uid;
+    await fbDb.collection('users').doc(uid).set({
+      memos:JSON.stringify(memos),
+      philCards:JSON.stringify(philCards),
+      questionSet:JSON.stringify(questionSet),
+      aiSettings:JSON.stringify(aiSettings),
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+    });
+    setSyncStatus('connected');
+  }catch(err){
+    setSyncStatus('error');
+    console.error('Firebase 저장 오류:',err);
+  }
+}
+
+async function fbLoadAll(){
+  if(!fbUser||!fbDb)return;
+  setSyncStatus('syncing');
+  try{
+    const uid=fbUser.uid;
+    const doc=await fbDb.collection('users').doc(uid).get();
+    if(doc.exists){
+      const d=doc.data();
+      if(d.memos){memos=JSON.parse(d.memos);localStorage.setItem('memos_v5',d.memos);renderMemos();}
+      if(d.philCards){philCards=JSON.parse(d.philCards);localStorage.setItem('phil_cards',d.philCards);renderPhil();renderPhilEdit();}
+      if(d.questionSet){questionSet=JSON.parse(d.questionSet);localStorage.setItem('question_set',d.questionSet);renderQEdit();}
+      if(d.aiSettings){aiSettings=JSON.parse(d.aiSettings);localStorage.setItem('ai_settings',d.aiSettings);loadAiSettings();}
+    }
+    setSyncStatus('connected');
+  }catch(err){
+    setSyncStatus('error');
+    console.error('Firebase 불러오기 오류:',err);
+  }
+}
+
+async function fbForceSync(){
+  if(!fbUser){showToast('로그인이 필요해');return;}
+  await fbSaveAll();
+  showToast('동기화 완료!');
+}
+
+// Firebase 저장 후크: 기존 localStorage 저장 함수들에 Firebase 저장 추가
+const _origSaveResult=saveResult;
+// memos 변경 시 Firebase도 저장 (addMemoFromId, deleteMemo, saveResult에 훅)
+const _fbHook=()=>{if(fbUser)fbSaveAll();};
+
+// ── window.onload 확장 ────────────────────────────────────
+const _origOnload=window.onload;
+window.onload=()=>{
+  _origOnload&&_origOnload();
+  if(fbConfigSaved)initFirebase();
+};
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 function showToast(msg){
   const el=document.getElementById('toast');
