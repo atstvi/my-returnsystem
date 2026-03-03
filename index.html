@@ -1220,6 +1220,7 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
 .me-todo-item.expanded { border-color: rgba(45,255,170,.4); background: rgba(45,255,170,.03); }
 
 .me-todo-check {
+  cursor: pointer;
   width: 15px; height: 15px; border: 1px solid var(--border); flex-shrink: 0;
   display: flex; align-items: center; justify-content: center; font-size: 10px;
   transition: all .1s steps(3); margin-top: 2px;
@@ -3843,6 +3844,7 @@ let taskCalFilterIds = new Set(taskCats.map(c=>c.id)); // 모두 ON
 function saveTaskData(){
   localStorage.setItem('task_cats_v1',  JSON.stringify(taskCats));
   localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
+  if(fbUser)fbSaveAll();
 }
 
 function taskDateKey(d){ // Date → YYYY-MM-DD
@@ -4496,6 +4498,7 @@ function getRpgData(){
 }
 function saveRpgData(d){
   localStorage.setItem('rpg_obs_v1',JSON.stringify(d));
+  if(fbUser)fbSaveAll();
 }
 function getTodayKey(){
   const n=new Date();
@@ -4628,9 +4631,11 @@ function saveProfileData(){
   profileData.name=(nameEl?nameEl.value:'')||'나';
   profileData.tagline=tagEl?tagEl.value:'';
   localStorage.setItem('profile_data',JSON.stringify(profileData));
+  if(fbUser)fbSaveAll();
   // 아바타 이름 글자 즉시 갱신 (사진 없을 때만)
   if(!profileData.avatar) drawMeAvatar(profileData.name);
 }
+  if(fbUser)fbSaveAll();
 
 function onAvatarUpload(e){
   const file=e.target.files[0];if(!file)return;
@@ -4680,7 +4685,7 @@ function renderMeTab(){
   // 아바타 — 업로드 이미지 or 픽셀 아바타
   if(profileData.avatar){
     _showAvatarImage(profileData.avatar);
-  } else {
+  } else if(!_avatarAnimId) {
     _showAvatarPixel();
   }
 
@@ -4719,6 +4724,7 @@ let todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
 
 function saveTodos(){
   localStorage.setItem('todo_items',JSON.stringify(todoItems));
+  if(fbUser)fbSaveAll();
 }
 
 function renderMeTodo(){
@@ -7388,6 +7394,7 @@ function addInboxCat(){
   const color=colors[inboxCats.length%colors.length];
   inboxCats.push({id:'cat_'+Date.now(),label:name,color});
   localStorage.setItem('inbox_cats_v1',JSON.stringify(inboxCats));
+  if(fbUser)fbSaveAll();
   document.querySelector('.nds-modal')?.remove();
   renderInbox();showToast('카테고리 추가됐어!');
 }
@@ -7407,6 +7414,7 @@ function deleteInboxCat(i){
     inboxCats.push({id:'misc',label:'기타',color:'#94a3b8'});
   }
   localStorage.setItem('inbox_cats_v1',JSON.stringify(inboxCats));
+  if(fbUser)fbSaveAll();
   document.querySelector('.nds-modal')?.remove();
   renderInbox();
 }
@@ -7836,6 +7844,7 @@ async function initFirebase(){
       if(user){
         fbUser=user;
         setSyncStatus('connected');
+        showToast('Firebase 연결됨 — 동기화 중');
         document.getElementById('fbLoggedUser').textContent=user.email||user.displayName||'로그인됨';
         document.getElementById('fbStatusArea').style.display='block';
         document.getElementById('fbLoginSection').style.display='none';
@@ -7881,27 +7890,47 @@ async function fbGoogleLogin(){
 
 async function fbLogout(){
   if(!fbAuth)return;
+  if(typeof _fbUnsubscribe!=="undefined"&&_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
   await fbAuth.signOut();
   showToast('로그아웃됐어');
 }
 
-async function fbSaveAll(){
+// fbSave debounce
+let _fbSaveTimer=null;
+let _applyingFbData=false;
+function fbSaveAll(){
+  if(!fbUser||!fbDb)return;
+  if(_applyingFbData)return;
+  if(_fbSaveTimer)clearTimeout(_fbSaveTimer);
+  _fbSaveTimer=setTimeout(_fbSaveNow,1500);
+}
+async function _fbSaveNow(){
   if(!fbUser||!fbDb)return;
   setSyncStatus('syncing');
   try{
     const uid=fbUser.uid;
     await fbDb.collection('users').doc(uid).set({
+      // 기존 데이터
       memos:JSON.stringify(memos),
       philCards:JSON.stringify(philCards),
       questionSet:JSON.stringify(questionSet),
       aiSettings:JSON.stringify(aiSettings),
       rewardData:localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}',
       metricsV1:localStorage.getItem('metrics_v1')||'[]',
-      inboxV1:localStorage.getItem('inbox_v1')||'[]',
       realNeedV1:localStorage.getItem('real_need_v1')||'[]',
       rpgObsV1:localStorage.getItem('rpg_obs_v1')||'{}',
       rpgStatsV1:localStorage.getItem('rpg_stats_v1')||'null',
-      updatedAt:firebase.firestore.FieldValue.serverTimestamp()
+      // 추가 동기화 항목
+      todoItems:localStorage.getItem('todo_items')||'[]',
+      taskItemsV1:localStorage.getItem('task_items_v1')||'[]',
+      taskCatsV1:localStorage.getItem('task_cats_v1')||'[]',
+      inboxV1:localStorage.getItem('inbox_v1')||'[]',
+      inboxCatsV1:localStorage.getItem('inbox_cats_v1')||'[]',
+      profileData:localStorage.getItem('profile_data')||'{}',
+      rpgChecksV1:localStorage.getItem('rpg_checks_v1')||'{}',
+      storyLogV1:localStorage.getItem('story_log_v1')||'[]',
+      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy:fbUser.uid,
     });
     setSyncStatus('connected');
   }catch(err){
@@ -7915,31 +7944,113 @@ async function fbLoadAll(){
   setSyncStatus('syncing');
   try{
     const uid=fbUser.uid;
-    const doc=await fbDb.collection('users').doc(uid).get();
-    if(doc.exists){
-      const d=doc.data();
-      if(d.memos){memos=JSON.parse(d.memos);localStorage.setItem('memos_v5',d.memos);renderMemos();renderResultList();}
-      if(d.philCards){philCards=JSON.parse(d.philCards);localStorage.setItem('phil_cards',d.philCards);renderPhil();renderPhilEdit();}
-      if(d.questionSet){questionSet=JSON.parse(d.questionSet);localStorage.setItem('question_set',d.questionSet);renderQEdit();}
-      if(d.aiSettings){aiSettings=JSON.parse(d.aiSettings);localStorage.setItem('ai_settings',d.aiSettings);loadAiSettings();}
-      if(d.rewardData){localStorage.setItem('reward_data',d.rewardData);initRewardData();}
-      if(d.metricsV1){localStorage.setItem('metrics_v1',d.metricsV1);}
-      if(d.inboxV1){inboxItems=JSON.parse(d.inboxV1);localStorage.setItem('inbox_v1',d.inboxV1);}
-      if(d.realNeedV1){realNeedData=JSON.parse(d.realNeedV1);localStorage.setItem('real_need_v1',d.realNeedV1);}
-      if(d.rpgObsV1){localStorage.setItem('rpg_obs_v1',d.rpgObsV1);}
-      if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);}
+    const snap=await fbDb.collection('users').doc(uid).get();
+    if(snap.exists){
+      _applyFirebaseData(snap.data());
     }
     setSyncStatus('connected');
+    // 실시간 리스너 등록
+    _startFbListener();
   }catch(err){
     setSyncStatus('error');
     console.error('Firebase 불러오기 오류:',err);
   }
 }
 
+let _fbUnsubscribe=null;
+function _startFbListener(){
+  if(_fbUnsubscribe)_fbUnsubscribe(); // 기존 리스너 해제
+  if(!fbUser||!fbDb)return;
+  _fbUnsubscribe=fbDb.collection('users').doc(fbUser.uid)
+    .onSnapshot(snap=>{
+      if(!snap.exists)return;
+      const d=snap.data();
+      // 내가 저장한 것이면 무시 (updatedBy 기준)
+      if(d.updatedBy===fbUser.uid&&d.updatedAt&&d.updatedAt.toMillis&&
+         Date.now()-d.updatedAt.toMillis()<3000)return;
+      _applyFirebaseData(d);
+      setSyncStatus('connected');
+    },err=>{
+      console.warn('FB listener error:',err);
+    });
+}
+
+function _applyFirebaseData(d){
+  if(!d)return;
+  _applyingFbData=true;setTimeout(()=>{_applyingFbData=false;},3000);
+  // 메모/기록
+  if(d.memos){memos=JSON.parse(d.memos);localStorage.setItem('memos_v5',d.memos);}
+  if(d.philCards){philCards=JSON.parse(d.philCards);localStorage.setItem('phil_cards',d.philCards);}
+  if(d.questionSet){questionSet=JSON.parse(d.questionSet);localStorage.setItem('question_set',d.questionSet);}
+  if(d.aiSettings){aiSettings=JSON.parse(d.aiSettings);localStorage.setItem('ai_settings',d.aiSettings);loadAiSettings();}
+  if(d.rewardData){localStorage.setItem('reward_data',d.rewardData);initRewardData();}
+  if(d.metricsV1){localStorage.setItem('metrics_v1',d.metricsV1);}
+  if(d.realNeedV1){realNeedData=JSON.parse(d.realNeedV1);localStorage.setItem('real_need_v1',d.realNeedV1);}
+  if(d.rpgObsV1){localStorage.setItem('rpg_obs_v1',d.rpgObsV1);}
+  if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);}
+  // 할일 (me탭)
+  if(d.todoItems){
+    todoItems=JSON.parse(d.todoItems);
+    localStorage.setItem('todo_items',d.todoItems);
+    renderMeTodo&&renderMeTodo();
+  }
+  // 할일탭 아이템/카테고리
+  if(d.taskItemsV1){
+    taskItems=JSON.parse(d.taskItemsV1);
+    localStorage.setItem('task_items_v1',d.taskItemsV1);
+  }
+  if(d.taskCatsV1){
+    const parsed=JSON.parse(d.taskCatsV1);
+    if(parsed&&parsed.length>0){
+      taskCats=parsed;
+      localStorage.setItem('task_cats_v1',d.taskCatsV1);
+    }
+  }
+  // 인박스
+  if(d.inboxV1){
+    inboxItems=JSON.parse(d.inboxV1);
+    localStorage.setItem('inbox_v1',d.inboxV1);
+  }
+  if(d.inboxCatsV1){
+    const parsed=JSON.parse(d.inboxCatsV1);
+    if(parsed&&parsed.length>0){
+      inboxCats=parsed;
+      localStorage.setItem('inbox_cats_v1',d.inboxCatsV1);
+    }
+  }
+  // 프로필
+  if(d.profileData){
+    localStorage.setItem('profile_data',d.profileData);
+    profileData=JSON.parse(d.profileData);
+  }
+  // RPG 체크
+  if(d.rpgChecksV1){localStorage.setItem('rpg_checks_v1',d.rpgChecksV1);}
+  // 스토리 로그
+  if(d.storyLogV1){
+    storyLog=JSON.parse(d.storyLogV1);
+    localStorage.setItem('story_log_v1',d.storyLogV1);
+  }
+  // 현재 열린 탭 재렌더
+  _reRenderCurrentTab();
+}
+
+function _reRenderCurrentTab(){
+  try{
+    const activeTab=document.querySelector('.page.active');
+    if(!activeTab)return;
+    const id=activeTab.id;
+    if(id==='page-me'){renderMeTab&&renderMeTab();initStoryCard&&initStoryCard();}
+    else if(id==='page-task'){renderTaskTab&&renderTaskTab();}
+    else if(id==='page-inbox'){renderInbox&&renderInbox();}
+    else if(id==='page-memo'){renderMemos&&renderMemos();renderResultList&&renderResultList();}
+  }catch(e){console.warn('rerender:',e);}
+}
+
 async function fbForceSync(){
   if(!fbUser){showToast('로그인이 필요해');return;}
-  await fbSaveAll();
-  showToast('동기화 완료!');
+  await _fbSaveNow();
+  await fbLoadAll();
+  showToast('동기화 완료! ↕');
 }
 
 // Firebase 저장 후크: 기존 localStorage 저장 함수들에 Firebase 저장 추가
@@ -8152,7 +8263,7 @@ function drawPixelAvatar(state, frame) {
 }
 
 function startAvatarAnim() {
-  if(_avatarAnimId) cancelAnimationFrame(_avatarAnimId);
+  if(_avatarAnimId) return;
   function loop(ts) {
     if(ts - _avatarLastFrameTime > FRAME_INTERVAL) {
       _avatarFrame++;
@@ -8978,6 +9089,7 @@ async function generateStory() {
     storyLog.unshift({ date: today, text, npcs, dayNum: state.dayNum });
     if (storyLog.length > 60) storyLog = storyLog.slice(0, 60);
     localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
+    if(fbUser)fbSaveAll();
 
     // 일수 뱃지
     const dayEl = document.getElementById('storyDayNum');
