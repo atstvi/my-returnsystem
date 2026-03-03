@@ -1957,13 +1957,10 @@ select {
 #page-me .me-header-inner {
   max-width: 1400px; margin: 0 auto;
   display: grid;
-  grid-template-columns: auto 1fr auto auto;
+  grid-template-columns: 200px 1fr 200px auto;
   gap: 0; align-items: stretch;
 }
-#page-me .me-header-profile {
-  display: flex; align-items: center; gap: 16px;
-  padding: 0 20px 0 0; border-right: 1px solid rgba(45,255,170,.12);
-}
+/* me-header-profile: see pixel avatar section below */
 #page-me .me-header-focus {
   display: flex; flex-direction: column; justify-content: center;
   padding: 0 20px; border-right: 1px solid rgba(45,255,170,.12);
@@ -2569,15 +2566,7 @@ select {
    픽셀 아바타 & 사이버펑크 나탭
 ═══════════════════════════════════════════════ */
 
-/* 아바타 존 재구성 */
-#page-me .me-header-profile {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0;
-  padding: 0;
-  min-width: 220px;
-  border-right: 1px solid rgba(45,255,170,.15);
-}
+/* me-header-profile: merged below */
 
 .pixel-avatar-zone {
   width: 100%;
@@ -2596,6 +2585,13 @@ select {
   width: 96px; height: 96px;
   display: block;
   filter: drop-shadow(0 0 8px rgba(45,255,170,.4));
+}
+#pixelAvatarImg {
+  width: 96px; height: 96px;
+  object-fit: cover;
+  border: 1px solid rgba(45,255,170,.3);
+  filter: drop-shadow(0 0 8px rgba(45,255,170,.3));
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 8px 100%, 0 calc(100% - 8px));
 }
 
 .avatar-state-label {
@@ -2828,16 +2824,20 @@ select {
 }
 
 
-/* 픽셀 프로필 칸 height 처리 */
+/* ── 프로필 칸 (픽셀 아바타 + 배터리 + 정보) ── */
 #page-me .me-header-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 200px;
   min-width: 200px;
-  max-width: 220px;
+  max-width: 200px;
   height: 100%;
   overflow-y: auto;
   padding: 0;
   gap: 0;
-  display: flex;
-  flex-direction: column;
+  border-right: 1px solid rgba(45,255,170,.12);
+  flex-shrink: 0;
 }
 #page-me .me-header-profile::-webkit-scrollbar { width: 2px; }
 #page-me .me-header-profile::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
@@ -2888,8 +2888,9 @@ select {
       <div class="me-header-profile">
 
         <!-- 픽셀 아바타 -->
-        <div class="pixel-avatar-zone">
+        <div class="pixel-avatar-zone" onclick="document.getElementById('avatarInp').click()" style="cursor:pointer" title="클릭해서 사진 변경">
           <canvas id="pixelAvatarCanvas" width="96" height="96"></canvas>
+          <img id="pixelAvatarImg" style="display:none;width:96px;height:96px;object-fit:cover;image-rendering:pixelated" alt="">
           <div class="avatar-state-label" id="avatarStateLabel">STANDBY</div>
         </div>
 
@@ -4310,12 +4311,7 @@ function initMeTab(){
   // todoItems 최신화
   todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
   if(profileData.avatar){
-    const img=document.getElementById('meAvatarImg');
-    const canvas=document.getElementById('meAvatarCanvas');
-    if(img){img.src=profileData.avatar;img.style.display='block';}
-    if(canvas)canvas.style.display='none';
-  } else {
-    drawMeAvatar(profileData.name||'나');
+    setTimeout(()=>_showAvatarImage(profileData.avatar), 150);
   }
 }
 
@@ -4348,12 +4344,24 @@ function onAvatarUpload(e){
   reader.onload=ev=>{
     profileData.avatar=ev.target.result;
     localStorage.setItem('profile_data',JSON.stringify(profileData));
-    const img=document.getElementById('meAvatarImg');
-    const canvas=document.getElementById('meAvatarCanvas');
-    if(img){img.src=ev.target.result;img.style.display='block';}
-    if(canvas)canvas.style.display='none';
+    _showAvatarImage(ev.target.result);
   };
   reader.readAsDataURL(file);
+}
+function _showAvatarImage(src){
+  const pixImg=document.getElementById('pixelAvatarImg');
+  const pixCanvas=document.getElementById('pixelAvatarCanvas');
+  if(pixImg){ pixImg.src=src; pixImg.style.display='block'; }
+  if(pixCanvas) pixCanvas.style.display='none';
+  // 애니메이션 멈춤 (이미지 있을 때)
+  if(_avatarAnimId){ cancelAnimationFrame(_avatarAnimId); _avatarAnimId=null; }
+}
+function _showAvatarPixel(){
+  const pixImg=document.getElementById('pixelAvatarImg');
+  const pixCanvas=document.getElementById('pixelAvatarCanvas');
+  if(pixImg) pixImg.style.display='none';
+  if(pixCanvas) pixCanvas.style.display='block';
+  startAvatarAnim();
 }
 
 function renderMeTab(){
@@ -4375,14 +4383,11 @@ function renderMeTab(){
   if(nameInp&&document.activeElement!==nameInp)nameInp.value=profileData.name||'';
   if(tagInp&&document.activeElement!==tagInp)tagInp.value=profileData.tagline||'';
 
-  // 아바타
+  // 아바타 — 업로드 이미지 or 픽셀 아바타
   if(profileData.avatar){
-    const img=document.getElementById('meAvatarImg');
-    const canvas=document.getElementById('meAvatarCanvas');
-    if(img){img.src=profileData.avatar;img.style.display='block';}
-    if(canvas)canvas.style.display='none';
+    _showAvatarImage(profileData.avatar);
   } else {
-    drawMeAvatar(profileData.name||'나');
+    _showAvatarPixel();
   }
 
   // 스탯
@@ -4424,11 +4429,9 @@ function saveTodos(){
 
 function renderMeTodo(){
   const el=document.getElementById('meTodoList');if(!el)return;
-  const active=todoItems.filter(t=>!t.done);
-  const done=todoItems.filter(t=>t.done);
-  const all=[...active,...done];
+  const all=todoItems.filter(t=>!t.done);
   if(all.length===0){
-    el.innerHTML=`<div class="me-todo-empty">집중할 일이 없어.<br>체크 탭에서 Task를 입력하면<br>여기 자동으로 올라와.</div>`;
+    el.innerHTML=`<div class="quest-empty">◈ 활성 임무 없음 ◈<br><span style="opacity:.5;font-size:9px">체크 탭에서 임무를 등록해</span></div>`;
     return;
   }
   el.innerHTML=all.map(t=>{
@@ -7977,20 +7980,19 @@ const _origStartFocus = typeof startFocusTimer !== 'undefined'
   ? startFocusTimer
   : null;
 
+let _focusHooked = false;
 function _hookFocusForAvatar() {
+  if(_focusHooked) return; _focusHooked = true;
   const origStart = startFocusTimer;
   startFocusTimer = function(idx) {
     origStart(idx);
     setAvatarState('focus');
-    // 플레이리스트 자동 시작 (음소거 상태로)
     if(!_playlistPlaying) playPlaylist();
   };
-
   const origStop = stopFocusTimer;
   stopFocusTimer = function() {
     origStop();
     updateAvatarFromStats();
-    // 플레이리스트 멈춤
     pausePlaylist();
   };
 }
@@ -8072,12 +8074,9 @@ function renderMeTodo() {
 
 // ── 초기화 ──
 function initPixelAvatar() {
-  // 배터리 초기화
   updateAvatarFromStats();
-  // 아바타 애니메이션 시작
   startAvatarAnim();
-  // 집중 타이머 훅
-  if(typeof startFocusTimer !== 'undefined') _hookFocusForAvatar();
+  // 훅은 window.onload에서 한 번만 호출
 }
 
 // 충전/방전 함수 훅 — 배터리 자동 갱신
