@@ -930,11 +930,16 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
    SYNC BAR / TOAST
 ────────────────────────────────────────── */
 .sync-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 8000;
   display: flex; align-items: center; gap: 8px;
-  padding: 5px 16px;
-  background: rgba(45,255,170,.03); border-bottom: 1px solid var(--border);
-  font-family: var(--font-label); font-size: 9px; color: var(--foreground-muted); letter-spacing: 2px;
+  padding: 6px 16px;
+  background: rgba(14,17,23,.96); border-bottom: 1px solid rgba(255,77,109,.3);
+  font-family: var(--font-label); font-size: 9px; color: rgba(255,77,109,.9); letter-spacing: 2px;
+  transform: translateY(-100%);
+  transition: transform .35s cubic-bezier(.22,1,.36,1);
+  backdrop-filter: blur(8px);
 }
+.sync-bar.visible { transform: translateY(0); }
 .sync-dot           { width: 6px; height: 6px; background: var(--foreground-muted); }
 .sync-dot.connected, .sync-dot.ok { background: var(--accent); box-shadow: 0 0 6px rgba(45,255,170,.8); }
 .sync-dot.syncing   { background: var(--warning); animation: pulse 1s infinite; }
@@ -2497,9 +2502,9 @@ select {
 .task-item:hover { background: rgba(255,255,255,.025); }
 .task-item.done { opacity: .4; }
 .task-item-check {
-  width: 16px; height: 16px; border: 1.5px solid var(--border);
+  width: 20px; height: 20px; border: 1.5px solid var(--border);
   display: flex; align-items: center; justify-content: center;
-  font-size: 10px; flex-shrink: 0; margin-top: 1px;
+  font-size: 10px; flex-shrink: 0; margin-top: 1px; cursor: pointer;
   transition: var(--t-snap); border-radius: 2px;
 }
 .task-item.done .task-item-check {
@@ -2975,6 +2980,34 @@ select {
 .notion-sync-dot.idle { background: var(--foreground-muted); }
 .notion-sync-dot.spin { background: var(--warning); animation: battPulse .6s steps(2) infinite; }
 
+
+/* ═══ STORY SYSTEM ═══ */
+.me-story-card{grid-column:1/-1;border-bottom:1px solid var(--border);border-right:none;}
+.story-npc-bar{display:flex;gap:6px;padding:8px 18px 0;flex-wrap:wrap;}
+.story-npc{font-family:var(--font-label);font-size:8px;letter-spacing:1.5px;color:var(--foreground-muted);display:flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);transition:.2s;}
+.story-npc.on{color:var(--accent);border-color:rgba(45,255,170,.3);background:rgba(45,255,170,.04);}
+.story-npc-dot{width:4px;height:4px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.story-body{font-family:var(--font-mono);font-size:12px;line-height:2;color:var(--foreground-2);padding:10px 14px 4px;min-height:72px;white-space:pre-wrap;word-break:break-word;border-left:2px solid rgba(45,255,170,.1);margin:10px 18px 0;}
+.story-body .hl{color:var(--accent);}
+.story-body .warn{color:var(--warning);}
+.story-body .dim{color:var(--foreground-muted);}
+.story-body .npc{color:var(--accent-tertiary);}
+.story-cursor{display:inline-block;width:7px;height:13px;background:var(--accent);opacity:.8;vertical-align:middle;margin-left:2px;animation:battPulse .65s steps(2) infinite;}
+.story-footer{display:flex;align-items:center;gap:8px;padding:10px 18px 12px;margin-top:6px;}
+.story-gen-btn{font-family:var(--font-label);font-size:9px;letter-spacing:2px;padding:5px 14px;cursor:pointer;border:1px solid rgba(45,255,170,.35);color:var(--accent);background:rgba(45,255,170,.06);transition:.15s;}
+.story-gen-btn:hover:not(:disabled){box-shadow:0 0 12px rgba(45,255,170,.25);filter:brightness(1.15);}
+.story-gen-btn:disabled{opacity:.35;cursor:not-allowed;}
+.story-log-btn{font-family:var(--font-label);font-size:9px;letter-spacing:1px;padding:5px 11px;cursor:pointer;border:1px solid var(--border);color:var(--foreground-muted);background:transparent;transition:.15s;margin-left:auto;}
+.story-log-btn:hover{border-color:rgba(45,255,170,.2);color:var(--foreground-2);}
+.story-log-panel{display:none;border-top:1px solid var(--border);max-height:260px;overflow-y:auto;background:rgba(0,0,0,.2);}
+.story-log-panel.open{display:block;}
+.story-log-panel::-webkit-scrollbar{width:2px;}
+.story-log-panel::-webkit-scrollbar-thumb{background:rgba(45,255,170,.2);}
+.story-log-item{padding:10px 18px;border-bottom:1px solid rgba(255,255,255,.04);}
+.story-log-item:last-child{border-bottom:none;}
+.story-log-date{font-family:var(--font-label);font-size:8px;letter-spacing:2px;color:rgba(45,255,170,.4);margin-bottom:5px;}
+.story-log-text{font-family:var(--font-mono);font-size:11px;color:var(--foreground-muted);line-height:1.8;white-space:pre-wrap;}
+
 </style>
 </head>
 <body>
@@ -3003,9 +3036,10 @@ select {
   <button class="tab-btn" onclick="goTab('settings')">설정</button>
 </div>
 <div class="sync-bar" id="syncBar">
-  <div class="sync-dot" id="syncDot"></div>
-  <span id="syncStatus">Firebase 미연결 — 기기 간 동기화 안 됨</span>
-  <span class="firebase-user" id="fbUserLabel"></span>
+  <span style="font-size:11px;margin-right:4px">⚠</span>
+  <span>Firebase 미연결 — 설정에서 연결하면 기기 간 동기화가 활성화돼</span>
+  <button onclick="goTab('settings');document.getElementById('syncBar').classList.remove('visible')" style="margin-left:auto;font-family:var(--font-label);font-size:8px;letter-spacing:1px;padding:2px 8px;cursor:pointer;border:1px solid rgba(255,77,109,.4);color:rgba(255,77,109,.8);background:transparent;">설정 →</button>
+  <button onclick="document.getElementById('syncBar').classList.remove('visible')" style="font-family:var(--font-label);font-size:10px;cursor:pointer;border:none;color:rgba(255,77,109,.5);background:transparent;padding:0 4px;">✕</button>
 </div>
 
 <!-- 나 탭 (홈 겸용, active) -->
@@ -3092,6 +3126,29 @@ select {
 
   <!-- 메인 그리드 -->
   <div class="me-grid">
+
+    <!-- ◈ STORY SYSTEM -->
+    <div class="me-card me-story-card">
+      <div class="me-card-head">
+        <span>◈ SECTOR 7 — 오늘의 임무 보고서</span>
+        <span id="storyDayNum" style="font-family:var(--font-label);font-size:9px;letter-spacing:2px;color:rgba(45,255,170,.4);pointer-events:none;user-select:none;cursor:default"></span>
+      </div>
+      <div class="story-npc-bar">
+        <div class="story-npc" id="sNpcChip"><span class="story-npc-dot"></span>🐈 CHIP</div>
+        <div class="story-npc" id="sNpcVerde"><span class="story-npc-dot"></span>🌿 VERDE</div>
+        <div class="story-npc" id="sNpcHandler"><span class="story-npc-dot"></span>📡 HANDLER</div>
+        <div class="story-npc" id="sNpcCitizen"><span class="story-npc-dot"></span>👤 CITIZEN</div>
+      </div>
+      <div class="story-body" id="storyBody"><span class="dim">// STANDBY — 오늘의 임무 보고서가 없어.
+// 아래 버튼으로 스토리를 생성해봐.</span></div>
+      <div class="story-footer">
+        <button class="story-gen-btn" id="storyGenBtn" onclick="generateStory()">✦ 오늘 스토리 생성</button>
+        <button class="story-log-btn" onclick="toggleStoryLog()">◫ 기록 보기</button>
+      </div>
+      <div class="story-log-panel" id="storyLogPanel">
+        <div id="storyLogList"></div>
+      </div>
+    </div>
 
     <!-- RPG 스탯 패널 — 전체 너비 -->
     <div class="me-card me-rpg-card">
@@ -3986,8 +4043,8 @@ function renderTaskList(){
     const itemsHtml=sorted.map(t=>{
       const realIdx=taskItems.findIndex(x=>x.id===t.id);
       const prioMap={high:'🔴',mid:'🟡',low:'🟢'};
-      return `<div class="task-item${t.done?' done':''}" onclick="toggleTaskItem(${realIdx})">
-        <div class="task-item-check">${t.done?'✓':''}</div>
+      return `<div class="task-item${t.done?' done':''}" onclick="openTaskItemEdit(${realIdx})">
+        <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})" title="완료 토글">${t.done?'✓':''}</div>
         <div class="task-item-body">
           <div class="task-item-text">${esc(t.text)}</div>
           ${t.note?`<div class="task-item-sub">${esc(t.note)}</div>`:''}
@@ -4371,6 +4428,7 @@ function goTab(t){
   if(t==='me'){
     todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
     renderMeTab();
+    initStoryCard();
   }
   if(t==='memo'){renderMemos();renderResultList();renderMetricsPanel();}
   if(t==='reward')renderRewards();
@@ -4700,8 +4758,8 @@ function renderMeTodo(){
     const addSubHtml=`<button class="me-todo-add-sub" onclick="event.stopPropagation();addSubItemInline(${realIdx},this)">＋ 하위 항목 추가</button>`;
 
     const isFocusing=focusState.taskId===t.id&&focusState.running;
-    return `<div class="me-todo-item${t.done?' done':''}${isFocusing?' focusing':''}" onclick="toggleTodo(${realIdx})">
-      <div class="me-todo-check">${t.done?'✓':''}</div>
+    return `<div class="me-todo-item${t.done?' done':''}${isFocusing?' focusing':''}" onclick="openTodoEdit(${realIdx})">
+      <div class="me-todo-check" onclick="event.stopPropagation();toggleTodo(${realIdx})" title="완료 토글">${t.done?'✓':''}</div>
       <div style="flex:1;min-width:0">
         <div style="display:flex;align-items:flex-start;gap:6px">
           <div class="me-todo-text" style="flex:1">${esc(t.text)}${t.longTask?'<span style="font-size:9px;margin-left:5px;opacity:.6">⏳</span>':''}</div>
@@ -5377,6 +5435,7 @@ function saveTodoFromModal(){
   saveTodos();
   document.querySelector('.nds-modal')?.remove();
   renderMeTodo();showToast('추가됐어!');
+  _triggerStoryRegen();
 }
 
 // 체크 워크시트에서 task 가져오기
@@ -7806,21 +7865,10 @@ function loadScript(src){
 }
 
 function setSyncStatus(status){
-  const dot=document.getElementById('syncDot');
-  const label=document.getElementById('syncStatus');
-  if(status==='connected'){
-    dot.className='sync-dot connected';
-    label.textContent='Firebase 연결됨 — 자동 동기화 중';
-  } else if(status==='syncing'){
-    dot.className='sync-dot syncing';
-    label.textContent='동기화 중...';
-  } else if(status==='error'){
-    dot.className='sync-dot error';
-    label.textContent='동기화 오류 — 로컬에만 저장됨';
-  } else {
-    dot.className='sync-dot';
-    label.textContent='Firebase 미연결 — 기기 간 동기화 안 됨';
-  }
+  const bar=document.getElementById('syncBar');
+  if(status==='connected'){if(bar)bar.classList.remove('visible');}
+  else if(status==='error'){if(bar)bar.classList.add('visible');}
+  else{if(bar&&!localStorage.getItem('fb_config'))bar.classList.add('visible');}
 }
 
 async function fbGoogleLogin(){
@@ -7913,6 +7961,8 @@ window.onload=()=>{
     renderMeTodo();
     updateSettingsStatus();
     initNotionSync();
+    initStoryCard();
+    if(!localStorage.getItem('fb_config'))setTimeout(()=>{const b=document.getElementById('syncBar');if(b)b.classList.add('visible');},2000);
   }, 100);
 };
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -8735,6 +8785,246 @@ function initNotionSync() {
   notionCfg = JSON.parse(localStorage.getItem('notion_config') || '{}');
   _hookNotionForTaskTab();
   _hookNotionForTaskOps();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// STORY SYSTEM — SECTOR 7 TRPG
+// ═══════════════════════════════════════════════════════════════
+
+let storyLog = JSON.parse(localStorage.getItem('story_log_v1') || '[]');
+// [{date:'YYYY-MM-DD', text:'...', npcs:['chip','verde',...]}]
+
+const STORY_DAY_ONE = localStorage.getItem('story_day_one') || (() => {
+  const d = new Date().toISOString().slice(0,10);
+  localStorage.setItem('story_day_one', d); return d;
+})();
+
+function _storyDayNum() {
+  const d1 = new Date(STORY_DAY_ONE), d2 = new Date();
+  return Math.max(1, Math.floor((d2-d1)/(1000*60*60*24)) + 1);
+}
+
+function _todayKey() { return new Date().toISOString().slice(0,10); }
+
+// ── 시스템 상태 수집 ──
+function _collectSystemState() {
+  const today = _todayKey();
+
+  // 에너지 배터리
+  const battery = parseInt(localStorage.getItem('battery_level') || '5');
+
+  // RPG 스탯 체크
+  const rpgChecks = JSON.parse(localStorage.getItem('rpg_checks_v1') || '{}');
+  const todayChecks = rpgChecks[today] || {};
+  const checkedCount = Object.values(todayChecks).filter(Boolean).length;
+
+  // 오늘 충전/방전
+  const rewardData = JSON.parse(localStorage.getItem('reward_data') || '{"charge":[],"drain":[]}');
+  const todayCharge = (rewardData.charge || []).filter(r => r.date && r.date.includes(today.slice(0,7)));
+  const todayDrain  = (rewardData.drain  || []).filter(r => r.date && r.date.includes(today.slice(0,7)));
+
+  // 활성 할일
+  const todos = JSON.parse(localStorage.getItem('todo_items') || '[]').filter(t => !t.done);
+  const tasks = JSON.parse(localStorage.getItem('task_items_v1') || '[]').filter(t => !t.done);
+
+  // 프로필
+  const profile = JSON.parse(localStorage.getItem('profile_data') || '{}');
+  const agentName = profile.name || '요원';
+
+  // 레벨/칭호
+  const rpgStats = JSON.parse(localStorage.getItem('rpg_stats_v1') || '[]');
+
+  // 인박스 미처리
+  const inbox = JSON.parse(localStorage.getItem('inbox_v1') || '[]').filter(m => !m.done);
+
+  // 체크인 결과 (워크시트)
+  const wsAnswers = JSON.parse(localStorage.getItem('ws_answers_today') || '{}');
+
+  return {
+    battery, checkedCount, todayCharge, todayDrain,
+    todos, tasks, agentName, inbox, wsAnswers,
+    date: today,
+    dayNum: _storyDayNum(),
+  };
+}
+
+// ── 프롬프트 생성 ──
+function _buildStoryPrompt(state) {
+  const battDesc = state.battery >= 8 ? '에너지 넘침 (배터리 '+state.battery+'/10)' :
+                   state.battery >= 5 ? '보통 컨디션 (배터리 '+state.battery+'/10)' :
+                   state.battery >= 3 ? '피로 누적 (배터리 '+state.battery+'/10)' :
+                                        '극도로 지침 (배터리 '+state.battery+'/10)';
+
+  const chargeList = state.todayCharge.map(r => r.name || r.label || r.text).filter(Boolean).join(', ') || '없음';
+  const drainList  = state.todayDrain.map(r => r.name || r.label || r.text).filter(Boolean).join(', ') || '없음';
+
+  const missionList = [...state.todos.slice(0,3), ...state.tasks.slice(0,3)]
+    .map(t => t.text).filter(Boolean).slice(0,4).join(', ') || '현재 임무 없음';
+
+  const inboxCount = state.inbox.length;
+
+  const mood = state.wsAnswers.mood || '미확인';
+  const body = state.wsAnswers.body || '미확인';
+
+  return `너는 사이버펑크 세계관의 스토리텔러야. 나는 이 세계의 요원(코드네임: ${state.agentName})이야.
+
+[오늘 상황 — DAY ${state.dayNum}]
+- 컨디션: ${battDesc}
+- 오늘 기분/몸 상태: 기분 ${mood}, 신체 ${body}
+- 충전된 것들: ${chargeList}
+- 소모된 것들: ${drainList}
+- 진행 중인 임무들: ${missionList}
+- 처리 안 된 정보들: ${inboxCount}건
+- 오늘 자기관리 체크: ${state.checkedCount}개 완료
+
+[고정 등장 NPC — 자연스럽게 1~2명만 등장시켜]
+- CHIP: 기지에 사는 고양이. 요원의 컨디션을 본능적으로 감지함.
+- VERDE: 창가에서 키우는 식물. 물주기나 햇빛 상태 등 소소한 일상의 거울.
+- HANDLER: 본부 연락책. 임무 브리핑, 격려, 가끔 잔소리.
+- CITIZEN: 섹터 7 주민. 동네 사람, 카페 직원, 이웃 등 랜덤한 인물.
+
+[작성 규칙]
+1. 분량: 4~6문장. 짧고 임팩트 있게.
+2. 오늘의 실제 상태(컨디션, 임무, 충전/방전)를 자연스럽게 녹여줘.
+3. 사이버펑크 분위기지만 너무 어둡지 않게. 약간 따뜻하고 힐링 느낌도 있게.
+4. 구어체. 특수문자(**,#,*,_) 절대 금지.
+5. 마지막 문장은 오늘 하루에 대한 짧은 격려나 관찰로 끝내.
+6. NPC 대사는 따옴표 안에 넣어줘.
+7. 반드시 한국어로.
+
+오늘의 임무 보고서를 작성해줘.`;
+}
+
+// ── NPC 등장 감지 ──
+function _detectNpcs(text) {
+  return {
+    chip:    /chip|CHIP|고양이|냥|그루밍/i.test(text),
+    verde:   /verde|VERDE|식물|잎|물을|햇빛|화분/i.test(text),
+    handler: /handler|HANDLER|본부|연락|브리핑|핸들러/i.test(text),
+    citizen: /citizen|CITIZEN|주민|이웃|카페|사람|직원/i.test(text),
+  };
+}
+
+// ── 타이핑 애니메이션 ──
+function _typeStory(el, text, onDone) {
+  el.innerHTML = '';
+  let i = 0;
+  const cursor = document.createElement('span');
+  cursor.className = 'story-cursor';
+  el.appendChild(cursor);
+
+  const speed = Math.max(18, Math.min(40, Math.floor(3000 / text.length)));
+  const timer = setInterval(() => {
+    if (i < text.length) {
+      cursor.before(document.createTextNode(text[i]));
+      i++;
+    } else {
+      clearInterval(timer);
+      cursor.remove();
+      if (onDone) onDone();
+    }
+  }, speed);
+}
+
+// ── NPC 칩 업데이트 ──
+function _updateNpcChips(npcs) {
+  document.getElementById('sNpcChip')?.classList.toggle('on', !!npcs.chip);
+  document.getElementById('sNpcVerde')?.classList.toggle('on', !!npcs.verde);
+  document.getElementById('sNpcHandler')?.classList.toggle('on', !!npcs.handler);
+  document.getElementById('sNpcCitizen')?.classList.toggle('on', !!npcs.citizen);
+}
+
+// ── 스토리 자동 재생성 트리거 ──
+let _storyAutoTimer=null;
+function _triggerStoryRegen(){
+  if(!API_KEY)return;
+  if(_storyAutoTimer)clearTimeout(_storyAutoTimer);
+  _storyAutoTimer=setTimeout(()=>{
+    if(document.getElementById("page-me")?.classList.contains("active"))generateStory();
+    _storyAutoTimer=null;
+  },120000);
+}
+
+// ── 스토리 생성 ──
+async function generateStory() {
+  if (!API_KEY) { showToast('설정에서 API 키를 먼저 입력해줘'); return; }
+
+  const btn = document.getElementById('storyGenBtn');
+  const body = document.getElementById('storyBody');
+  if (!btn || !body) return;
+
+  btn.disabled = true;
+  btn.textContent = '◌ 생성 중...';
+  body.innerHTML = '<span class="dim">// SECTOR 7 통신 연결 중...</span><span class="story-cursor"></span>';
+
+  try {
+    const state = _collectSystemState();
+    const prompt = _buildStoryPrompt(state);
+    const text = await callAI(prompt, 600);
+
+    // NPC 감지
+    const npcs = _detectNpcs(text);
+    _updateNpcChips(npcs);
+
+    // 타이핑 출력
+    _typeStory(body, text, () => {
+      btn.textContent = '↻ 다시 생성';
+      btn.disabled = false;
+    });
+
+    // 로그 저장
+    const today = _todayKey();
+    storyLog = storyLog.filter(s => s.date !== today); // 오늘 것 교체
+    storyLog.unshift({ date: today, text, npcs, dayNum: state.dayNum });
+    if (storyLog.length > 60) storyLog = storyLog.slice(0, 60);
+    localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
+
+    // 일수 뱃지
+    const dayEl = document.getElementById('storyDayNum');
+    if (dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
+
+  } catch(e) {
+    body.innerHTML = '<span class="warn">// 통신 오류: ' + e.message + '</span>';
+    btn.textContent = '↻ 재시도';
+    btn.disabled = false;
+  }
+}
+
+// ── 스토리 로그 토글 ──
+function toggleStoryLog() {
+  const panel = document.getElementById('storyLogPanel');
+  const list  = document.getElementById('storyLogList');
+  if (!panel || !list) return;
+
+  panel.classList.toggle('open');
+  if (!panel.classList.contains('open')) return;
+
+  if (storyLog.length === 0) {
+    list.innerHTML = '<div class="story-log-item"><div class="story-log-text dim">// 아직 기록이 없어.</div></div>';
+    return;
+  }
+  list.innerHTML = storyLog.map(s => `
+    <div class="story-log-item">
+      <div class="story-log-date">DAY ${s.dayNum || '?'} — ${s.date}</div>
+      <div class="story-log-text">${s.text}</div>
+    </div>
+  `).join('');
+}
+
+// ── 나탭 열릴 때 오늘 스토리 복원 ──
+function initStoryCard() {
+  const today = _todayKey();
+  const todayStory = storyLog.find(s => s.date === today);
+  const dayEl = document.getElementById('storyDayNum');
+  if (dayEl) dayEl.textContent = 'DAY ' + _storyDayNum();
+
+  if (todayStory) {
+    const body = document.getElementById('storyBody');
+    if (body) body.textContent = todayStory.text;
+    _updateNpcChips(todayStory.npcs || {});
+    const btn = document.getElementById('storyGenBtn');
+    if (btn) btn.textContent = '↻ 다시 생성';
+  }
 }
 
 </script>
