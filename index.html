@@ -4224,28 +4224,41 @@ function saveTaskItemEdit(idx){
 
 // ── 카테고리 관리 ──
 function openTaskCatManager(){
+  const colorSwatchesFor=(idx,selectedColor)=>TASK_CAT_COLORS.map(col=>`
+    <div class="cat-color-swatch${col===selectedColor?' active':''}" style="background:${col}" data-color="${col}"
+      onclick="selectTaskCatColorFor(${idx},'${col}',this)"></div>`).join('');
+
   const catListHtml=taskCats.map((c,i)=>`
-    <div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)">
-      <span style="font-size:18px">${c.icon}</span>
-      <span style="flex:1;font-size:13px;color:var(--foreground)">${esc(c.label)}</span>
-      <div style="width:14px;height:14px;border-radius:50%;background:${c.color}"></div>
-      <button class="nds-btn-ghost" style="padding:2px 8px;font-size:9px" onclick="deleteTaskCat(${i})">삭제</button>
+    <div style="border:1px solid var(--border);margin-bottom:8px;padding:8px 10px;background:var(--card)">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px">
+        <input id="editCatIcon-${i}" class="nds-inp" value="${c.icon}"
+          style="width:44px;text-align:center;font-size:18px;padding:4px;flex-shrink:0">
+        <input id="editCatName-${i}" class="nds-inp" value="${esc(c.label)}"
+          style="flex:1;font-size:13px">
+        <div id="editCatColorDot-${i}" style="width:14px;height:14px;border-radius:50%;flex-shrink:0;background:${c.color}"></div>
+        <button class="nds-btn-primary" style="padding:3px 10px;font-size:9px" onclick="saveTaskCatEdit(${i})">저장</button>
+        <button class="nds-btn-ghost" style="padding:3px 8px;font-size:9px" onclick="deleteTaskCat(${i})">삭제</button>
+      </div>
+      <div class="cat-color-row" id="editCatColors-${i}">
+        ${colorSwatchesFor(i, c.color)}
+      </div>
+      <input type="hidden" id="editCatColor-${i}" value="${c.color}">
     </div>`).join('');
 
-  const colorSwatches=TASK_CAT_COLORS.map(col=>`
+  const newColorSwatches=TASK_CAT_COLORS.map(col=>`
     <div class="cat-color-swatch" style="background:${col}" data-color="${col}"
       onclick="selectTaskCatColor('${col}',this)"></div>`).join('');
 
   makeModal(`
     <div class="nds-modal-title">카테고리 관리</div>
-    <div style="max-height:200px;overflow-y:auto;margin-bottom:14px">${catListHtml}</div>
+    <div style="max-height:320px;overflow-y:auto;margin-bottom:14px;padding-right:2px">${catListHtml}</div>
     <div class="nds-field">
-      <div class="nds-field-label">새 카테고리</div>
+      <div class="nds-field-label">새 카테고리 추가</div>
       <div style="display:flex;gap:6px;align-items:center">
         <input id="newTaskCatName" class="nds-inp" placeholder="이름" style="flex:1">
         <input id="newTaskCatIcon" class="nds-inp" placeholder="이모지" style="width:52px;text-align:center;font-size:18px">
       </div>
-      <div class="cat-color-row">${colorSwatches}</div>
+      <div class="cat-color-row">${newColorSwatches}</div>
       <input type="hidden" id="newTaskCatColor" value="${TASK_CAT_COLORS[0]}">
     </div>
     <div class="nds-btn-row">
@@ -4253,10 +4266,33 @@ function openTaskCatManager(){
       <button class="nds-btn-ghost" onclick="this.closest('.nds-modal').remove()">닫기</button>
     </div>
   `);
-  // 첫 색 선택 표시
   setTimeout(()=>{
-    document.querySelector(`.cat-color-swatch[data-color="${TASK_CAT_COLORS[0]}"]`)?.classList.add('active');
+    document.querySelector(`#newTaskCatColor`)&&
+    document.querySelector(`.cat-color-row:last-of-type .cat-color-swatch[data-color="${TASK_CAT_COLORS[0]}"]`)?.classList.add('active');
   },50);
+}
+
+function selectTaskCatColorFor(idx, col, el){
+  el.closest('.cat-color-row').querySelectorAll('.cat-color-swatch').forEach(s=>s.classList.remove('active'));
+  el.classList.add('active');
+  const hidden=document.getElementById('editCatColor-'+idx);
+  if(hidden) hidden.value=col;
+  const dot=document.getElementById('editCatColorDot-'+idx);
+  if(dot) dot.style.background=col;
+}
+
+function saveTaskCatEdit(i){
+  const name=document.getElementById('editCatName-'+i)?.value.trim();
+  const icon=document.getElementById('editCatIcon-'+i)?.value.trim()||'📌';
+  const color=document.getElementById('editCatColor-'+i)?.value||taskCats[i].color;
+  if(!name){showToast('이름을 입력해줘');return;}
+  taskCats[i].label=name;
+  taskCats[i].icon=icon;
+  taskCats[i].color=color;
+  saveTaskData();
+  document.querySelector('.nds-modal')?.remove();
+  renderTaskTab();
+  showToast('카테고리 수정됐어!');
 }
 
 function selectTaskCatColor(col, el){
@@ -8491,23 +8527,32 @@ function fromNotionDate(notionDate) {
 // ── Notion Page → 로컬 taskItem 변환 ──
 function notionPageToTask(page, catId) {
   const props = page.properties || {};
-  const getText = (p) => p?.title?.[0]?.plain_text || p?.rich_text?.[0]?.plain_text || '';
-  const name     = getText(props.Name || props.name || props['할일'] || props['Title']);
-  const done     = props.Done?.checkbox || props.done?.checkbox || false;
-  const dateVal  = fromNotionDate(props.Date?.date || props.date?.date || props['날짜']?.date);
-  const priority = props.Priority?.select?.name || props.priority?.select?.name || '';
-  return { name, done, date: dateVal, priority: priority.toLowerCase(), notionPageId: page.id, catId };
+  // 속성명: Checkbox, Name, Text, Priority, Date
+  const name     = props.Name?.title?.[0]?.plain_text || '';
+  const done     = props.Checkbox?.checkbox || false;
+  const dateVal  = fromNotionDate(props.Date?.date);
+  // Priority: '!!!' → high, '!!' → mid, '!' → low
+  const prioRaw  = props.Priority?.select?.name || '';
+  const prioMap  = { '!!!': 'high', '!!': 'mid', '!': 'low' };
+  const priority = prioMap[prioRaw] || prioRaw.toLowerCase() || '';
+  const note     = props.Text?.rich_text?.[0]?.plain_text || '';
+  return { name, done, date: dateVal, priority, note, notionPageId: page.id, catId };
 }
 
 // ── 로컬 taskItem → Notion properties 변환 ──
 function taskToNotionProps(item) {
   const props = {
-    Name: { title: [{ text: { content: item.text || '' } }] },
-    Done: { checkbox: !!item.done },
+    Name:     { title: [{ text: { content: item.text || '' } }] },
+    Checkbox: { checkbox: !!item.done },
   };
   const d = toNotionDate(item.date);
   if (d) props.Date = { date: { start: d } };
-  if (item.priority) props.Priority = { select: { name: item.priority } };
+  // Priority: high → '!!!', mid → '!!', low → '!'
+  const prioToNotion = { high: '!!!', mid: '!!', low: '!' };
+  if (item.priority && prioToNotion[item.priority]) {
+    props.Priority = { select: { name: prioToNotion[item.priority] } };
+  }
+  if (item.note) props.Text = { rich_text: [{ text: { content: item.note } }] };
   return props;
 }
 
