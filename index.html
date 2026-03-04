@@ -2061,7 +2061,7 @@ select {
 #page-me .me-header-inner {
   max-width: 1400px; margin: 0 auto;
   display: grid;
-  grid-template-columns: 200px 160px 1fr 1.4fr auto;
+  grid-template-columns: 200px 160px 1fr 1.4fr;
   gap: 0; align-items: stretch;
   min-height: 170px;
 }
@@ -3253,10 +3253,10 @@ select {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   image-rendering: pixelated;
-  opacity: .13;
-  pointer-events: none;
+  image-rendering: crisp-edges;
+  image-rendering: -moz-crisp-edges;
+  opacity: 0.9;
   z-index: 0;
-  transition: opacity .6s ease;
 }
 .story-slide-track { position: relative; z-index: 1; }
 .story-slide-track {
@@ -3364,6 +3364,13 @@ select {
   font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
   color: rgba(45,255,170,.3); margin-left: auto;
 }
+.story-del-btn {
+  background: none; border: none;
+  color: rgba(255,77,109,.35); font-size: 11px;
+  cursor: pointer; padding: 0 4px; line-height: 1;
+  transition: color .15s; flex-shrink: 0;
+}
+.story-del-btn:hover { color: rgba(255,77,109,.9); }
 
 .story-npc-bar{display:flex;gap:6px;padding:8px 18px 0;flex-wrap:wrap;}
 .story-npc{font-family:var(--font-label);font-size:8px;letter-spacing:1.5px;color:var(--foreground-muted);display:flex;align-items:center;gap:4px;padding:2px 8px;border:1px solid var(--border);transition:.2s;}
@@ -3532,14 +3539,12 @@ select {
           <span class="story-nav-meta" id="storyNavMeta"></span>
           <button class="story-nav-btn" id="storyNavNext" onclick="storyNavMove(1)" title="다음">›</button>
           <span class="story-transmit" id="storyTransmit"></span>
+          <button class="story-del-btn" id="storyDelBtn" onclick="deleteCurrentStory()" title="이 조각 삭제">✕</button>
         </div>
 
       </div>
 
-      <!-- 체크 버튼 -->
-      <div class="me-header-check-zone">
-        <button class="me-check-btn" onclick="startCheck()">체크 →</button>
-      </div>
+
 
     </div>
   </div>
@@ -10238,271 +10243,499 @@ function _updateNpcChips(npcs) {
 // ═══════════════════════════════════════════════════════════
 
 // ── 씬 분석: 텍스트 키워드 → 씬 타입 ──
+// ═══════════════════════════════════════════════════════════
+// 고퀄리티 사이버펑크 픽셀 씬 아트 — 완전 재작성
+// 저해상도 픽셀 아트 미학 (1/3 스케일, integer scaling)
+// ═══════════════════════════════════════════════════════════
+
 function _analyzeScene(text, npcs) {
-  if (!text) return 'base';
+  if (!text) return 'base_night';
   var t = text.toLowerCase();
-
-  // 날씨/시간
-  var isNight  = /밤|어두|별|달빛|자정|새벽|잠|꿈/.test(t);
-  var isRain   = /비|빗|젖|우산|물소리|촉촉/.test(t);
-  var isCafe   = /카페|커피|차|음료|창가|테이블/.test(t);
-  var isRoof   = /옥상|하늘|바람|구름|바깥|거리|네온/.test(t);
-  var isHome   = /기지|방|침대|소파|창문|따뜻/.test(t);
-  var isAction = /임무|수행|달려|움직|출발|집중/.test(t);
-
-  var hasChip    = npcs && npcs.chip;
-  var hasVerde   = npcs && npcs.verde;
-  var hasHandler = npcs && npcs.handler;
-
+  var isNight  = /밤|어두|별|달빛|자정|새벽|잠|꿈|어스름/.test(t);
+  var isRain   = /비|빗|젖|우산|물소리|촉촉|빗소리/.test(t);
+  var isCafe   = /카페|커피|차|음료|창가|테이블|마시/.test(t);
+  var isRoof   = /옥상|하늘|바람|구름|바깥|거리|네온|도시/.test(t);
+  var isHome   = /기지|방|침대|소파|창문|따뜻|실내/.test(t);
+  var isAction = /임무|수행|달려|움직|출발|집중|달리/.test(t);
   if (isRain && isNight)  return 'rain_night';
   if (isRain)             return 'rain_day';
   if (isRoof && isNight)  return 'rooftop_night';
   if (isRoof)             return 'rooftop_day';
   if (isCafe)             return 'cafe';
   if (isNight && isHome)  return 'base_night';
-  if (isAction)           return 'street';
+  if (isAction)           return 'street_night';
   if (isNight)            return 'base_night';
   return 'base_day';
 }
 
 // ── 팔레트 ──
 var _SP = {
-  // 공통
-  bg_dark:  '#0a0f0c',
-  bg_mid:   '#111a15',
-  accent:   '#2dffaa',
-  accent2:  '#1aaa77',
-  warn:     '#f0b429',
-  pink:     '#f040ff',
-  blue:     '#60a5fa',
-  border:   '#1e3028',
-  // 씬별 하늘
-  sky_night:'#060d12',
-  sky_dawn: '#1a0d2e',
-  sky_day:  '#0d1f2d',
-  sky_rain: '#0a1218',
+  sky_deep:   '#060912',
+  sky_night:  '#080e1a',
+  sky_dusk:   '#12082a',
+  sky_day:    '#0d1829',
+  sky_rain:   '#090d14',
+  sky_cafe:   '#0a1008',
+  // 건물
+  bld_dark:   '#0d1220',
+  bld_mid:    '#111828',
+  bld_lit:    '#161e30',
+  // 바닥/도로
+  road:       '#090c14',
+  road2:      '#0b0f1c',
+  floor:      '#0c1218',
   // 네온
-  neon_g:   '#2dffaa',
-  neon_p:   '#f040ff',
-  neon_b:   '#60a5fa',
+  neon_g:     '#2dffaa',
+  neon_g2:    '#00cc77',
+  neon_p:     '#f040ff',
+  neon_p2:    '#9900cc',
+  neon_b:     '#00ccff',
+  neon_b2:    '#0066aa',
+  neon_y:     '#ffcc00',
+  neon_r:     '#ff3355',
+  // 창문
+  win_warm:   '#ffb84480',
+  win_blue:   '#4488ff50',
+  win_green:  '#2dffaa40',
+  win_off:    '#0d1a28',
+  // 달/별
+  moon:       '#fffce8',
+  star_b:     'rgba(255,255,255,.9)',
+  star_f:     'rgba(200,220,255,.5)',
+  // 반사
+  ref_g:      'rgba(45,255,170,.12)',
+  ref_p:      'rgba(240,64,255,.10)',
+  ref_b:      'rgba(0,200,255,.08)',
 };
 
-// ── 픽셀 그리기 유틸 (배경 씬용) ──
+// ── 유틸 ──
 function _bgPx(ctx, x, y, w, h, col) {
   ctx.fillStyle = col;
-  ctx.fillRect(x, y, w, h);
+  ctx.fillRect(Math.floor(x), Math.floor(y), Math.max(1,Math.floor(w)), Math.max(1,Math.floor(h)));
+}
+function _line(ctx, x1, y1, x2, y2, col, lw) {
+  ctx.strokeStyle = col; ctx.lineWidth = lw || 1;
+  ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
 }
 
-// ── 건물 실루엣 ──
-function _drawBuildings(ctx, W, H, palette) {
-  var buildings = [
-    {x:0,   w:18, h:0.55, col:'#0d1a12'},
-    {x:16,  w:12, h:0.65, col:'#0a1510'},
-    {x:26,  w:22, h:0.50, col:'#0f1e15'},
-    {x:46,  w:10, h:0.72, col:'#0d1a12'},
-    {x:54,  w:16, h:0.58, col:'#0a1510'},
-    {x:68,  w:20, h:0.48, col:'#111f18'},
-    {x:86,  w:14, h:0.60, col:'#0d1a12'},
+// ── 별하늘 (레이어드) ──
+function _drawStarfield(ctx, W, H, seed) {
+  var rand = function(n) { seed = (seed * 1664525 + 1013904223) & 0x7fffffff; return (seed % n); };
+  for (var i = 0; i < 60; i++) {
+    var sx = rand(W), sy = rand(Math.floor(H * 0.65));
+    var bright = rand(100) > 70;
+    var size   = rand(100) > 90 ? 2 : 1;
+    ctx.fillStyle = bright ? _SP.star_b : _SP.star_f;
+    ctx.fillRect(sx, sy, size, size);
+  }
+}
+
+// ── 달 ──
+function _drawMoon(ctx, x, y, r) {
+  // 달빛 글로우
+  var grd = ctx.createRadialGradient(x, y, 0, x, y, r * 3);
+  grd.addColorStop(0, 'rgba(255,252,220,.15)');
+  grd.addColorStop(1, 'transparent');
+  ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(x, y, r*3, 0, Math.PI*2); ctx.fill();
+  // 달 본체
+  ctx.fillStyle = _SP.moon; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+  // 초승달 그림자
+  ctx.fillStyle = _SP.sky_deep; ctx.beginPath(); ctx.arc(x + r*0.45, y, r*0.82, 0, Math.PI*2); ctx.fill();
+}
+
+// ── 고층 빌딩 (여러 층, 창문 패턴) ──
+function _drawCityscape(ctx, W, H, opts) {
+  opts = opts || {};
+  var skyH = opts.skyH || H;
+  var palette = opts.palette || {lit: _SP.win_blue, off: _SP.win_off, bld: _SP.bld_dark};
+
+  // 먼 배경 빌딩 (실루엣)
+  var farBlds = [
+    {x:.00,w:.10,h:.35}, {x:.08,w:.08,h:.45}, {x:.14,w:.12,h:.28},
+    {x:.24,w:.08,h:.50}, {x:.30,w:.10,h:.38}, {x:.38,w:.14,h:.42},
+    {x:.50,w:.09,h:.30}, {x:.57,w:.11,h:.48}, {x:.66,w:.08,h:.36},
+    {x:.72,w:.12,h:.52}, {x:.82,w:.10,h:.40}, {x:.90,w:.10,h:.33},
   ];
-  buildings.forEach(function(b) {
-    var bx = Math.floor(b.x / 100 * W);
-    var bw = Math.floor(b.w / 100 * W);
-    var by = Math.floor((1 - b.h) * H * 0.7);
-    var bh = H - by;
-    _bgPx(ctx, bx, by, bw, bh, b.col);
-    // 창문들
-    var rows = Math.floor((bh - 4) / 5);
-    var cols = Math.floor((bw - 2) / 4);
+  farBlds.forEach(function(b) {
+    var bx = b.x * W, bw = b.w * W;
+    var by = skyH * (1 - b.h * 0.75), bh = skyH - by;
+    _bgPx(ctx, bx, by, bw, bh, '#0a0f1c');
+  });
+
+  // 가까운 빌딩 (창문 있음)
+  var blds = [
+    {x:.00,w:.14,h:.60,c:'#0d1220'}, {x:.12,w:.10,h:.75,c:'#111828'},
+    {x:.20,w:.18,h:.55,c:'#0e1422'}, {x:.36,w:.08,h:.80,c:'#0d1220'},
+    {x:.42,w:.16,h:.62,c:'#111828'}, {x:.56,w:.10,h:.72,c:'#0f1624'},
+    {x:.64,w:.18,h:.58,c:'#0d1220'}, {x:.80,w:.12,h:.68,c:'#111828'},
+    {x:.88,w:.12,h:.54,c:'#0e1422'},
+  ];
+  blds.forEach(function(b, bi) {
+    var bx = b.x * W, bw = b.w * W;
+    var by = skyH * (1 - b.h * 0.9), bh = skyH - by + 2;
+    _bgPx(ctx, bx, by, bw, bh, b.c);
+
+    // 지붕 안테나
+    if (bi % 3 === 0) {
+      _bgPx(ctx, bx + bw/2 - 1, by - 4, 1, 4, '#1e2d40');
+      _bgPx(ctx, bx + bw/2 - 2, by - 2, 3, 1, '#2a3d54');
+    }
+
+    // 창문 그리드
+    var winW = 3, winH = 2, padX = 3, padY = 4, gapX = 5, gapY = 4;
+    var cols = Math.floor((bw - padX*2) / (winW + gapX));
+    var rows = Math.floor((bh - padY*2) / (winH + gapY));
     for (var r = 0; r < rows; r++) {
       for (var c = 0; c < cols; c++) {
-        if (Math.random() > 0.55) {
-          var wx = bx + 2 + c * 4;
-          var wy = by + 3 + r * 5;
-          var lit = Math.random() > 0.3;
-          _bgPx(ctx, wx, wy, 2, 2, lit ? palette.win_lit : palette.win_dark);
-        }
+        var wx = bx + padX + c * (winW + gapX);
+        var wy = by + padY + r * (winH + gapY);
+        var lit = (bi * 7 + r * 3 + c * 11) % 10 > 3;
+        var col = lit ? palette.lit : palette.off;
+        _bgPx(ctx, wx, wy, winW, winH, col);
       }
     }
   });
 }
 
-// ── 별 ──
-function _drawStars(ctx, W, H, count) {
-  for (var i = 0; i < count; i++) {
-    var sx = Math.floor(Math.random() * W);
-    var sy = Math.floor(Math.random() * H * 0.5);
-    var bright = Math.random() > 0.7;
-    ctx.fillStyle = bright ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.4)';
-    ctx.fillRect(sx, sy, 1, 1);
-  }
-}
+// ── 바닥 (웨트 리플렉션 포함) ──
+function _drawGround(ctx, W, H, groundY, opts) {
+  opts = opts || {};
+  _bgPx(ctx, 0, groundY, W, H - groundY, opts.col || _SP.road);
+  // 도로 라인
+  _bgPx(ctx, 0, groundY, W, 1, opts.lineCol || 'rgba(255,255,255,.06)');
 
-// ── 비 ──
-function _drawRain(ctx, W, H) {
-  ctx.strokeStyle = 'rgba(150,210,255,.3)';
-  ctx.lineWidth = 1;
-  for (var i = 0; i < 30; i++) {
-    var rx = Math.random() * W;
-    var ry = Math.random() * H;
-    ctx.beginPath();
-    ctx.moveTo(rx, ry);
-    ctx.lineTo(rx - 1, ry + 4);
-    ctx.stroke();
+  // 웨트 리플렉션 (네온 반사)
+  if (opts.ref) {
+    opts.ref.forEach(function(r) {
+      var grd = ctx.createLinearGradient(0, groundY, 0, H);
+      grd.addColorStop(0, r);
+      grd.addColorStop(1, 'transparent');
+      ctx.fillStyle = grd;
+      ctx.fillRect(0, groundY, W, H - groundY);
+    });
+  }
+
+  // 중앙선 점선
+  if (opts.road) {
+    for (var i = 0; i < 8; i++) {
+      _bgPx(ctx, i * W/7, groundY + Math.floor((H-groundY)*0.4), W/16, 1, 'rgba(255,255,255,.08)');
+    }
   }
 }
 
 // ── 네온 사인 ──
-function _drawNeon(ctx, x, y, text, col) {
-  ctx.fillStyle = col;
-  // 단순 사각 네온박스
-  ctx.fillRect(x, y, text * 3 + 2, 4);
+function _drawNeonSign(ctx, x, y, w, h, col, glow) {
+  // 글로우
+  var g = ctx.createRadialGradient(x+w/2, y+h/2, 0, x+w/2, y+h/2, w);
+  g.addColorStop(0, glow || col.replace(')', ',.2)').replace('rgb', 'rgba'));
+  g.addColorStop(1, 'transparent');
+  ctx.fillStyle = g; ctx.fillRect(x-w, y-h, w*3, h*3);
+  // 네온 바
+  _bgPx(ctx, x, y, w, h, col);
+  _bgPx(ctx, x, y+h+1, w, 1, col.replace(')', ',.4)').replace('rgb','rgba') || col);
 }
 
-// ── CHIP 고양이 (12×8 픽셀) ──
-function _drawChip(ctx, x, y, col) {
-  col = col || '#aaa';
-  var sprite = [
-    [0,1,1,0,0,1,1,0],
-    [1,1,1,1,1,1,1,1],
-    [1,0,1,1,1,1,0,1],
-    [1,1,1,1,1,1,1,1],
-    [0,1,1,1,1,1,1,0],
-    [0,1,0,1,1,0,1,0],
+// ── 빗줄기 ──
+function _drawRain(ctx, W, H, intensity, seed) {
+  var rand = function(n) { seed = (seed*1664525+1013904223)&0x7fffffff; return seed%n; };
+  ctx.strokeStyle = 'rgba(180,220,255,.25)';
+  ctx.lineWidth = 1;
+  for (var i = 0; i < intensity; i++) {
+    var rx = rand(W), ry = rand(H);
+    ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx-1, ry+5); ctx.stroke();
+  }
+  // 웅덩이 파문
+  for (var j = 0; j < 4; j++) {
+    var px = rand(W), py = Math.floor(H * 0.75) + rand(Math.floor(H*0.2));
+    ctx.strokeStyle = 'rgba(150,200,255,.12)';
+    ctx.beginPath(); ctx.arc(px, py, rand(5)+2, 0, Math.PI*2); ctx.stroke();
+  }
+}
+
+// ── CHIP 고양이 (16×12 정교한 스프라이트) ──
+function _drawChip(ctx, x, y, scale) {
+  scale = scale || 1;
+  var s = [
+    [0,0,1,1,0,0,0,1,1,0],
+    [0,1,1,1,1,1,1,1,1,1],
+    [1,1,0,1,1,1,1,0,1,1],
+    [1,1,1,1,1,1,1,1,1,1],
+    [0,1,1,1,1,1,1,1,1,0],
+    [0,0,1,0,1,1,0,1,0,0],
+    [0,0,1,1,1,1,1,1,0,0],
   ];
-  sprite.forEach(function(row, ri) {
+  var cols = ['#778899','#99aabb','#aabbcc','#2dffaa'];
+  s.forEach(function(row, ri) {
     row.forEach(function(bit, ci) {
-      if (bit) _px(ctx, x + ci, y + ri, 1, 1, col);
+      if (!bit) return;
+      var c = ri === 5 ? cols[3] : ri < 2 ? cols[2] : cols[0];
+      _bgPx(ctx, x+ci*scale, y+ri*scale, scale, scale, c);
     });
   });
 }
 
-// ── VERDE 화분 (8×10 픽셀) ──
-function _drawVerde(ctx, x, y) {
-  // 잎
-  _px(ctx, x+2, y,   3, 1, '#1a7a4a');
-  _px(ctx, x+1, y+1, 5, 1, '#22a05a');
-  _px(ctx, x+2, y+2, 4, 1, '#1a7a4a');
-  _px(ctx, x+3, y+3, 1, 2, '#145030');
+// ── VERDE 화분 (정교) ──
+function _drawVerde(ctx, x, y, scale) {
+  scale = scale || 1;
+  var leaves = [[2,0,3],[1,1,5],[0,2,6],[1,3,4],[2,4,2]];
+  var greens = ['#1a6640','#228850','#2aaa60'];
+  leaves.forEach(function(l, i) {
+    _bgPx(ctx, x+l[0]*scale, y+l[1]*scale, l[2]*scale, scale, greens[Math.min(i,2)]);
+  });
+  // 줄기
+  _bgPx(ctx, x+3*scale, y+5*scale, scale, 2*scale, '#145030');
   // 화분
-  _px(ctx, x+1, y+5, 5, 1, '#8b5e3c');
-  _px(ctx, x+0, y+6, 7, 2, '#6b4020');
+  _bgPx(ctx, x+scale, y+7*scale, 5*scale, scale, '#8b5030');
+  _bgPx(ctx, x, y+8*scale, 7*scale, 2*scale, '#6b3820');
 }
 
-// ── HANDLER 실루엣 (6×14) ──
-function _drawHandler(ctx, x, y) {
+// ── HANDLER 실루엣 (코트+모자) ──
+function _drawHandler(ctx, x, y, scale) {
+  scale = scale || 1;
+  var col = '#1e2d3e';
+  // 모자
+  _bgPx(ctx, x+1*scale, y, 5*scale, scale, col);
+  _bgPx(ctx, x+2*scale, y-scale, 3*scale, scale, col);
   // 머리
-  _px(ctx, x+1, y,   4, 4, '#2a3a2e');
-  // 몸
-  _px(ctx, x+0, y+4, 6, 6, '#1a2a1e');
-  // 발
-  _px(ctx, x+1, y+10,2, 2, '#1a2a1e');
-  _px(ctx, x+3, y+10,2, 2, '#1a2a1e');
+  _bgPx(ctx, x+1*scale, y+scale, 5*scale, 4*scale, '#1a2840');
+  // 코트 몸
+  _bgPx(ctx, x, y+5*scale, 7*scale, 7*scale, col);
+  // 칼라
+  _bgPx(ctx, x+2*scale, y+5*scale, 3*scale, 2*scale, '#253548');
+  // 다리
+  _bgPx(ctx, x+scale, y+12*scale, 2*scale, 3*scale, col);
+  _bgPx(ctx, x+4*scale, y+12*scale, 2*scale, 3*scale, col);
 }
 
-// ── 달 ──
-function _drawMoon(ctx, x, y, r) {
-  ctx.fillStyle = 'rgba(255,255,200,.7)';
-  ctx.beginPath();
-  ctx.arc(x, y, r, 0, Math.PI*2);
-  ctx.fill();
-  // 그림자 (초승달)
-  ctx.fillStyle = _SP.sky_night;
-  ctx.beginPath();
-  ctx.arc(x+r*0.4, y, r*0.85, 0, Math.PI*2);
-  ctx.fill();
-}
-
-// ── 씬별 렌더 ──
+// ── 씬 컬렉션 ──
 var _SCENES = {
-  base_day: function(ctx, W, H, npcs) {
-    // 낮 기지 — 따뜻한 실내
-    _px(ctx, 0, 0, W, H, '#0d1a15');
+
+  // ── 기지 (낮) — 실내, 창밖 도시 ──
+  base_day: function(ctx, W, H) {
+    // 실내 배경
+    _bgPx(ctx, 0, 0, W, H, '#0d1520');
     // 바닥
-    _px(ctx, 0, Math.floor(H*0.75), W, Math.floor(H*0.25), '#0a1210');
-    _drawBuildings(ctx, W, H, {win_lit:'#fbbf2440', win_dark:'#0a1510'});
-    // 창문 (내부 시점)
-    _px(ctx, Math.floor(W*0.1), Math.floor(H*0.1), Math.floor(W*0.35), Math.floor(H*0.5), '#0d2030');
-    _px(ctx, Math.floor(W*0.55), Math.floor(H*0.1), Math.floor(W*0.35), Math.floor(H*0.5), '#0d2030');
-    if (npcs && npcs.verde) _drawVerde(ctx, Math.floor(W*0.45), Math.floor(H*0.5));
-    if (npcs && npcs.chip)  _drawChip(ctx, Math.floor(W*0.6), Math.floor(H*0.65), '#888');
+    _bgPx(ctx, 0, Math.floor(H*.7), W, H, '#080e18');
+    _bgPx(ctx, 0, Math.floor(H*.7), W, 1, '#1a2840');
+
+    // 창문 (큰 파노라마 창)
+    var wx = Math.floor(W*.06), wy = Math.floor(H*.06);
+    var ww = Math.floor(W*.88), wh = Math.floor(H*.58);
+    _bgPx(ctx, wx, wy, ww, wh, '#050d18');
+    // 창틀
+    _bgPx(ctx, wx, wy, ww, 1, '#1e3050');
+    _bgPx(ctx, wx, wy+wh, ww, 1, '#1e3050');
+    _bgPx(ctx, wx, wy, 1, wh, '#1e3050');
+    _bgPx(ctx, wx+ww, wy, 1, wh, '#1e3050');
+    _bgPx(ctx, wx+Math.floor(ww/2), wy, 1, wh, '#1e3050');
+
+    // 창밖 도시
+    ctx.save();
+    ctx.beginPath(); ctx.rect(wx+1, wy+1, ww-2, wh-2); ctx.clip();
+    _drawCityscape(ctx, ww, wh, {skyH: wh, palette:{lit:_SP.win_warm, off:'#0a1420', bld:'#0d1830'}});
+    // 하늘 그라데이션
+    var sg = ctx.createLinearGradient(0, 0, 0, wh*.5);
+    sg.addColorStop(0, '#0d2040'); sg.addColorStop(1, 'transparent');
+    ctx.fillStyle = sg; ctx.fillRect(0, 0, ww, wh*.5);
+    ctx.restore();
+
+    // 책상
+    _bgPx(ctx, Math.floor(W*.05), Math.floor(H*.62), Math.floor(W*.9), 3, '#162030');
+    _bgPx(ctx, Math.floor(W*.05), Math.floor(H*.65), Math.floor(W*.9), 5, '#0f1820');
+
+    // 모니터 글로우
+    var mg = ctx.createRadialGradient(W*.35, H*.5, 0, W*.35, H*.5, W*.15);
+    mg.addColorStop(0, 'rgba(45,255,170,.08)'); mg.addColorStop(1, 'transparent');
+    ctx.fillStyle = mg; ctx.fillRect(0, 0, W, H);
   },
-  base_night: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, H, '#060d0a');
-    _drawStars(ctx, W, H, 40);
-    _drawBuildings(ctx, W, H, {win_lit:'#fbbf2460', win_dark:'#050a07'});
-    _drawMoon(ctx, Math.floor(W*0.8), Math.floor(H*0.15), 5);
-    // 네온 반사
-    _px(ctx, 0, Math.floor(H*0.7), W, 1, 'rgba(45,255,170,.08)');
-    if (npcs && npcs.chip)    _drawChip(ctx, Math.floor(W*0.15), Math.floor(H*0.7), '#667');
-    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.7), Math.floor(H*0.55));
+
+  // ── 기지 (밤) — 네온 불빛 실내 ──
+  base_night: function(ctx, W, H) {
+    _bgPx(ctx, 0, 0, W, H, '#060a14');
+
+    // 창문
+    var wx = Math.floor(W*.06), wy = Math.floor(H*.06);
+    var ww = Math.floor(W*.88), wh = Math.floor(H*.58);
+    _bgPx(ctx, wx, wy, ww, wh, '#030810');
+    ctx.save();
+    ctx.beginPath(); ctx.rect(wx+1, wy+1, ww-2, wh-2); ctx.clip();
+    _drawStarfield(ctx, ww, wh, 42);
+    _drawMoon(ctx, Math.floor(ww*.75), Math.floor(wh*.18), 5);
+    _drawCityscape(ctx, ww, wh, {skyH:wh, palette:{lit:_SP.win_blue, off:'#080c16', bld:'#0a0e1c'}});
+    ctx.restore();
+
+    // 창틀
+    ['#1e3050','#1e3050','#1e3050','#1e3050','#1e3050'].forEach(function(_,i){});
+    _bgPx(ctx, wx, wy, 1, wh, '#1e3050');
+    _bgPx(ctx, wx+ww, wy, 1, wh, '#1e3050');
+    _bgPx(ctx, wx, wy, ww, 1, '#1e3050');
+    _bgPx(ctx, wx, wy+wh, ww, 1, '#1e3050');
+
+    // 바닥
+    _bgPx(ctx, 0, Math.floor(H*.7), W, H, '#050810');
+    _bgPx(ctx, 0, Math.floor(H*.7), W, 1, '#1a2640');
+
+    // 네온 환경광
+    var ng = ctx.createRadialGradient(W*.5, H*.85, 0, W*.5, H*.85, W*.4);
+    ng.addColorStop(0, 'rgba(45,255,170,.06)'); ng.addColorStop(1, 'transparent');
+    ctx.fillStyle = ng; ctx.fillRect(0, 0, W, H);
+
+    // 작은 네온 사인
+    _drawNeonSign(ctx, Math.floor(W*.15), Math.floor(H*.75), 4, 2, _SP.neon_g, _SP.neon_g);
+    _drawNeonSign(ctx, Math.floor(W*.75), Math.floor(H*.72), 5, 2, _SP.neon_p, _SP.neon_p);
   },
-  rain_day: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, H, '#0a1018');
-    _drawBuildings(ctx, W, H, {win_lit:'#60a5fa30', win_dark:'#080e14'});
-    _drawRain(ctx, W, H);
-    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(96,165,250,.15)');
-    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.5), Math.floor(H*0.68), '#556');
+
+  // ── 비 (낮) ──
+  rain_day: function(ctx, W, H) {
+    _bgPx(ctx, 0, 0, W, H, '#090d14');
+    // 흐린 하늘 그라데이션
+    var sky = ctx.createLinearGradient(0,0,0,H*.6);
+    sky.addColorStop(0,'#0a0f1c'); sky.addColorStop(1,'#0d1422');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.6);
+    _drawCityscape(ctx, W, H, {palette:{lit:_SP.win_blue, off:'#090e16', bld:'#0b1020'}});
+    _drawGround(ctx, W, H, Math.floor(H*.7), {col:'#090c14', ref:[_SP.ref_b, _SP.ref_g], road:true});
+    _drawRain(ctx, W, H, 45, 77);
+    // 안개
+    var fog = ctx.createLinearGradient(0,0,0,H*.5);
+    fog.addColorStop(0,'rgba(15,25,40,.3)'); fog.addColorStop(1,'transparent');
+    ctx.fillStyle=fog; ctx.fillRect(0,0,W,H*.5);
   },
-  rain_night: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, H, '#050b0f');
-    _drawBuildings(ctx, W, H, {win_lit:'#f040ff25', win_dark:'#050a0d'});
-    _drawRain(ctx, W, H);
-    // 보라 네온 반사
-    _px(ctx, 0, Math.floor(H*0.7), W, 2, 'rgba(240,64,255,.1)');
-    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(45,255,170,.08)');
-    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.75), Math.floor(H*0.52));
+
+  // ── 비 (밤) — 풀 네온 리플렉션 ──
+  rain_night: function(ctx, W, H) {
+    _bgPx(ctx, 0, 0, W, H, '#050810');
+    _drawStarfield(ctx, W, H*.4, 9);
+    _drawCityscape(ctx, W, H, {palette:{lit:_SP.neon_p, off:'#08080e', bld:'#0a0a18'}});
+    _drawGround(ctx, W, H, Math.floor(H*.7), {
+      col:'#07080f',
+      ref:['rgba(240,64,255,.15)','rgba(45,255,170,.10)','rgba(0,200,255,.08)'],
+      road:true
+    });
+    _drawRain(ctx, W, H, 55, 33);
+    // 강한 네온 사인들
+    _drawNeonSign(ctx, Math.floor(W*.12), Math.floor(H*.42), 8, 3, _SP.neon_g, _SP.neon_g);
+    _drawNeonSign(ctx, Math.floor(W*.65), Math.floor(H*.38), 6, 3, _SP.neon_p, _SP.neon_p);
+    _drawNeonSign(ctx, Math.floor(W*.4), Math.floor(H*.5), 5, 2, _SP.neon_b, _SP.neon_b);
   },
-  rooftop_day: function(ctx, W, H, npcs) {
+
+  // ── 옥상 (낮) ──
+  rooftop_day: function(ctx, W, H) {
     // 하늘
-    _px(ctx, 0, 0, W, Math.floor(H*0.6), '#0d1f2d');
-    // 바닥 (옥상)
-    _px(ctx, 0, Math.floor(H*0.6), W, Math.floor(H*0.4), '#111a15');
+    var sky = ctx.createLinearGradient(0,0,0,H*.55);
+    sky.addColorStop(0,'#0e1f35'); sky.addColorStop(1,'#1a2d45');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.55);
+    // 먼 도시
+    _drawCityscape(ctx, W, Math.floor(H*.55), {
+      skyH: Math.floor(H*.55),
+      palette:{lit:_SP.win_warm, off:'#0c1525', bld:'#0f1830'}
+    });
+    // 옥상 바닥
+    _bgPx(ctx, 0, Math.floor(H*.55), W, H, '#0f1820');
+    _bgPx(ctx, 0, Math.floor(H*.55), W, 2, '#1a2840');
+    // 바닥 타일 무늬
+    for (var i=0; i<Math.floor(W/8); i++) {
+      _bgPx(ctx, i*8, Math.floor(H*.56), 1, H*.4, 'rgba(255,255,255,.03)');
+    }
     // 난간
-    _px(ctx, 0, Math.floor(H*0.58), W, 2, '#1e3028');
-    _drawBuildings(ctx, W, Math.floor(H*0.6), {win_lit:'#fbbf2440', win_dark:'#0a1212'});
-    if (npcs && npcs.verde)  _drawVerde(ctx, Math.floor(W*0.7), Math.floor(H*0.55));
-    if (npcs && npcs.chip)   _drawChip(ctx, Math.floor(W*0.3), Math.floor(H*0.62), '#888');
+    for (var j=0; j<Math.floor(W/5); j++) {
+      _bgPx(ctx, j*5+1, Math.floor(H*.52), 2, 4, '#1a2840');
+    }
+    _bgPx(ctx, 0, Math.floor(H*.54), W, 1, '#253550');
+    // 구름
+    [[.1,.08,.12,.05],[.45,.06,.18,.04],[.75,.1,.10,.04]].forEach(function(c) {
+      var cg = ctx.createRadialGradient(c[0]*W,c[1]*H,0,c[0]*W,c[1]*H,c[2]*W);
+      cg.addColorStop(0,'rgba(180,200,230,.08)'); cg.addColorStop(1,'transparent');
+      ctx.fillStyle=cg; ctx.fillRect(0,0,W,H);
+    });
   },
-  rooftop_night: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, Math.floor(H*0.65), '#050d0a');
-    _drawStars(ctx, W, Math.floor(H*0.6), 55);
-    _drawMoon(ctx, Math.floor(W*0.75), Math.floor(H*0.12), 6);
-    _px(ctx, 0, Math.floor(H*0.65), W, Math.floor(H*0.35), '#0d1a12');
-    _px(ctx, 0, Math.floor(H*0.63), W, 2, '#1e3028');
-    _drawBuildings(ctx, W, Math.floor(H*0.65), {win_lit:'#2dffaa30', win_dark:'#050d0a'});
-    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.15), Math.floor(H*0.65), '#445');
+
+  // ── 옥상 (밤) — 별하늘 + 네온 도시 ──
+  rooftop_night: function(ctx, W, H) {
+    var sky = ctx.createLinearGradient(0,0,0,H*.6);
+    sky.addColorStop(0,_SP.sky_deep); sky.addColorStop(1,'#0a0e1a');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.6);
+    _drawStarfield(ctx, W, H*.55, 88);
+    _drawMoon(ctx, Math.floor(W*.78), Math.floor(H*.12), 7);
+    _drawCityscape(ctx, W, Math.floor(H*.6), {
+      skyH:Math.floor(H*.6),
+      palette:{lit:_SP.neon_g, off:'#08080e', bld:'#0a0c1a'}
+    });
+    // 네온 사인들 (옥상에서 보이는)
+    _drawNeonSign(ctx, Math.floor(W*.08), Math.floor(H*.38), 7, 3, _SP.neon_p, _SP.neon_p);
+    _drawNeonSign(ctx, Math.floor(W*.7), Math.floor(H*.32), 6, 3, _SP.neon_g, _SP.neon_g);
+    // 옥상
+    _bgPx(ctx, 0, Math.floor(H*.6), W, H, '#0c1018');
+    _bgPx(ctx, 0, Math.floor(H*.6), W, 1, '#1e3040');
+    for (var j=0; j<Math.floor(W/5); j++) {
+      _bgPx(ctx, j*5+1, Math.floor(H*.57), 2, 3, '#182840');
+    }
+    // 네온 반사 (옥상 바닥)
+    var ref = ctx.createLinearGradient(0, H*.6, 0, H);
+    ref.addColorStop(0,'rgba(45,255,170,.06)'); ref.addColorStop(1,'transparent');
+    ctx.fillStyle=ref; ctx.fillRect(0,H*.6,W,H);
   },
-  cafe: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, H, '#0f180e');
+
+  // ── 카페 ──
+  cafe: function(ctx, W, H) {
+    _bgPx(ctx, 0, 0, W, H, '#0a1008');
+    // 창밖 야경
+    var wx=Math.floor(W*.04), wy=Math.floor(H*.05);
+    var ww=Math.floor(W*.92), wh=Math.floor(H*.45);
+    _bgPx(ctx, wx, wy, ww, wh, '#05080e');
+    ctx.save(); ctx.beginPath(); ctx.rect(wx+1,wy+1,ww-2,wh-2); ctx.clip();
+    _drawStarfield(ctx, ww, wh, 55);
+    _drawCityscape(ctx, ww, wh, {skyH:wh, palette:{lit:_SP.win_warm, off:'#080a10', bld:'#0c0e1c'}});
+    ctx.restore();
+    _bgPx(ctx, wx, wy, 1, wh, '#1e2830');
+    _bgPx(ctx, wx+ww, wy, 1, wh, '#1e2830');
+    _bgPx(ctx, wx, wy, ww, 1, '#1e2830');
+    _bgPx(ctx, wx, wy+wh, ww, 1, '#1e2830');
+    // 창틀 중간
+    _bgPx(ctx, wx+Math.floor(ww*.33), wy, 1, wh, '#1a2228');
+    _bgPx(ctx, wx+Math.floor(ww*.66), wy, 1, wh, '#1a2228');
+
     // 카운터
-    _px(ctx, 0, Math.floor(H*0.55), W, Math.floor(H*0.45), '#0a1208');
-    _px(ctx, 0, Math.floor(H*0.52), W, 3, '#1a2e18');
-    // 따뜻한 빛
-    _px(ctx, Math.floor(W*0.3), 0, Math.floor(W*0.4), Math.floor(H*0.5), 'rgba(251,191,36,.04)');
-    // 창밖
-    _px(ctx, Math.floor(W*0.05), Math.floor(H*0.08), Math.floor(W*0.9), Math.floor(H*0.4), '#080f12');
-    _drawBuildings(ctx, Math.floor(W*0.9), Math.floor(H*0.48), {win_lit:'#fbbf2440', win_dark:'#080f10'});
-    if (npcs && npcs.citizen) {
-      // 앉아있는 시민 실루엣
-      _px(ctx, Math.floor(W*0.6), Math.floor(H*0.35), 4, 6, '#1a2a1e');
-    }
-    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.1), Math.floor(H*0.58), '#665');
+    _bgPx(ctx, 0, Math.floor(H*.55), W, 4, '#162018');
+    _bgPx(ctx, 0, Math.floor(H*.59), W, H, '#0f1810');
+
+    // 따뜻한 조명
+    var warm = ctx.createRadialGradient(W*.5, H*.3, 0, W*.5, H*.3, W*.35);
+    warm.addColorStop(0,'rgba(255,180,60,.06)'); warm.addColorStop(1,'transparent');
+    ctx.fillStyle=warm; ctx.fillRect(0,0,W,H);
+
+    // 커피잔 실루엣
+    _bgPx(ctx, Math.floor(W*.42), Math.floor(H*.52), 7, 4, '#0f1810');
+    _bgPx(ctx, Math.floor(W*.41), Math.floor(H*.55), 9, 2, '#0f1810');
+    _bgPx(ctx, Math.floor(W*.43), Math.floor(H*.57), 6, 2, '#0f1810');
+    // 김 (스팀)
+    ctx.strokeStyle='rgba(200,200,200,.08)'; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(W*.44,H*.5); ctx.bezierCurveTo(W*.43,H*.45,W*.46,H*.42,W*.44,H*.37); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(W*.47,H*.5); ctx.bezierCurveTo(W*.48,H*.44,W*.45,H*.41,W*.47,H*.36); ctx.stroke();
   },
-  street: function(ctx, W, H, npcs) {
-    _px(ctx, 0, 0, W, H, '#080d0b');
-    _drawStars(ctx, W, H, 20);
-    _drawBuildings(ctx, W, H, {win_lit:'#f040ff30', win_dark:'#060d08'});
-    // 도로
-    _px(ctx, 0, Math.floor(H*0.72), W, Math.floor(H*0.28), '#0a1008');
-    // 중앙선
-    for (var i = 0; i < 6; i++) {
-      _px(ctx, Math.floor(W/6*i), Math.floor(H*0.78), Math.floor(W/8), 1, 'rgba(255,255,255,.1)');
-    }
-    // 네온 반사 (도로)
-    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(240,64,255,.12)');
-    _px(ctx, 0, Math.floor(H*0.73), W, 1, 'rgba(45,255,170,.08)');
-    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.55), Math.floor(H*0.5));
-    if (npcs && npcs.citizen) _px(ctx, Math.floor(W*0.2), Math.floor(H*0.55), 3, 8, '#1a2a1e');
+
+  // ── 거리 (밤) — 풀 네온 사이버펑크 ──
+  street_night: function(ctx, W, H) {
+    var sky = ctx.createLinearGradient(0,0,0,H*.5);
+    sky.addColorStop(0,_SP.sky_deep); sky.addColorStop(1,'#080c18');
+    ctx.fillStyle=sky; ctx.fillRect(0,0,W,H*.5);
+    _drawStarfield(ctx, W, H*.4, 17);
+    _drawCityscape(ctx, W, H, {palette:{lit:_SP.neon_p, off:'#060810', bld:'#090a1a'}});
+    _drawGround(ctx, W, H, Math.floor(H*.68), {
+      col:'#06080e',
+      ref:['rgba(240,64,255,.14)','rgba(45,255,170,.10)'],
+      road:true
+    });
+    // 네온 사인들 (거리)
+    _drawNeonSign(ctx, Math.floor(W*.05), Math.floor(H*.42), 9, 4, _SP.neon_p, _SP.neon_p);
+    _drawNeonSign(ctx, Math.floor(W*.6), Math.floor(H*.38), 7, 3, _SP.neon_g, _SP.neon_g);
+    _drawNeonSign(ctx, Math.floor(W*.35), Math.floor(H*.45), 5, 2, _SP.neon_b, _SP.neon_b);
+    // 가로등
+    [[.15,.3],[.5,.28],[.82,.32]].forEach(function(p) {
+      _bgPx(ctx, Math.floor(W*p[0]), Math.floor(H*p[1]), 1, Math.floor(H*.38), '#1a2030');
+      var lg = ctx.createRadialGradient(W*p[0],H*p[1],0,W*p[0],H*p[1],W*.12);
+      lg.addColorStop(0,'rgba(255,220,100,.10)'); lg.addColorStop(1,'transparent');
+      ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+    });
   },
 };
 
@@ -10515,22 +10748,43 @@ function _drawStoryPixel(text, npcs) {
 
   var W = vp.offsetWidth  || 200;
   var H = vp.offsetHeight || 100;
-  // 저해상도 픽셀 아트 (1/4 스케일)
+  // 픽셀 아트 해상도 (1/3 스케일 → integer 업스케일)
   var PW = Math.max(80,  Math.floor(W / 3));
-  var PH = Math.max(48,  Math.floor(H / 3));
+  var PH = Math.max(50,  Math.floor(H / 3));
 
   canvas.width  = PW;
   canvas.height = PH;
   canvas.style.width  = W + 'px';
   canvas.style.height = H + 'px';
+  canvas.style.imageRendering = 'pixelated';
 
   var ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, PW, PH);
 
   var scene = _analyzeScene(text, npcs);
-  var fn = _SCENES[scene] || _SCENES['base_day'];
+  var fn = _SCENES[scene] || _SCENES['base_night'];
   fn(ctx, PW, PH, npcs);
+
+  // NPC 오버레이
+  if (npcs) {
+    if (npcs.chip)    _drawChip(ctx, Math.floor(PW*.1), Math.floor(PH*.65), 1);
+    if (npcs.verde)   _drawVerde(ctx, Math.floor(PW*.82), Math.floor(PH*.6), 1);
+    if (npcs.handler) _drawHandler(ctx, Math.floor(PW*.72), Math.floor(PH*.48), 1);
+  }
+
+  // 비네트
+  var vig = ctx.createRadialGradient(PW/2, PH/2, PH*.25, PW/2, PH/2, PH*.7);
+  vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(0,0,0,.45)');
+  ctx.fillStyle=vig; ctx.fillRect(0,0,PW,PH);
+
+  // 스캔라인 (미묘하게)
+  ctx.fillStyle='rgba(0,0,0,.06)';
+  for (var y=0; y<PH; y+=2) ctx.fillRect(0,y,PW,1);
 }
+
+
+
 
 // ── 슬라이드 변경 시 픽셀 업데이트 ──
 function _updateStoryPixel(s) {
@@ -10613,6 +10867,9 @@ function _renderStorySlide(idx, dir) {
 
   // 카운터
   if(counter) counter.textContent = total > 0 ? (idx+1)+' / '+total : '';
+  // 삭제 버튼 표시/숨기기
+  var delBtn = document.getElementById('storyDelBtn');
+  if(delBtn) delBtn.style.display = total > 0 ? '' : 'none';
 
   // 버튼 활성화
   if(prevBtn) prevBtn.disabled = (idx <= 0);
@@ -10663,6 +10920,23 @@ function _renderStorySlide(idx, dir) {
 
   // 파트 표시 (생성 중 아닐 때)
   if(transmit) transmit.textContent = '#' + (s.part || 1);
+}
+
+// ── 조각 삭제 ──
+function deleteCurrentStory() {
+  var sorted = _storySorted();
+  if(sorted.length === 0 || storyCurrentIdx < 0) return;
+  var s = sorted[storyCurrentIdx];
+  if(!s) return;
+  if(!confirm('이 조각을 삭제할까? "' + s.text.slice(0,30) + '..."')) return;
+  storyLog = storyLog.filter(function(x){ return x.id !== s.id; });
+  localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
+  if(fbUser) fbSaveAll();
+  // 인덱스 조정
+  var newLen = _storySorted().length;
+  storyCurrentIdx = Math.min(storyCurrentIdx, newLen - 1);
+  _renderStorySlide(storyCurrentIdx);
+  showToast('조각 삭제됨');
 }
 
 // ── 네비게이션 ──
