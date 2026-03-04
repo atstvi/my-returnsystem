@@ -2,6 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+  <script src="https://js.puter.com/v2/"></script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>나의 돌아오는 시스템</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -3869,21 +3870,16 @@ select {
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px"></div>
 
-          <div class="setting-lbl" style="color:rgba(0,180,255,.8)">◈ Together AI 키 <span style="font-size:9px;opacity:.5">(아바타·스토리 이미지 생성용)</span></div>
-          <div class="input-wrap">
-            <input id="togetherKeyInp" class="setting-inp" type="password" placeholder="Together AI API 키">
+          <div class="setting-lbl" style="color:rgba(0,200,255,.9)">◈ AI 이미지 생성 <span style="font-size:9px;background:rgba(0,200,100,.15);color:rgba(0,220,120,.9);padding:1px 6px;border-radius:2px;margin-left:4px">완전 무료</span></div>
+          <div class="setting-hint" style="color:var(--foreground-muted);margin-bottom:8px">
+            Puter.js를 통해 <strong style="color:rgba(0,200,255,.8)">API 키 없이</strong> FLUX 이미지 생성이 활성화돼 있어.<br>
+            아바타 생성 버튼을 누르면 바로 돼.
           </div>
-          <div class="setting-hint">
-            <a href="https://api.together.xyz" target="_blank">api.together.xyz</a> — 회원가입 시 무료 크레딧 $1 제공. FLUX 모델로 이미지 생성돼. 없으면 Canvas 픽셀아트로 표시.
-          </div>
-          <div class="api-status" id="togetherStatus"></div>
           <div class="btn-row" style="flex-wrap:wrap;gap:6px">
-            <button class="btn-primary" onclick="saveTogetherKey()">저장</button>
-            <button class="btn-secondary" onclick="testTogetherKey()">테스트</button>
-            <button class="btn-secondary" onclick="regenAvatarImage()" style="border-color:rgba(0,180,255,.4);color:rgba(0,180,255,.8)">🎨 아바타 생성</button>
+            <button class="btn-primary" onclick="regenAvatarImage()" style="background:rgba(0,160,255,.15);border-color:rgba(0,200,255,.4);color:rgba(0,220,255,.9)">🎨 아바타 생성</button>
+            <button class="btn-secondary" onclick="regenStoryBg()" style="border-color:rgba(45,255,170,.3);color:rgba(45,255,170,.7)">🖼 현재 스토리 배경 생성</button>
           </div>
           <div id="togetherGenProgress" style="display:none;font-family:var(--font-label);font-size:9px;letter-spacing:1px;color:var(--warning);margin-top:6px;padding:6px 8px;background:rgba(255,180,0,.05);border:1px solid rgba(255,180,0,.15)"></div>
-          <div class="test-result" id="togetherTestResult"></div>
         </div>
       </div>
 
@@ -6601,132 +6597,70 @@ async function testApiKey(){
   }catch(e){resEl.className='test-result err';resEl.textContent='✗ 오류: '+e.message;resEl.style.display='block';}
 }
 
+
 // ═══════════════════════════════════════════════════════════════════
-// TOGETHER AI 이미지 생성 시스템
-// FLUX.1-schnell-Free 모델 — 아바타 + 스토리 배경 실시간 생성
+// PUTER.JS 이미지 생성 시스템 — API 키 없이 완전 무료
+// FLUX.2 Pro / FLUX.1 Schnell 모델 사용
+// 사용자가 Puter 계정으로 자기 비용 처리 (개발자 무료)
 // ═══════════════════════════════════════════════════════════════════
 
-let TOGETHER_KEY = localStorage.getItem('together_key') || '';
 let _avatarGenUrl = localStorage.getItem('avatar_gen_url') || '';
-let _storyImgCache = {}; // storyEntry.id → dataURL or objectURL
+let _storyImgCache = {}; // storyEntry.id → img element src
+let _puterReady = false;
 
-// ── 키 저장/로드/상태 ──
-function saveTogetherKey() {
-  const v = document.getElementById('togetherKeyInp')?.value.trim();
-  if (!v) { showToast('키를 입력해줘'); return; }
-  TOGETHER_KEY = v;
-  localStorage.setItem('together_key', v);
-  renderTogetherStatus();
-  showToast('Together AI 키 저장됐어');
+// Puter.js 준비 확인
+function _checkPuter() {
+  return typeof puter !== 'undefined' && puter.ai && puter.ai.txt2img;
 }
 
-function loadTogetherKey() {
-  const i = document.getElementById('togetherKeyInp');
-  if (i && TOGETHER_KEY) i.value = TOGETHER_KEY;
-}
-
-function renderTogetherStatus() {
-  const el = document.getElementById('togetherStatus');
-  if (!el) return;
-  el.innerHTML = TOGETHER_KEY
-    ? '<div class="status-dot ok"></div><span style="color:var(--green)">키 저장됨 — AI 이미지 생성 활성</span>'
-    : '<div class="status-dot none"></div><span style="color:var(--foreground-muted)">키 없음 — Canvas 픽셀아트 사용중</span>';
-}
-
-// ── 연결 테스트 ──
-async function testTogetherKey() {
-  const resEl = document.getElementById('togetherTestResult');
-  const key = document.getElementById('togetherKeyInp')?.value.trim() || TOGETHER_KEY;
-  if (!key) { showToast('키를 먼저 입력해줘'); return; }
-  if (resEl) { resEl.style.display='block'; resEl.className='test-result'; resEl.textContent='⏳ 테스트 이미지 생성 중 (10~20초)...'; }
-  try {
-    const url = await _togetherGenerate('cyberpunk pixel art test', key, 128, 128);
-    if (resEl) { resEl.className='test-result ok'; resEl.textContent='✓ Together AI 연결 성공! 이미지 생성 가능해.'; }
-  } catch(e) {
-    if (resEl) { resEl.className='test-result err'; resEl.textContent='✗ 오류: ' + e.message; }
-  }
-}
-
-// ── 핵심: Together AI 이미지 생성 API 호출 ──
-async function _togetherGenerate(prompt, keyOverride, w, h) {
-  const key = keyOverride || TOGETHER_KEY;
-  if (!key) throw new Error('Together AI 키가 없어');
+// ── 핵심: Puter.js 이미지 생성 ──
+async function _puterGenerate(prompt, w, h) {
+  if (!_checkPuter()) throw new Error('Puter.js가 로드되지 않았어. 인터넷 연결을 확인해줘.');
   w = w || 512; h = h || 768;
-
-  const res = await fetch('https://api.together.xyz/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': 'Bearer ' + key,
-    },
-    body: JSON.stringify({
-      model: 'black-forest-labs/FLUX.1-schnell-Free',
-      prompt: prompt,
-      width: w, height: h,
-      steps: 4, n: 1,
-      response_format: 'url',
-    }),
-    signal: AbortSignal.timeout(60000),
+  // FLUX.1 schnell — 가장 빠름, 무료, 고퀄리티
+  const imgEl = await puter.ai.txt2img(prompt, {
+    model: 'black-forest-labs/FLUX.1-schnell',
+    width: w,
+    height: h,
   });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || 'HTTP ' + res.status);
-  }
-  const data = await res.json();
-  const item = data.data?.[0];
-  if (!item) throw new Error('응답 없음');
-  return item.url || ('data:image/png;base64,' + item.b64_json);
+  return imgEl; // HTMLImageElement 반환
 }
 
 // ── 아바타 이미지 생성 (이미지 참조 스타일) ──
 async function regenAvatarImage() {
-  if (!TOGETHER_KEY) { showToast('Together AI 키를 먼저 설정에서 입력해줘'); return; }
-
   const prog = document.getElementById('togetherGenProgress');
-  if (prog) { prog.style.display='block'; prog.textContent='⏳ AVATAR GENERATING... (15~30초 소요)'; }
+  if (prog) { prog.style.display='block'; prog.textContent='⏳ AVATAR GENERATING... FLUX AI 처리 중 (15~30초)'; }
   showToast('아바타 생성 중...');
 
-  // 이미지에서 본 스타일 그대로 프롬프트
   const prompt = [
-    'pixel art, anime cyberpunk girl character, ',
-    'long dark blue-black hair flowing down past waist with subtle blue neon glow strand, ',
-    'large melancholic eyes with blue-teal iris, slight downward gaze, ',
-    'white oversized zip-up jacket with dark trim, dark navy pleated mini skirt, ',
-    'blue necktie, white high-top sneakers with reflection on wet floor, ',
-    'standing on rooftop looking into distance, ',
+    'pixel art anime cyberpunk girl, ',
+    'long dark blue-black hair flowing down past waist, subtle blue neon glow strand in hair, ',
+    'large melancholic eyes with blue-teal iris, looking slightly downward, cool expression, ',
+    'white oversized zip-up jacket, dark navy pleated mini skirt, blue necktie, white sneakers, ',
+    'standing on city rooftop at night, ',
     'massive cyberpunk city skyline behind her, tall buildings with lit windows, ',
-    'teal and blue neon signs in background, glowing neon number signs on buildings, ',
-    'holographic HUD display floating above head, ',
-    'night sky with scattered stars, deep blue and indigo color palette, ',
-    'pixel art dithering shading technique, 16-bit aesthetic, ',
-    'dramatic lighting from city below, atmospheric depth, ',
-    'reflective wet ground beneath feet, cinematic composition, ',
-    'high detail pixel art style, masterpiece quality',
+    'teal and blue neon signs glowing, holographic HUD display floating above head, ',
+    'stars in deep blue night sky, wet floor with neon reflections, ',
+    '16-bit pixel art dithering shading, detailed character sprite, ',
+    'dark blue indigo color palette, atmospheric cinematic composition, masterpiece',
   ].join('');
 
   try {
-    const url = await _togetherGenerate(prompt, TOGETHER_KEY, 512, 768);
+    const imgEl = await _puterGenerate(prompt, 512, 768);
+    const url = imgEl.src;
     _avatarGenUrl = url;
-    // 데이터 URL이면 그대로 저장, 외부 URL이면 fetch해서 blob으로
-    if (url.startsWith('data:')) {
-      localStorage.setItem('avatar_gen_url', url);
-    } else {
-      // 외부 URL은 localStorage에 직접 저장 시도
-      try { localStorage.setItem('avatar_gen_url', url); } catch(e) {}
-    }
+    try { localStorage.setItem('avatar_gen_url', url); } catch(e) {}
     _applyGeneratedAvatar(url);
-    if (prog) prog.textContent = '✓ 아바타 생성 완료!';
+    if (prog) { prog.textContent = '✓ 아바타 생성 완료!'; setTimeout(()=>{ prog.style.display='none'; }, 3000); }
     showToast('아바타 생성 완료! 🎨');
-    setTimeout(()=>{ if(prog) prog.style.display='none'; }, 3000);
   } catch(e) {
-    if (prog) { prog.textContent = '✗ 실패: ' + e.message; }
+    if (prog) { prog.textContent = '✗ 실패: ' + e.message; setTimeout(()=>{ prog.style.display='none'; }, 5000); }
     showToast('생성 실패: ' + e.message);
     console.error('Avatar gen error:', e);
   }
 }
 
-// ── 생성된 아바타를 UI에 적용 ──
+// ── 생성된 아바타 UI 적용 ──
 function _applyGeneratedAvatar(url) {
   const zone   = document.querySelector('.pixel-avatar-zone');
   const canvas = document.getElementById('pixelAvatarCanvas');
@@ -6743,33 +6677,30 @@ function _applyGeneratedAvatar(url) {
       'object-fit:cover;object-position:center top;',
       'image-rendering:pixelated;',
       'image-rendering:crisp-edges;',
-      'border:none;border-radius:0;',
-      'filter:drop-shadow(0 0 14px rgba(40,140,255,.55)) drop-shadow(0 0 4px rgba(0,200,255,.3));',
+      'border:none;',
+      'filter:drop-shadow(0 0 14px rgba(40,140,255,.6)) drop-shadow(0 0 4px rgba(0,200,255,.35));',
     ].join('');
-    // canvas 앞에 삽입
     if (canvas) zone.insertBefore(genImg, canvas);
     else zone.insertBefore(genImg, zone.firstChild);
   }
-
   genImg.src = url;
   genImg.style.display = 'block';
   if (canvas) canvas.style.display = 'none';
   if (label) label.style.display = 'none';
-  // 애니메이션 중지
   if (_avatarAnimId) { cancelAnimationFrame(_avatarAnimId); _avatarAnimId = null; }
 }
 
-// ── 스토리 이미지 생성 (스토리 텍스트 기반) ──
+// ── 스토리 배경 이미지 생성 ──
 async function generateStoryImage(storyEntry) {
-  if (!TOGETHER_KEY || !storyEntry) return null;
+  if (!_checkPuter() || !storyEntry) return null;
   const sid = storyEntry.id;
   if (_storyImgCache[sid]) return _storyImgCache[sid];
 
   const prompt = _buildStoryImagePrompt(storyEntry);
   try {
-    const url = await _togetherGenerate(prompt, TOGETHER_KEY, 512, 256);
-    _storyImgCache[sid] = url;
-    return url;
+    const imgEl = await _puterGenerate(prompt, 512, 256);
+    _storyImgCache[sid] = imgEl.src;
+    return imgEl.src;
   } catch(e) {
     console.warn('Story img gen failed:', e.message);
     return null;
@@ -6781,7 +6712,6 @@ function _buildStoryImagePrompt(entry) {
   const t = (entry.text || '').toLowerCase();
   const npcs = entry.npcs || {};
 
-  // 씬 판별
   const isNight  = /밤|어두|별|달|자정|새벽|잠|꿈/.test(t);
   const isRain   = /비|빗|젖|우산|물/.test(t);
   const isRoof   = /옥상|하늘|바람|구름|도시|거리|네온/.test(t);
@@ -6791,55 +6721,53 @@ function _buildStoryImagePrompt(entry) {
   const isDark   = /두려움|공포|어둠|위험|추적/.test(t);
 
   const parts = [
-    'pixel art background scene, 16-bit dithering style, ',
-    'no characters, no people, environment only, ',
+    'pixel art background scene, 16-bit dithering style, no characters, no people, ',
     'cyberpunk aesthetic, detailed, atmospheric, ',
   ];
 
-  if (isRain && isNight) {
-    parts.push('rainy cyberpunk night city street, heavy rain, neon reflections on wet pavement, purple magenta teal neon signs, puddles, dramatic lighting, ');
-  } else if (isRoof && isNight) {
-    parts.push('cyberpunk city rooftop at night, sweeping skyline view, glowing skyscrapers, teal blue neon signs, stars visible, dramatic depth, ');
-  } else if (isRoof) {
-    parts.push('city rooftop view dusk, urban skyline, warm and cool light mix, buildings with lit windows, atmospheric haze, ');
-  } else if (isCafe) {
+  if (isRain && isNight)
+    parts.push('rainy cyberpunk night street, neon reflections on wet pavement, purple teal magenta neons, puddles, dramatic atmosphere, ');
+  else if (isRoof && isNight)
+    parts.push('cyberpunk city rooftop night, sweeping skyline, glowing skyscrapers, teal blue neon signs, stars, dramatic depth, ');
+  else if (isRoof)
+    parts.push('city rooftop dusk view, urban skyline, warm cool light, buildings with lit windows, atmospheric haze, ');
+  else if (isCafe)
     parts.push('cozy cyberpunk cafe interior night, warm amber lighting, rain on window, city lights outside, intimate atmosphere, ');
-  } else if (isAction) {
-    parts.push('cyberpunk street night action, neon signs, dramatic shadows, urban corridor, energy and movement, ');
-  } else if (isDark) {
-    parts.push('dark cyberpunk alley night, minimal neon light, shadows, oppressive atmosphere, deep blues and blacks, ');
-  } else if (isIndoor && isNight) {
-    parts.push('cyberpunk room at night, large window showing city skyline, blue neon ambient light, dark interior, moody, ');
-  } else if (isNight) {
-    parts.push('cyberpunk city night panorama, skyscrapers with glowing windows, neon lights, stars, dark blue palette, ');
-  } else {
+  else if (isAction)
+    parts.push('cyberpunk street night action, neon signs, dramatic shadows, urban corridor, energy motion, ');
+  else if (isDark)
+    parts.push('dark cyberpunk alley night, minimal neon light, deep shadows, oppressive atmosphere, dark blues and blacks, ');
+  else if (isIndoor && isNight)
+    parts.push('cyberpunk room at night, large window showing city skyline, blue neon ambient light, dark moody interior, ');
+  else if (isNight)
+    parts.push('cyberpunk city night panorama, skyscrapers glowing windows, neon lights, stars, dark blue palette, ');
+  else
     parts.push('cyberpunk city skyline dusk, blue teal neon glow, urban atmosphere, buildings and lights, ');
-  }
 
-  if (npcs.chip)    parts.push('small cat silhouette visible, ');
-  if (npcs.verde)   parts.push('small plant pot in corner, ');
-  if (npcs.handler) parts.push('lone figure silhouette in distance, ');
+  if (npcs && npcs.chip)    parts.push('small cat silhouette visible, ');
+  if (npcs && npcs.verde)   parts.push('potted plant in corner, ');
+  if (npcs && npcs.handler) parts.push('lone figure silhouette in far distance, ');
 
-  parts.push('high quality pixel art, masterpiece, cinematic wide shot');
+  parts.push('high quality pixel art, masterpiece, cinematic wide shot, no text');
   return parts.join('');
 }
 
-// ── 스토리 슬라이드 이미지 업데이트 (비동기) ──
+// ── 스토리 슬라이드 배경 업데이트 (비동기) ──
 async function _renderStoryBg(storyEntry) {
   const canvas = document.getElementById('storyPixelCanvas');
   const vp = canvas?.parentElement;
   if (!vp) return;
 
-  // Together AI 키 없으면 Canvas 픽셀아트
-  if (!TOGETHER_KEY) {
+  // Puter.js 없으면 Canvas 픽셀아트 fallback
+  if (!_checkPuter()) {
     _updateStoryPixel(storyEntry);
     return;
   }
 
-  // 캔버스를 로딩 중 표시로 활용
+  // Canvas 먼저 보여줌 (로딩 중)
   _updateStoryPixel(storyEntry);
 
-  // 이미 캐시 있으면 즉시 표시
+  // 캐시 확인
   const sid = storyEntry?.id;
   const cached = sid ? _storyImgCache[sid] : null;
 
@@ -6854,7 +6782,7 @@ async function _renderStoryBg(storyEntry) {
       'image-rendering:pixelated;',
       'image-rendering:crisp-edges;',
       'opacity:0;',
-      'transition:opacity .5s ease;',
+      'transition:opacity .6s ease;',
       'z-index:1;',
     ].join('');
     vp.appendChild(bgImg);
@@ -6867,36 +6795,67 @@ async function _renderStoryBg(storyEntry) {
     return;
   }
 
-  // 새로 생성
+  // 없으면 생성 (백그라운드, 방해하지 않음)
   bgImg.style.opacity = '0';
   if (canvas) canvas.style.opacity = '1';
-
   if (!storyEntry) return;
+
+  // 약간 딜레이 (타이핑 애니메이션 끝난 후)
+  await new Promise(r => setTimeout(r, 800));
+
   try {
     const url = await generateStoryImage(storyEntry);
     if (url && document.getElementById('storyBgImg') === bgImg) {
       bgImg.onload = () => {
-        bgImg.style.opacity = '1';
+        bgImg.style.opacity = '0.85';
         if (canvas) canvas.style.opacity = '0';
       };
       bgImg.src = url;
     }
   } catch(e) {
-    console.warn('Story bg render error:', e);
+    console.warn('Story bg render:', e.message);
+  }
+}
+
+// ── 수동 스토리 배경 재생성 버튼 ──
+async function regenStoryBg() {
+  const sorted = _storySorted ? _storySorted() : [];
+  if (sorted.length === 0) { showToast('스토리가 없어'); return; }
+  const entry = sorted[storyCurrentIdx >= 0 ? storyCurrentIdx : sorted.length-1];
+  if (!entry) return;
+  // 캐시 삭제 후 재생성
+  delete _storyImgCache[entry.id];
+  showToast('스토리 배경 생성 중...');
+  const url = await generateStoryImage(entry);
+  if (url) {
+    const bgImg = document.getElementById('storyBgImg');
+    if (bgImg) { bgImg.src = url; bgImg.style.opacity = '0.85'; }
+    const canvas = document.getElementById('storyPixelCanvas');
+    if (canvas) canvas.style.opacity = '0';
+    showToast('배경 생성 완료! 🖼');
+  } else {
+    showToast('생성 실패 (Puter.js 확인해줘)');
   }
 }
 
 // ── onload 초기화 ──
 function initTogetherAI() {
-  TOGETHER_KEY = localStorage.getItem('together_key') || '';
+  // 저장된 아바타 복원
   _avatarGenUrl = localStorage.getItem('avatar_gen_url') || '';
-  loadTogetherKey();
-  renderTogetherStatus();
-  // 저장된 아바타 이미지 복원
   if (_avatarGenUrl) {
     setTimeout(() => { _applyGeneratedAvatar(_avatarGenUrl); }, 400);
   }
+  // 불필요한 Together 관련 DOM 숨김
+  const s = document.getElementById('togetherStatus');
+  if (s) s.style.display = 'none';
 }
+
+// 구버전 호환 — Together AI 함수들 stub
+function saveTogetherKey() { showToast('이제 API 키 불필요 — Puter.js로 무료 사용 가능!'); }
+function loadTogetherKey() {}
+function renderTogetherStatus() {}
+function testTogetherKey() { showToast('Puter.js 로드 상태: ' + (_checkPuter() ? '✓ 준비됨' : '✗ 미준비 (인터넷 확인)')); }
+
 
 
 // ── AI 설정 ───────────────────────────────────────────────
