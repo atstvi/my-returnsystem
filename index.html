@@ -4738,63 +4738,6 @@ function saveTodos(){
   if(fbUser)fbSaveAll();
 }
 
-function renderMeTodo(){
-  const el=document.getElementById('meTodoList');if(!el)return;
-  const all=todoItems.filter(t=>!t.done);
-  if(all.length===0){
-    el.innerHTML=`<div class="quest-empty">◈ 활성 임무 없음 ◈<br><span style="opacity:.5;font-size:9px">체크 탭에서 임무를 등록해</span></div>`;
-    return;
-  }
-  el.innerHTML=all.map(t=>{
-    const realIdx=todoItems.indexOf(t);
-    const tagClass=t.priority==='high'?'high':t.priority==='mid'?'mid':'low';
-    const tagLabel=t.priority==='high'?'🔴 핵심':t.priority==='mid'?'🟡 일반':'🟢 여유';
-
-    // 막힌 이유 태그
-    const blockLabels={fear:'😨 두려움',boring:'😑 귀찮음',unclear:'❓ 불명확',energy:'🔋 에너지 없음',waiting:'⏸ 기다리는 것 있음'};
-    const blockTag=t.blockReason?`<span class="me-todo-block-tag">${blockLabels[t.blockReason]||t.blockReason}</span>`:'';
-
-    // 에너지 요구도
-    const energyLabels={high:'⚡ 고집중',mid:'🔆 중간',low:'☁ 루틴'};
-    const energyClass=t.energyReq||'';
-    const energyTag=t.energyReq?`<span class="me-todo-energy-tag ${energyClass}">${energyLabels[t.energyReq]||''}</span>`:'';
-
-    // 실행 트리거
-    const triggerHtml=t.trigger?`<div class="me-todo-trigger">▷ ${esc(t.trigger)}</div>`:'';
-
-    // 완료 회고
-    const retroHtml=t.done&&t.retro?`<div class="me-todo-retro">💬 ${esc(t.retro)}</div>`:'';
-
-    const metaHtml=(blockTag||energyTag)?`<div class="me-todo-meta">${blockTag}${energyTag}</div>`:'';
-
-    // 하위항목
-    const subs=t.subItems||[];
-    const doneSubCount=subs.filter(s=>s.done).length;
-    const subCountHtml=subs.length>0?`<span class="me-todo-sub-count has">${doneSubCount}/${subs.length}</span>`:'';
-    const subItemsHtml=subs.length>0?`<div class="me-todo-subitems">${subs.map((s,si)=>`<div class="me-todo-subitem${s.done?' done':''}" onclick="event.stopPropagation();toggleSubItem(${realIdx},${si})"><div class="me-todo-subcheck">${s.done?'✓':''}</div><span class="me-todo-subtext">${esc(s.text)}</span><button class="me-todo-subdel" onclick="event.stopPropagation();deleteSubItem(${realIdx},${si})">×</button></div>`).join('')}</div>`:'';
-    const addSubHtml=`<button class="me-todo-add-sub" onclick="event.stopPropagation();addSubItemInline(${realIdx},this)">＋ 하위 항목 추가</button>`;
-
-    const isFocusing=focusState.taskId===t.id&&focusState.running;
-    return `<div class="me-todo-item${t.done?' done':''}${isFocusing?' focusing':''}" onclick="openTodoEdit(${realIdx})">
-      <div class="me-todo-check" onclick="event.stopPropagation();toggleTodo(${realIdx})" title="완료 토글">${t.done?'✓':''}</div>
-      <div style="flex:1;min-width:0">
-        <div style="display:flex;align-items:flex-start;gap:6px">
-          <div class="me-todo-text" style="flex:1">${esc(t.text)}${t.longTask?'<span style="font-size:9px;margin-left:5px;opacity:.6">⏳</span>':''}</div>
-          ${subCountHtml}
-          ${t.priority?`<span class="me-todo-tag ${tagClass}">${tagLabel}</span>`:''}
-        </div>
-        ${metaHtml}
-        ${triggerHtml}
-        ${retroHtml}
-        ${subItemsHtml}
-        ${addSubHtml}
-      </div>
-      ${!t.done?`<button class="me-todo-focus-btn" onclick="event.stopPropagation();startFocusTimer(${realIdx})">${isFocusing?'⏱ 집중 중':'▶ 집중'}</button>`:''}
-      <button class="me-todo-edit-btn" onclick="event.stopPropagation();openTodoEdit(${realIdx})">✎</button>
-      <button class="me-todo-del" onclick="event.stopPropagation();deleteTodo(${realIdx})">×</button>
-    </div>`;
-  }).join('');
-}
 
 function toggleTodo(idx){
   const t=todoItems[idx];
@@ -9029,7 +8972,7 @@ function _buildStoryPrompt(state) {
   const drainList  = state.todayDrainList.filter(Boolean).join(', ')  || '없음';
 
   const missionList = [...state.todos.slice(0,3), ...state.tasks.slice(0,3)]
-    .map(t => t.text).filter(Boolean).slice(0,4).join(' / ') || '없음';
+    .map(function(t){ return t.text; }).filter(Boolean).slice(0,4).join(' / ') || '없음';
 
   const doneCount = (state.doneTodos||0) + (state.doneTasks||0);
   const inboxCount = state.inbox.length;
@@ -9040,44 +8983,31 @@ function _buildStoryPrompt(state) {
 
   const cls = state.agentClass ? (' ['+state.agentClass+']') : '';
 
-  return '너는 사이버펑크 힐링 세계관 SECTOR 7의 스토리텔러야. 요원 코드네임: '+state.agentName+cls+'. DAY '+state.dayNum+'.
+  var lines = [
+    '너는 사이버펑크 힐링 세계관 SECTOR 7의 스토리텔러야. 요원 코드네임: '+state.agentName+cls+'. DAY '+state.dayNum+'.',
+    '',
+    '[오늘 상태]',
+    '컨디션: '+battDesc,
+    moodLine !== '체크 안 함' ? '체크인: '+moodLine : null,
+    '오늘 에너지 충전: '+chargeList,
+    '오늘 에너지 소모: '+drainList,
+    '진행 중 임무: '+missionList,
+    doneCount > 0 ? '오늘 완료한 것: '+doneCount+'개' : null,
+    inboxCount > 0 ? '미처리 메시지: '+inboxCount+'건' : null,
+    '자기관리 체크: '+state.checkedCount+'항목 완료',
+    '',
+    '[등장 가능한 NPC — 1~2명 자연스럽게 등장]',
+    'CHIP: 기지 고양이. 요원 컨디션을 본능적으로 알아챔.',
+    'VERDE: 창가 식물. 일상의 소소한 변화를 반영.',
+    'HANDLER: 본부 연락책. 임무 체크, 격려, 가끔 잔소리.',
+    'CITIZEN: 섹터 7 이웃. 카페 직원, 동네 사람 등 랜덤.',
+    '',
+    '[규칙] 순수 한국어. 한자 금지. 특수문자 금지. 구어체. 4~6문장. 사이버펑크+힐링 분위기. 마지막 문장은 오늘 하루 격려나 따뜻한 관찰. NPC 대사는 큰따옴표.',
+    '',
+    '오늘의 임무 보고서를 써줘.'
+  ];
 
-'
-    + '[오늘 상태]
-'
-    + '컨디션: '+battDesc+'
-'
-    + (moodLine !== '체크 안 함' ? '체크인: '+moodLine+'
-' : '')
-    + '오늘 에너지 충전: '+chargeList+'
-'
-    + '오늘 에너지 소모: '+drainList+'
-'
-    + '진행 중 임무: '+missionList+'
-'
-    + (doneCount > 0 ? '오늘 완료한 것: '+doneCount+'개
-' : '')
-    + (inboxCount > 0 ? '미처리 메시지: '+inboxCount+'건
-' : '')
-    + '자기관리 체크: '+state.checkedCount+'항목 완료
-
-'
-    + '[등장 가능한 NPC — 1~2명 자연스럽게 등장]
-'
-    + 'CHIP: 기지 고양이. 요원 컨디션을 본능적으로 알아챔.
-'
-    + 'VERDE: 창가 식물. 일상의 소소한 변화를 반영.
-'
-    + 'HANDLER: 본부 연락책. 임무 체크, 격려, 가끔 잔소리.
-'
-    + 'CITIZEN: 섹터 7 이웃. 카페 직원, 동네 사람 등 랜덤.
-
-'
-    + '[규칙] 순수 한국어. 한자 금지. 특수문자 금지. 구어체. 4~6문장. '
-    + '사이버펑크+힐링 분위기. 마지막 문장은 오늘 하루 격려나 따뜻한 관찰. NPC 대사는 큰따옴표.
-
-'
-    + '오늘의 임무 보고서를 써줘.';
+  return lines.filter(function(l){ return l !== null; }).join('\n');
 }
 
 // ── NPC 등장 감지 ──
