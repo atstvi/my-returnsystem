@@ -3097,13 +3097,13 @@ select {
 .me-header-story {
   display: flex; flex-direction: column;
   border-left: 1px solid rgba(45,255,170,.12);
-  padding: 10px 14px 10px;
+  padding: 10px 12px 8px;
   overflow: hidden;
   position: relative;
   background: linear-gradient(135deg, rgba(45,255,170,.02) 0%, rgba(240,64,255,.02) 100%);
 }
 .me-header-story-top {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 6px;
   margin-bottom: 6px; flex-shrink: 0;
 }
 .me-header-story-meta { display: flex; align-items: center; gap: 8px; }
@@ -3121,11 +3121,31 @@ select {
   filter: grayscale(1);
 }
 .story-npc-mini.on { opacity: 1; filter: none; }
-.me-header-story-body {
-  flex: 1; overflow-y: auto; min-height: 0;
-  scrollbar-width: thin;
-  display: flex; flex-direction: column; gap: 0;
+.story-slide-viewport {
+  flex: 1; overflow: hidden; min-height: 0;
+  position: relative;
 }
+.story-slide-track {
+  display: flex;
+  width: 100%; height: 100%;
+  transition: transform .28s cubic-bezier(.4,0,.2,1);
+}
+.story-slide {
+  min-width: 100%; width: 100%; height: 100%;
+  overflow-y: auto; flex-shrink: 0;
+  font-family: var(--font-mono); font-size: 11px;
+  line-height: 1.75; color: var(--foreground-2);
+  white-space: pre-wrap; word-break: break-word;
+  scrollbar-width: thin; padding-right: 4px;
+}
+.story-slide::-webkit-scrollbar { width: 2px; }
+.story-slide::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
+.story-slide.today { color: var(--foreground); }
+/* 슬라이드 전환 애니메이션 */
+@keyframes storySlideInLeft  { from{opacity:0;transform:translateX(18px)}  to{opacity:1;transform:translateX(0)} }
+@keyframes storySlideInRight { from{opacity:0;transform:translateX(-18px)} to{opacity:1;transform:translateX(0)} }
+.story-slide-track.slide-to-next .story-slide { animation: storySlideInLeft  .26s ease forwards; }
+.story-slide-track.slide-to-prev .story-slide { animation: storySlideInRight .26s ease forwards; }
 /* 날짜 구분선 */
 .story-date-divider {
   display: flex; align-items: center; gap: 8px;
@@ -3180,18 +3200,35 @@ select {
 .me-header-story-body::-webkit-scrollbar { width: 2px; }
 .me-header-story-body::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
 .me-header-story-footer {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 6px; flex-shrink: 0; position: relative; overflow: visible;
+  display: flex; align-items: center; gap: 4px;
+  margin-top: 6px; flex-shrink: 0;
 }
 .story-day-badge {
   font-family: var(--font-label); font-size: 8px; letter-spacing: 2px;
   color: rgba(45,255,170,.4); margin-left: auto;
 }
-.me-header-story-footer .story-gen-btn {
-  font-size: 9px; padding: 3px 10px;
+.story-nav-counter {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
+  color: rgba(45,255,170,.35); margin-left: auto;
+  white-space: nowrap;
 }
-.me-header-story-footer .story-log-btn {
-  font-size: 9px; padding: 3px 8px;
+.story-nav-btn {
+  background: none; border: 1px solid rgba(45,255,170,.2);
+  color: var(--accent); font-size: 14px; line-height: 1;
+  width: 22px; height: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: var(--t-snap); flex-shrink: 0;
+}
+.story-nav-btn:hover { background: rgba(45,255,170,.08); border-color: var(--accent); }
+.story-nav-btn:disabled { opacity: .2; cursor: default; }
+.story-nav-meta {
+  flex: 1; text-align: center;
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
+  color: rgba(255,255,255,.25);
+}
+.story-transmit {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
+  color: rgba(45,255,170,.3); margin-left: auto;
 }
 
 .story-npc-bar{display:flex;gap:6px;padding:8px 18px 0;flex-wrap:wrap;}
@@ -3327,27 +3364,41 @@ select {
         </div>
       </div>
 
-      <!-- 임무 보고서 패널 (헤더 내) -->
+      <!-- SECTOR 7 스토리 패널 -->
       <div class="me-header-story" id="meHeaderStory">
+
+        <!-- 상단: 레이블 + NPC + 카운터 -->
         <div class="me-header-story-top">
           <div class="me-header-story-meta">
             <span class="me-header-story-label">◈ SECTOR 7</span>
             <span id="storyDayNum" class="me-header-story-day"></span>
           </div>
+          <div class="story-nav-counter" id="storyNavCounter"></div>
           <div class="me-header-story-npcs">
-            <span class="story-npc-mini" id="sNpcChip">🐈</span>
-            <span class="story-npc-mini" id="sNpcVerde">🌿</span>
-            <span class="story-npc-mini" id="sNpcHandler">📡</span>
-            <span class="story-npc-mini" id="sNpcCitizen">👤</span>
+            <span class="story-npc-mini" id="sNpcChip" title="CHIP">🐈</span>
+            <span class="story-npc-mini" id="sNpcVerde" title="VERDE">🌿</span>
+            <span class="story-npc-mini" id="sNpcHandler" title="HANDLER">📡</span>
+            <span class="story-npc-mini" id="sNpcCitizen" title="CITIZEN">👤</span>
           </div>
         </div>
-        <div class="me-header-story-body" id="storyBody">
-          <span class="dim">// STANDBY</span>
+
+        <!-- 본문: 슬라이드 뷰포트 -->
+        <div class="story-slide-viewport">
+          <div class="story-slide-track" id="storySlideTrack">
+            <div class="story-slide" id="storyBody">
+              <span class="dim">// STANDBY — 교신 대기 중</span>
+            </div>
+          </div>
         </div>
+
+        <!-- 하단: 네비게이션 + 메타 -->
         <div class="me-header-story-footer">
-          <button class="story-gen-btn" id="storyGenBtn" onclick="generateStory()">◈ 채널 열기</button>
-          <span class="story-day-badge" id="storyDayBadge"></span>
+          <button class="story-nav-btn" id="storyNavPrev" onclick="storyNavMove(-1)" title="이전">‹</button>
+          <span class="story-nav-meta" id="storyNavMeta"></span>
+          <button class="story-nav-btn" id="storyNavNext" onclick="storyNavMove(1)" title="다음">›</button>
+          <span class="story-transmit" id="storyTransmit"></span>
         </div>
+
       </div>
 
       <!-- 체크 버튼 -->
@@ -8315,12 +8366,22 @@ function _applyFirebaseData(d){
   }
   // 스토리 로그
   if(d.storyLogV1){
-    storyLog=JSON.parse(d.storyLogV1);
-    localStorage.setItem('story_log_v1',d.storyLogV1);
-    // 나탭이 열려있으면 스토리 카드 갱신
-    if(typeof initStoryCard==='function'){
-      try{ initStoryCard(); }catch(e){}
-    }
+    try{
+      storyLog=JSON.parse(d.storyLogV1);
+      localStorage.setItem('story_log_v1',d.storyLogV1);
+      // 마이그레이션
+      var migrated=false;
+      storyLog=storyLog.map(function(s,i){
+        if(!s.id){ migrated=true; return {id:'sl_'+i,date:s.date||'',time:'00:00',text:s.text||'',npcs:s.npcs||{},dayNum:s.dayNum||1,part:1}; }
+        return s;
+      });
+      if(migrated)localStorage.setItem('story_log_v1',JSON.stringify(storyLog));
+      // 최신 슬라이드로 이동
+      if(typeof _renderStorySlide==='function'){
+        storyCurrentIdx=_storySorted().length-1;
+        try{ _renderStorySlide(storyCurrentIdx); }catch(e){}
+      }
+    }catch(e){}
   }
   // 현재 열린 탭 재렌더
   _reRenderCurrentTab();
@@ -9424,86 +9485,102 @@ function _triggerStoryRegen(){
 // ── 스토리 생성 ──
 
 // ── 스토리 피드 렌더 (다중 조각 연대기) ──
-function _renderStoryFeed(addTypingSlot) {
-  const body = document.getElementById('storyBody');
-  if (!body) return;
+var storyCurrentIdx = -1; // 현재 보고 있는 조각 인덱스 (-1 = 최신)
 
-  const today = _todayKey();
-
-  // 날짜별 그룹핑 (오래된 날짜 → 최신 날짜 순)
-  const byDate = {};
-  storyLog.forEach(function(s) {
-    if(!byDate[s.date]) byDate[s.date] = [];
-    byDate[s.date].push(s);
+// ── 조각 배열 (오래된→최신 순) ──
+function _storySorted() {
+  return storyLog.slice().sort(function(a, b) {
+    var d = (a.date||'').localeCompare(b.date||'');
+    if(d !== 0) return d;
+    return (a.part||1) - (b.part||1);
   });
-  // 날짜 정렬 (오름차순 - 과거가 위)
-  const dates = Object.keys(byDate).sort();
-  // 최근 5일치만 표시
-  const recentDates = dates.slice(-5);
-
-  let html = '';
-
-  recentDates.forEach(function(date) {
-    const isToday = date === today;
-    const parts = byDate[date].slice().sort(function(a,b){ return (a.part||1)-(b.part||1); });
-    const dayNum = parts[0].dayNum || '?';
-
-    // 날짜 구분선
-    html += `<div class="story-date-divider${isToday?' today':''}">
-      <span class="story-date-line"></span>
-      <span class="story-date-label">DAY ${dayNum}${isToday?' · NOW':''}</span>
-      <span class="story-date-line"></span>
-    </div>`;
-
-    // 조각들
-    parts.forEach(function(s) {
-      html += `<div class="story-entry${isToday?' today':''}">
-        <div class="story-entry-meta">
-          <span class="story-entry-part">#${s.part||1}</span>
-          <span class="story-entry-time">${s.time||''}</span>
-        </div>
-        <div class="story-entry-text">${esc(s.text)}</div>
-      </div>`;
-    });
-  });
-
-  // 오늘 기록이 아직 없으면 STANDBY
-  if(!byDate[today] && !addTypingSlot) {
-    html += `<div class="story-date-divider today">
-      <span class="story-date-line"></span>
-      <span class="story-date-label">DAY ${_storyDayNum()} · NOW</span>
-      <span class="story-date-line"></span>
-    </div>
-    <div class="story-entry today">
-      <div class="story-entry-meta"><span class="story-entry-part">#1</span></div>
-      <div class="story-entry-text dim">// STANDBY — 채널을 열어줘.</div>
-    </div>`;
-  }
-
-  // 타이핑 슬롯 (새 조각 추가 중)
-  if(addTypingSlot) {
-    const partNum = byDate[today] ? byDate[today].length + 1 : 1;
-    const now = new Date();
-    const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-    if(!byDate[today]) {
-      html += `<div class="story-date-divider today">
-        <span class="story-date-line"></span>
-        <span class="story-date-label">DAY ${_storyDayNum()} · NOW</span>
-        <span class="story-date-line"></span>
-      </div>`;
-    }
-    html += `<div class="story-entry today typing" id="storyTypingEntry">
-      <div class="story-entry-meta">
-        <span class="story-entry-part">#${partNum}</span>
-        <span class="story-entry-time">${timeStr}</span>
-      </div>
-      <div class="story-entry-text" id="storyTypingTarget"></div>
-    </div>`;
-  }
-
-  body.innerHTML = html;
-  body.scrollTop = body.scrollHeight;
 }
+
+// ── 슬라이드 UI 업데이트 ──
+function _renderStorySlide(idx, dir) {
+  var sorted = _storySorted();
+  var total  = sorted.length;
+  var today  = _todayKey();
+
+  // idx 범위 고정
+  if(total === 0) idx = -1;
+  else idx = Math.max(0, Math.min(total - 1, idx < 0 ? total - 1 : idx));
+  storyCurrentIdx = idx;
+
+  var counter = document.getElementById('storyNavCounter');
+  var prevBtn  = document.getElementById('storyNavPrev');
+  var nextBtn  = document.getElementById('storyNavNext');
+  var metaEl   = document.getElementById('storyNavMeta');
+  var dayEl    = document.getElementById('storyDayNum');
+  var transmit = document.getElementById('storyTransmit');
+
+  // 카운터
+  if(counter) counter.textContent = total > 0 ? (idx+1)+' / '+total : '';
+
+  // 버튼 활성화
+  if(prevBtn) prevBtn.disabled = (idx <= 0);
+  if(nextBtn) nextBtn.disabled = (idx >= total - 1);
+
+  // 조각 없으면 STANDBY
+  if(total === 0 || idx < 0) {
+    var slide = document.getElementById('storyBody');
+    if(slide) {
+      slide.className = 'story-slide';
+      slide.innerHTML = '<span class="dim">// STANDBY — 교신 대기 중</span>';
+    }
+    if(metaEl) metaEl.textContent = '';
+    if(dayEl)  dayEl.textContent  = 'DAY ' + _storyDayNum();
+    return;
+  }
+
+  var s = sorted[idx];
+  var isToday = s.date === today;
+
+  // 슬라이드 전환 애니메이션
+  var track = document.getElementById('storySlideTrack');
+  if(track && dir !== undefined) {
+    var cls = dir > 0 ? 'slide-to-next' : 'slide-to-prev';
+    track.classList.add(cls);
+    setTimeout(function(){ track.classList.remove(cls); }, 280);
+  }
+
+  // 본문 렌더
+  var slide = document.getElementById('storyBody');
+  if(slide) {
+    slide.className = 'story-slide' + (isToday ? ' today' : '');
+    slide.innerHTML = esc(s.text);
+    slide.scrollTop = 0;
+  }
+
+  // 하단 메타 (날짜 · 시간)
+  if(metaEl) metaEl.textContent = s.date + (s.time ? ' ' + s.time : '');
+
+  // DAY 번호
+  if(dayEl) dayEl.textContent = 'DAY ' + (s.dayNum || _storyDayNum());
+
+  // NPC
+  _updateNpcChips(s.npcs || {});
+
+  // 파트 표시 (생성 중 아닐 때)
+  if(transmit) transmit.textContent = '#' + (s.part || 1);
+}
+
+// ── 네비게이션 ──
+function storyNavMove(dir) {
+  var sorted = _storySorted();
+  var total  = sorted.length;
+  if(total === 0) return;
+  var cur = storyCurrentIdx < 0 ? total - 1 : storyCurrentIdx;
+  var next = Math.max(0, Math.min(total - 1, cur + dir));
+  _renderStorySlide(next, dir);
+}
+
+// ── 구버전 호환: _renderStoryFeed ──
+function _renderStoryFeed(addTypingSlot) {
+  if(addTypingSlot) return; // 타이핑 중엔 별도 처리
+  _renderStorySlide(storyCurrentIdx);
+}
+
 
 // ── 타이핑 애니메이션 (새 방식: 특정 el에 타이핑) ──
 function _typeInto(el, text, onDone) {
@@ -9530,20 +9607,20 @@ function _typeInto(el, text, onDone) {
 }
 
 async function generateStory() {
-  if (!API_KEY) { showToast('설정에서 API 키를 먼저 입력해줘'); return; }
+  if (!API_KEY) return; // 자동생성 — 키 없으면 조용히 종료
 
-  const btn = document.getElementById('storyGenBtn');
+  const btn  = document.getElementById('storyGenBtn');
   const body = document.getElementById('storyBody');
-  if (!btn || !body) return;
+  if (!body) return;
 
-  btn.disabled = true;
-  btn.textContent = '◌ 교신 중...';
-  // 연결 중 메시지를 피드 마지막에 추가
-  const _loadEntry = document.createElement('div');
-  _loadEntry.className = 'story-entry today';
-  _loadEntry.innerHTML = '<div class="story-entry-text dim">// SECTOR 7 교신 중<span class="story-entry-cursor"></span></div>';
-  body.appendChild(_loadEntry);
-  body.scrollTop = body.scrollHeight;
+  if(btn){ btn.disabled=true; }
+  // 로딩 슬라이드 표시
+  if(body) {
+    body.className = 'story-slide today';
+    body.innerHTML = '<span class="dim">// SECTOR 7 교신 중<span class="story-entry-cursor"></span></span>';
+  }
+  var transmit = document.getElementById('storyTransmit');
+  if(transmit) transmit.textContent = '◌';
 
   try {
     const state = _collectSystemState();
@@ -9572,26 +9649,25 @@ async function generateStory() {
     localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
     if(fbUser)fbSaveAll();
 
-    // 타이핑 슬롯 렌더
-    _renderStoryFeed(true);
-    const typingEl = document.getElementById('storyTypingTarget');
+    // storyBody에 직접 타이핑
+    if(body) {
+      body.className = 'story-slide today';
+      body.innerHTML = '';
+    }
 
-    // 타이핑 애니메이션
-    _typeInto(typingEl, text, () => {
-      btn.textContent = '◈ 채널 열기';
-      btn.disabled = false;
-      _renderStoryFeed(); // 완료 후 정식 렌더
+    _typeInto(body, text, function() {
+      if(btn){ btn.disabled=false; }
+      // 최신 조각으로 인덱스 이동
+      storyCurrentIdx = _storySorted().length - 1;
+      _renderStorySlide(storyCurrentIdx);
     });
 
     const dayEl = document.getElementById('storyDayNum');
     if(dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
-    const badge = document.getElementById('storyDayBadge');
-    if(badge) badge.textContent = 'DAY ' + state.dayNum;
 
   } catch(e) {
-    body.innerHTML = '<div class="story-entry today"><div class="story-entry-text warn">// 통신 오류: ' + e.message + '</div></div>';
-    btn.textContent = '◈ 채널 열기';
-    btn.disabled = false;
+    if(body){ body.className='story-slide'; body.innerHTML='<span class="warn">// 통신 오류: '+e.message+'</span>'; }
+    if(btn){ btn.textContent='◈ 채널 열기'; btn.disabled=false; }
   }
 }
 
@@ -9600,24 +9676,15 @@ async function generateStory() {
 
 // ── 나탭 열릴 때 스토리 피드 복원 ──
 function initStoryCard() {
-  const today = _todayKey();
-  const todayParts = storyLog.filter(function(s){ return s.date === today; });
-  const dayNum = _storyDayNum();
+  var today = _todayKey();
+  var sorted = _storySorted();
+  // 항상 최신 조각 표시
+  storyCurrentIdx = sorted.length > 0 ? sorted.length - 1 : -1;
+  _renderStorySlide(storyCurrentIdx);
 
-  const dayEl = document.getElementById('storyDayNum');
-  if (dayEl) dayEl.textContent = 'DAY ' + dayNum;
-  const badge = document.getElementById('storyDayBadge');
-  if (badge) badge.textContent = 'DAY ' + dayNum;
-
-  _renderStoryFeed();
-
-  if (todayParts.length > 0) {
-    // 최신 조각의 NPC 상태 반영
-    const latest = todayParts.sort(function(a,b){ return (b.part||1)-(a.part||1); })[0];
-    _updateNpcChips(latest.npcs || {});
-    const btn = document.getElementById('storyGenBtn');
-    if (btn) btn.textContent = '◈ 채널 열기';
-  } else if (API_KEY) {
+  // 오늘 조각 없으면 자동생성
+  var todayParts = storyLog.filter(function(s){ return s.date === today; });
+  if(todayParts.length === 0 && API_KEY) {
     setTimeout(function(){ generateStory(); }, 1200);
   }
 }
