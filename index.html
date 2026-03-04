@@ -325,11 +325,12 @@ h1, h2, h3, h4 {
 .phil-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1px; padding: 0 24px; margin-bottom: 24px;
-  background: var(--border);
+  gap: 8px; padding: 0 24px; margin-bottom: 24px;
+  background: transparent;
 }
 .phil-card {
-  background: var(--card); padding: 16px;
+  background: rgba(255,255,255,.025); padding: 16px;
+  border: 1px solid rgba(255,255,255,.07);
   transition: var(--t-base); position: relative; overflow: hidden;
 }
 .phil-card:hover {
@@ -1167,8 +1168,14 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
 .me-charge-card { grid-column: 1/2; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); }
 .me-phil-card   { grid-column: 1/-1; border-bottom: none; overflow: visible; }
 
-.me-phil-mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1px; padding: 12px 14px; background: var(--border); }
-.me-phil-mini     { padding: 10px 13px; background: var(--card); }
+.me-phil-mini-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; padding: 14px 16px; background: transparent; }
+.me-phil-mini {
+  padding: 12px 14px;
+  background: rgba(255,255,255,.025);
+  border: 1px solid rgba(255,255,255,.07);
+  transition: border-color .18s, background .18s;
+}
+.me-phil-mini:hover { border-color: rgba(45,255,170,.2); background: rgba(45,255,170,.03); }
 .me-phil-mini-tag   { font-family: var(--font-label); font-size: 9px; letter-spacing: 3px; text-transform: uppercase; color: var(--accent-tertiary); font-weight: 700; margin-bottom: 3px; }
 .me-phil-mini-title { font-size: 12px; font-weight: 600; color: var(--foreground); margin-bottom: 4px; line-height: 1.4; }
 .me-phil-mini-body  { font-size: 12px; color: var(--foreground-2); line-height: 1.7; }
@@ -2207,10 +2214,12 @@ select {
 
 #page-inbox .inbox-page-split {
   display: grid;
-  grid-template-columns: 1fr 340px;
+  grid-template-columns: 1fr 280px;
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  max-width: 900px;
+  margin: 0 auto;
 }
 @media(max-width:820px){
   #page-inbox .inbox-page-split { grid-template-columns: 1fr; gap: 0; }
@@ -2842,6 +2851,7 @@ select {
 }
 #page-inbox .inbox-page-split.panel-hidden {
   grid-template-columns: 1fr 0px;
+  max-width: 680px;
 }
 #page-inbox .inbox-page-split.panel-hidden .inbox-task-panel {
   overflow: hidden;
@@ -3744,7 +3754,7 @@ select {
 <div id="page-inbox" class="page">
 
   <!-- 2단 레이아웃: 왼쪽 메시지 | 오른쪽 task 패널 -->
-  <div class="inbox-page-split">
+  <div class="inbox-page-split panel-hidden">
 
     <!-- ◀ 왼쪽: 메시지 뷰 (기존 그대로) -->
     <div class="inbox-wrap">
@@ -3756,7 +3766,7 @@ select {
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">
           <button class="inbox-ai-btn" onclick="runInboxAI()">🗑 완료 일괄삭제</button>
           <button class="inbox-ai-btn" onclick="toggleInboxSearch()">🔍 AI 검색</button>
-          <button class="inbox-panel-toggle-btn" id="inboxPanelToggleBtn" onclick="toggleInboxPanel()">◧ 카테고리 보기 닫기</button>
+          <button class="inbox-panel-toggle-btn" id="inboxPanelToggleBtn" onclick="toggleInboxPanel()">◧ 카테고리 보기</button>
         </div>
       </div>
 
@@ -5118,6 +5128,7 @@ function saveTaskItemEdit(idx){
   t.catId=document.getElementById('taskEditCat')?.value||t.catId;
   t.priority=document.getElementById('taskEditPrio')?.value||'';
   saveTaskData();
+  _pushToNotion(t).catch(()=>{});
   document.querySelector('.nds-modal')?.remove();
   renderTaskList();
   renderTaskCal();
@@ -5286,7 +5297,7 @@ function toggleInboxPanel(){
   const btn   = document.getElementById('inboxPanelToggleBtn');
   if(!split) return;
   const hidden = split.classList.toggle('panel-hidden');
-  if(btn) btn.textContent = hidden ? '◨ 카테고리 보기 열기' : '◧ 카테고리 보기 닫기';
+  if(btn) btn.textContent = hidden ? '◧ 카테고리 보기' : '◧ 카테고리 닫기';
 }
 window.onload=()=>{
   renderMemos();renderResultList();renderApiStatus();loadSavedKey();loadAiSettings();
@@ -5968,7 +5979,7 @@ function updateHeaderInbox(){
     el.innerHTML='<div class="me-header-inbox-empty">비어있어</div>';
     return;
   }
-  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'기타',color:'#94a3b8'};
+  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'미분류',color:'#64748b'};
   el.innerHTML=active.slice(0,12).map(m=>{
     const cat=getCat(m.catId);
     return `<div class="me-header-inbox-item" onclick="goToInboxMsg(${m.id})" title="${esc(m.text)}">
@@ -6308,31 +6319,75 @@ function saveTodoFromModal(){
 
 // 체크 워크시트에서 task 가져오기
 function importTasksFromWs(wsAns){
+  // 체크에서 추가된 할일 → 카테고리 선택 후 할일탭에 추가
   const taskKeys=['task1','task2','task3'];
-  let added=0;
-  taskKeys.forEach((key,ki)=>{
+  const tasks=[];
+  taskKeys.forEach(function(key,ki){
     const raw=wsAns[key];
     if(!raw)return;
-    // task_item 객체 or 구버전 문자열 처리
     const text=typeof raw==='object'?(raw.text||'').trim():raw.trim();
     const longTask=typeof raw==='object'?!!raw.longTask:false;
     if(!text)return;
-    if(todoItems.find(t=>t.text===text))return;
-    const priority=ki===0?'high':ki===1?'high':'mid';
-    todoItems.unshift({
-      id:Date.now()+Math.random(),
-      text,priority,longTask,done:false,
-      date:new Date().toLocaleDateString('ko-KR')
+    tasks.push({text,longTask,priority:ki===0?'high':ki===1?'high':'mid'});
+  });
+  if(tasks.length===0)return;
+
+  // 카테고리 선택 모달
+  const wrap=document.createElement('div');
+  wrap.innerHTML='<div class="nds-modal-title">할일을 어떤 카테고리에 추가할까?</div>'
+    +'<div style="font-size:12px;color:var(--foreground-muted);margin-bottom:4px">체크에서 입력한 '+tasks.length+'개 할일을 할일 탭에 추가해</div>'
+    +'<div style="font-size:11px;color:var(--accent);font-family:var(--font-label);letter-spacing:1px;margin-bottom:14px;padding:6px 10px;background:rgba(45,255,170,.06);border-left:2px solid var(--accent)">'
+    +tasks.map(function(t){return '· '+esc(t.text)+(t.longTask?' ⏳':'');}).join('<br>')
+    +'</div>';
+
+  const listDiv=document.createElement('div');
+  listDiv.style.cssText='display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;';
+  taskCats.forEach(function(cat){
+    const btn=document.createElement('button');
+    btn.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--card);border:1px solid var(--border);font-family:inherit;font-size:13px;text-align:left;cursor:pointer;transition:border-color .15s;width:100%;';
+    btn.innerHTML='<span style="font-size:16px">'+cat.icon+'</span><div style="color:var(--foreground);font-weight:500">'+esc(cat.label)+'</div>';
+    btn.onmouseover=function(){this.style.borderColor='rgba(45,255,170,.4)';};
+    btn.onmouseout=function(){this.style.borderColor='var(--border)';};
+    btn.onclick=function(){
+      _addWsTasksToTab(tasks, cat.id);
+      document.querySelector('.nds-modal')&&document.querySelector('.nds-modal').remove();
+    };
+    listDiv.appendChild(btn);
+  });
+  wrap.appendChild(listDiv);
+  const btnRow=document.createElement('div');
+  btnRow.className='nds-btn-row';btnRow.style.marginTop='10px';
+  const skipBtn=document.createElement('button');
+  skipBtn.className='nds-btn-ghost';skipBtn.textContent='건너뛰기';
+  skipBtn.onclick=function(){document.querySelector('.nds-modal')&&document.querySelector('.nds-modal').remove();};
+  btnRow.appendChild(skipBtn);
+  wrap.appendChild(btnRow);
+  makeModal(wrap);
+}
+
+function _addWsTasksToTab(tasks, catId){
+  const today=new Date().toISOString().slice(0,10);
+  let added=0;
+  tasks.forEach(function(t){
+    if(taskItems.find(function(ti){return ti.text===t.text&&ti.catId===catId&&!ti.done;}))return;
+    taskItems.unshift({
+      id:'ti_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+      text:t.text, catId:catId,
+      priority:t.priority||'mid',
+      longTask:t.longTask||false,
+      done:false, date:today,
+      timeStart:'', timeEnd:'',
+      createdAt:Date.now()
     });
     added++;
   });
   if(added>0){
-    saveTodos();
-    // 나 탭이 현재 활성화된 경우에만 즉시 갱신
-    if(document.getElementById('page-me')?.classList.contains('active')){
-      renderMeTodo();
-    }
-    showToast(`${added}개 할 일이 나 탭에 추가됐어!`);
+    saveTaskData();
+    renderTaskList();renderTaskCal();renderMeTodo();
+    const cat=taskCats.find(function(c){return c.id===catId;});
+    showToast(added+'개 할일이 할일 탭 '+(cat?'['+cat.label+']':'')+'에 추가됐어!');
+  } else {
+    showToast('이미 모두 추가되어 있어');
   }
 }
 
@@ -6774,48 +6829,24 @@ async function generateStoryImage(storyEntry) {
 
 // ── 스토리 텍스트 분석 → 이미지 프롬프트 ──
 function _buildStoryImagePrompt(entry) {
-  const t = (entry.text || '').toLowerCase();
+  const storyText = (entry.text || '').slice(0, 280).replace(/"/g, "'");
   const npcs = entry.npcs || {};
 
-  const isNight  = /밤|어두|별|달|자정|새벽|잠|꿈/.test(t);
-  const isRain   = /비|빗|젖|우산|물/.test(t);
-  const isRoof   = /옥상|하늘|바람|구름|도시|거리|네온/.test(t);
-  const isCafe   = /카페|커피|차|음료|창가/.test(t);
-  const isAction = /임무|달려|집중|출발|싸움|전투/.test(t);
-  const isIndoor = /기지|방|침대|실내|창문/.test(t);
-  const isDark   = /두려움|공포|어둠|위험|추적/.test(t);
+  const npcHints = [];
+  if (npcs.chip)    npcHints.push('a small cat silhouette resting nearby');
+  if (npcs.verde)   npcHints.push('a potted plant with glowing leaves in corner');
+  if (npcs.handler) npcHints.push('a lone silhouetted figure standing far away');
 
-  const parts = [
-    '16-bit pixel art background, SNES era style, chunky pixels, visible dithering, hard pixel edges, ',
-    'limited color palette, retro game background, no characters, no people, no text, ',
-    'cyberpunk aesthetic, dark moody atmosphere, ',
-  ];
-
-  if (isRain && isNight)
-    parts.push('rainy cyberpunk night street, neon reflections on wet pavement, purple teal magenta neons, puddles, dramatic atmosphere, ');
-  else if (isRoof && isNight)
-    parts.push('cyberpunk city rooftop night, sweeping skyline, glowing skyscrapers, teal blue neon signs, stars, dramatic depth, ');
-  else if (isRoof)
-    parts.push('city rooftop dusk view, urban skyline, warm cool light, buildings with lit windows, atmospheric haze, ');
-  else if (isCafe)
-    parts.push('cozy cyberpunk cafe interior night, warm amber lighting, rain on window, city lights outside, intimate atmosphere, ');
-  else if (isAction)
-    parts.push('cyberpunk street night action, neon signs, dramatic shadows, urban corridor, energy motion, ');
-  else if (isDark)
-    parts.push('dark cyberpunk alley night, minimal neon light, deep shadows, oppressive atmosphere, dark blues and blacks, ');
-  else if (isIndoor && isNight)
-    parts.push('cyberpunk room at night, large window showing city skyline, blue neon ambient light, dark moody interior, ');
-  else if (isNight)
-    parts.push('cyberpunk city night panorama, skyscrapers glowing windows, neon lights, stars, dark blue palette, ');
-  else
-    parts.push('cyberpunk city skyline dusk, blue teal neon glow, urban atmosphere, buildings and lights, ');
-
-  if (npcs && npcs.chip)    parts.push('small cat silhouette visible, ');
-  if (npcs && npcs.verde)   parts.push('potted plant in corner, ');
-  if (npcs && npcs.handler) parts.push('lone figure silhouette in far distance, ');
-
-  parts.push('high quality pixel art, masterpiece, cinematic wide shot, no text');
-  return parts.join('');
+  return [
+    'Cinematic concept art background, wide panoramic scene, no characters, no people, no text. ',
+    'Inspired by this narrative moment: "' + storyText + '". ',
+    'Visualize the exact mood, location, and atmosphere described. ',
+    'Near-future cyberpunk city aesthetic. Rich neon lighting, deep shadows, wet streets or dramatic skies. ',
+    'Painterly digital illustration style — soft volumetric lighting, detailed environment, ',
+    'atmospheric depth of field, cinematic color grading, professional visual novel background quality. ',
+    npcHints.length ? 'Include these subtle environmental details: ' + npcHints.join(', ') + '. ' : '',
+    'No text, no UI elements, no humans. High detail. 4K quality.',
+  ].join('');
 }
 
 // ── 스토리 슬라이드 배경 업데이트 (비동기) ──
@@ -6921,8 +6952,7 @@ async function _renderStoryBg(storyEntry) {
       'position:absolute;inset:0;',
       'width:100%;height:100%;',
       'object-fit:cover;',
-      'image-rendering:pixelated;image-rendering:crisp-edges;',
-      'opacity:0;transition:opacity .6s ease;',
+      'opacity:0;transition:opacity .8s ease;',
       'z-index:1;',
     ].join('');
     vp.appendChild(bgImg);
@@ -6945,15 +6975,13 @@ async function _renderStoryBg(storyEntry) {
     const url = await generateStoryImage(storyEntry);
     if (!url || document.getElementById('storyBgImg') !== bgImg) return;
 
-    // AI 이미지를 픽셀아트로 변환 후 표시
-    _pixelateImage(url, vp.offsetWidth || 320, vp.offsetHeight || 120, function(pixelUrl) {
-      _storyImgCache[sid] = pixelUrl; // 픽셀화된 버전으로 캐시
-      bgImg.onload = () => {
-        bgImg.style.opacity = '1';
-        if (canvas) canvas.style.opacity = '0';
-      };
-      bgImg.src = pixelUrl;
-    });
+    // 고퀄리티 이미지 직접 표시
+    _storyImgCache[sid] = url;
+    bgImg.onload = () => {
+      bgImg.style.opacity = '1';
+      if (canvas) canvas.style.opacity = '0';
+    };
+    bgImg.src = url;
   } catch(e) {
     console.warn('Story bg render:', e.message);
   }
@@ -6973,11 +7001,9 @@ async function regenStoryBg() {
     const vp = document.getElementById('storyPixelCanvas')?.parentElement;
     const bgImg = document.getElementById('storyBgImg');
     if (bgImg && vp) {
-      _pixelateImage(url, vp.offsetWidth||320, vp.offsetHeight||120, function(pixelUrl) {
-        bgImg.src = pixelUrl; bgImg.style.opacity = '1';
-        const canvas = document.getElementById('storyPixelCanvas');
-        if (canvas) canvas.style.opacity = '0';
-      });
+      bgImg.src = url; bgImg.style.opacity = '1';
+      const canvas = document.getElementById('storyPixelCanvas');
+      if (canvas) canvas.style.opacity = '0';
     }
     showToast('배경 생성 완료! 🖼');
   } else {
@@ -8301,7 +8327,7 @@ const INBOX_DEFAULT_CATS=[
   {id:'daily',  label:'일상',    color:'#f9c74f'},
   {id:'health', label:'건강',    color:'#22d3ee'},
   {id:'idea',   label:'아이디어', color:'#a855f7'},
-  {id:'misc',   label:'기타',    color:'#808080'},
+  {id:'misc',   label:'미분류',   color:'#64748b'},
 ];
 
 let inboxItems=JSON.parse(localStorage.getItem('inbox_v1')||'[]');
@@ -8374,7 +8400,7 @@ function renderInboxMessages(scrollTop){
   }
 
   const prioLabel={high:'🔴 핵심',mid:'🟡 일반',low:'🟢 여유'};
-  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'기타',color:'#94a3b8'};
+  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'미분류',color:'#64748b'};
 
   el.innerHTML=items.map(m=>{
     const c=getCat(m.catId);
@@ -8529,19 +8555,59 @@ function deleteInboxItem(idx){
 
 function sendToTodo(idx){
   const m=inboxItems[idx];if(!m)return;
-  todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
-  if(todoItems.find(t=>t.text===m.text)){showToast('이미 할일에 있어');return;}
-  todoItems.unshift({
-    id:Date.now(),text:m.text,
-    priority:m.priority||'mid',
-    done:false,date:new Date().toLocaleDateString('ko-KR'),timeStart:'',timeEnd:''
+
+  // 카테고리 선택 모달 → 할일탭(taskItems)에 추가
+  const wrap=document.createElement('div');
+  wrap.innerHTML='<div class="nds-modal-title">할일탭 어느 카테고리로?</div>'
+    +'<div style="font-size:12px;color:var(--foreground-muted);margin-bottom:14px">「'+esc(m.text)+'」를 할일 탭에 추가할게</div>';
+  const listDiv=document.createElement('div');
+  listDiv.style.cssText='display:flex;flex-direction:column;gap:6px;max-height:280px;overflow-y:auto;';
+  taskCats.forEach(function(cat){
+    const btn=document.createElement('button');
+    btn.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--card);border:1px solid var(--border);font-family:inherit;font-size:13px;text-align:left;cursor:pointer;transition:border-color .15s;width:100%;';
+    btn.innerHTML='<span style="font-size:16px">'+cat.icon+'</span><div style="color:var(--foreground);font-weight:500">'+esc(cat.label)+'</div>';
+    btn.onmouseover=function(){this.style.borderColor='rgba(45,255,170,.4)';};
+    btn.onmouseout=function(){this.style.borderColor='var(--border)';};
+    btn.onclick=function(){
+      _confirmSendToTaskTab(idx, cat.id);
+      document.querySelector('.nds-modal')&&document.querySelector('.nds-modal').remove();
+    };
+    listDiv.appendChild(btn);
   });
-  localStorage.setItem('todo_items',JSON.stringify(todoItems));
-  inboxItems[idx].done=true;
+  wrap.appendChild(listDiv);
+  const btnRow=document.createElement('div');
+  btnRow.className='nds-btn-row';btnRow.style.marginTop='10px';
+  const cancelBtn=document.createElement('button');
+  cancelBtn.className='nds-btn-ghost';cancelBtn.textContent='취소';
+  cancelBtn.onclick=function(){document.querySelector('.nds-modal')&&document.querySelector('.nds-modal').remove();};
+  btnRow.appendChild(cancelBtn);
+  wrap.appendChild(btnRow);
+  makeModal(wrap);
+}
+
+function _confirmSendToTaskTab(inboxIdx, catId){
+  const m=inboxItems[inboxIdx];if(!m)return;
+  if(taskItems.find(function(t){return t.text===m.text&&t.catId===catId&&!t.done;})){
+    showToast('이미 해당 카테고리에 있어');return;
+  }
+  const today=new Date().toISOString().slice(0,10);
+  const newItem={
+    id:'ti_'+Date.now()+'_'+Math.random().toString(36).slice(2),
+    text:m.text, catId:catId,
+    priority:m.priority||'mid',
+    done:false, date:today,
+    timeStart:'', timeEnd:'',
+    createdAt:Date.now()
+  };
+  taskItems.unshift(newItem);
+  saveTaskData();
+  inboxItems[inboxIdx].done=true;
   const _el=document.getElementById('inboxMessages');
   const _st=_el?_el.scrollTop:0;
   saveInboxData();renderInboxMessages(_st);renderInboxCatTabs();updateHeaderInbox();renderItpPanel();
-  showToast('할일 탭으로 이동됐어!');
+  renderTaskList();renderTaskCal();renderMeTodo();
+  const cat=taskCats.find(function(c){return c.id===catId;});
+  showToast('할일 탭 '+(cat?'['+cat.icon+' '+cat.label+']':'')+'에 추가됐어!');
 }
 
 function openInboxItemEdit(idx){
@@ -8621,15 +8687,15 @@ function deleteInboxCat(i){
   const cat=inboxCats[i];
   if(!cat)return;
   const cnt=inboxItems.filter(m=>m.catId===cat.id).length;
-  const msg=cnt>0?`"${cat.label}" 카테고리를 삭제할까? 해당 항목 ${cnt}개는 기타로 이동돼.`:`"${cat.label}" 카테고리를 삭제할까?`;
+  const msg=cnt>0?`"${cat.label}" 카테고리를 삭제할까? 해당 항목 ${cnt}개는 미분류로 이동돼.`:`"${cat.label}" 카테고리를 삭제할까?`;
   if(!confirm(msg))return;
-  // 해당 항목 catId → misc
+  // 해당 항목 catId → misc(미분류)
   inboxItems.forEach(m=>{if(m.catId===cat.id)m.catId='misc';});
   saveInboxData();
   inboxCats.splice(i,1);
-  // 기본 카테고리가 없어지면 misc는 항상 유지
+  // misc(미분류)는 항상 유지
   if(!inboxCats.find(c=>c.id==='misc')){
-    inboxCats.push({id:'misc',label:'기타',color:'#94a3b8'});
+    inboxCats.push({id:'misc',label:'미분류',color:'#64748b'});
   }
   localStorage.setItem('inbox_cats_v1',JSON.stringify(inboxCats));
   if(fbUser)fbSaveAll();
@@ -8782,7 +8848,7 @@ function renderInboxWidget(){
     if(!groups[m.catId])groups[m.catId]=[];
     groups[m.catId].push(m);
   });
-  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'기타',color:'#94a3b8'};
+  const getCat=id=>inboxCats.find(c=>c.id===id)||{label:'미분류',color:'#64748b'};
   let html='<div class="inbox-widget-cats">';
   Object.keys(groups).forEach(catId=>{
     const cat=getCat(catId);
@@ -10069,7 +10135,7 @@ function renderMeTodo() {
 
     return `<div class="quest-item${t.done?' done':''}${isFocusing?' focusing':''}"
       style="border-left-color:${borderColor}"
-      onclick="toggleTodo(${realIdx})">
+      onclick="openTodoEdit(${realIdx})">
       <div class="quest-icon ${prio||'none'}">${t.done?'✓':prioIcon[prio]||'◦'}</div>
       <div class="quest-body">
         <div class="quest-text">${esc(t.text)}${t.longTask?'<span style="opacity:.5;font-size:9px;margin-left:4px">⏳</span>':''}</div>
@@ -10650,8 +10716,7 @@ function _hookNotionForTaskOps() {
   const origSubmit = submitTaskQuick;
   submitTaskQuick = function() {
     origSubmit();
-    // 방금 추가된 항목 (unshift이 아닌 push라서 마지막)
-    const item = taskItems[taskItems.length - 1];
+    const item = taskItems[0]; // unshift로 맨 앞에 추가됨
     if (item) _pushToNotion(item).catch(() => {});
   };
 
@@ -11649,7 +11714,6 @@ function _drawStoryPixel(text, npcs) {
 
   var W = vp.offsetWidth  || 200;
   var H = vp.offsetHeight || 100;
-  // 픽셀 아트 해상도 (1/3 스케일 → integer 업스케일)
   var PW = Math.max(80,  Math.floor(W / 3));
   var PH = Math.max(50,  Math.floor(H / 3));
 
@@ -11663,31 +11727,471 @@ function _drawStoryPixel(text, npcs) {
   ctx.imageSmoothingEnabled = false;
   ctx.clearRect(0, 0, PW, PH);
 
-  var scene = _analyzeScene(text, npcs);
-  var fn = _SCENES[scene] || _SCENES['base_night'];
-  fn(ctx, PW, PH, npcs);
+  // 텍스트 기반 시각 파라미터 추출
+  var vis = _extractVisuals(text);
+
+  // 씬 그리기
+  _drawProceduralScene(ctx, PW, PH, vis, npcs);
 
   // NPC 오버레이
   if (npcs) {
-    if (npcs.chip)    _drawNPCChip(ctx, Math.floor(PW*.1), Math.floor(PH*.65), 1);
-    if (npcs.verde)   _drawNPCVerde(ctx, Math.floor(PW*.82), Math.floor(PH*.6), 1);
-    if (npcs.handler) _drawNPCHandler(ctx, Math.floor(PW*.72), Math.floor(PH*.48), 1);
+    if (npcs.chip)    _drawNPCChip(ctx,    Math.floor(PW*.08), Math.floor(PH*.62));
+    if (npcs.verde)   _drawNPCVerde(ctx,   Math.floor(PW*.8),  Math.floor(PH*.58));
+    if (npcs.handler) _drawNPCHandler(ctx, Math.floor(PW*.68), Math.floor(PH*.44));
   }
 
   // 비네트
-  var vig = ctx.createRadialGradient(PW/2, PH/2, PH*.25, PW/2, PH/2, PH*.7);
-  vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(0,0,0,.45)');
+  var vig = ctx.createRadialGradient(PW/2, PH/2, PH*.2, PW/2, PH/2, PH*.75);
+  vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(0,0,0,.5)');
   ctx.fillStyle=vig; ctx.fillRect(0,0,PW,PH);
 
-  // 스캔라인 (미묘하게)
-  ctx.fillStyle='rgba(0,0,0,.06)';
-  for (var y=0; y<PH; y+=2) ctx.fillRect(0,y,PW,1);
+  // 스캔라인
+  ctx.fillStyle='rgba(0,0,0,.05)';
+  for (var sy=0; sy<PH; sy+=2) ctx.fillRect(0,sy,PW,1);
 }
 
+// ── 텍스트 → 시각 파라미터 추출 ──
+function _extractVisuals(text) {
+  if (!text) return _defaultVisuals();
+  var t = text.toLowerCase();
 
+  // 날씨
+  var isRain   = /비|빗|젖|우산|빗소리|촉촉|비가|물방울/.test(t);
+  var isStorm  = /폭풍|천둥|번개|거센 바람/.test(t);
+  var isFog    = /안개|뿌연|흐릿/.test(t);
+  var isSnow   = /눈|설경|하얗게 쌓|눈송이/.test(t);
+  var isClear  = !isRain && !isStorm && !isFog && !isSnow;
 
+  // 시간
+  var isDawn   = /새벽|동이|해뜨|이른 아침|동틀/.test(t);
+  var isMorning= /아침|오전|아직 이른/.test(t);
+  var isDay    = /낮|오후|햇빛|햇살/.test(t);
+  var isDusk   = /저녁|황혼|노을|해질/.test(t);
+  var isNight  = /밤|어두|자정|한밤|달빛|달이/.test(t);
+  var isMidnight=/자정|새벽 [12]시|한밤중/.test(t);
 
-// ── 슬라이드 변경 시 픽셀 업데이트 ──
+  // 장소/분위기
+  var isIndoor = /실내|방|기지|카페|서재|도서관|창가|소파|침대/.test(t);
+  var isRoof   = /옥상|하늘|난간|바람이/.test(t);
+  var isStreet = /거리|도로|골목|길|교차로/.test(t);
+  var isSea    = /바다|파도|항구|수평선|물가/.test(t);
+  var isForest = /숲|나무|공원|식물|이끼/.test(t);
+
+  // 감정/색조
+  var isMelancholy = /쓸쓸|외로|슬프|무겁|지쳐|피곤|힘들|공허/.test(t);
+  var isHope   = /설레|기대|희망|밝|따뜻|행복|웃음|가벼/.test(t);
+  var isTense  = /긴장|두렵|위험|추적|달려|피하/.test(t);
+  var isQuiet  = /조용|평온|고요|잔잔|차분|쉬/.test(t);
+  var isWarm   = /따뜻|포근|온기|훈훈/.test(t);
+
+  // 네온 색상 — 텍스트에서 분위기로 결정
+  var neonA, neonB, neonC;
+  if (isMelancholy)     { neonA='#0088cc'; neonB='#4444aa'; neonC='#224466'; }
+  else if (isHope)      { neonA='#2dffaa'; neonB='#ff44cc'; neonC='#ffcc00'; }
+  else if (isTense)     { neonA='#ff3355'; neonB='#cc00ff'; neonC='#ff7700'; }
+  else if (isQuiet)     { neonA='#00ccff'; neonB='#2dffaa'; neonC='#8866ff'; }
+  else if (isWarm)      { neonA='#ff9944'; neonB='#ffcc22'; neonC='#ff4488'; }
+  else                  { neonA='#2dffaa'; neonB='#f040ff'; neonC='#00ccff'; }
+
+  // 하늘 색
+  var skyTop, skyBot;
+  if (isMidnight)  { skyTop='#02030a'; skyBot='#04060e'; }
+  else if (isDawn) { skyTop='#160420'; skyBot='#2a0a18'; }
+  else if (isNight){ skyTop='#04070f'; skyBot='#070c18'; }
+  else if (isDusk) { skyTop='#0e0818'; skyBot='#180c10'; }
+  else if (isMorning){skyTop='#0a1428';skyBot='#12203a';}
+  else             { skyTop='#0c1a30'; skyBot='#1a2840'; }
+
+  // 별 개수
+  var starCount = (isNight||isMidnight) ? 80 : isDawn ? 30 : isDusk ? 20 : 0;
+
+  // 달 표시
+  var showMoon = isNight || isMidnight || isDawn;
+
+  return {
+    isRain, isStorm, isFog, isSnow, isClear,
+    isDawn, isMorning, isDay, isDusk, isNight, isMidnight,
+    isIndoor, isRoof, isStreet, isSea, isForest,
+    isMelancholy, isHope, isTense, isQuiet, isWarm,
+    neonA, neonB, neonC,
+    skyTop, skyBot, starCount, showMoon,
+    // 해시 — 같은 텍스트면 같은 배치
+    hash: _strHash(text)
+  };
+}
+
+function _defaultVisuals() {
+  return {
+    isRain:false, isNight:true, isIndoor:false,
+    neonA:'#2dffaa', neonB:'#f040ff', neonC:'#00ccff',
+    skyTop:'#04070f', skyBot:'#070c18',
+    starCount:50, showMoon:true,
+    isMelancholy:false, isHope:false, isTense:false, isQuiet:false,
+    hash:12345
+  };
+}
+
+function _strHash(str) {
+  var h=0;
+  for(var i=0;i<str.length;i++){h=(Math.imul(31,h)+str.charCodeAt(i))|0;}
+  return Math.abs(h);
+}
+
+// ── 시드 기반 랜덤 ──
+function _seededRand(seed) {
+  var s = seed;
+  return function() {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    return (s >>> 0) / 0xffffffff;
+  };
+}
+
+// ── 메인 씬 드로우 ──
+function _drawProceduralScene(ctx, W, H, v, npcs) {
+  var rng = _seededRand(v.hash || 42);
+
+  // ── 하늘 ──
+  var sky = ctx.createLinearGradient(0, 0, 0, H * 0.65);
+  sky.addColorStop(0, v.skyTop);
+  sky.addColorStop(1, v.skyBot);
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+
+  // ── 별 ──
+  if (v.starCount > 0) {
+    for (var si = 0; si < v.starCount; si++) {
+      var sx = Math.floor(rng() * W);
+      var sy = Math.floor(rng() * H * 0.65);
+      var sb = rng();
+      _bgPx(ctx, sx, sy, 1, 1, sb > 0.85 ? '#ffffff' : sb > 0.6 ? '#aabbdd' : '#6677aa');
+    }
+  }
+
+  // ── 달 (위치도 해시로 고정) ──
+  if (v.showMoon) {
+    var mx = Math.floor(W * (0.5 + (rng() - 0.5) * 0.5));
+    var my = Math.floor(H * (0.08 + rng() * 0.1));
+    var mr = 3 + Math.floor(rng() * 4);
+    _drawMoon(ctx, mx, my, mr);
+  }
+
+  // ── 새벽 글로우 ──
+  if (v.isDawn) {
+    var dg = ctx.createRadialGradient(W * 0.3, H * 0.5, 0, W * 0.3, H * 0.5, W * 0.5);
+    dg.addColorStop(0, 'rgba(180,80,120,.12)'); dg.addColorStop(1, 'transparent');
+    ctx.fillStyle = dg; ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── 씬 타입별 배경 ──
+  if (v.isSea) {
+    _procDrawSea(ctx, W, H, v, rng);
+  } else if (v.isForest) {
+    _procDrawForest(ctx, W, H, v, rng);
+  } else if (v.isRoof) {
+    _procDrawRooftop(ctx, W, H, v, rng);
+  } else if (v.isIndoor) {
+    _procDrawIndoor(ctx, W, H, v, rng);
+  } else {
+    _procDrawStreet(ctx, W, H, v, rng);
+  }
+
+  // ── 비/눈/안개 ──
+  if (v.isStorm || v.isRain) _drawRain(ctx, W, H, v.isStorm ? 90 : 45, v.hash % 100);
+  if (v.isSnow) _procDrawSnow(ctx, W, H, rng);
+  if (v.isFog) {
+    var fg = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+    fg.addColorStop(0, 'rgba(140,160,180,.18)'); fg.addColorStop(1, 'transparent');
+    ctx.fillStyle = fg; ctx.fillRect(0, 0, W, H);
+  }
+
+  // ── 감정 환경광 ──
+  if (v.isMelancholy) {
+    var mg = ctx.createRadialGradient(W*0.5, H*0.4, 0, W*0.5, H*0.4, W*0.5);
+    mg.addColorStop(0, 'rgba(0,60,120,.08)'); mg.addColorStop(1, 'transparent');
+    ctx.fillStyle = mg; ctx.fillRect(0, 0, W, H);
+  }
+  if (v.isWarm) {
+    var wg = ctx.createRadialGradient(W*0.5, H*0.4, 0, W*0.5, H*0.4, W*0.45);
+    wg.addColorStop(0, 'rgba(255,160,60,.07)'); wg.addColorStop(1, 'transparent');
+    ctx.fillStyle = wg; ctx.fillRect(0, 0, W, H);
+  }
+  if (v.isTense) {
+    var tg = ctx.createLinearGradient(0, 0, W, H);
+    tg.addColorStop(0, 'rgba(180,0,0,.04)'); tg.addColorStop(1, 'rgba(100,0,180,.04)');
+    ctx.fillStyle = tg; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+// ── 거리/도시 씬 ──
+function _procDrawStreet(ctx, W, H, v, rng) {
+  var groundY = Math.floor(H * (0.62 + rng() * 0.08));
+
+  // 도시 스카이라인 (해시 기반 유니크 빌딩 배치)
+  var bx = 0;
+  while (bx < W) {
+    var bw = 4 + Math.floor(rng() * 14);
+    var bh = Math.floor(H * (0.25 + rng() * 0.5));
+    var by = groundY - bh;
+    // 어두운 건물
+    var bldCol = v.isNight ? '#080c1a' : '#0c1828';
+    _bgPx(ctx, bx, by, bw, bh, bldCol);
+    // 창문들 (유니크 패턴)
+    for (var wy = by+2; wy < groundY-1; wy+=3) {
+      for (var wx = bx+1; wx < bx+bw-1; wx+=2) {
+        var wlit = rng();
+        if (wlit > 0.55) continue;
+        var wc = wlit < 0.15 ? v.neonA+'80'
+               : wlit < 0.28 ? v.neonB+'60'
+               : wlit < 0.38 ? '#ffb84440'
+               : '#0c1624';
+        _bgPx(ctx, wx, wy, 1, 1, wc);
+      }
+    }
+    // 안테나/첨탑
+    if (bw > 8 && rng() > 0.5) {
+      var antH = 2 + Math.floor(rng() * 4);
+      _bgPx(ctx, bx + Math.floor(bw/2), by - antH, 1, antH, '#1a2840');
+      _bgPx(ctx, bx + Math.floor(bw/2), by - antH - 1, 1, 1, v.neonA);
+    }
+    bx += bw + 1;
+  }
+
+  // 네온 사인들 (위치·색상 고정)
+  var signCount = 2 + Math.floor(rng() * 3);
+  for (var si2 = 0; si2 < signCount; si2++) {
+    var sx = Math.floor(rng() * W * 0.8);
+    var sy2 = Math.floor(H * (0.28 + rng() * 0.2));
+    var sw = 4 + Math.floor(rng() * 10);
+    var sh = 2 + Math.floor(rng() * 3);
+    var sc = si2 % 3 === 0 ? v.neonA : si2 % 3 === 1 ? v.neonB : v.neonC;
+    _drawNeonSign(ctx, sx, sy2, sw, sh, sc, sc);
+  }
+
+  // 바닥
+  _bgPx(ctx, 0, groundY, W, H - groundY, v.isRain ? '#06080c' : '#07090e');
+  _bgPx(ctx, 0, groundY, W, 1, '#1a2840');
+
+  // 웨트 리플렉션
+  if (v.isRain || v.isMelancholy) {
+    _drawWetReflection(ctx, W, H, groundY, [
+      v.neonA.replace('#','rgba(').split('').join('')+',.10)',
+      v.neonB.replace('#','rgba(').split('').join('')+',.07)'
+    ].map(function(c){
+      // 색상 파싱 실패 방어
+      try {
+        var hex=c.split('rgba(')[1]||'';
+        return 'rgba(45,255,170,.08)';
+      } catch(e){return 'rgba(45,255,170,.08)';}
+    }));
+    // 간단히
+    ctx.save(); ctx.fillStyle = v.neonA+'18';
+    ctx.fillRect(0, groundY, W, (H-groundY)*0.4);
+    ctx.fillStyle = v.neonB+'10';
+    ctx.fillRect(0, groundY, W, (H-groundY)*0.3);
+    ctx.restore();
+  }
+
+  // 가로등 (위치 고정)
+  var lampCount = 1 + Math.floor(rng() * 3);
+  for (var li = 0; li < lampCount; li++) {
+    var lx = Math.floor(rng() * W);
+    _bgPx(ctx, lx, Math.floor(H*0.3), 1, Math.floor(H*0.32), '#141c28');
+    var lg = ctx.createRadialGradient(lx, H*0.3, 0, lx, H*0.3, W*0.1);
+    lg.addColorStop(0,'rgba(255,200,80,.10)'); lg.addColorStop(1,'transparent');
+    ctx.fillStyle=lg; ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ── 실내 씬 ──
+function _procDrawIndoor(ctx, W, H, v, rng) {
+  // 실내 배경
+  _bgPx(ctx, 0, 0, W, H, '#080c14');
+  _bgPx(ctx, 0, Math.floor(H*.68), W, Math.floor(H*.32), '#06080e');
+  _bgPx(ctx, 0, Math.floor(H*.68), W, 1, '#1a2840');
+
+  // 창문 크기/위치 — 해시로 결정
+  var numWindows = 1 + Math.floor(rng() * 2);
+  for (var wi = 0; wi < numWindows; wi++) {
+    var wx = Math.floor(W * (wi === 0 ? 0.06 + rng()*0.1 : 0.52 + rng()*0.1));
+    var wy = Math.floor(H * (0.05 + rng() * 0.05));
+    var ww = Math.floor(W * (0.25 + rng() * 0.3));
+    var wh = Math.floor(H * (0.4 + rng() * 0.15));
+    _bgPx(ctx, wx, wy, ww, wh, '#030810');
+    // 창밖 야경
+    ctx.save(); ctx.beginPath(); ctx.rect(wx+1, wy+1, ww-2, wh-2); ctx.clip();
+    _drawStarfield(ctx, ww, wh, Math.floor(rng()*60)+20);
+    if (v.showMoon) _drawMoon(ctx, Math.floor(ww*0.7), Math.floor(wh*0.2), 3);
+    _drawCityscape(ctx, ww, wh, {skyH:wh, seed:v.hash%200, palette:{
+      lit: v.neonA+'80', off:'#08080e', bld:'#0a0b1a'
+    }});
+    ctx.restore();
+    // 창틀
+    _bgPx(ctx, wx, wy, ww, 1, '#1e3050');
+    _bgPx(ctx, wx, wy+wh, ww, 1, '#1e3050');
+    _bgPx(ctx, wx, wy, 1, wh, '#1e3050');
+    _bgPx(ctx, wx+ww, wy, 1, wh, '#1e3050');
+    if (numWindows === 1) _bgPx(ctx, wx+Math.floor(ww/2), wy, 1, wh, '#1a2840');
+  }
+
+  // 실내 오브젝트 — 해시로 선택
+  var objType = v.hash % 4;
+  if (objType === 0) {
+    // 책상 + 모니터
+    _bgPx(ctx, Math.floor(W*.05), Math.floor(H*.62), Math.floor(W*.9), 2, '#162030');
+    _bgPx(ctx, Math.floor(W*.25), Math.floor(H*.45), Math.floor(W*.4), Math.floor(H*.18), '#0a1220');
+    _bgPx(ctx, Math.floor(W*.25), Math.floor(H*.45), Math.floor(W*.4), 1, '#1a3050');
+    // 모니터 글로우
+    var monG = ctx.createRadialGradient(W*.45, H*.54, 0, W*.45, H*.54, W*.25);
+    monG.addColorStop(0, v.neonA+'20'); monG.addColorStop(1, 'transparent');
+    ctx.fillStyle=monG; ctx.fillRect(0,0,W,H);
+  } else if (objType === 1) {
+    // 커피잔
+    _bgPx(ctx, Math.floor(W*.42), Math.floor(H*.62), 7, 4, '#0c1008');
+    _bgPx(ctx, Math.floor(W*.41), Math.floor(H*.65), 9, 2, '#0c1008');
+    ctx.save(); ctx.strokeStyle='rgba(200,200,200,.14)'; ctx.lineWidth=0.8;
+    ctx.beginPath(); ctx.moveTo(W*.44,H*.6); ctx.bezierCurveTo(W*.43,H*.54,W*.46,H*.51,W*.44,H*.46); ctx.stroke();
+    ctx.restore();
+  } else if (objType === 2) {
+    // 침대/소파
+    _bgPx(ctx, Math.floor(W*.1), Math.floor(H*.55), Math.floor(W*.8), Math.floor(H*.12), '#0c1018');
+    _bgPx(ctx, Math.floor(W*.1), Math.floor(H*.55), Math.floor(W*.8), 2, '#1a2840');
+    _bgPx(ctx, Math.floor(W*.12), Math.floor(H*.52), Math.floor(W*.2), Math.floor(H*.05), '#1a2030');
+  } else {
+    // 책장
+    for (var bi=0; bi<3; bi++) {
+      var bsx = Math.floor(W*(0.05+bi*0.3));
+      for (var bsy=Math.floor(H*.1); bsy<H*.6; bsy+=Math.floor(H*.12)) {
+        _bgPx(ctx, bsx, bsy, Math.floor(W*.25), 1, '#1a1e28');
+        var bxx2=bsx+1;
+        while(bxx2<bsx+Math.floor(W*.24)){
+          var bw2=2+Math.floor(rng()*4);
+          var bh2=Math.floor(H*.07)+Math.floor(rng()*H*.03);
+          var bc2=(bxx2+bsy)%4;
+          _bgPx(ctx,bxx2,bsy-bh2,bw2,bh2,bc2===0?'#200808':bc2===1?'#080820':bc2===2?'#082008':'#12100a');
+          bxx2+=bw2+1;
+        }
+      }
+    }
+  }
+
+  // 네온 환경광
+  var ng = ctx.createRadialGradient(W*.5, H*.8, 0, W*.5, H*.8, W*.45);
+  ng.addColorStop(0, v.neonA+'10'); ng.addColorStop(1, 'transparent');
+  ctx.fillStyle=ng; ctx.fillRect(0,0,W,H);
+  // 작은 네온 사인 하나
+  _drawNeonSign(ctx, Math.floor(W*(0.1+rng()*0.2)), Math.floor(H*(0.7+rng()*0.1)),
+    4+Math.floor(rng()*6), 2, v.neonA, v.neonA);
+}
+
+// ── 옥상 씬 ──
+function _procDrawRooftop(ctx, W, H, v, rng) {
+  var horizY = Math.floor(H * (0.5 + rng() * 0.1));
+  // 도시 스카이라인
+  _drawCityscape(ctx, W, horizY, {skyH:horizY, seed:v.hash%300, palette:{
+    lit: v.neonA+'80', off:'#08080e', bld:'#09091a'
+  }});
+  // 옥상 바닥
+  _bgPx(ctx, 0, horizY, W, H-horizY, '#0b1018');
+  _bgPx(ctx, 0, horizY, W, 1, '#1e3040');
+  // 타일 무늬
+  for (var ti=0; ti<Math.floor(W/7); ti++) _bgPx(ctx,ti*7,horizY+1,1,H-horizY-1,'rgba(255,255,255,.02)');
+  // 난간
+  var railH = 3 + Math.floor(rng()*2);
+  for (var ri=0; ri<Math.floor(W/4); ri++) _bgPx(ctx,ri*4+1,horizY-railH,2,railH,'#182840');
+  _bgPx(ctx, 0, horizY-1, W, 1, '#253550');
+  // 네온 사인 2개
+  _drawNeonSign(ctx, Math.floor(W*(0.05+rng()*0.1)), Math.floor(H*(0.3+rng()*0.1)), 7+Math.floor(rng()*5), 3, v.neonA, v.neonA);
+  _drawNeonSign(ctx, Math.floor(W*(0.6+rng()*0.2)),  Math.floor(H*(0.28+rng()*0.12)), 6+Math.floor(rng()*4), 2, v.neonB, v.neonB);
+  // 물탱크/환기구 (옥상 오브젝트)
+  if (rng() > 0.4) {
+    _bgPx(ctx, Math.floor(W*(0.15+rng()*0.3)), horizY+2, 6, 8, '#0c1018');
+    _bgPx(ctx, Math.floor(W*(0.6+rng()*0.2)),  horizY+3, 4, 6, '#0c1018');
+  }
+  // 바닥 반사
+  var ref = ctx.createLinearGradient(0, horizY, 0, H);
+  ref.addColorStop(0, v.neonA+'08'); ref.addColorStop(1,'transparent');
+  ctx.fillStyle=ref; ctx.fillRect(0,horizY,W,H);
+}
+
+// ── 바다/항구 씬 ──
+function _procDrawSea(ctx, W, H, v, rng) {
+  var horizY = Math.floor(H * (0.45 + rng() * 0.1));
+  _drawCityscape(ctx, W, horizY, {skyH:horizY, seed:v.hash%400, palette:{
+    lit:v.neonA+'60', off:'#07080c', bld:'#090a18'
+  }});
+  // 바다
+  _bgPx(ctx, 0, horizY, W, H-horizY, '#040810');
+  _bgPx(ctx, 0, horizY, W, 1, '#0d1830');
+  // 달빛 반사
+  var mr2 = ctx.createLinearGradient(W*.5, horizY, W*.7, H);
+  mr2.addColorStop(0,'rgba(255,252,200,.14)'); mr2.addColorStop(1,'transparent');
+  ctx.fillStyle=mr2; ctx.fillRect(0,horizY,W,H-horizY);
+  // 물결 (위치 고정)
+  ctx.save(); ctx.strokeStyle='rgba(100,150,200,.18)'; ctx.lineWidth=0.5;
+  for (var ww2=0; ww2<4; ww2++) {
+    ctx.beginPath();
+    for (var wx2=0; wx2<W; wx2++) {
+      var wy2=horizY + Math.floor(H*(0.06+ww2*.07)) + Math.sin(wx2*0.18+ww2*1.2)*1.5;
+      if(wx2===0) ctx.moveTo(wx2,wy2); else ctx.lineTo(wx2,wy2);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+  // 배 실루엣
+  if (rng() > 0.3) {
+    var bsx2=Math.floor(W*(0.1+rng()*0.3));
+    var bsy2=Math.floor(horizY + H*0.08);
+    _bgPx(ctx, bsx2, bsy2, 18, 4, '#07090e');
+    _bgPx(ctx, bsx2+7, horizY+2, 1, 8, '#090c14');
+  }
+  // 항구 네온
+  _drawNeonSign(ctx, Math.floor(W*(0.6+rng()*0.2)), Math.floor(H*(0.35+rng()*0.08)), 6, 2, v.neonA, v.neonA);
+}
+
+// ── 숲 씬 ──
+function _procDrawForest(ctx, W, H, v, rng) {
+  var groundY = Math.floor(H * (0.65 + rng() * 0.08));
+  _bgPx(ctx, 0, groundY, W, H-groundY, '#050c08');
+  _bgPx(ctx, 0, groundY, W, 1, '#0e2010');
+
+  // 나무들 (위치 해시 고정)
+  var treeCount = 5 + Math.floor(rng() * 5);
+  for (var ti2=0; ti2<treeCount; ti2++) {
+    var tx = Math.floor(rng() * W);
+    var th2 = Math.floor(H * (0.3 + rng() * 0.25));
+    var ty = groundY - th2;
+    _bgPx(ctx, tx, ty, 2, th2, '#061008');
+    // 잎 삼각형 레이어
+    for (var li2=0; li2<3; li2++) {
+      var lw2=Math.floor((3-li2)*W*0.04)+4;
+      var lx2=tx-Math.floor(lw2/2)+1;
+      var ly2=ty-(li2+1)*Math.floor(H*.06);
+      _bgPx(ctx,lx2,ly2,lw2,Math.floor(H*.07),li2===0?'#1a4420':li2===1?'#0c2810':'#081808');
+    }
+    // 네온 하이라이트
+    _bgPx(ctx, tx+1, ty, 1, Math.floor(H*.12), v.neonA+'60');
+  }
+  // 발광 버섯 (위치 고정)
+  var shroomCount = 2 + Math.floor(rng() * 3);
+  for (var shi=0; shi<shroomCount; shi++) {
+    var shx=Math.floor(rng()*W*0.9), shy=Math.floor(groundY+H*0.02);
+    _bgPx(ctx,shx,shy,3,2,'#0a1a08');
+    _bgPx(ctx,shx-1,shy-1,5,1, shi%2===0?v.neonA:v.neonB);
+    var shg=ctx.createRadialGradient(shx+1,shy,0,shx+1,shy,6);
+    shg.addColorStop(0,(shi%2===0?v.neonA:v.neonB)+'44'); shg.addColorStop(1,'transparent');
+    ctx.fillStyle=shg; ctx.fillRect(0,0,W,H);
+  }
+}
+
+// ── 눈 ──
+function _procDrawSnow(ctx, W, H, rng) {
+  ctx.save(); ctx.fillStyle='rgba(220,235,255,.45)';
+  for (var sni=0; sni<Math.floor(W*H*0.004); sni++) {
+    var snx=Math.floor(rng()*W), sny=Math.floor(rng()*H);
+    ctx.fillRect(snx, sny, 1, 1);
+  }
+  ctx.restore();
+}
+
 function _updateStoryPixel(s) {
   if (!s) {
     _drawStoryPixel('', {});
@@ -11698,18 +12202,18 @@ function _updateStoryPixel(s) {
 
 // ── 트리거 종류별 딜레이 ──
 var _STORY_DELAY = {
-  task_done:  8000,   // 할일 완료 — 8초 후
-  charge:    15000,   // 충전 추가 — 15초 후
-  drain:     15000,   // 방전 추가 — 15초 후
-  checkin:    5000,   // 체크인 완료 — 5초 후
-  battery:   20000,   // 배터리 변화 — 20초 후
+  task_done: 30000,   // 할일 완료 — 30초 후
+  charge:    40000,   // 충전 추가 — 40초 후
+  drain:     40000,   // 방전 추가 — 40초 후
+  checkin:   20000,   // 체크인 완료 — 20초 후
+  battery:   60000,   // 배터리 변화 — 60초 후
   random:        0,   // 랜덤 (자체 타이머)
 };
 
 function _triggerStoryRegen(reason){
   if(!API_KEY) return;
   var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
-  if(todayParts.length >= 12) return;
+  if(todayParts.length >= 6) return;
 
   var delay = _STORY_DELAY[reason] || 10000;
   if(_storyAutoTimer) clearTimeout(_storyAutoTimer);
@@ -11723,13 +12227,13 @@ function _triggerStoryRegen(reason){
 var _storyRandomTimer = null;
 function _scheduleRandomStory(){
   if(_storyRandomTimer) clearTimeout(_storyRandomTimer);
-  var min = 20 * 60 * 1000;
-  var max = 45 * 60 * 1000;
+  var min = 60 * 60 * 1000;   // 60분
+  var max = 120 * 60 * 1000;  // 120분
   var delay = min + Math.floor(Math.random() * (max - min));
   _storyRandomTimer = setTimeout(function(){
     _storyRandomTimer = null;
     var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
-    if(API_KEY && todayParts.length < 12) generateStory();
+    if(API_KEY && todayParts.length < 6) generateStory();
     _scheduleRandomStory(); // 다음 랜덤 예약
   }, delay);
 }
