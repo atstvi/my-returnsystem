@@ -3125,6 +3125,16 @@ select {
   flex: 1; overflow: hidden; min-height: 0;
   position: relative;
 }
+.story-pixel-bg {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+  opacity: .13;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity .6s ease;
+}
+.story-slide-track { position: relative; z-index: 1; }
 .story-slide-track {
   display: flex;
   width: 100%; height: 100%;
@@ -3384,6 +3394,7 @@ select {
 
         <!-- 본문: 슬라이드 뷰포트 -->
         <div class="story-slide-viewport">
+          <canvas id="storyPixelCanvas" class="story-pixel-bg"></canvas>
           <div class="story-slide-track" id="storySlideTrack">
             <div class="story-slide" id="storyBody">
               <span class="dim">// STANDBY — 교신 대기 중</span>
@@ -4269,39 +4280,56 @@ function renderTaskList(){
     groups[t.catId].push(t);
   });
 
-  // 카테고리 순서: taskCats 순, 없는 catId는 맨 뒤
-  const orderedCats=[
-    ...taskCats.filter(c=>groups[c.id]),
-    ...Object.keys(groups).filter(id=>!taskCats.find(c=>c.id===id)).map(id=>({id,label:'기타',color:'#94a3b8',icon:'📌'}))
-  ];
+  // taskCats 순서 그대로 전체 표시 (할일 없는 카테고리도 헤더만 표시)
+  // groups에 없는 catId가 있으면 빈 배열로 처리
+  // 알 수 없는 catId(삭제된 카테고리)는 맨 뒤에
+  const unknownCats = Object.keys(groups)
+    .filter(id => !taskCats.find(c => c.id === id))
+    .map(id => ({id, label:'기타', color:'#94a3b8', icon:'📌'}));
+  const allCats = [...taskCats, ...unknownCats];
 
-  // 비어있으면 모든 카테고리 헤더만 표시
-  if(orderedCats.length===0){
+  // 날일이 하나도 없으면 안내 문구
+  if(allForDay.length === 0){
     listEl.innerHTML=`
       <div class="task-list-empty" style="flex:0;padding:20px 14px">
         <span style="font-size:22px;opacity:.3">✦</span>
         <span>이날 할일이 없어</span>
-      </div>
-      ${taskCats.map(c=>`
+      </div>`;
+    // 그래도 카테고리 헤더는 순서대로 표시
+    listEl.innerHTML += allCats.map(c=>`
         <div class="task-sec" id="taskSec-${c.id}">
           <div class="task-sec-head" style="border-left-color:${c.color}">
             <span class="task-sec-icon">${c.icon}</span>
-            <span class="task-sec-name" style="color:${c.color}">${esc(c.label)}</span>
+            <span class="task-sec-name" id="catName-${c.id}" style="color:${c.color}">${esc(c.label)}</span>
+            <button class="task-sec-rename-btn" title="이름 편집"
+              onclick="event.stopPropagation();startCatRename('${c.id}')">✎</button>
             <span class="task-sec-count"></span>
             <button class="task-sec-add" style="border-color:${c.color};color:${c.color}"
               onclick="event.stopPropagation();openTaskQuickAdd('${c.id}')">+</button>
           </div>
           <div class="task-sec-items" id="taskSecItems-${c.id}"></div>
-        </div>`).join('')}`;
+        </div>`).join('');
     return;
   }
 
-  // 카테고리가 있는 것들 + 없는 카테고리도 헤더만
-  const renderedCatIds=new Set(orderedCats.map(c=>c.id));
-  const emptyCats=taskCats.filter(c=>!renderedCatIds.has(c.id));
-
   const _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
-  listEl.innerHTML=orderedCats.map(cat=>{
+  listEl.innerHTML=allCats.map(cat=>{
+    // 할일 없는 카테고리 → 헤더만
+    if(!groups[cat.id]){
+      return `<div class="task-sec${_secCollapsed[cat.id]?' collapsed':''}" id="taskSec-${cat.id}">
+        <div class="task-sec-head" style="border-left-color:${cat.color}" onclick="toggleTaskSec('${cat.id}')">
+          <span class="task-sec-icon">${cat.icon}</span>
+          <span class="task-sec-name" id="catName-${cat.id}" style="color:${cat.color}">${esc(cat.label)}</span>
+          <button class="task-sec-rename-btn" title="이름 편집"
+            onclick="event.stopPropagation();startCatRename('${cat.id}')">✎</button>
+          <span class="task-sec-count"></span>
+          <button class="task-sec-add" style="border-color:${cat.color};color:${cat.color}"
+            onclick="event.stopPropagation();openTaskQuickAdd('${cat.id}')">+</button>
+          <span class="task-sec-toggle">▾</span>
+        </div>
+        <div class="task-sec-items" id="taskSecItems-${cat.id}"></div>
+      </div>`;
+    }
     const items=groups[cat.id];
     // 시간 순 정렬 (시간없으면 뒤)
     items.sort((a,b)=>{
@@ -4350,19 +4378,7 @@ function renderTaskList(){
       </div>
     </div>`;
   }).join('')
-  + emptyCats.map(c=>`
-    <div class="task-sec${_secCollapsed[c.id]?' collapsed':''}" id="taskSec-${c.id}">
-      <div class="task-sec-head" style="border-left-color:${c.color}">
-        <span class="task-sec-icon">${c.icon}</span>
-        <span class="task-sec-name" id="catName-${c.id}" style="color:${c.color}">${esc(c.label)}</span>
-        <button class="task-sec-rename-btn" title="이름 편집"
-          onclick="event.stopPropagation();startCatRename('${c.id}')">✎</button>
-        <span class="task-sec-count"></span>
-        <button class="task-sec-add" style="border-color:${c.color};color:${c.color}"
-          onclick="event.stopPropagation();openTaskQuickAdd('${c.id}')">+</button>
-      </div>
-      <div class="task-sec-items" id="taskSecItems-${c.id}"></div>
-    </div>`).join('');
+
 }
 
 
@@ -4417,10 +4433,13 @@ function toggleTaskSec(catId){
 // ── 할일 토글 ──
 function toggleTaskItem(idx){
   if(!taskItems[idx])return;
-  taskItems[idx].done=!taskItems[idx].done;
+  var wasDone = taskItems[idx].done;
+  taskItems[idx].done = !wasDone;
   saveTaskData();
   renderTaskList();
   renderTaskCal();
+  // 완료로 바뀔 때만 트리거
+  if(!wasDone && taskItems[idx].done) _triggerStoryRegen('task_done');
 }
 function deleteTaskItem(idx){
   if(!confirm('삭제할까?'))return;
@@ -4773,6 +4792,7 @@ window.onload=()=>{
   renderPhilEdit();renderQEdit();initRewardData();renderRewards();renderMetricsPanel();
   initMeTab();renderMeTab();
   renderInboxCatSelect&&renderInboxCatSelect();
+  _scheduleRandomStory(); // 랜덤 자동생성 타이머 시작
   renderTodayDrain();
   updateHeaderFocus();
   updateHeaderInbox();
@@ -4875,6 +4895,7 @@ function getRpgData(){
 function saveRpgData(d){
   localStorage.setItem('rpg_obs_v1',JSON.stringify(d));
   if(fbUser)fbSaveAll();
+  if(typeof _triggerStoryRegen==='function') _triggerStoryRegen('battery');
 }
 function getTodayKey(){
   const n=new Date();
@@ -5310,6 +5331,7 @@ function addTodayCharge(name){
   if(arr.indexOf(name)===-1)arr.push(name);
   saveTodayCharges(arr);
   renderTodayCharge();
+  _triggerStoryRegen('charge');
 }
 
 function removeTodayCharge(idx){
@@ -5371,6 +5393,7 @@ function addTodayDrain(name){
   if(arr.indexOf(name)===-1)arr.push(name);
   saveTodayDrains(arr);
   renderTodayDrain();
+  _triggerStoryRegen('drain');
 }
 function removeTodayDrain(idx){
   const arr=getTodayDrains();
@@ -5760,7 +5783,7 @@ function saveTodoFromModal(){
   saveTodos();
   document.querySelector('.nds-modal')?.remove();
   renderMeTodo();showToast('추가됐어!');
-  _triggerStoryRegen();
+  _triggerStoryRegen('checkin');
 }
 
 // 체크 워크시트에서 task 가져오기
@@ -9470,16 +9493,351 @@ function _updateNpcChips(npcs) {
 }
 
 // ── 스토리 자동 재생성 트리거 ──
-function _triggerStoryRegen(){
-  if(!API_KEY)return;
-  // 오늘 이미 12조각 이상이면 생성 안 함
-  const todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
+
+// ═══════════════════════════════════════════════════════════
+// SECTOR 7 픽셀 일러스트 시스템
+// ═══════════════════════════════════════════════════════════
+
+// ── 씬 분석: 텍스트 키워드 → 씬 타입 ──
+function _analyzeScene(text, npcs) {
+  if (!text) return 'base';
+  var t = text.toLowerCase();
+
+  // 날씨/시간
+  var isNight  = /밤|어두|별|달빛|자정|새벽|잠|꿈/.test(t);
+  var isRain   = /비|빗|젖|우산|물소리|촉촉/.test(t);
+  var isCafe   = /카페|커피|차|음료|창가|테이블/.test(t);
+  var isRoof   = /옥상|하늘|바람|구름|바깥|거리|네온/.test(t);
+  var isHome   = /기지|방|침대|소파|창문|따뜻/.test(t);
+  var isAction = /임무|수행|달려|움직|출발|집중/.test(t);
+
+  var hasChip    = npcs && npcs.chip;
+  var hasVerde   = npcs && npcs.verde;
+  var hasHandler = npcs && npcs.handler;
+
+  if (isRain && isNight)  return 'rain_night';
+  if (isRain)             return 'rain_day';
+  if (isRoof && isNight)  return 'rooftop_night';
+  if (isRoof)             return 'rooftop_day';
+  if (isCafe)             return 'cafe';
+  if (isNight && isHome)  return 'base_night';
+  if (isAction)           return 'street';
+  if (isNight)            return 'base_night';
+  return 'base_day';
+}
+
+// ── 팔레트 ──
+var _SP = {
+  // 공통
+  bg_dark:  '#0a0f0c',
+  bg_mid:   '#111a15',
+  accent:   '#2dffaa',
+  accent2:  '#1aaa77',
+  warn:     '#f0b429',
+  pink:     '#f040ff',
+  blue:     '#60a5fa',
+  border:   '#1e3028',
+  // 씬별 하늘
+  sky_night:'#060d12',
+  sky_dawn: '#1a0d2e',
+  sky_day:  '#0d1f2d',
+  sky_rain: '#0a1218',
+  // 네온
+  neon_g:   '#2dffaa',
+  neon_p:   '#f040ff',
+  neon_b:   '#60a5fa',
+};
+
+// ── 픽셀 그리기 유틸 ──
+function _px(ctx, x, y, w, h, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(x, y, w, h);
+}
+
+// ── 건물 실루엣 ──
+function _drawBuildings(ctx, W, H, palette) {
+  var buildings = [
+    {x:0,   w:18, h:0.55, col:'#0d1a12'},
+    {x:16,  w:12, h:0.65, col:'#0a1510'},
+    {x:26,  w:22, h:0.50, col:'#0f1e15'},
+    {x:46,  w:10, h:0.72, col:'#0d1a12'},
+    {x:54,  w:16, h:0.58, col:'#0a1510'},
+    {x:68,  w:20, h:0.48, col:'#111f18'},
+    {x:86,  w:14, h:0.60, col:'#0d1a12'},
+  ];
+  buildings.forEach(function(b) {
+    var bx = Math.floor(b.x / 100 * W);
+    var bw = Math.floor(b.w / 100 * W);
+    var by = Math.floor((1 - b.h) * H * 0.7);
+    var bh = H - by;
+    _px(ctx, bx, by, bw, bh, b.col);
+    // 창문들
+    var rows = Math.floor((bh - 4) / 5);
+    var cols = Math.floor((bw - 2) / 4);
+    for (var r = 0; r < rows; r++) {
+      for (var c = 0; c < cols; c++) {
+        if (Math.random() > 0.55) {
+          var wx = bx + 2 + c * 4;
+          var wy = by + 3 + r * 5;
+          var lit = Math.random() > 0.3;
+          _px(ctx, wx, wy, 2, 2, lit ? palette.win_lit : palette.win_dark);
+        }
+      }
+    }
+  });
+}
+
+// ── 별 ──
+function _drawStars(ctx, W, H, count) {
+  for (var i = 0; i < count; i++) {
+    var sx = Math.floor(Math.random() * W);
+    var sy = Math.floor(Math.random() * H * 0.5);
+    var bright = Math.random() > 0.7;
+    ctx.fillStyle = bright ? 'rgba(255,255,255,.9)' : 'rgba(255,255,255,.4)';
+    ctx.fillRect(sx, sy, 1, 1);
+  }
+}
+
+// ── 비 ──
+function _drawRain(ctx, W, H) {
+  ctx.strokeStyle = 'rgba(150,210,255,.3)';
+  ctx.lineWidth = 1;
+  for (var i = 0; i < 30; i++) {
+    var rx = Math.random() * W;
+    var ry = Math.random() * H;
+    ctx.beginPath();
+    ctx.moveTo(rx, ry);
+    ctx.lineTo(rx - 1, ry + 4);
+    ctx.stroke();
+  }
+}
+
+// ── 네온 사인 ──
+function _drawNeon(ctx, x, y, text, col) {
+  ctx.fillStyle = col;
+  // 단순 사각 네온박스
+  ctx.fillRect(x, y, text * 3 + 2, 4);
+}
+
+// ── CHIP 고양이 (12×8 픽셀) ──
+function _drawChip(ctx, x, y, col) {
+  col = col || '#aaa';
+  var sprite = [
+    [0,1,1,0,0,1,1,0],
+    [1,1,1,1,1,1,1,1],
+    [1,0,1,1,1,1,0,1],
+    [1,1,1,1,1,1,1,1],
+    [0,1,1,1,1,1,1,0],
+    [0,1,0,1,1,0,1,0],
+  ];
+  sprite.forEach(function(row, ri) {
+    row.forEach(function(bit, ci) {
+      if (bit) _px(ctx, x + ci, y + ri, 1, 1, col);
+    });
+  });
+}
+
+// ── VERDE 화분 (8×10 픽셀) ──
+function _drawVerde(ctx, x, y) {
+  // 잎
+  _px(ctx, x+2, y,   3, 1, '#1a7a4a');
+  _px(ctx, x+1, y+1, 5, 1, '#22a05a');
+  _px(ctx, x+2, y+2, 4, 1, '#1a7a4a');
+  _px(ctx, x+3, y+3, 1, 2, '#145030');
+  // 화분
+  _px(ctx, x+1, y+5, 5, 1, '#8b5e3c');
+  _px(ctx, x+0, y+6, 7, 2, '#6b4020');
+}
+
+// ── HANDLER 실루엣 (6×14) ──
+function _drawHandler(ctx, x, y) {
+  // 머리
+  _px(ctx, x+1, y,   4, 4, '#2a3a2e');
+  // 몸
+  _px(ctx, x+0, y+4, 6, 6, '#1a2a1e');
+  // 발
+  _px(ctx, x+1, y+10,2, 2, '#1a2a1e');
+  _px(ctx, x+3, y+10,2, 2, '#1a2a1e');
+}
+
+// ── 달 ──
+function _drawMoon(ctx, x, y, r) {
+  ctx.fillStyle = 'rgba(255,255,200,.7)';
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI*2);
+  ctx.fill();
+  // 그림자 (초승달)
+  ctx.fillStyle = _SP.sky_night;
+  ctx.beginPath();
+  ctx.arc(x+r*0.4, y, r*0.85, 0, Math.PI*2);
+  ctx.fill();
+}
+
+// ── 씬별 렌더 ──
+var _SCENES = {
+  base_day: function(ctx, W, H, npcs) {
+    // 낮 기지 — 따뜻한 실내
+    _px(ctx, 0, 0, W, H, '#0d1a15');
+    // 바닥
+    _px(ctx, 0, Math.floor(H*0.75), W, Math.floor(H*0.25), '#0a1210');
+    _drawBuildings(ctx, W, H, {win_lit:'#fbbf2440', win_dark:'#0a1510'});
+    // 창문 (내부 시점)
+    _px(ctx, Math.floor(W*0.1), Math.floor(H*0.1), Math.floor(W*0.35), Math.floor(H*0.5), '#0d2030');
+    _px(ctx, Math.floor(W*0.55), Math.floor(H*0.1), Math.floor(W*0.35), Math.floor(H*0.5), '#0d2030');
+    if (npcs && npcs.verde) _drawVerde(ctx, Math.floor(W*0.45), Math.floor(H*0.5));
+    if (npcs && npcs.chip)  _drawChip(ctx, Math.floor(W*0.6), Math.floor(H*0.65), '#888');
+  },
+  base_night: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, H, '#060d0a');
+    _drawStars(ctx, W, H, 40);
+    _drawBuildings(ctx, W, H, {win_lit:'#fbbf2460', win_dark:'#050a07'});
+    _drawMoon(ctx, Math.floor(W*0.8), Math.floor(H*0.15), 5);
+    // 네온 반사
+    _px(ctx, 0, Math.floor(H*0.7), W, 1, 'rgba(45,255,170,.08)');
+    if (npcs && npcs.chip)    _drawChip(ctx, Math.floor(W*0.15), Math.floor(H*0.7), '#667');
+    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.7), Math.floor(H*0.55));
+  },
+  rain_day: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, H, '#0a1018');
+    _drawBuildings(ctx, W, H, {win_lit:'#60a5fa30', win_dark:'#080e14'});
+    _drawRain(ctx, W, H);
+    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(96,165,250,.15)');
+    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.5), Math.floor(H*0.68), '#556');
+  },
+  rain_night: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, H, '#050b0f');
+    _drawBuildings(ctx, W, H, {win_lit:'#f040ff25', win_dark:'#050a0d'});
+    _drawRain(ctx, W, H);
+    // 보라 네온 반사
+    _px(ctx, 0, Math.floor(H*0.7), W, 2, 'rgba(240,64,255,.1)');
+    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(45,255,170,.08)');
+    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.75), Math.floor(H*0.52));
+  },
+  rooftop_day: function(ctx, W, H, npcs) {
+    // 하늘
+    _px(ctx, 0, 0, W, Math.floor(H*0.6), '#0d1f2d');
+    // 바닥 (옥상)
+    _px(ctx, 0, Math.floor(H*0.6), W, Math.floor(H*0.4), '#111a15');
+    // 난간
+    _px(ctx, 0, Math.floor(H*0.58), W, 2, '#1e3028');
+    _drawBuildings(ctx, W, Math.floor(H*0.6), {win_lit:'#fbbf2440', win_dark:'#0a1212'});
+    if (npcs && npcs.verde)  _drawVerde(ctx, Math.floor(W*0.7), Math.floor(H*0.55));
+    if (npcs && npcs.chip)   _drawChip(ctx, Math.floor(W*0.3), Math.floor(H*0.62), '#888');
+  },
+  rooftop_night: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, Math.floor(H*0.65), '#050d0a');
+    _drawStars(ctx, W, Math.floor(H*0.6), 55);
+    _drawMoon(ctx, Math.floor(W*0.75), Math.floor(H*0.12), 6);
+    _px(ctx, 0, Math.floor(H*0.65), W, Math.floor(H*0.35), '#0d1a12');
+    _px(ctx, 0, Math.floor(H*0.63), W, 2, '#1e3028');
+    _drawBuildings(ctx, W, Math.floor(H*0.65), {win_lit:'#2dffaa30', win_dark:'#050d0a'});
+    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.15), Math.floor(H*0.65), '#445');
+  },
+  cafe: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, H, '#0f180e');
+    // 카운터
+    _px(ctx, 0, Math.floor(H*0.55), W, Math.floor(H*0.45), '#0a1208');
+    _px(ctx, 0, Math.floor(H*0.52), W, 3, '#1a2e18');
+    // 따뜻한 빛
+    _px(ctx, Math.floor(W*0.3), 0, Math.floor(W*0.4), Math.floor(H*0.5), 'rgba(251,191,36,.04)');
+    // 창밖
+    _px(ctx, Math.floor(W*0.05), Math.floor(H*0.08), Math.floor(W*0.9), Math.floor(H*0.4), '#080f12');
+    _drawBuildings(ctx, Math.floor(W*0.9), Math.floor(H*0.48), {win_lit:'#fbbf2440', win_dark:'#080f10'});
+    if (npcs && npcs.citizen) {
+      // 앉아있는 시민 실루엣
+      _px(ctx, Math.floor(W*0.6), Math.floor(H*0.35), 4, 6, '#1a2a1e');
+    }
+    if (npcs && npcs.chip) _drawChip(ctx, Math.floor(W*0.1), Math.floor(H*0.58), '#665');
+  },
+  street: function(ctx, W, H, npcs) {
+    _px(ctx, 0, 0, W, H, '#080d0b');
+    _drawStars(ctx, W, H, 20);
+    _drawBuildings(ctx, W, H, {win_lit:'#f040ff30', win_dark:'#060d08'});
+    // 도로
+    _px(ctx, 0, Math.floor(H*0.72), W, Math.floor(H*0.28), '#0a1008');
+    // 중앙선
+    for (var i = 0; i < 6; i++) {
+      _px(ctx, Math.floor(W/6*i), Math.floor(H*0.78), Math.floor(W/8), 1, 'rgba(255,255,255,.1)');
+    }
+    // 네온 반사 (도로)
+    _px(ctx, 0, Math.floor(H*0.72), W, 1, 'rgba(240,64,255,.12)');
+    _px(ctx, 0, Math.floor(H*0.73), W, 1, 'rgba(45,255,170,.08)');
+    if (npcs && npcs.handler) _drawHandler(ctx, Math.floor(W*0.55), Math.floor(H*0.5));
+    if (npcs && npcs.citizen) _px(ctx, Math.floor(W*0.2), Math.floor(H*0.55), 3, 8, '#1a2a1e');
+  },
+};
+
+// ── 메인 렌더 함수 ──
+function _drawStoryPixel(text, npcs) {
+  var canvas = document.getElementById('storyPixelCanvas');
+  if (!canvas) return;
+  var vp = canvas.parentElement;
+  if (!vp) return;
+
+  var W = vp.offsetWidth  || 200;
+  var H = vp.offsetHeight || 100;
+  // 저해상도 픽셀 아트 (1/4 스케일)
+  var PW = Math.max(80,  Math.floor(W / 3));
+  var PH = Math.max(48,  Math.floor(H / 3));
+
+  canvas.width  = PW;
+  canvas.height = PH;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, PW, PH);
+
+  var scene = _analyzeScene(text, npcs);
+  var fn = _SCENES[scene] || _SCENES['base_day'];
+  fn(ctx, PW, PH, npcs);
+}
+
+// ── 슬라이드 변경 시 픽셀 업데이트 ──
+function _updateStoryPixel(s) {
+  if (!s) {
+    _drawStoryPixel('', {});
+    return;
+  }
+  _drawStoryPixel(s.text || '', s.npcs || {});
+}
+
+// ── 트리거 종류별 딜레이 ──
+var _STORY_DELAY = {
+  task_done:  8000,   // 할일 완료 — 8초 후
+  charge:    15000,   // 충전 추가 — 15초 후
+  drain:     15000,   // 방전 추가 — 15초 후
+  checkin:    5000,   // 체크인 완료 — 5초 후
+  battery:   20000,   // 배터리 변화 — 20초 후
+  random:        0,   // 랜덤 (자체 타이머)
+};
+
+function _triggerStoryRegen(reason){
+  if(!API_KEY) return;
+  var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
   if(todayParts.length >= 12) return;
-  if(_storyAutoTimer)clearTimeout(_storyAutoTimer);
-  _storyAutoTimer=setTimeout(function(){
-    if(document.getElementById('page-me')?.classList.contains('active')) generateStory();
-    _storyAutoTimer=null;
-  }, 90000); // 90초
+
+  var delay = _STORY_DELAY[reason] || 10000;
+  if(_storyAutoTimer) clearTimeout(_storyAutoTimer);
+  _storyAutoTimer = setTimeout(function(){
+    _storyAutoTimer = null;
+    generateStory();
+  }, delay);
+}
+
+// ── 랜덤 자동생성 타이머 (20~45분 랜덤) ──
+var _storyRandomTimer = null;
+function _scheduleRandomStory(){
+  if(_storyRandomTimer) clearTimeout(_storyRandomTimer);
+  var min = 20 * 60 * 1000;
+  var max = 45 * 60 * 1000;
+  var delay = min + Math.floor(Math.random() * (max - min));
+  _storyRandomTimer = setTimeout(function(){
+    _storyRandomTimer = null;
+    var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
+    if(API_KEY && todayParts.length < 12) generateStory();
+    _scheduleRandomStory(); // 다음 랜덤 예약
+  }, delay);
 }
 
 // ── 스토리 생성 ──
@@ -9530,6 +9888,7 @@ function _renderStorySlide(idx, dir) {
     }
     if(metaEl) metaEl.textContent = '';
     if(dayEl)  dayEl.textContent  = 'DAY ' + _storyDayNum();
+    _drawStoryPixel('', {});
     return;
   }
 
@@ -9560,6 +9919,8 @@ function _renderStorySlide(idx, dir) {
 
   // NPC
   _updateNpcChips(s.npcs || {});
+  // 픽셀 일러스트 업데이트
+  _updateStoryPixel(s);
 
   // 파트 표시 (생성 중 아닐 때)
   if(transmit) transmit.textContent = '#' + (s.part || 1);
