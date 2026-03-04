@@ -2185,7 +2185,7 @@ select {
   #page-me .me-header-inbox { display: none; }
   #page-me .me-header-check-zone { display: none; }
   #page-me .me-header-focus { display: none; }
-  .pixel-avatar-zone { /* female avatar zone */ padding: 6px 8px 2px; }
+  .pixel-avatar-zone { padding: 6px 8px 2px; }
   #pixelAvatarCanvas { width: 72px !important; height: 90px !important; }
   .avatar-battery-wrap { padding: 4px 8px 6px; }
   .pixel-profile-info { padding: 4px 8px; }
@@ -2870,7 +2870,7 @@ select {
 
 /* me-header-profile: merged below */
 
-.pixel-avatar-zone { /* female avatar zone */
+.pixel-avatar-zone {
   width: 100%;
   display: flex;
   flex-direction: column;
@@ -2889,7 +2889,7 @@ select {
   image-rendering: crisp-edges;
   image-rendering: -moz-crisp-edges;
   image-rendering: -webkit-optimize-contrast;
-  width: 96px !important; height: 120px !important;
+  width: 128px !important; height: 192px !important;
   display: block !important;
   flex-shrink: 0;
   filter: drop-shadow(0 0 8px rgba(45,255,170,.4));
@@ -3431,7 +3431,7 @@ select {
 
         <!-- 픽셀 아바타 -->
         <div class="pixel-avatar-zone">
-          <canvas id="pixelAvatarCanvas" width="96" height="120"></canvas>
+          <canvas id="pixelAvatarCanvas" width="128" height="192"></canvas>
           <div class="avatar-state-label" id="avatarStateLabel">STANDBY</div>
         </div>
 
@@ -5300,6 +5300,7 @@ function getRpgStats(){
 }
 function saveRpgStats(stats){
   localStorage.setItem('rpg_stats_v1', JSON.stringify(stats));
+  if(fbUser)fbSaveAll();
 }
 
 // 이하 코드에서 RPG_STATS 참조를 getRpgStats()로 대체할 수 없으므로
@@ -5702,6 +5703,7 @@ function getTodayCharges(){
 }
 function saveTodayCharges(arr){
   localStorage.setItem(getTodayChargeKey(),JSON.stringify(arr));
+  if(fbUser)fbSaveAll();
 }
 
 function renderTodayCharge(){
@@ -5773,6 +5775,7 @@ function getTodayDrains(){
 }
 function saveTodayDrains(arr){
   localStorage.setItem(getTodayDrainKey(),JSON.stringify(arr));
+  if(fbUser)fbSaveAll();
 }
 function renderTodayDrain(){
   const el=document.getElementById('todayDrainArea');if(!el)return;
@@ -8671,7 +8674,7 @@ function fbSaveAll(){
   if(!fbUser||!fbDb)return;
   if(_applyingFbData)return;
   if(_fbSaveTimer)clearTimeout(_fbSaveTimer);
-  _fbSaveTimer=setTimeout(_fbSaveNow,1500);
+  _fbSaveTimer=setTimeout(_fbSaveNow,2000);
 }
 async function _fbSaveNow(){
   if(!fbUser||!fbDb)return;
@@ -8689,14 +8692,13 @@ async function _fbSaveNow(){
       realNeedV1:localStorage.getItem('real_need_v1')||'[]',
       rpgObsV1:localStorage.getItem('rpg_obs_v1')||'{}',
       rpgStatsV1:localStorage.getItem('rpg_stats_v1')||'null',
-      // 추가 동기화 항목
       todoItems:localStorage.getItem('todo_items')||'[]',
       taskItemsV1:localStorage.getItem('task_items_v1')||'[]',
       taskCatsV1:localStorage.getItem('task_cats_v1')||'[]',
       inboxV1:localStorage.getItem('inbox_v1')||'[]',
       inboxCatsV1:localStorage.getItem('inbox_cats_v1')||'[]',
       profileData:localStorage.getItem('profile_data')||'{}',
-      rpgChecksV1:localStorage.getItem('rpg_checks_v1')||'{}',
+
       storyLogV1:localStorage.getItem('story_log_v1')||'[]',
       storyDayOne:localStorage.getItem('story_day_one')||'',
       // 오늘 충전/방전 (날짜 키 포함 통째로)
@@ -8758,16 +8760,35 @@ function _applyFirebaseData(d){
   if(d.philCards){philCards=JSON.parse(d.philCards);localStorage.setItem('phil_cards',d.philCards);}
   if(d.questionSet){questionSet=JSON.parse(d.questionSet);localStorage.setItem('question_set',d.questionSet);}
   if(d.aiSettings){aiSettings=JSON.parse(d.aiSettings);localStorage.setItem('ai_settings',d.aiSettings);loadAiSettings();}
-  if(d.rewardData){localStorage.setItem('reward_data',d.rewardData);initRewardData();}
-  if(d.metricsV1){localStorage.setItem('metrics_v1',d.metricsV1);}
-  if(d.realNeedV1){realNeedData=JSON.parse(d.realNeedV1);localStorage.setItem('real_need_v1',d.realNeedV1);}
-  if(d.rpgObsV1){localStorage.setItem('rpg_obs_v1',d.rpgObsV1);}
-  if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);}
+  if(d.rewardData){
+    localStorage.setItem('reward_data',d.rewardData);
+    try{ initRewardData&&initRewardData(); }catch(e){}
+    try{ renderTodayCharge&&renderTodayCharge(); }catch(e){}
+    try{ renderTodayDrain&&renderTodayDrain(); }catch(e){}
+  }
+  if(d.metricsV1){
+    localStorage.setItem('metrics_v1',d.metricsV1);
+    try{ renderMetrics&&renderMetrics(); }catch(e){}
+  }
+  if(d.realNeedV1){
+    try{ realNeedData=JSON.parse(d.realNeedV1); }catch(e){ realNeedData=[]; }
+    localStorage.setItem('real_need_v1',d.realNeedV1);
+  }
+  if(d.rpgObsV1){
+    localStorage.setItem('rpg_obs_v1', d.rpgObsV1);
+    try{ renderRpgStats&&renderRpgStats(); }catch(e){}
+    try{ updateAvatarFromStats&&updateAvatarFromStats(); }catch(e){}
+  }
+  if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){
+    localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);
+    try{ RPG_STATS=getRpgStats(); renderRpgStats&&renderRpgStats(); }catch(e){}
+  }
   // 할일 (me탭)
   if(d.todoItems){
     try{ todoItems=JSON.parse(d.todoItems); }catch(e){ todoItems=[]; }
     localStorage.setItem('todo_items',d.todoItems);
     try{ renderMeTodo&&renderMeTodo(); }catch(e){}
+    try{ updateHeaderInbox&&updateHeaderInbox(); }catch(e){}
   }
   // 할일탭 아이템/카테고리
   if(d.taskItemsV1){
@@ -8792,8 +8813,9 @@ function _applyFirebaseData(d){
       if(parsed&&parsed.length>0){ taskCats=parsed; localStorage.setItem('task_cats_v1',d.taskCatsV1); }
     }catch(e){}
   }
-  // 할일탭 열려있으면 재렌더
+  // 할일탭 + me탭 Active Missions 재렌더
   try{ if(typeof renderTaskTab==='function') renderTaskTab(); }catch(e){}
+  try{ renderMeTodo&&renderMeTodo(); }catch(e){}
   // 인박스
   if(d.inboxV1){
     try{ inboxItems=JSON.parse(d.inboxV1); }catch(e){inboxItems=[];}
@@ -8805,26 +8827,32 @@ function _applyFirebaseData(d){
       if(parsed&&parsed.length>0){inboxCats=parsed;localStorage.setItem('inbox_cats_v1',d.inboxCatsV1);}
     }catch(e){}
   }
-  // 인박스 탭 열려있으면 재렌더, 아니면 위젯만 갱신
+  // 인박스 렌더 (탭 무관하게 위젯은 항상 갱신)
   try{
     const activeTab=document.querySelector('.page.active');
-    if(activeTab&&activeTab.id==='page-inbox'){renderInbox&&renderInbox();renderItpPanel&&renderItpPanel();}
-    else{renderInboxWidget&&renderInboxWidget();updateHeaderInbox&&updateHeaderInbox();}
+    if(activeTab&&activeTab.id==='page-inbox'){
+      renderInbox&&renderInbox();
+      renderItpPanel&&renderItpPanel();
+    } else {
+      renderInboxWidget&&renderInboxWidget();
+      updateHeaderInbox&&updateHeaderInbox();
+    }
   }catch(e){}
   // 프로필
   if(d.profileData){
     try{
       profileData=JSON.parse(d.profileData);
       localStorage.setItem('profile_data',d.profileData);
-      // 나탭 열려있으면 프로필 갱신
       try{ renderMeTab&&renderMeTab(); }catch(e){}
+      // 프로필 사진/이름 즉시 반영
+      try{
+        const ni=document.getElementById('meNameInp');
+        if(ni&&profileData.name) ni.value=profileData.name;
+        if(!profileData.avatar) drawMeAvatar&&drawMeAvatar(profileData.name);
+      }catch(e){}
     }catch(e){}
   }
-  // RPG 체크
-  if(d.rpgChecksV1){
-    localStorage.setItem('rpg_checks_v1',d.rpgChecksV1);
-    try{ renderRpgToday&&renderRpgToday(); }catch(e){}
-  }
+
   // 스토리 로그
   if(d.storyLogV1){
     try{
@@ -8855,13 +8883,7 @@ function _applyFirebaseData(d){
   }
   // 스토리 day one
   if(d.storyDayOne){ localStorage.setItem('story_day_one', d.storyDayOne); }
-  // RPG 체크 변수 반영
-  if(d.rpgChecksV1){
-    try{
-      localStorage.setItem('rpg_checks_v1', d.rpgChecksV1);
-      try{ renderRpgToday&&renderRpgToday(); }catch(e){}
-    }catch(e){}
-  }
+
   // 현재 열린 탭 재렌더
   _reRenderCurrentTab();
 }
@@ -8871,10 +8893,18 @@ function _reRenderCurrentTab(){
     const activeTab=document.querySelector('.page.active');
     if(!activeTab)return;
     const id=activeTab.id;
-    if(id==='page-me'){renderMeTab&&renderMeTab();initStoryCard&&initStoryCard();}
-    else if(id==='page-task'){renderTaskTab&&renderTaskTab();}
-    else if(id==='page-inbox'){renderInbox&&renderInbox();}
-    else if(id==='page-memo'){renderMemos&&renderMemos();renderResultList&&renderResultList();}
+    if(id==='page-me'){
+      renderMeTab&&renderMeTab();
+      initStoryCard&&initStoryCard();
+      renderMeTodo&&renderMeTodo();
+      renderTodayCharge&&renderTodayCharge();
+      renderTodayDrain&&renderTodayDrain();
+      renderRpgStats&&renderRpgStats();
+      updateAvatarFromStats&&updateAvatarFromStats();
+    }
+    else if(id==='page-task'){ renderTaskTab&&renderTaskTab(); }
+    else if(id==='page-inbox'){ renderInbox&&renderInbox(); renderItpPanel&&renderItpPanel(); }
+    else if(id==='page-memo'){ renderMemos&&renderMemos(); renderResultList&&renderResultList(); }
   }catch(e){console.warn('rerender:',e);}
 }
 
@@ -8919,206 +8949,387 @@ function showToast(msg){
 // ═══════════════════════════════════════════════════════════════════
 
 // ── 픽셀 팔레트 & 색상 ──
-const PX = {
-  TRANS:  null,
-  BG:     '#0e1117',
-  SKIN:   '#f0c8a0',   // 밝은 피부
-  SKIN2:  '#d4a078',   // 피부 그림자
-  SKIN3:  '#e8b890',   // 피부 중간
-  HAIR:   '#1a0a2e',   // 짙은 보라빛 흑발
-  HAIR2:  '#2d1155',   // 머리카락 하이라이트
-  HAIR3:  '#f040ff',   // 네온 핑크 머리 포인트
-  SUIT:   '#1a2535',
-  SUIT2:  '#243045',
-  SUIT3:  '#0d1520',
-  SUIT4:  '#2a1535',   // 보라빛 슈트
-  ACC:    '#2dffaa',   // 네온 그린
-  ACC2:   '#00ccff',   // 사이버 블루
-  ACC3:   '#f040ff',   // 네온 핑크
-  RED:    '#ff4d6d',
-  GOLD:   '#fbbf24',
-  VISOR:  '#2dffaa',   // 그린 바이저
-  VISOR2: '#00aa66',
-  WHITE:  '#e8e8ff',
-  GRAY:   '#4a5568',
-  GRAY2:  '#2d3748',
-  DARK:   '#161b26',
-  LIP:    '#ff6699',   // 립
-  EYE:    '#00ffcc',   // 눈 (사이버)
+// ═══════════════════════════════════════════════════════════════
+// CYBERPUNK PIXEL ART AVATAR — 직접 Canvas 렌더링
+// 128×192 논리 캔버스, 픽셀 단위 4px
+// 분위기 있는 사이버펑크 여성 캐릭터
+// ═══════════════════════════════════════════════════════════════
+const PIXEL_SIZE = 4;
+const AVATAR_W   = 32;
+const AVATAR_H   = 48;
+
+// ── 색상 팔레트 ──
+const PAL = {
+  // 배경
+  BG:  '#0a0e17',
+  // 피부 (따뜻한 동아시아 + 사이버 틴트)
+  S_HL: '#ffe8d0', S0: '#f5c8a0', S1: '#e0a878', S2: '#c08850', S3: '#8a5830', S4: '#4a2810',
+  // 머리카락 — 짙은 보라흑 + 네온 마젠타 섞임
+  H_HL: '#d0b8ff', H0: '#8040c8', H1: '#4a1888', H2: '#220a40', H3: '#100520',
+  H_N:  '#ff30ff', H_N2: '#aa00cc',  // 네온 핑크 포인트
+  // 눈
+  EW: '#f0f4ff',       // 흰자
+  EI: '#00ffcc',       // 홍채 (사이버 틸)
+  EI2: '#009988',      // 홍채 그림자
+  EP: '#000a08',       // 동공
+  EL: '#ff6699',       // 아이라이너
+  EG: '#80ffee',       // 눈 글로우
+  // 입술
+  LP: '#ff88bb', LP2: '#dd4477', LP3: '#881133',
+  // 의상 — 다크 네이비 + 사이버 디테일
+  J0: '#d8eaff', J1: '#7090b8', J2: '#304870', J3: '#1a2d48', J4: '#0d1a2c', J5: '#06101c',
+  // 네온 악센트 (초록)
+  N0: '#e0fff4', N1: '#2dffaa', N2: '#00cc77', N3: '#008844',
+  // 사이버 블루
+  B0: '#ddfaff', B1: '#00ccff', B2: '#0088bb', B3: '#004466',
+  // 마젠타/핑크 악센트
+  M0: '#ffccff', M1: '#ff44ff', M2: '#cc00cc', M3: '#660066',
+  // 중성색
+  W: '#f0f4ff', G0: '#9aa8bc', G1: '#5a6880', G2: '#2a3448', G3: '#141c28',
 };
 
-// ── 아바타 스프라이트 데이터 (16x24 픽셀 그리드) ──
-// 각 프레임은 16x24 배열 (null=투명)
-function getAvatarSprite(state, frame) {
-  // 컬러 단축어
-  const T=null, SK='SKIN', SK2='SKIN2', SK3='SKIN3';
-  const H='HAIR', H2='HAIR2', H3='HAIR3';
-  const S='SUIT', S2='SUIT2', S3='SUIT3', S4='SUIT4';
-  const AC='ACC', AC2='ACC2', AC3='ACC3';
-  const V='VISOR', V2='VISOR2';
-  const W='WHITE', G='GRAY', G2='GRAY2';
-  const LIP='LIP', EY='EYE', GO='GOLD';
-
-  // ── 베이스 스프라이트: 여성 사이버펑크 요원 16×20 ──
-  const base = [
-    //  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
-    [T, T, T, H, H, H, H, H, H, H, H, H, H, T, T, T], // 0  머리 위
-    [T, T,H2, H, H, H, H, H, H, H, H, H, H,H3, T, T], // 1  머리 (핑크 포인트)
-    [T,H3, H, H,SK,SK,SK,SK,SK,SK,SK,SK, H, H,H3, T], // 2  얼굴 시작
-    [T, H, H,SK,SK,SK,SK,SK,SK,SK,SK,SK,SK, H, H, T], // 3
-    [T, H,SK,SK,EY,SK,SK,SK,SK,SK,EY,SK,SK,SK, H, T], // 4  눈 위치
-    [T, H,SK,EY,EY,SK,LIP,LIP,LIP,SK,EY,EY,SK,SK, H,T], // 5  눈+입
-    [T, H,SK,SK,SK,SK,SK,SK,SK,SK,SK,SK,SK,SK, H, T], // 6  턱
-    [T, T, H,SK,SK,SK,SK,SK,SK,SK,SK,SK,SK, H, T, T], // 7  목
-    [T, T, T,SK,SK,SK,T, T, T, T,SK,SK,SK, T, T, T], // 8  목 얇게
-    [T,S4, S, S, S, S, S, S, S, S, S, S, S,S4, T, T], // 9  어깨
-    [S3, S,S2, S, S, S, S, S, S, S, S, S,S2, S,S3, T], // 10 가슴 윗줄
-    [S3, S,S4, S, S,AC, S, S, S,AC, S, S,S4, S,S3, T], // 11 가슴 (AC 포인트)
-    [S3, S, S, S,G2,G2,G2,G2,G2,G2,G2, S, S, S,S3, T], // 12 허리벨트
-    [T,S3, S, S, S, S, S, S, S, S, S, S, S,S3, T, T], // 13 허리
-    [T, T,S3, S, S, S, S, S, S, S, S, S,S3, T, T, T], // 14 골반
-    [T, T,S3, S,S2, S, T, T, T, S,S2, S,S3, T, T, T], // 15 다리 분기
-    [T, T, T, S,S2, T, T, T, T, T,S2, S, T, T, T, T], // 16
-    [T, T, T, S, S, T, T, T, T, T, S, S, T, T, T, T], // 17
-    [T, T, T,S3, S, T, T, T, T, T, S,S3, T, T, T, T], // 18 발목
-    [T, T, T,AC,AC,AC, T, T, T,AC,AC,AC, T, T, T, T], // 19 부츠 (네온 그린)
-  ];
-
-  const clone = () => base.map(r => [...r]);
-
-  // ── IDLE: 숨쉬기 + 머리카락 흔들림 ──
-  if(state === 'idle') {
-    const f = frame % 6;
-    const o = clone();
-    // 팔 옆으로
-    o[10][0]=S; o[11][0]=S2; o[12][0]=S;
-    o[10][14]=S; o[11][14]=S2; o[12][14]=S;
-    // 머리카락 흔들 (f에 따라 H3 위치 변경)
-    if(f < 3) { o[1][13]=H3; o[0][12]=H2; }
-    else       { o[1][2]=H3; o[0][3]=H2; }
-    // 눈 깜빡 (f===5)
-    if(f===5){ o[4][4]=SK; o[4][10]=SK; o[5][3]=SK; o[5][11]=SK; }
-    // AC 포인트 깜빡
-    if(f%2===0){ o[11][5]=AC; o[11][9]=AC; }
-    return o;
-  }
-
-  // ── FOCUS: 집중 + 타이핑 ──
-  if(state === 'focus') {
-    const f = frame % 8;
-    const o = clone();
-    // 앞으로 내민 손
-    o[12][3]=SK; o[12][4]=SK; o[12][11]=SK; o[12][12]=SK;
-    o[13][3]=SK; o[13][4]=SK; o[13][11]=SK; o[13][12]=SK;
-    // 타이핑 모션
-    if(f<2)      { o[14]&&(o[13][3]=SK2); }
-    else if(f<4) { o[13]&&(o[13][12]=SK2); }
-    else if(f<6) { o[13]&&(o[13][4]=SK2); o[13][11]=SK2; }
-    else         { o[13]&&(o[13][3]=SK); }
-    // 눈 빛남 (집중)
-    o[4][4]=AC; o[4][10]=AC;
-    o[5][3]=AC2; o[5][11]=AC2;
-    // 가슴 AC 강하게
-    o[11][5]=f%2===0?AC:AC2; o[11][9]=f%2===0?AC2:AC;
-    return o;
-  }
-
-  // ── ENERGIZED: 에너지 넘침 ──
-  if(state === 'energized') {
-    const f = frame % 4;
-    const o = clone();
-    // 팔 위로
-    o[8][0]=S; o[8][1]=S2; o[7][0]=SK; o[7][1]=S;
-    o[8][14]=S; o[8][13]=S2; o[7][14]=SK; o[7][13]=S;
-    // 풀 아이 글로우
-    o[4][3]=AC; o[4][4]=AC; o[4][9]=AC; o[4][10]=AC;
-    o[5][3]=AC; o[5][11]=AC;
-    // 파티클
-    if(f===0){ o[0][2]=AC3; o[0][13]=AC; }
-    if(f===1){ o[1][1]=AC; o[0][14]=AC3; }
-    if(f===2){ o[0][6]=AC3; o[0][9]=AC; }
-    if(f===3){ o[1][14]=AC3; o[0][1]=AC; }
-    // 머리 네온 강조
-    o[1][2]=AC3; o[1][13]=AC3;
-    // AC 포인트 올
-    o[11][5]=f%2===0?AC:AC3; o[11][9]=f%2===0?AC3:AC;
-    o[19][3]=f%2===0?AC:AC2; o[19][9]=f%2===0?AC2:AC;
-    return o;
-  }
-
-  // ── TIRED: 저에너지 ──
-  if(state === 'tired') {
-    const o = clone();
-    // 눈 반쯤 감김
-    o[4][4]=G; o[4][10]=G;
-    o[5][3]=G2; o[5][11]=G2; o[5][6]=SK; o[5][8]=SK; // 입 내려감
-    // 팔 축 처짐
-    o[10][0]=S3; o[11][0]=S3; o[12][0]=S3;
-    o[10][14]=S3; o[11][14]=S3; o[12][14]=S3;
-    // AC 꺼짐
-    o[11][5]=G2; o[11][9]=G2;
-    o[19][3]=G2; o[19][4]=G2; o[19][9]=G2; o[19][10]=G2;
-    return o;
-  }
-
-  return getAvatarSprite('idle', frame);
+// ── px(ctx, x, y, color, size=PIXEL_SIZE) — 1픽셀 블록 그리기 ──
+function _px(ctx, x, y, color, s) {
+  s = s || PIXEL_SIZE;
+  ctx.fillStyle = color;
+  ctx.fillRect(x * s, y * s, s, s);
 }
 
-// ── 픽셀 렌더러 ──
-const PIXEL_SIZE = 6;
-const AVATAR_W = 16, AVATAR_H = 20;
-
-let _avatarFrame = 0;
-let _avatarState = 'idle';
-let _avatarAnimId = null;
-let _avatarLastFrameTime = 0;
-const FRAME_INTERVAL = 220; // ms
-
+// ── 메인 렌더 함수 ──
 function drawPixelAvatar(state, frame) {
   const canvas = document.getElementById('pixelAvatarCanvas');
-  if(!canvas) return;
-  // 캔버스 2d 지원 확인
+  if (!canvas) return;
   let ctx;
-  try { ctx = canvas.getContext('2d', {willReadFrequently:false}); }
+  try { ctx = canvas.getContext('2d', {willReadFrequently: false}); }
   catch(e) { ctx = canvas.getContext('2d'); }
-  if(!ctx) return;
-  // DPR 처리 (고해상도 기기 선명도)
-  const dpr = Math.min(window.devicePixelRatio||1, 2);
-  const W_PX = AVATAR_W * PIXEL_SIZE;
-  const H_PX = AVATAR_H * PIXEL_SIZE;
-  const canW = W_PX, canH = H_PX;
-  if(canvas.width !== canW*dpr || canvas.height !== canH*dpr) {
+  if (!ctx) return;
+
+  const dpr  = Math.min(window.devicePixelRatio || 1, 2);
+  const canW = AVATAR_W * PIXEL_SIZE;
+  const canH = AVATAR_H * PIXEL_SIZE;
+  if (canvas.width !== canW * dpr || canvas.height !== canH * dpr) {
     canvas.width  = canW * dpr;
     canvas.height = canH * dpr;
     canvas.style.width  = canW + 'px';
     canvas.style.height = canH + 'px';
   }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, canW, canH);
 
-  const sprite = getAvatarSprite(state, frame);
-  const offsetX = 0;
-  const offsetY = 0;
+  const p = (x, y, c) => _px(ctx, x, y, c);
+  const f = frame;
 
-  sprite.forEach((row, ry) => {
-    row.forEach((cell, cx) => {
-      if(!cell) return;
-      const color = PX[cell] || cell;
-      ctx.fillStyle = color;
-      ctx.fillRect(offsetX + cx * PIXEL_SIZE, offsetY + ry * PIXEL_SIZE, PIXEL_SIZE, PIXEL_SIZE);
+  // ── 배경 (그라데이션) ──
+  const grad = ctx.createLinearGradient(0, 0, 0, canH);
+  grad.addColorStop(0, '#0a0e1a');
+  grad.addColorStop(0.5, '#0d1525');
+  grad.addColorStop(1, '#080c18');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, canW, canH);
+
+  // ── 배경 글로우 (캐릭터 뒤) ──
+  ctx.save();
+  ctx.globalAlpha = 0.15;
+  const gGlow = ctx.createRadialGradient(canW/2, canH*0.4, 2, canW/2, canH*0.4, canW*0.6);
+  gGlow.addColorStop(0, PAL.N1);
+  gGlow.addColorStop(1, 'transparent');
+  ctx.fillStyle = gGlow;
+  ctx.fillRect(0, 0, canW, canH);
+  ctx.restore();
+
+  // ─────────────────────────────────────────
+  // 머리카락 (뒷부분 — 캐릭터 뒤로 흐름)
+  // ─────────────────────────────────────────
+  // 뒷 머리카락 길게 내려옴
+  for (let y = 4; y <= 28; y++) {
+    p(6, y, y < 10 ? PAL.H2 : PAL.H3);
+    p(7, y, y < 8 ? PAL.H1 : PAL.H2);
+    p(25, y, y < 10 ? PAL.H2 : PAL.H3);
+    p(24, y, y < 8 ? PAL.H1 : PAL.H2);
+  }
+  // 머리 위
+  for (let x = 8; x <= 23; x++) { p(x, 2, PAL.H2); p(x, 3, PAL.H1); }
+  for (let x = 10; x <= 21; x++) { p(x, 1, PAL.H2); }
+  for (let x = 11; x <= 20; x++) { p(x, 0, PAL.H3); }
+  // 네온 핑크 하이라이트 — 윗부분
+  p(9, 1, PAL.H_N2); p(10, 0, PAL.H_N); p(11, 0, PAL.H_N2);
+  p(20, 0, PAL.H_N2); p(21, 0, PAL.H_N); p(22, 1, PAL.H_N2);
+  // 머리 옆라인
+  for (let y = 3; y <= 13; y++) {
+    p(8,  y, y < 7 ? PAL.H1 : PAL.H2);
+    p(23, y, y < 7 ? PAL.H1 : PAL.H2);
+  }
+  // 머리카락 앞섬
+  p(9,  3, PAL.H0); p(9,  4, PAL.H1);
+  p(22, 3, PAL.H0); p(22, 4, PAL.H1);
+
+  // 머리카락 흔들 애니 (idle/energized)
+  const hairShift = (state === 'idle' || state === 'energized') ? (f % 6 < 3 ? 0 : 1) : 0;
+  if (hairShift) {
+    p(7, 5, PAL.H_N2); p(8, 6, PAL.H_N2);
+    p(24, 5, PAL.H_N2); p(23, 6, PAL.H_N2);
+  }
+
+  // ─────────────────────────────────────────
+  // 얼굴
+  // ─────────────────────────────────────────
+  // 얼굴 베이스
+  for (let y = 4; y <= 13; y++) {
+    const xL = y < 8 ? 9 : 10;
+    const xR = y < 8 ? 22 : 21;
+    for (let x = xL; x <= xR; x++) {
+      const skin = (x === xL || x === xR) ? PAL.S1 :
+                   (x === xL+1 || x === xR-1) ? PAL.S0 : PAL.S_HL;
+      // 측면 그림자
+      const col = (x <= xL+1) ? PAL.S1 : (x >= xR-1) ? PAL.S1 : PAL.S0;
+      p(x, y, col);
+    }
+  }
+  // 이마 하이라이트
+  for (let x = 13; x <= 18; x++) p(x, 4, PAL.S_HL);
+  for (let x = 14; x <= 17; x++) p(x, 5, PAL.S_HL);
+
+  // ── 눈썹 ──
+  p(10, 6, PAL.H2); p(11, 6, PAL.H1); p(12, 5, PAL.H1); p(13, 5, PAL.H2);
+  p(19, 5, PAL.H2); p(20, 5, PAL.H1); p(21, 6, PAL.H1); p(22, 6, PAL.H2);
+
+  // ── 눈 ──
+  const blink = (state === 'idle' && f % 10 === 9);
+  const eyeGlow = (state === 'focus' || state === 'energized');
+
+  if (blink) {
+    // 깜빡
+    for (let x = 11; x <= 13; x++) p(x, 8, PAL.S1);
+    for (let x = 19; x <= 21; x++) p(x, 8, PAL.S1);
+  } else {
+    // 왼눈
+    p(10, 7, PAL.EL); p(11, 7, PAL.EL); p(12, 7, PAL.EL); p(13, 7, PAL.EL);
+    p(10, 8, PAL.EW); p(11, 8, eyeGlow ? PAL.EG : PAL.EI); p(12, 8, PAL.EP); p(13, 8, eyeGlow ? PAL.EI : PAL.EI2); p(14, 8, PAL.EL);
+    p(10, 9, PAL.EL); p(11, 9, PAL.EI2); p(12, 9, PAL.EI); p(13, 9, PAL.EL);
+    // 오른눈
+    p(18, 7, PAL.EL); p(19, 7, PAL.EL); p(20, 7, PAL.EL); p(21, 7, PAL.EL);
+    p(17, 8, PAL.EL); p(18, 8, eyeGlow ? PAL.EI : PAL.EI2); p(19, 8, PAL.EP); p(20, 8, eyeGlow ? PAL.EG : PAL.EI); p(21, 8, PAL.EW); p(22, 8, PAL.EL);
+    p(18, 9, PAL.EL); p(19, 9, PAL.EI); p(20, 9, PAL.EI2); p(21, 9, PAL.EL);
+    // 눈 글로우
+    if (eyeGlow) {
+      ctx.save();
+      ctx.globalAlpha = 0.4 + 0.2 * Math.sin(f * 0.8);
+      const eg1 = ctx.createRadialGradient(11.5*PIXEL_SIZE, 8*PIXEL_SIZE, 0, 11.5*PIXEL_SIZE, 8*PIXEL_SIZE, 3*PIXEL_SIZE);
+      eg1.addColorStop(0, PAL.EI); eg1.addColorStop(1, 'transparent');
+      ctx.fillStyle = eg1; ctx.fillRect(0, 0, canW, canH);
+      const eg2 = ctx.createRadialGradient(20*PIXEL_SIZE, 8*PIXEL_SIZE, 0, 20*PIXEL_SIZE, 8*PIXEL_SIZE, 3*PIXEL_SIZE);
+      eg2.addColorStop(0, PAL.EI); eg2.addColorStop(1, 'transparent');
+      ctx.fillStyle = eg2; ctx.fillRect(0, 0, canW, canH);
+      ctx.restore();
+    }
+  }
+
+  // ── 코 ──
+  p(15, 10, PAL.S2); p(16, 10, PAL.S2);
+  p(14, 11, PAL.S2); p(17, 11, PAL.S2);
+
+  // ── 입 ──
+  const moodOpen = (state === 'energized' && f % 4 < 2);
+  p(13, 12, PAL.LP2); p(14, 12, PAL.LP); p(15, 12, PAL.LP); p(16, 12, PAL.LP); p(17, 12, PAL.LP); p(18, 12, PAL.LP2);
+  if (moodOpen) {
+    p(14, 13, PAL.LP3); p(15, 13, PAL.G3); p(16, 13, PAL.G3); p(17, 13, PAL.LP3);
+  } else {
+    p(14, 13, PAL.LP2); p(15, 13, PAL.LP3); p(16, 13, PAL.LP3); p(17, 13, PAL.LP2);
+  }
+
+  // ── 턱/목 ──
+  for (let x = 11; x <= 20; x++) p(x, 14, PAL.S1);
+  for (let x = 12; x <= 19; x++) p(x, 15, PAL.S1);
+  p(11, 15, PAL.S2); p(20, 15, PAL.S2);
+  // 목
+  for (let y = 16; y <= 18; y++) {
+    for (let x = 13; x <= 18; x++) p(x, y, PAL.S0);
+    p(12, y, PAL.S2); p(19, y, PAL.S2);
+  }
+  // 쇄골
+  p(10, 19, PAL.S2); p(11, 19, PAL.S1); p(12, 18, PAL.S1); p(13, 18, PAL.S0);
+  p(18, 18, PAL.S0); p(19, 18, PAL.S1); p(20, 19, PAL.S1); p(21, 19, PAL.S2);
+
+  // ─────────────────────────────────────────
+  // 의상 — 사이버펑크 재킷
+  // ─────────────────────────────────────────
+  // 어깨
+  for (let x = 5; x <= 26; x++) {
+    const d = Math.min(x - 5, 26 - x, 4);
+    p(x, 20, d > 2 ? PAL.J2 : d > 0 ? PAL.J3 : PAL.J4);
+  }
+  // 어깨 하이라이트
+  for (let x = 8; x <= 11; x++) p(x, 20, PAL.J1);
+  for (let x = 20; x <= 23; x++) p(x, 20, PAL.J1);
+  // 재킷 몸통
+  for (let y = 21; y <= 31; y++) {
+    for (let x = 5; x <= 26; x++) {
+      const d = Math.min(x - 5, 26 - x);
+      const col = d < 1 ? PAL.J5 : d < 2 ? PAL.J4 : d < 4 ? PAL.J3 : PAL.J2;
+      p(x, y, col);
+    }
+  }
+  // 재킷 중앙 지퍼 라인
+  for (let y = 20; y <= 31; y++) { p(15, y, PAL.J4); p(16, y, PAL.J4); }
+  // 재킷 라펠 (깃)
+  for (let y = 20; y <= 25; y++) {
+    p(13, y, PAL.J3); p(14, y, PAL.J2);
+    p(17, y, PAL.J2); p(18, y, PAL.J3);
+  }
+  // 재킷 하이라이트 (빛 반사)
+  for (let y = 21; y <= 25; y++) {
+    p(8, y, PAL.J1); p(9, y, PAL.J2);
+    p(22, y, PAL.J2); p(23, y, PAL.J1);
+  }
+
+  // ── 네온 가슴 디테일 ──
+  const neonFlicker = state === 'energized' ? (f % 2 === 0 ? PAL.N1 : PAL.M1)
+                    : state === 'focus'     ? PAL.N1
+                    : state === 'tired'     ? PAL.N3
+                    : (f % 4 < 3 ? PAL.N1 : PAL.N2);
+  // 왼쪽 삼각형 마크
+  p(10, 23, neonFlicker); p(11, 23, neonFlicker); p(11, 24, neonFlicker);
+  // 오른쪽 삼각형 마크
+  p(21, 23, neonFlicker); p(20, 23, neonFlicker); p(20, 24, neonFlicker);
+  // 중앙 사각형
+  p(14, 22, neonFlicker); p(15, 22, neonFlicker); p(16, 22, neonFlicker); p(17, 22, neonFlicker);
+  p(14, 23, PAL.N3);      p(17, 23, PAL.N3);
+
+  // ── 벨트 ──
+  for (let x = 6; x <= 25; x++) p(x, 32, PAL.G1);
+  for (let x = 7; x <= 24; x++) p(x, 33, PAL.G2);
+  // 벨트 버클
+  p(14, 32, PAL.N1); p(15, 32, PAL.N1); p(16, 32, PAL.N1); p(17, 32, PAL.N1);
+  p(14, 33, PAL.N2); p(15, 33, PAL.B1); p(16, 33, PAL.B1); p(17, 33, PAL.N2);
+  // 벨트 사이드 장식
+  p(9, 32, PAL.B1); p(10, 33, PAL.B2);
+  p(22, 32, PAL.B1); p(21, 33, PAL.B2);
+
+  // ─────────────────────────────────────────
+  // 팔 — 상태별
+  // ─────────────────────────────────────────
+  if (state === 'tired') {
+    // 축 처진 팔
+    for (let y = 21; y <= 29; y++) {
+      p(4, y, PAL.J4); p(5, y, PAL.J3);
+      p(27, y, PAL.J3); p(26, y, PAL.J4);
+    }
+    p(4, 30, PAL.S2); p(5, 30, PAL.S1);
+    p(27, 30, PAL.S1); p(26, 30, PAL.S2);
+  } else if (state === 'energized') {
+    // 팔 위로 들기
+    const lift = Math.min(3, Math.floor(f / 2));
+    for (let y = 15 - lift; y <= 24 - lift; y++) {
+      p(4, y, PAL.J4); p(5, y, PAL.J3); p(6, y, PAL.J4);
+      p(27, y, PAL.J3); p(26, y, PAL.J4); p(25, y, PAL.J3);
+    }
+    // 손 (들어올린)
+    p(4, 14-lift, PAL.S1); p(5, 14-lift, PAL.S0); p(6, 14-lift, PAL.S1);
+    p(27, 14-lift, PAL.S0); p(26, 14-lift, PAL.S1); p(25, 14-lift, PAL.S1);
+    // 에너지 파티클
+    const pts = [[2,12],[3,10],[1,14],[29,12],[28,10],[30,14]];
+    pts.forEach(([x,y],i) => {
+      const c = (f+i)%3===0 ? PAL.N1 : (f+i)%3===1 ? PAL.M1 : null;
+      if(c) { ctx.globalAlpha=0.7; p(x,y,c); ctx.globalAlpha=1; }
     });
-  });
+  } else if (state === 'focus') {
+    // 타이핑 자세 — 팔 앞으로
+    const offset = f % 4 < 2 ? 0 : 1;
+    for (let y = 23; y <= 28; y++) {
+      p(3+offset, y, PAL.J4); p(4+offset, y, PAL.J3); p(5+offset, y, PAL.J4);
+      p(28-offset, y, PAL.J3); p(27-offset, y, PAL.J4); p(26-offset, y, PAL.J3);
+    }
+    // 손
+    p(3+offset, 29, PAL.S1); p(4+offset, 29, PAL.S0); p(5+offset, 29, PAL.S1);
+    p(28-offset, 29, PAL.S0); p(27-offset, 29, PAL.S1); p(26-offset, 29, PAL.S1);
+  } else {
+    // idle — 자연스럽게 옆
+    const swing = f % 6 < 3 ? 0 : 1;
+    for (let y = 21; y <= 28; y++) {
+      p(4+swing, y, PAL.J4); p(5, y, PAL.J3); p(6, y, PAL.J4);
+      p(27-swing, y, PAL.J3); p(26, y, PAL.J4); p(25, y, PAL.J3);
+    }
+    p(4+swing, 29, PAL.S2); p(5, 29, PAL.S1); p(6, 29, PAL.S1);
+    p(27-swing, 29, PAL.S1); p(26, 29, PAL.S1); p(25, 29, PAL.S2);
+  }
 
-  // 글리치 효과
-  if(Math.random() < 0.04 && state !== 'tired') {
-    ctx.fillStyle = 'rgba(45,255,170,0.12)';
-    const gy = Math.floor(Math.random() * canH / PIXEL_SIZE) * PIXEL_SIZE;
-    ctx.fillRect(0, gy, canW, PIXEL_SIZE);
+  // ─────────────────────────────────────────
+  // 하의 — 다크 팬츠
+  // ─────────────────────────────────────────
+  for (let y = 34; y <= 42; y++) {
+    for (let x = 8; x <= 13; x++) p(x, y, x===8||x===13 ? PAL.J5 : PAL.J4);
+    for (let x = 18; x <= 23; x++) p(x, y, x===18||x===23 ? PAL.J5 : PAL.J4);
+  }
+  // 무릎 디테일
+  p(9, 37, PAL.J2); p(10, 37, PAL.J2); p(11, 37, PAL.J2);
+  p(20, 37, PAL.J2); p(21, 37, PAL.J2); p(22, 37, PAL.J2);
+  // 다리 라인 (측면 스트라이프 — 네온)
+  const stripeC = state === 'tired' ? PAL.N3 : PAL.N2;
+  for (let y = 34; y <= 41; y++) { p(8, y, stripeC); p(23, y, stripeC); }
+
+  // ─────────────────────────────────────────
+  // 부츠 — 네온 그린 사이버 부츠
+  // ─────────────────────────────────────────
+  const bootN = state === 'tired' ? PAL.N3
+              : state === 'energized' ? (f%2===0 ? PAL.N1 : PAL.M1)
+              : PAL.N1;
+  // 왼 부츠
+  for (let y = 43; y <= 46; y++) for (let x = 7; x <= 14; x++) p(x, y, PAL.J4);
+  for (let x = 7; x <= 14; x++) p(x, 43, bootN);
+  for (let x = 7; x <= 14; x++) p(x, 46, bootN);
+  p(7, 44, bootN); p(7, 45, bootN); p(14, 44, bootN); p(14, 45, bootN);
+  // 오른 부츠
+  for (let y = 43; y <= 46; y++) for (let x = 17; x <= 24; x++) p(x, y, PAL.J4);
+  for (let x = 17; x <= 24; x++) p(x, 43, bootN);
+  for (let x = 17; x <= 24; x++) p(x, 46, bootN);
+  p(17, 44, bootN); p(17, 45, bootN); p(24, 44, bootN); p(24, 45, bootN);
+  // 부츠 하이라이트
+  p(9, 44, PAL.J2); p(10, 44, PAL.J2); p(11, 44, PAL.J2);
+  p(19, 44, PAL.J2); p(20, 44, PAL.J2); p(21, 44, PAL.J2);
+  // 부츠 글로우
+  if (state !== 'tired') {
+    ctx.save();
+    ctx.globalAlpha = 0.25 + 0.1 * Math.sin(f * 0.5);
+    const bg1 = ctx.createRadialGradient(10*PIXEL_SIZE, 45*PIXEL_SIZE, 0, 10*PIXEL_SIZE, 45*PIXEL_SIZE, 4*PIXEL_SIZE);
+    bg1.addColorStop(0, PAL.N1); bg1.addColorStop(1, 'transparent');
+    ctx.fillStyle = bg1; ctx.fillRect(0, 0, canW, canH);
+    const bg2 = ctx.createRadialGradient(21*PIXEL_SIZE, 45*PIXEL_SIZE, 0, 21*PIXEL_SIZE, 45*PIXEL_SIZE, 4*PIXEL_SIZE);
+    bg2.addColorStop(0, PAL.N1); bg2.addColorStop(1, 'transparent');
+    ctx.fillStyle = bg2; ctx.fillRect(0, 0, canW, canH);
+    ctx.restore();
+  }
+
+  // ─────────────────────────────────────────
+  // 오버레이 효과
+  // ─────────────────────────────────────────
+  // 글리치 (가끔)
+  if (Math.random() < 0.025 && state !== 'tired') {
+    ctx.save();
+    ctx.globalAlpha = 0.18;
+    ctx.fillStyle = PAL.N1;
+    const gy = Math.floor(Math.random() * AVATAR_H) * PIXEL_SIZE;
+    const gh = PIXEL_SIZE * (Math.floor(Math.random() * 3) + 1);
+    ctx.fillRect(0, gy, canW, gh);
+    ctx.restore();
   }
   // 스캔라인
-  ctx.fillStyle = 'rgba(0,0,0,0.12)';
-  for(let y = 0; y < canH; y += 2) ctx.fillRect(0, y, canW, 1);
+  ctx.save();
+  ctx.globalAlpha = 0.08;
+  ctx.fillStyle = '#000';
+  for (let y = 0; y < canH; y += 2) ctx.fillRect(0, y, canW, 1);
+  ctx.restore();
+
+  // 비네트
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  const vig = ctx.createRadialGradient(canW/2, canH/2, canH*0.3, canW/2, canH/2, canH*0.7);
+  vig.addColorStop(0, 'transparent');
+  vig.addColorStop(1, '#000');
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, canW, canH);
+  ctx.restore();
 }
+
+
 
 function startAvatarAnim() {
   if(_avatarAnimId) return;
@@ -9850,7 +10061,7 @@ function _collectSystemState() {
   const battery = parseInt(localStorage.getItem('battery_level') || '5');
 
   // RPG 스탯 체크 (오늘 체크된 항목 수)
-  const rpgChecks = JSON.parse(localStorage.getItem('rpg_checks_v1') || '{}');
+  const rpgChecks = JSON.parse(localStorage.getItem('rpg_obs_v1') || '{}');
   const todayChecks = rpgChecks[today] || {};
   const checkedCount = Object.values(todayChecks).filter(Boolean).length;
 
@@ -10057,8 +10268,8 @@ var _SP = {
   neon_b:   '#60a5fa',
 };
 
-// ── 픽셀 그리기 유틸 ──
-function _px(ctx, x, y, w, h, col) {
+// ── 픽셀 그리기 유틸 (배경 씬용) ──
+function _bgPx(ctx, x, y, w, h, col) {
   ctx.fillStyle = col;
   ctx.fillRect(x, y, w, h);
 }
@@ -10079,7 +10290,7 @@ function _drawBuildings(ctx, W, H, palette) {
     var bw = Math.floor(b.w / 100 * W);
     var by = Math.floor((1 - b.h) * H * 0.7);
     var bh = H - by;
-    _px(ctx, bx, by, bw, bh, b.col);
+    _bgPx(ctx, bx, by, bw, bh, b.col);
     // 창문들
     var rows = Math.floor((bh - 4) / 5);
     var cols = Math.floor((bw - 2) / 4);
@@ -10089,7 +10300,7 @@ function _drawBuildings(ctx, W, H, palette) {
           var wx = bx + 2 + c * 4;
           var wy = by + 3 + r * 5;
           var lit = Math.random() > 0.3;
-          _px(ctx, wx, wy, 2, 2, lit ? palette.win_lit : palette.win_dark);
+          _bgPx(ctx, wx, wy, 2, 2, lit ? palette.win_lit : palette.win_dark);
         }
       }
     }
