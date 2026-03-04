@@ -1129,8 +1129,8 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
   .me-grid { grid-template-columns: 1fr; }
   .me-charge-card { grid-column: 1/-1; border-right: none; }
   .me-drain-card  { grid-column: 1/-1; }
-  .me-todo-card { max-height: 240px; }
-  .quest-list { max-height: 180px; }
+  .me-todo-card { max-height: 340px; }
+  .quest-list { max-height: 260px; }
 }
 
 .me-card { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; display: flex; flex-direction: column; }
@@ -1246,7 +1246,7 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
   transition: all .1s steps(3); margin-top: 2px;
 }
 .me-todo-item.done .me-todo-check { background: var(--accent); border-color: var(--accent); color: var(--background); }
-.me-todo-text { font-size: 14px; color: var(--foreground); flex: 1; line-height: 1.5; }
+.me-todo-text { font-size: 13px; color: var(--foreground); flex: 1; line-height: 1.5; word-break: break-word; white-space: normal; min-width: 0; }
 .me-todo-item.done .me-todo-text { text-decoration: line-through; color: var(--foreground-muted); }
 .me-todo-del  { background: none; border: none; color: var(--foreground-muted); font-size: 14px; cursor: pointer; flex-shrink: 0; padding: 0 2px; transition: color .15s; }
 .me-todo-del:hover { color: var(--destructive); }
@@ -3044,7 +3044,7 @@ select {
 }
 @keyframes hexPulse { 0%,100%{opacity:1;color:var(--accent)} 50%{opacity:.4;color:var(--accent-tertiary)} }
 
-.quest-list { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; max-height: 240px; }
+.quest-list { flex: 1; overflow-y: auto; padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; max-height: 360px; min-height: 60px; scrollbar-width: thin; }
 .quest-list::-webkit-scrollbar { width: 3px; }
 .quest-list::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
 
@@ -3055,7 +3055,8 @@ select {
   border-left: 3px solid;
   background: var(--card);
   cursor: pointer; transition: var(--t-snap);
-  position: relative; overflow: hidden;
+  position: relative; 
+  min-width: 0;
 }
 .quest-item::before {
   content: ''; position: absolute; inset: 0;
@@ -3098,6 +3099,7 @@ select {
 .quest-text {
   font-size: 12px; color: var(--foreground); line-height: 1.5;
   word-break: break-word;
+  min-width: 0;
 }
 .quest-item.done .quest-text { text-decoration: line-through; color: var(--foreground-muted); }
 .quest-meta { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 4px; }
@@ -3164,8 +3166,9 @@ select {
   grid-column: 1/-1;
   border-bottom: 1px solid var(--border);
   border-right: none;
-  min-height: 160px;
-  max-height: 280px;
+  min-height: 180px;
+  max-height: 420px;   /* 더 넓게 */
+  height: auto;
 }
 
 
@@ -7148,23 +7151,15 @@ function renderWsPage(){
       </div>`;
     }
     if(f.type==='task_item'){
-      // task_item: 텍스트 입력 + 시간이 많이 필요한가 토글
-      const taskData=wsAnswers[f.key]||{text:'',longTask:false};
-      const taskText=typeof taskData==='string'?taskData:(taskData.text||'');
-      const longTask=typeof taskData==='object'&&taskData.longTask;
-      return `<div class="ws-field ws-task-field" id="tf_${f.key}">
-        <div class="ws-field-label">${f.label}${f.hint?`<span class="ws-field-hint"> — ${f.hint}</span>`:''}</div>
-        <input class="ws-inp" id="wsinp_${f.key}" value="${esc(taskText)}"
-          placeholder="할 일 입력..."
-          oninput="wsSetTask('${f.key}','text',this.value)">
-        <div class="ws-task-meta">
-          <button class="ws-task-toggle${longTask?' active':''}" onclick="wsToggleLong('${f.key}')">
-            ⏳ 시간이 많이 필요한 일
-          </button>
-          ${longTask?'<span class="ws-task-long-badge">장기 작업 — 최대한 빨리 시작할수록 좋아</span>':''}
-        </div>
-      </div>`;
-    }
+        const taskData=wsAnswers[f.key]||{text:'',longTask:false};
+        const taskText=typeof taskData==='string'?taskData:(taskData.text||'');
+        const longTask=typeof taskData==='object'&&taskData.longTask;
+        if(!taskText.trim()) return '';
+        return `<div class="res-ws-field">
+          <div class="res-ws-label">${esc(f.label)}${longTask?' <span style="font-size:9px;color:var(--accent)">⏳ 장기</span>':''}</div>
+          <div class="res-ws-val">${esc(taskText)}</div>
+        </div>`;
+      }
     if(f.type==='reward_pick'){
       const rd=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
       const charges=rd.charge||[];
@@ -7316,8 +7311,11 @@ function renderWsResult(){
     const fields=page.fields;
     // 이 페이지에 입력된 내용이 하나라도 있는지 확인
     const hasAny=fields.some(f=>{
-      const v=wsAnswers[f.key]||'';
-      return f.type==='reward_pick'?!!v:v.trim()!=='';
+      const v=wsAnswers[f.key];
+      if(!v) return false;
+      if(f.type==='reward_pick') return !!v;
+      if(f.type==='task_item') return !!(typeof v==='object'?v.text:v).trim();
+      return typeof v==='string' ? v.trim()!=='' : !!v;
     });
     if(!hasAny)return'';
 
@@ -10877,33 +10875,7 @@ function _updateNpcChips(npcs) {
 // SECTOR 7 픽셀 일러스트 시스템
 // ═══════════════════════════════════════════════════════════
 
-// ── 씬 분석: 텍스트 키워드 → 씬 타입 ──
-// ═══════════════════════════════════════════════════════════
-// 고퀄리티 사이버펑크 픽셀 씬 아트 — 완전 재작성
-// 저해상도 픽셀 아트 미학 (1/3 스케일, integer scaling)
-// ═══════════════════════════════════════════════════════════
 
-function _analyzeScene(text, npcs) {
-  if (!text) return 'base_night';
-  var t = text.toLowerCase();
-  var isNight  = /밤|어두|별|달빛|자정|새벽|잠|꿈|어스름/.test(t);
-  var isRain   = /비|빗|젖|우산|물소리|촉촉|빗소리/.test(t);
-  var isCafe   = /카페|커피|차|음료|창가|테이블|마시/.test(t);
-  var isRoof   = /옥상|하늘|바람|구름|바깥|거리|네온|도시/.test(t);
-  var isHome   = /기지|방|침대|소파|창문|따뜻|실내/.test(t);
-  var isAction = /임무|수행|달려|움직|출발|집중|달리/.test(t);
-  if (isRain && isNight)  return 'rain_night';
-  if (isRain)             return 'rain_day';
-  if (isRoof && isNight)  return 'rooftop_night';
-  if (isRoof)             return 'rooftop_day';
-  if (isCafe)             return 'cafe';
-  if (isNight && isHome)  return 'base_night';
-  if (isAction)           return 'street_night';
-  if (isNight)            return 'base_night';
-  return 'base_day';
-}
-
-// ── 팔레트 ──
 // ═══════════════════════════════════════════════════════════
 //  스토리 씬 분석 — 텍스트 깊이 파싱
 // ═══════════════════════════════════════════════════════════
@@ -11627,6 +11599,10 @@ var _SCENES = {
     _bgPx(ctx, Math.floor(W*.05), Math.floor(H*.65), Math.floor(W*.9), 5, '#0f1820');
   },
 
+  // ── 구버전 호환 alias ──
+  cafe: function(ctx, W, H, npcs) { return _SCENES.cafe_night(ctx, W, H, npcs); },
+  rooftop: function(ctx, W, H, npcs) { return _SCENES.rooftop_night(ctx, W, H, npcs); },
+
   // ── 기지 (밤) ──
   base_night: function(ctx, W, H) {
     _bgPx(ctx, 0, 0, W, H, '#060a14');
@@ -11964,7 +11940,8 @@ async function generateStory() {
       storyCurrentIdx = _storySorted().length - 1;
       _renderStorySlide(storyCurrentIdx);
       // Together AI 이미지 생성 (비동기, 스토리 본문과 독립적으로)
-      if (typeof _renderStoryBg === 'function' && TOGETHER_KEY) {
+      // Canvas 씬 배경 업데이트
+      if (typeof _renderStoryBg === 'function') {
         var lastEntry = _storySorted()[storyCurrentIdx];
         if (lastEntry) _renderStoryBg(lastEntry);
       }
