@@ -2546,6 +2546,12 @@ select {
 .task-list-panel {
   display: flex; flex-direction: column; background: var(--background); overflow: hidden;
 }
+.task-sec-rescue {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: .5px;
+  padding: 1px 6px; border: 1px solid rgba(251,191,36,.35); color: #fbbf24;
+  background: rgba(251,191,36,.05); cursor: pointer; transition: .12s;
+}
+.task-sec-rescue:hover { background: rgba(251,191,36,.15); border-color: #fbbf24; }
 .task-list-head {
   padding: 12px 16px 8px; border-bottom: 1px solid var(--border); flex-shrink: 0;
 }
@@ -2598,8 +2604,8 @@ select {
   cursor: pointer; position: relative;
 }
 .task-item-main {
-  display: flex; align-items: flex-start; gap: 10px;
-  padding: 9px 12px 9px 16px;
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px 9px 16px; min-height: 44px;
 }
 .task-item:hover { background: rgba(255,255,255,.025); }
 .task-item:hover .task-item-actions { opacity: 1; }
@@ -2607,7 +2613,7 @@ select {
 .task-item-check {
   width: 20px; height: 20px; border: 1.5px solid var(--border);
   display: flex; align-items: center; justify-content: center;
-  font-size: 10px; flex-shrink: 0; margin-top: 1px; cursor: pointer;
+  font-size: 10px; flex-shrink: 0; cursor: pointer;
   transition: var(--t-snap); border-radius: 2px;
 }
 .task-item.done .task-item-check {
@@ -4397,6 +4403,7 @@ function renderTaskList(){
             <button class="task-sec-rename-btn" title="이름 편집"
               onclick="event.stopPropagation();startCatRename('${c.id}')">✎</button>
             <span class="task-sec-count"></span>
+            ${(()=>{const todayK=taskDateKey(new Date());const overdueCnt=taskItems.filter(t=>!t.done&&t.catId===c.id&&t.date&&t.date<todayK).length;return overdueCnt>0?`<button class="task-sec-rescue" title="${overdueCnt}개 밀린 할일 오늘로" onclick="event.stopPropagation();rescueCatTasks('${c.id}')">⚡${overdueCnt}</button>`:''})()}
             <button class="task-sec-add" style="border-color:${c.color};color:${c.color}"
               onclick="event.stopPropagation();openTaskQuickAdd('${c.id}')">+</button>
           </div>
@@ -4416,6 +4423,7 @@ function renderTaskList(){
           <button class="task-sec-rename-btn" title="이름 편집"
             onclick="event.stopPropagation();startCatRename('${cat.id}')">✎</button>
           <span class="task-sec-count"></span>
+          ${(()=>{const todayK=taskDateKey(new Date());const overdueCnt=taskItems.filter(t=>!t.done&&t.catId===cat.id&&t.date&&t.date<todayK).length;return overdueCnt>0?`<button class="task-sec-rescue" title="${overdueCnt}개 밀린 할일 오늘로" onclick="event.stopPropagation();rescueCatTasks('${cat.id}')">⚡${overdueCnt}</button>`:''})()}
           <button class="task-sec-add" style="border-color:${cat.color};color:${cat.color}"
             onclick="event.stopPropagation();openTaskQuickAdd('${cat.id}')">+</button>
           <span class="task-sec-toggle">▾</span>
@@ -4468,7 +4476,7 @@ function renderTaskList(){
             <div class="task-item-meta">
               ${dateDisp?`<span class="task-item-time">${dateDisp}</span>`:''}
               ${t.time?`<span class="task-item-time">· ${t.time}</span>`:''}
-              ${t.priority?`<span class="task-item-prio ${t.priority}">${prioMap[t.priority]} ${prioLabel[t.priority]}</span>`:''}
+              ${t.priority&&prioMap[t.priority]?`<span class="task-item-prio ${t.priority}">${prioMap[t.priority]}</span>`:''}
             </div>
           </div>
           <div class="task-item-actions">
@@ -4516,6 +4524,7 @@ function renderTaskList(){
         <button class="task-sec-rename-btn" title="이름 편집"
           onclick="event.stopPropagation();startCatRename('${cat.id}')">✎</button>
         <span class="task-sec-count" style="color:${cat.color}">${active.length}/${items.length}</span>
+        ${(()=>{const todayK=taskDateKey(new Date());const overdueCnt=taskItems.filter(t=>!t.done&&t.catId===cat.id&&t.date&&t.date<todayK).length;return overdueCnt>0?`<button class="task-sec-rescue" title="${overdueCnt}개 밀린 할일 오늘로" onclick="event.stopPropagation();rescueCatTasks('${cat.id}')">⚡${overdueCnt}</button>`:''})()}
         <button class="task-sec-add" style="border-color:${cat.color};color:${cat.color}"
           onclick="event.stopPropagation();openTaskQuickAdd('${cat.id}')">+</button>
         <span class="task-sec-toggle">▾</span>
@@ -4764,6 +4773,22 @@ function taskItemDropOnCal(e, dateKey, cell) {
 document.addEventListener('click', function(e){
   if(!e.target.closest('.tie-datepicker,.tie-timepicker,[onclick*="tieOpenDate"],[onclick*="tieOpenTime"]')) tieClosePickers();
 });
+
+// ── 밀린 미완료 할일 오늘로 이동 ──
+function rescueCatTasks(catId) {
+  const todayKey = taskDateKey(new Date());
+  const cat = taskCats.find(c=>c.id===catId);
+  const overdue = taskItems.filter(t => !t.done && t.catId===catId && t.date && t.date < todayKey);
+  if(overdue.length === 0) { showToast('밀린 할일이 없어!'); return; }
+  overdue.forEach(t => { t.date = todayKey; });
+  saveTaskData();
+  renderTaskCal();
+  taskSelDate = todayKey;
+  renderTaskCal();
+  renderTaskList();
+  showToast(`${cat?cat.icon+' '+cat.label:''} ${overdue.length}개 오늘로 이동!`);
+}
+
 function toggleTaskSec(catId){
   const el = document.getElementById('taskSec-'+catId);
   if(!el) return;
@@ -9158,7 +9183,11 @@ function renderMeTodo() {
   const active = todoItems.filter(t => !t.done);
   const all = active; // 완료 항목 숨김
 
-  if(all.length === 0) {
+  // 오늘 taskItems (할일탭)
+  const todayKey = _todayKey ? _todayKey() : new Date().toISOString().slice(0,10);
+  const todayTasks = taskItems.filter(t => !t.done && t.date === todayKey);
+
+  if(all.length === 0 && todayTasks.length === 0) {
     const hasDone = todoItems.some(t => t.done);
     el.innerHTML = hasDone
       ? `<div class="quest-empty">◈ 모든 임무 완료 ◈<br><span style="opacity:.5;font-size:9px">오늘도 수고했어</span></div>`
@@ -9224,6 +9253,26 @@ function renderMeTodo() {
       </div>
     </div>`;
   }).join('');
+
+  // 오늘 할일탭 항목 추가
+  if(todayTasks.length > 0) {
+    const divider = `<div style="font-family:var(--font-label);font-size:8px;letter-spacing:2px;
+      color:rgba(45,255,170,.4);padding:6px 14px 4px;border-top:1px solid var(--border)">
+      TODAY · 할일탭</div>`;
+    const taskHtml = todayTasks.map(t => {
+      const cat = taskCats.find(c=>c.id===t.catId)||{color:'#94a3b8',icon:'📌'};
+      const realIdx = taskItems.indexOf(t);
+      return `<div class="quest-item" style="border-left-color:${cat.color};opacity:${t.done?.4:1}"
+        onclick="toggleTaskItem(${realIdx});renderMeTodo()">
+        <div class="quest-icon none" style="border-color:${cat.color}44;color:${cat.color}">${cat.icon}</div>
+        <div class="quest-body">
+          <div class="quest-text">${esc(t.text)}</div>
+          ${t.time?`<div style="font-family:var(--font-label);font-size:8px;color:var(--foreground-muted);margin-top:2px">🕐 ${t.time}</div>`:''}
+        </div>
+      </div>`;
+    }).join('');
+    el.innerHTML += divider + taskHtml;
+  }
 
   // 아바타 상태 갱신
   updateAvatarFromStats();
