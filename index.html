@@ -2646,6 +2646,92 @@ select {
 }
 .task-item-btn:hover { color: var(--accent); }
 .task-item-btn.del:hover { color: var(--destructive); }
+/* ── 할일 인라인 편집 패널 ── */
+.task-item.editing {
+  background: rgba(45,255,170,.03);
+  border-color: rgba(45,255,170,.2);
+}
+.task-item.editing .task-item-actions { opacity: 1; }
+.task-item.dragging { opacity: .35; }
+.task-item-edit-panel {
+  display: none;
+  flex-direction: column; gap: 7px;
+  padding: 8px 12px 12px 46px;
+  border-top: 1px solid rgba(45,255,170,.08);
+}
+.task-item.editing .task-item-edit-panel { display: flex; }
+.tie-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.tie-label {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
+  color: var(--foreground-muted); min-width: 24px; flex-shrink: 0;
+}
+.tie-inp {
+  background: var(--muted); border: 1px solid var(--border);
+  color: var(--foreground); font-size: 12px; font-family: inherit;
+  padding: 4px 8px; outline: none; flex: 1; min-width: 0;
+}
+.tie-inp:focus { border-color: rgba(45,255,170,.4); }
+.tie-chip {
+  padding: 2px 8px; font-size: 9px; font-family: var(--font-label);
+  letter-spacing: .5px; border: 1px solid var(--border);
+  background: none; cursor: pointer; color: var(--foreground-muted);
+  transition: .12s; white-space: nowrap;
+}
+.tie-chip:hover { border-color: rgba(255,255,255,.3); color: var(--foreground); }
+.tie-chip.sel { color: var(--foreground); }
+.tie-save-btn {
+  align-self: flex-start;
+  padding: 4px 16px; font-size: 9px; font-family: var(--font-label);
+  letter-spacing: 1px; border: 1px solid rgba(45,255,170,.4);
+  background: rgba(45,255,170,.08); color: var(--accent); cursor: pointer;
+  transition: .12s; margin-top: 2px;
+}
+.tie-save-btn:hover { background: rgba(45,255,170,.18); }
+/* 날짜 피커 팝업 */
+.tie-datepicker, .tie-timepicker {
+  position: fixed; z-index: 500;
+  background: var(--card); border: 1px solid rgba(45,255,170,.25);
+  box-shadow: 0 8px 32px rgba(0,0,0,.6);
+}
+.tie-datepicker { padding: 8px; min-width: 196px; }
+.tie-dp-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;
+}
+.tie-dp-nav {
+  background: none; border: none; color: var(--foreground-muted);
+  cursor: pointer; font-size: 14px; padding: 0 4px; line-height: 1;
+}
+.tie-dp-nav:hover { color: var(--accent); }
+.tie-dp-month { font-family: var(--font-label); font-size: 9px; letter-spacing: 1px; color: var(--foreground); }
+.tie-dp-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.tie-dp-dow { font-family: var(--font-label); font-size: 7px; text-align: center; color: var(--foreground-muted); padding: 2px 0; }
+.tie-dp-cell {
+  font-size: 9px; text-align: center; padding: 4px 2px;
+  cursor: pointer; transition: background .1s;
+}
+.tie-dp-cell:hover { background: rgba(45,255,170,.15); color: var(--accent); }
+.tie-dp-cell.other { opacity: .3; }
+.tie-dp-cell.today { color: var(--accent); font-weight: 700; }
+.tie-dp-cell.sel { background: var(--accent); color: #000 !important; }
+.tie-dp-cell.has-t::after { content:''; display:block; width:2px; height:2px; background:currentColor; margin: 1px auto 0; opacity:.5; border-radius:50%; }
+/* 시간 피커 팝업 */
+.tie-timepicker {
+  padding: 4px; display: grid; grid-template-columns: repeat(4,1fr);
+  gap: 1px; max-height: 160px; overflow-y: auto; min-width: 160px;
+}
+.tie-timepicker::-webkit-scrollbar { width: 3px; }
+.tie-timepicker::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
+.tie-time-slot {
+  font-size: 9px; text-align: center; padding: 4px 2px; cursor: pointer;
+  border: 1px solid transparent; transition: .1s;
+}
+.tie-time-slot:hover { border-color: rgba(45,255,170,.3); color: var(--accent); }
+.tie-time-slot.sel { border-color: var(--accent); color: var(--accent); background: rgba(45,255,170,.06); }
+/* 달력 드래그 오버 */
+.task-cal-day.drag-over {
+  outline: 1px solid var(--accent);
+  background: rgba(45,255,170,.07) !important;
+}
 
 /* 빠른 추가 인라인 입력 */
 .task-quick-add {
@@ -4351,72 +4437,73 @@ function renderTaskList(){
     const itemsHtml=sorted.map(t=>{
       const realIdx=taskItems.findIndex(x=>x.id===t.id);
       const prioMap={high:'🔴',mid:'🟡',low:'🟢'};
-      const cat2=taskCats.find(c=>c.id===t.catId)||{label:'기타',color:'#94a3b8',icon:'📌'};
-      const dateDisp = t.date ? t.date.slice(5).replace('-','/') : '날짜없음';
+      const prioLabel={high:'핵심',mid:'일반',low:'여유'};
+      const dateDisp = t.date ? t.date.slice(5).replace('-','/') : '';
+      // 카테고리 칩들
+      const catChips = taskCats.map(c=>{
+        const isSel = t.catId===c.id;
+        return `<button class="tie-chip${isSel?' sel':''}"
+          style="${isSel?`border-color:${c.color}55;color:${c.color};background:${c.color}11`:''}"
+          onclick="event.stopPropagation();tieSetCat('${t.id}',${realIdx},'${c.id}')">${c.icon} ${c.label}</button>`;
+      }).join('');
+      // 우선순위 칩들
+      const prioChips = [['','없음'],['high','🔴 핵심'],['mid','🟡 일반'],['low','🟢 여유']].map(([v,lbl])=>{
+        const isSel = (t.priority||'')=== v;
+        const colors={high:'rgba(255,77,109,.5)',mid:'rgba(251,191,36,.5)',low:'rgba(45,255,170,.4)'};
+        return `<button class="tie-chip${isSel?' sel':''}"
+          style="${isSel&&v?`border-color:${colors[v]};color:var(--foreground)`:''}"
+          onclick="event.stopPropagation();tieSetPrio('${t.id}',${realIdx},'${v}')">${lbl}</button>`;
+      }).join('');
+
       return `<div class="task-item${t.done?' done':''}" id="ti-${t.id}"
           draggable="true"
           ondragstart="taskItemDragStart(event,'${t.id}')"
           ondragend="taskItemDragEnd(event)"
-          onclick="toggleTaskItemEdit(event,'${t.id}',${realIdx})">
+          onclick="tieToggle(event,'${t.id}')">
         <div class="task-item-main">
-          <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})" title="완료 토글">${t.done?'✓':''}</div>
+          <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})">${t.done?'✓':''}</div>
           <div class="task-item-body">
             <div class="task-item-text">${esc(t.text)}</div>
             ${t.note?`<div class="task-item-sub">${esc(t.note)}</div>`:''}
             <div class="task-item-meta">
-              ${t.date?`<span class="task-item-time">${dateDisp}</span>`:''}
+              ${dateDisp?`<span class="task-item-time">${dateDisp}</span>`:''}
               ${t.time?`<span class="task-item-time">· ${t.time}</span>`:''}
-              ${t.priority?`<span class="task-item-prio ${t.priority}">${prioMap[t.priority]||''}</span>`:''}
+              ${t.priority?`<span class="task-item-prio ${t.priority}">${prioMap[t.priority]} ${prioLabel[t.priority]}</span>`:''}
             </div>
           </div>
           <div class="task-item-actions">
-            <span class="task-item-drag" title="드래그해서 날짜 변경" onclick="event.stopPropagation()">⠿</span>
-            <button class="task-item-btn del" onclick="event.stopPropagation();deleteTaskItem(${realIdx})" title="삭제">×</button>
+            <span style="opacity:.3;cursor:grab;padding:0 4px;font-size:12px" title="드래그로 날짜 변경" onclick="event.stopPropagation()">⠿</span>
+            <button class="task-item-btn del" onclick="event.stopPropagation();deleteTaskItem(${realIdx})">×</button>
           </div>
         </div>
-        <!-- 인라인 편집 패널 -->
         <div class="task-item-edit-panel" id="tiep-${t.id}">
-          <!-- 제목 -->
           <div class="tie-row">
-            <input class="tie-inp" id="tie-text-${t.id}" value="${esc(t.text)}"
-              onclick="event.stopPropagation()" style="flex:1;font-size:12px">
+            <span class="tie-label">제목</span>
+            <input class="tie-inp" id="tiet-${t.id}" value="${esc(t.text)}" onclick="event.stopPropagation()">
           </div>
-          <!-- 날짜 + 시간 -->
           <div class="tie-row">
             <span class="tie-label">날짜</span>
-            <button class="tie-chip active" id="tie-date-btn-${t.id}"
-              onclick="event.stopPropagation();openTieDatePicker('${t.id}',${realIdx},this)"
-              style="border-color:rgba(45,255,170,.3);color:var(--accent)">${t.date||'없음'}</button>
-            <span class="tie-label" style="margin-left:8px">시간</span>
-            <button class="tie-chip" id="tie-time-btn-${t.id}"
-              onclick="event.stopPropagation();openTieTimePicker('${t.id}',${realIdx},this)">${t.time||'없음'}</button>
-            ${t.time?`<button class="tie-chip" onclick="event.stopPropagation();setTieTime('${t.id}',${realIdx},'')">✕</button>`:''}
+            <button class="tie-chip sel" id="tiedb-${t.id}"
+              style="border-color:rgba(45,255,170,.3);color:var(--accent)"
+              onclick="event.stopPropagation();tieOpenDate('${t.id}',${realIdx},this)">${t.date||'없음'}</button>
+            <span class="tie-label" style="margin-left:4px">시간</span>
+            <button class="tie-chip" id="tietb-${t.id}"
+              onclick="event.stopPropagation();tieOpenTime('${t.id}',${realIdx},this)">${t.time||'없음'}</button>
+            ${t.time?`<button class="tie-chip" onclick="event.stopPropagation();tieSetTime('${t.id}',${realIdx},'')">✕</button>`:''}
           </div>
-          <!-- 카테고리 -->
           <div class="tie-row">
             <span class="tie-label">분류</span>
-            ${taskCats.map(c=>`<button class="tie-chip${t.catId===c.id?' active':''}"
-              style="${t.catId===c.id?`border-color:${c.color}44;color:${c.color};background:${c.color}11`:''}"
-              onclick="event.stopPropagation();setTieCat('${t.id}',${realIdx},'${c.id}')">${c.icon} ${c.label}</button>`).join('')}
+            ${catChips}
           </div>
-          <!-- 우선순위 -->
           <div class="tie-row">
             <span class="tie-label">순위</span>
-            ${[['','없음','var(--border)','var(--foreground-muted)'],
-               ['high','🔴 핵심','rgba(255,77,109,.4)','#ff4d6d'],
-               ['mid','🟡 일반','rgba(251,191,36,.4)','#fbbf24'],
-               ['low','🟢 여유','rgba(45,255,170,.3)','var(--accent)']
-              ].map(([v,label,bc,col])=>`<button class="tie-chip${t.priority===v?' active':''}"
-              style="${t.priority===v?`border-color:${bc};color:${col};background:${bc.replace('.4','.08').replace('.3','.06')}`:''}"
-              onclick="event.stopPropagation();setTiePrio('${t.id}',${realIdx},'${v}')">${label}</button>`).join('')}
+            ${prioChips}
           </div>
-          <!-- 메모 -->
           <div class="tie-row">
             <span class="tie-label">메모</span>
-            <input class="tie-inp" id="tie-note-${t.id}" value="${esc(t.note||'')}"
-              placeholder="메모..." onclick="event.stopPropagation()">
+            <input class="tie-inp" id="tien-${t.id}" value="${esc(t.note||'')}" placeholder="메모..." onclick="event.stopPropagation()">
           </div>
-          <button class="tie-save-btn" onclick="event.stopPropagation();saveTieItem('${t.id}',${realIdx})">✓ 저장</button>
+          <button class="tie-save-btn" onclick="event.stopPropagation();tieSave('${t.id}',${realIdx})">✓ 저장</button>
         </div>
       </div>`;
     }).join('');
@@ -4482,219 +4569,162 @@ function startCatRename(catId) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 할일 인라인 편집 시스템
+// 할일 인라인 편집
 // ═══════════════════════════════════════════════════════════
-var _tieOpenId = null;
-var _tieDpDate = new Date(); // 날짜피커 현재 달
+var _tieOpen = null;
+var _tieDpMonth = null;
 
-function toggleTaskItemEdit(e, itemId, realIdx) {
-  // 체크박스, 버튼 클릭은 무시
-  if (e.target.closest('.task-item-check,.task-item-btn,.task-item-drag')) return;
-  const panel = document.getElementById('tiep-' + itemId);
-  const el    = document.getElementById('ti-' + itemId);
-  if (!panel || !el) return;
-
-  const isOpen = el.classList.contains('editing');
-  // 다른 열린 것 닫기
-  if (_tieOpenId && _tieOpenId !== itemId) {
-    const prev = document.getElementById('ti-' + _tieOpenId);
-    if (prev) { prev.classList.remove('editing'); }
-    _closePickers();
+function tieToggle(e, itemId) {
+  if (e.target.closest('.task-item-check,.task-item-btn,.tie-chip,.tie-inp,.tie-save-btn,[class*="tie-dp"],[class*="tie-time"]')) return;
+  const el = document.getElementById('ti-' + itemId);
+  if (!el) return;
+  const opening = !el.classList.contains('editing');
+  // 기존 열린 것 닫기
+  if (_tieOpen && _tieOpen !== itemId) {
+    const prev = document.getElementById('ti-' + _tieOpen);
+    if (prev) prev.classList.remove('editing');
   }
-  if (isOpen) {
-    el.classList.remove('editing');
-    _tieOpenId = null;
-    _closePickers();
-  } else {
-    el.classList.add('editing');
-    _tieOpenId = itemId;
-    // 포커스
-    setTimeout(() => document.getElementById('tie-text-' + itemId)?.focus(), 80);
-  }
+  tieClosePickers();
+  el.classList.toggle('editing', opening);
+  _tieOpen = opening ? itemId : null;
 }
 
-function _closePickers() {
+function tieClosePickers() {
   document.querySelectorAll('.tie-datepicker,.tie-timepicker').forEach(p => p.remove());
 }
 
 // ── 날짜 피커 ──
-function openTieDatePicker(itemId, realIdx, btn) {
-  _closePickers();
-  const t = taskItems[realIdx];
-  if (!t) return;
-  const initDate = t.date ? new Date(t.date + 'T00:00:00') : new Date();
-  _tieDpDate = new Date(initDate.getFullYear(), initDate.getMonth(), 1);
+function tieOpenDate(itemId, realIdx, btn) {
+  tieClosePickers();
+  const t = taskItems[realIdx]; if (!t) return;
+  const init = t.date ? new Date(t.date + 'T00:00') : new Date();
+  _tieDpMonth = new Date(init.getFullYear(), init.getMonth(), 1);
   const dp = document.createElement('div');
   dp.className = 'tie-datepicker';
   dp.onclick = e => e.stopPropagation();
   document.body.appendChild(dp);
 
-  function renderDp() {
-    const y = _tieDpDate.getFullYear(), m = _tieDpDate.getMonth();
-    const todayKey = taskDateKey(new Date());
-    const selKey   = t.date || '';
-    const taskDates = new Set(taskItems.map(x => x.date).filter(Boolean));
-
-    // 달력 시작 (월요일 기준)
-    let startDow = new Date(y, m, 1).getDay();
-    startDow = startDow === 0 ? 6 : startDow - 1;
-    const startD = new Date(y, m, 1 - startDow);
-
-    const cells = Array.from({length: 42}, (_, i) => {
-      const d = new Date(startD); d.setDate(startD.getDate() + i); return d;
-    });
-
+  function render() {
+    const y = _tieDpMonth.getFullYear(), m = _tieDpMonth.getMonth();
+    const todayK = taskDateKey(new Date());
+    const taskDs = new Set(taskItems.map(x => x.date).filter(Boolean));
+    let sd = new Date(y, m, 1);
+    let dow = sd.getDay(); dow = dow === 0 ? 6 : dow - 1;
+    sd.setDate(sd.getDate() - dow);
+    const cells = Array.from({length: 42}, (_, i) => { const d = new Date(sd); d.setDate(sd.getDate()+i); return d; });
     dp.innerHTML = `
       <div class="tie-dp-head">
-        <button class="tie-dp-nav" onclick="_tieDpMove(-1);event.stopPropagation()">‹</button>
+        <button class="tie-dp-nav" onclick="event.stopPropagation();_tieDpShift(-1)">‹</button>
         <span class="tie-dp-month">${y}년 ${m+1}월</span>
-        <button class="tie-dp-nav" onclick="_tieDpMove(1);event.stopPropagation()">›</button>
+        <button class="tie-dp-nav" onclick="event.stopPropagation();_tieDpShift(1)">›</button>
       </div>
       <div class="tie-dp-grid">
-        ${['월','화','수','목','금','토','일'].map((d,i)=>
-          `<div class="tie-dp-dow${i>=5?' sat':''}">${d}</div>`).join('')}
-        ${cells.map(d => {
-          const key = taskDateKey(d);
-          const other = d.getMonth() !== m;
-          const cls = [
-            'tie-dp-cell',
-            other ? 'other' : '',
-            key === todayKey ? 'today' : '',
-            key === selKey ? 'selected' : '',
-            taskDates.has(key) ? 'has-task' : ''
-          ].filter(Boolean).join(' ');
-          return `<div class="${cls}"
-            onclick="setTieDate('${itemId}',${realIdx},'${key}',this);event.stopPropagation()"
-            >${d.getDate()}</div>`;
+        ${['월','화','수','목','금','토','일'].map(d=>`<div class="tie-dp-dow">${d}</div>`).join('')}
+        ${cells.map(d=>{
+          const k=taskDateKey(d);
+          const cls=['tie-dp-cell',d.getMonth()!==m?'other':'',k===todayK?'today':'',k===t.date?'sel':'',taskDs.has(k)&&k!==t.date?'has-t':''].filter(Boolean).join(' ');
+          return `<div class="${cls}" onclick="event.stopPropagation();tieSetDate('${itemId}',${realIdx},'${k}')">${d.getDate()}</div>`;
         }).join('')}
       </div>
-      <div style="display:flex;gap:4px;padding-top:6px;justify-content:flex-end">
-        <button class="tie-chip" onclick="setTieDate('${itemId}',${realIdx},'',null);event.stopPropagation()">날짜 없음</button>
-        <button class="tie-chip" onclick="_closePickers();event.stopPropagation()">닫기</button>
+      <div style="display:flex;gap:4px;padding-top:5px">
+        <button class="tie-chip" style="flex:1" onclick="event.stopPropagation();tieSetDate('${itemId}',${realIdx},'')">날짜 없음</button>
+        <button class="tie-chip" onclick="event.stopPropagation();tieClosePickers()">닫기</button>
       </div>`;
-
-    // 위치 조정
+    // 위치
     const r = btn.getBoundingClientRect();
-    dp.style.left = Math.min(r.left, window.innerWidth - 220) + 'px';
-    dp.style.top  = (r.bottom + 4) + 'px';
+    dp.style.left = Math.min(r.left, window.innerWidth-210)+'px';
+    dp.style.top  = (r.bottom+4)+'px';
   }
-
-  window._tieDpMove = function(dir) {
-    _tieDpDate = new Date(_tieDpDate.getFullYear(), _tieDpDate.getMonth() + dir, 1);
-    renderDp();
-  };
-  renderDp();
+  window._tieDpShift = function(d){ _tieDpMonth=new Date(_tieDpMonth.getFullYear(),_tieDpMonth.getMonth()+d,1); render(); };
+  render();
 }
 
-function setTieDate(itemId, realIdx, dateKey, cell) {
-  const t = taskItems[realIdx]; if (!t) return;
+function tieSetDate(itemId, realIdx, dateKey) {
+  const t = taskItems[realIdx]; if(!t) return;
   t.date = dateKey;
-  saveTaskData();
-  renderTaskCal();
-  // 버튼 텍스트 업데이트
-  const btn = document.getElementById('tie-date-btn-' + itemId);
+  saveTaskData(); renderTaskCal();
+  const btn = document.getElementById('tiedb-' + itemId);
   if (btn) btn.textContent = dateKey || '없음';
-  _closePickers();
-  // selected 셀 업데이트
-  document.querySelectorAll('.tie-dp-cell.selected').forEach(c => c.classList.remove('selected'));
-  if (cell) cell.classList.add('selected');
-  showToast('날짜 변경됐어!');
+  tieClosePickers();
+  showToast(dateKey ? dateKey+'으로 변경!' : '날짜 삭제됨');
 }
 
 // ── 시간 피커 ──
-function openTieTimePicker(itemId, realIdx, btn) {
-  _closePickers();
-  const t = taskItems[realIdx]; if (!t) return;
+function tieOpenTime(itemId, realIdx, btn) {
+  tieClosePickers();
+  const t = taskItems[realIdx]; if(!t) return;
   const tp = document.createElement('div');
   tp.className = 'tie-timepicker';
   tp.onclick = e => e.stopPropagation();
-
   const slots = [];
-  for (let h2 = 6; h2 <= 23; h2++) {
-    slots.push(`${String(h2).padStart(2,'0')}:00`);
-    slots.push(`${String(h2).padStart(2,'0')}:30`);
-  }
-  slots.push('00:00','00:30','01:00','01:30');
-
-  tp.innerHTML = slots.map(s =>
-    `<div class="tie-time-slot${t.time===s?' selected':''}"
-      onclick="setTieTime('${itemId}',${realIdx},'${s}');event.stopPropagation()">${s}</div>`
-  ).join('');
-
+  for(let hh=6;hh<=23;hh++){slots.push(hh+':00',hh+':30');}
+  slots.push('0:00','0:30','1:00','1:30','2:00','2:30');
+  tp.innerHTML = slots.map(s=>{
+    const fmt = s.padStart(5,'0').replace(/^(\d):/, '0$1:');
+    return `<div class="tie-time-slot${t.time===fmt?' sel':''}" onclick="event.stopPropagation();tieSetTime('${itemId}',${realIdx},'${fmt}')">${fmt}</div>`;
+  }).join('');
   document.body.appendChild(tp);
   const r = btn.getBoundingClientRect();
-  tp.style.left = Math.min(r.left, window.innerWidth - 170) + 'px';
-  tp.style.top  = (r.bottom + 4) + 'px';
-
-  // 현재 시간으로 스크롤
-  const sel = tp.querySelector('.selected');
-  if (sel) sel.scrollIntoView({block:'center'});
+  tp.style.left = Math.min(r.left, window.innerWidth-165)+'px';
+  tp.style.top  = (r.bottom+4)+'px';
+  tp.querySelector('.sel')?.scrollIntoView({block:'center'});
 }
 
-function setTieTime(itemId, realIdx, timeVal) {
-  const t = taskItems[realIdx]; if (!t) return;
-  t.time = timeVal;
+function tieSetTime(itemId, realIdx, val) {
+  const t = taskItems[realIdx]; if(!t) return;
+  t.time = val;
   saveTaskData();
-  const btn = document.getElementById('tie-time-btn-' + itemId);
-  if (btn) btn.textContent = timeVal || '없음';
-  _closePickers();
-  // 패널 재렌더 없이 업데이트
+  const btn = document.getElementById('tietb-' + itemId);
+  if(btn) btn.textContent = val || '없음';
+  tieClosePickers();
   renderTaskList();
 }
 
-// ── 카테고리/우선순위 즉시 반영 ──
-function setTieCat(itemId, realIdx, catId) {
-  const t = taskItems[realIdx]; if (!t) return;
+// ── 카테고리 / 우선순위 ──
+function tieSetCat(itemId, realIdx, catId) {
+  const t = taskItems[realIdx]; if(!t) return;
   t.catId = catId;
   saveTaskData();
-  // 칩 active 업데이트
-  const panel = document.getElementById('tiep-' + itemId);
-  if (panel) {
-    panel.querySelectorAll('[onclick*="setTieCat"]').forEach(btn => {
-      const match = btn.getAttribute('onclick').includes("'" + catId + "'");
-      const cat2 = taskCats.find(c => c.id === catId);
-      if (match && cat2) {
-        btn.classList.add('active');
-        btn.style.borderColor = cat2.color + '44';
-        btn.style.color = cat2.color;
-        btn.style.background = cat2.color + '11';
-      } else {
-        btn.classList.remove('active');
-        btn.style.borderColor = '';
-        btn.style.color = '';
-        btn.style.background = '';
-      }
-    });
-  }
+  // 칩 업데이트
+  const panel = document.getElementById('tiep-'+itemId);
+  if(panel) panel.querySelectorAll('[onclick*="tieSetCat"]').forEach(btn=>{
+    const mine = btn.getAttribute('onclick').includes("'"+catId+"'");
+    const cat2 = taskCats.find(c=>c.id===catId);
+    btn.classList.toggle('sel', mine);
+    btn.style.borderColor = mine&&cat2 ? cat2.color+'55' : '';
+    btn.style.color       = mine&&cat2 ? cat2.color : '';
+    btn.style.background  = mine&&cat2 ? cat2.color+'11' : '';
+  });
 }
 
-function setTiePrio(itemId, realIdx, prio) {
-  const t = taskItems[realIdx]; if (!t) return;
+function tieSetPrio(itemId, realIdx, prio) {
+  const t = taskItems[realIdx]; if(!t) return;
   t.priority = prio;
   saveTaskData();
-  const panel = document.getElementById('tiep-' + itemId);
-  if (panel) {
-    panel.querySelectorAll('[onclick*="setTiePrio"]').forEach(btn => {
-      btn.classList.toggle('active', btn.getAttribute('onclick').includes("'" + prio + "'"));
-    });
-  }
+  const colors={high:'rgba(255,77,109,.5)',mid:'rgba(251,191,36,.5)',low:'rgba(45,255,170,.4)'};
+  const panel = document.getElementById('tiep-'+itemId);
+  if(panel) panel.querySelectorAll('[onclick*="tieSetPrio"]').forEach(btn=>{
+    const mine = btn.getAttribute('onclick').includes("'"+prio+"'");
+    btn.classList.toggle('sel', mine);
+    btn.style.borderColor = mine&&prio ? colors[prio] : '';
+    btn.style.color       = mine ? 'var(--foreground)' : '';
+    btn.style.background  = '';
+  });
 }
 
 // ── 저장 ──
-function saveTieItem(itemId, realIdx) {
-  const t = taskItems[realIdx]; if (!t) return;
-  const textInp = document.getElementById('tie-text-' + itemId);
-  const noteInp = document.getElementById('tie-note-' + itemId);
-  if (textInp) t.text = textInp.value.trim() || t.text;
-  if (noteInp) t.note = noteInp.value.trim();
+function tieSave(itemId, realIdx) {
+  const t = taskItems[realIdx]; if(!t) return;
+  const tv = document.getElementById('tiet-'+itemId)?.value.trim();
+  const nv = document.getElementById('tien-'+itemId)?.value.trim();
+  if(tv) t.text = tv;
+  t.note = nv||'';
   saveTaskData();
-  // 패널 닫기
-  const el = document.getElementById('ti-' + itemId);
-  if (el) el.classList.remove('editing');
-  _tieOpenId = null;
-  _closePickers();
-  renderTaskList();
-  renderTaskCal();
+  const el = document.getElementById('ti-'+itemId);
+  if(el) el.classList.remove('editing');
+  _tieOpen = null;
+  tieClosePickers();
+  renderTaskList(); renderTaskCal();
   showToast('저장됐어!');
 }
 
@@ -4706,42 +4736,34 @@ var _dragTaskId = null;
 function taskItemDragStart(e, itemId) {
   _dragTaskId = itemId;
   e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', 'task:' + itemId);
-  const el = document.getElementById('ti-' + itemId);
-  if (el) el.classList.add('dragging');
+  e.dataTransfer.setData('text/plain', 'task:'+itemId);
+  setTimeout(()=>{ const el=document.getElementById('ti-'+itemId); if(el) el.classList.add('dragging'); }, 0);
 }
 
 function taskItemDragEnd(e) {
-  if (_dragTaskId) {
-    const el = document.getElementById('ti-' + _dragTaskId);
-    if (el) el.classList.remove('dragging');
-  }
-  _dragTaskId = null;
-  document.querySelectorAll('.task-cal-day.drag-over').forEach(d => d.classList.remove('drag-over'));
+  if(_dragTaskId){ const el=document.getElementById('ti-'+_dragTaskId); if(el) el.classList.remove('dragging'); }
+  _dragTaskId=null;
+  document.querySelectorAll('.task-cal-day.drag-over').forEach(d=>d.classList.remove('drag-over'));
 }
 
 function taskItemDropOnCal(e, dateKey, cell) {
   e.preventDefault();
   cell.classList.remove('drag-over');
-  if (!_dragTaskId) return;
-  const t = taskItems.find(x => x.id === _dragTaskId);
-  if (!t) return;
+  if(!_dragTaskId) return;
+  const t = taskItems.find(x=>x.id===_dragTaskId);
+  if(!t) return;
   const prev = t.date;
   t.date = dateKey;
-  saveTaskData();
   _dragTaskId = null;
-  renderTaskCal();
-  if (taskSelDate === dateKey || taskSelDate === prev) renderTaskList();
-  showToast(dateKey + '으로 이동됐어!');
+  saveTaskData(); renderTaskCal();
+  if(taskSelDate===dateKey||taskSelDate===prev) renderTaskList();
+  showToast(dateKey+' 으로 이동!');
 }
 
-// 전역 클릭 → 피커 닫기
-document.addEventListener('click', function(e) {
-  if (!e.target.closest('.tie-datepicker,.tie-timepicker,[onclick*="openTie"]')) {
-    _closePickers();
-  }
+// 피커 바깥 클릭 닫기
+document.addEventListener('click', function(e){
+  if(!e.target.closest('.tie-datepicker,.tie-timepicker,[onclick*="tieOpenDate"],[onclick*="tieOpenTime"]')) tieClosePickers();
 });
-
 function toggleTaskSec(catId){
   const el = document.getElementById('taskSec-'+catId);
   if(!el) return;
