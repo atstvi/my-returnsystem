@@ -3117,20 +3117,51 @@ select {
   scrollbar-width: thin;
   display: flex; flex-direction: column; gap: 0;
 }
-/* 연대기 엔트리 */
-.story-entry {
-  padding: 8px 0 10px;
-  border-bottom: 1px solid rgba(45,255,170,.06);
-  flex-shrink: 0;
+/* 날짜 구분선 */
+.story-date-divider {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 0 6px; flex-shrink: 0;
 }
-.story-entry:last-child { border-bottom: none; }
-.story-entry-date {
+.story-date-divider.today .story-date-label { color: var(--accent); }
+.story-date-line {
+  flex: 1; height: 1px; background: rgba(45,255,170,.1);
+}
+.story-date-label {
   font-family: var(--font-label); font-size: 8px; letter-spacing: 2px;
-  color: rgba(45,255,170,.35); margin-bottom: 5px;
+  color: rgba(45,255,170,.3); white-space: nowrap;
+}
+/* 조각 엔트리 */
+.story-entry {
+  padding: 5px 0 10px;
+  border-left: 2px solid rgba(45,255,170,.06);
+  padding-left: 10px;
+  margin-left: 2px;
+  flex-shrink: 0;
+  transition: border-color .2s;
+}
+.story-entry:hover { border-left-color: rgba(45,255,170,.18); }
+.story-entry.today { border-left-color: rgba(45,255,170,.15); }
+.story-entry.typing { border-left-color: rgba(45,255,170,.4);
+  animation: storyPulse 1.5s ease-in-out infinite; }
+@keyframes storyPulse {
+  0%,100% { border-left-color: rgba(45,255,170,.15); }
+  50% { border-left-color: rgba(45,255,170,.5); }
+}
+.story-entry-meta {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+}
+.story-entry-part {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 1px;
+  color: rgba(45,255,170,.4); background: rgba(45,255,170,.05);
+  padding: 1px 5px;
+}
+.story-entry-time {
+  font-family: var(--font-label); font-size: 8px;
+  color: rgba(255,255,255,.18); letter-spacing: 1px;
 }
 .story-entry-text {
   font-family: var(--font-mono); font-size: 11px;
-  line-height: 1.7; color: var(--foreground-2);
+  line-height: 1.75; color: var(--foreground-2);
   white-space: pre-wrap; word-break: break-word;
 }
 .story-entry.today .story-entry-text { color: var(--foreground); }
@@ -6478,7 +6509,7 @@ async function callAI(prompt,maxTokens=800,keyOverride=null){
       model:'llama-3.3-70b-versatile',
       max_tokens:maxTokens,
       temperature:0.7,
-      messages:[{role:'system',content:'순수 한국어로만 답하라. 한자(漢字)나 일본어 문자 절대 사용 금지. 구어체. 특수문자(**,#,*,_,`) 금지. 이모티콘 금지.'},{role:'user',content:prompt}]
+      messages:[{role:'system',content:'너는 반드시 순수 한국어로만 답해야 해. 한자(예: 人,日,心,月,年,時 등 한자 자체)와 일본어 문자 절대 금지. 한자 대신 반드시 한글 단어로 써. 구어체. 특수문자(**,#,*,_,`) 금지.'},{role:'user',content:prompt}]
     })
   });
   const d=await res.json();
@@ -9183,7 +9214,19 @@ function initNotionSync() {
 // ═══════════════════════════════════════════════════════════════
 
 let storyLog = JSON.parse(localStorage.getItem('story_log_v1') || '[]');
-// [{date:'YYYY-MM-DD', text:'...', npcs:['chip','verde',...]}]
+// 구버전 마이그레이션: {date,text,npcs,dayNum} → {id,date,time,text,npcs,dayNum,part}
+(function(){
+  var migrated = false;
+  storyLog = storyLog.map(function(s,i){
+    if(!s.id){
+      migrated = true;
+      return { id: 'sl_'+i, date: s.date||'', time: '00:00', text: s.text||'',
+               npcs: s.npcs||{}, dayNum: s.dayNum||1, part: 1 };
+    }
+    return s;
+  });
+  if(migrated) localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
+})();
 
 const STORY_DAY_ONE = localStorage.getItem('story_day_one') || (() => {
   const d = new Date().toISOString().slice(0,10);
@@ -9253,73 +9296,69 @@ function _collectSystemState() {
 // ── 프롬프트 생성 ──
 function _buildStoryPrompt(state) {
   const batt = state.battery;
-  const battDesc = batt >= 8 ? '넘치는 에너지 상태' :
-                   batt >= 6 ? '컨디션 양호' :
-                   batt >= 4 ? '보통 컨디션' :
-                   batt >= 2 ? '피로가 누적되어 있음' :
-                               '거의 방전 상태';
+  const battDesc = batt >= 8 ? '에너지가 넘쳐흐르는 상태야' :
+                   batt >= 6 ? '컨디션이 꽤 좋아' :
+                   batt >= 4 ? '그럭저럭 버티는 중이야' :
+                   batt >= 2 ? '피로가 꽤 쌓였어' :
+                               '거의 방전 직전이야';
 
   const chargeList = state.todayChargeList.filter(Boolean).join(', ') || null;
   const drainList  = state.todayDrainList.filter(Boolean).join(', ')  || null;
-  const missionList = [...state.todos.slice(0,3), ...state.tasks.slice(0,2)]
-    .map(function(t){ return t.text; }).filter(Boolean).slice(0,4).join(', ') || null;
+  const missionList = [...state.todos.slice(0,2), ...state.tasks.slice(0,2)]
+    .map(function(t){ return t.text; }).filter(Boolean).slice(0,3).join(', ') || null;
   const doneCount = (state.doneTodos||0) + (state.doneTasks||0);
   const mood = state.wsAnswers.mood || state.wsAnswers['기분'] || '';
-  const body_ = state.wsAnswers.body || state.wsAnswers['신체'] || '';
   const cls = state.agentClass ? (' ['+state.agentClass+']') : '';
 
-  // 전날 스토리 가져오기
+  // 오늘 이미 생성된 조각들 (연속성용)
+  const today = _todayKey();
+  const todayParts = storyLog.filter(function(s){ return s.date===today; })
+    .sort(function(a,b){ return (a.part||1)-(b.part||1); });
+  const partNum = todayParts.length + 1;
+  const lastPart = todayParts.length > 0 ? todayParts[todayParts.length-1] : null;
+  const lastText = lastPart ? lastPart.text.slice(0,120)+'...' : null;
+
+  // 전날 마지막 조각 (이어쓰기)
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
   const yKey = yesterday.toISOString().slice(0,10);
-  const prevStory = storyLog.find(function(s){ return s.date === yKey; });
-  const prevText = prevStory ? prevStory.text.slice(0,150)+'...' : null;
+  const yParts = storyLog.filter(function(s){ return s.date===yKey; })
+    .sort(function(a,b){ return (a.part||1)-(b.part||1); });
+  const prevDayText = yParts.length > 0 ? yParts[yParts.length-1].text.slice(0,100)+'...' : null;
 
-  // 지금까지 누적된 스토리 키워드 (최근 5일)
-  const recentNpcs = {};
-  storyLog.slice(0,5).forEach(function(s){
-    if(s.npcs) Object.keys(s.npcs).forEach(function(k){ if(s.npcs[k]) recentNpcs[k]=(recentNpcs[k]||0)+1; });
-  });
-  const dominantNpc = Object.keys(recentNpcs).sort(function(a,b){return recentNpcs[b]-recentNpcs[a];})[0];
-
-  var ctxLines = [
-    '==SECTOR 7 세계관==',
-    '사이버펑크 근미래 도시. 요원들은 일상을 수행하며 세계를 조금씩 바꿔나간다.',
-    '기지는 허름하지만 아늑하다. 거리는 네온사인과 빗줄기가 뒤섞인다.',
-    '전투보다 관계와 일상이 중심인 힐링 TRPG.',
+  var lines = [
+    '【역할】',
+    '너는 사이버펑크 힐링 세계관 "SECTOR 7"의 1인칭 이야기 작가야.',
+    '나는 요원 '+state.agentName+cls+'. DAY '+state.dayNum+', 오늘의 '+partNum+'번째 이야기 조각.',
     '',
-    '==요원 정보==',
-    '코드네임: '+state.agentName+cls,
-    'DAY: '+state.dayNum+' (기지 생활 '+state.dayNum+'일째)',
-    '현재 컨디션: '+battDesc,
-    mood ? '오늘 기분: '+mood : null,
-    body_ ? '신체 상태: '+body_ : null,
+    '【세계관】',
+    '근미래 도시 섹터 7. 네온사인, 빗소리, 낡은 기지. 전투보다 일상이 중심인 힐링 TRPG.',
+    '기지엔 고양이 CHIP, 창가 화분 VERDE, 연락책 HANDLER, 그리고 이웃 CITIZEN이 있어.',
+    '',
+    '【나의 오늘 상태】',
+    '컨디션: '+battDesc,
+    mood ? '기분: '+mood : null,
     chargeList ? '오늘 힘이 됐던 것: '+chargeList : null,
-    drainList ? '오늘 소모된 것: '+drainList : null,
-    missionList ? '진행 중인 임무: '+missionList : null,
-    doneCount > 0 ? '오늘 완수한 임무: '+doneCount+'개' : null,
+    drainList ? '소모된 것: '+drainList : null,
+    missionList ? '진행 중인 일: '+missionList : null,
+    doneCount > 0 ? '오늘 해낸 것: '+doneCount+'가지' : null,
     '',
-    '==등장 NPC==',
-    'CHIP: 기지 고양이. 요원 상태를 본능으로 읽는다. 말은 없지만 존재 자체가 위로.',
-    'VERDE: 창가 화분. 요원이 물을 주면 조용히 자란다. 변화의 상징.',
-    'HANDLER: 본부 연락책. 브리핑, 격려, 가끔 날카로운 관찰. 건조하지만 믿음직하다.',
-    'CITIZEN: 섹터 7 주민. 카페 알바생, 골목 할머니, 지나가는 아이 등 매번 달라진다.',
-    dominantNpc ? '(최근 자주 등장한 NPC: '+dominantNpc+' — 이번엔 다른 NPC를 메인으로)' : null,
+    lastText ? '【이어쓰기 — 바로 전 조각 끝부분】\n'+lastText : (prevDayText ? '【전날 마지막 이야기 끝부분】\n'+prevDayText : '【첫 번째 이야기】'),
     '',
-    prevText ? '==전날 이야기 (이어쓰기)==\n'+prevText : '==첫 번째 이야기==\n요원의 첫 날을 묘사해줘.',
+    '【작성 규칙 — 반드시 지켜야 함】',
+    '1. 1인칭 시점으로 써. "나는", "내가", "나의" 등 1인칭 주어 사용.',
+    '2. 순수 한국어만. 한자(漢字), 일본어 문자, 한자어 표기 절대 금지.',
+    '   금지 예시: 人, 日, 心, 月, 年, 分, 時, 間 등 한자 자체를 쓰지 말 것.',
+    '   대신 한글로: 사람, 날, 마음, 달, 해, 분, 시간 등으로 써.',
+    '3. 특수문자 (**,#,*,_,~,`) 금지. 큰따옴표(\")만 NPC 대사에 허용.',
+    '4. 3~5문장. 구어체. 너무 무겁지 않게.',
+    '5. 전 조각과 자연스럽게 이어지는 장면이나 생각.',
+    '6. NPC 1명 이하만 등장. 대사는 짧게.',
+    '7. 마지막 문장은 열린 결말이나 다음 순간을 암시.',
     '',
-    '==오늘의 이야기 작성 지침==',
-    '- 전날 이야기와 자연스럽게 이어지는 장면에서 시작할 것.',
-    '- 요원의 오늘 상태(컨디션, 임무, 감정)가 이야기 안에 녹아들어야 함.',
-    '- NPC 1~2명이 등장해 짧은 대화나 행동으로 이야기를 풍부하게.',
-    '- 배경 묘사(기지, 거리, 날씨 등)를 2줄 이내로 포함.',
-    '- 마지막 문장은 내일을 향한 암시나 열린 결말로 끝낼 것.',
-    '- 4~6문장. 순수 한국어. 구어체. 특수문자(**,#,*,_) 금지. 한자 금지.',
-    '- NPC 대사는 큰따옴표로.',
-    '',
-    '지금 바로 오늘의 이야기를 써줘. (설명 없이 이야기만)'
+    '지금 바로 이야기만 써. 제목, 설명, 번호 없이.'
   ];
 
-  return ctxLines.filter(function(l){ return l !== null; }).join('\n');
+  return lines.filter(function(l){ return l !== null; }).join('\n');
 }
 
 // ── NPC 등장 감지 ──
@@ -9365,52 +9404,97 @@ function _updateNpcChips(npcs) {
 // ── 스토리 자동 재생성 트리거 ──
 function _triggerStoryRegen(){
   if(!API_KEY)return;
+  // 오늘 이미 12조각 이상이면 생성 안 함
+  const todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
+  if(todayParts.length >= 12) return;
   if(_storyAutoTimer)clearTimeout(_storyAutoTimer);
-  _storyAutoTimer=setTimeout(()=>{
-    if(document.getElementById("page-me")?.classList.contains("active"))generateStory();
+  _storyAutoTimer=setTimeout(function(){
+    if(document.getElementById('page-me')?.classList.contains('active')) generateStory();
     _storyAutoTimer=null;
-  },120000);
+  }, 90000); // 90초
 }
 
 // ── 스토리 생성 ──
 
-// ── 스토리 피드 렌더 (연대기 방식) ──
-function _renderStoryFeed(typingText, typingDayNum, typingDate) {
+// ── 스토리 피드 렌더 (다중 조각 연대기) ──
+function _renderStoryFeed(addTypingSlot) {
   const body = document.getElementById('storyBody');
   if (!body) return;
 
-  // 과거 기록 (오늘 제외, 최신 7개)
   const today = _todayKey();
-  const past = storyLog.filter(s => s.date !== today).slice(0, 6).reverse();
 
-  let html = past.map(s => `
-    <div class="story-entry">
-      <div class="story-entry-date">DAY ${s.dayNum||'?'} — ${s.date}</div>
-      <div class="story-entry-text">${esc(s.text)}</div>
-    </div>`).join('');
+  // 날짜별 그룹핑 (오래된 날짜 → 최신 날짜 순)
+  const byDate = {};
+  storyLog.forEach(function(s) {
+    if(!byDate[s.date]) byDate[s.date] = [];
+    byDate[s.date].push(s);
+  });
+  // 날짜 정렬 (오름차순 - 과거가 위)
+  const dates = Object.keys(byDate).sort();
+  // 최근 5일치만 표시
+  const recentDates = dates.slice(-5);
 
-  // 오늘 엔트리
-  const todayStory = storyLog.find(s => s.date === today);
-  if (todayStory && !typingText) {
-    html += `<div class="story-entry today">
-      <div class="story-entry-date">DAY ${todayStory.dayNum||_storyDayNum()} — ${today} · TODAY</div>
-      <div class="story-entry-text">${esc(todayStory.text)}</div>
+  let html = '';
+
+  recentDates.forEach(function(date) {
+    const isToday = date === today;
+    const parts = byDate[date].slice().sort(function(a,b){ return (a.part||1)-(b.part||1); });
+    const dayNum = parts[0].dayNum || '?';
+
+    // 날짜 구분선
+    html += `<div class="story-date-divider${isToday?' today':''}">
+      <span class="story-date-line"></span>
+      <span class="story-date-label">DAY ${dayNum}${isToday?' · NOW':''}</span>
+      <span class="story-date-line"></span>
     </div>`;
-  } else if (!todayStory && !typingText) {
-    html += `<div class="story-entry today">
-      <div class="story-entry-date">DAY ${_storyDayNum()} — ${today} · TODAY</div>
+
+    // 조각들
+    parts.forEach(function(s) {
+      html += `<div class="story-entry${isToday?' today':''}">
+        <div class="story-entry-meta">
+          <span class="story-entry-part">#${s.part||1}</span>
+          <span class="story-entry-time">${s.time||''}</span>
+        </div>
+        <div class="story-entry-text">${esc(s.text)}</div>
+      </div>`;
+    });
+  });
+
+  // 오늘 기록이 아직 없으면 STANDBY
+  if(!byDate[today] && !addTypingSlot) {
+    html += `<div class="story-date-divider today">
+      <span class="story-date-line"></span>
+      <span class="story-date-label">DAY ${_storyDayNum()} · NOW</span>
+      <span class="story-date-line"></span>
+    </div>
+    <div class="story-entry today">
+      <div class="story-entry-meta"><span class="story-entry-part">#1</span></div>
       <div class="story-entry-text dim">// STANDBY — 채널을 열어줘.</div>
     </div>`;
-  } else if (typingText !== undefined) {
-    // 타이핑 중
-    html += `<div class="story-entry today" id="storyTodayEntry">
-      <div class="story-entry-date">DAY ${typingDayNum||_storyDayNum()} — ${typingDate||today} · TODAY</div>
+  }
+
+  // 타이핑 슬롯 (새 조각 추가 중)
+  if(addTypingSlot) {
+    const partNum = byDate[today] ? byDate[today].length + 1 : 1;
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+    if(!byDate[today]) {
+      html += `<div class="story-date-divider today">
+        <span class="story-date-line"></span>
+        <span class="story-date-label">DAY ${_storyDayNum()} · NOW</span>
+        <span class="story-date-line"></span>
+      </div>`;
+    }
+    html += `<div class="story-entry today typing" id="storyTypingEntry">
+      <div class="story-entry-meta">
+        <span class="story-entry-part">#${partNum}</span>
+        <span class="story-entry-time">${timeStr}</span>
+      </div>
       <div class="story-entry-text" id="storyTypingTarget"></div>
     </div>`;
   }
 
   body.innerHTML = html;
-  // 맨 아래로 스크롤
   body.scrollTop = body.scrollHeight;
 }
 
@@ -9459,32 +9543,41 @@ async function generateStory() {
     const prompt = _buildStoryPrompt(state);
     const text = await callAI(prompt, 700);
 
-    // 로그 저장 (타이핑 전에 먼저)
+    // 새 조각 저장 (날짜별 누적)
     const today = _todayKey();
     const npcs = _detectNpcs(text);
     _updateNpcChips(npcs);
-    storyLog = storyLog.filter(s => s.date !== today);
-    storyLog.unshift({ date: today, text, npcs, dayNum: state.dayNum });
-    if (storyLog.length > 60) storyLog = storyLog.slice(0, 60);
+    const todayParts = storyLog.filter(s => s.date === today);
+    const partNum = todayParts.length + 1;
+    const now = new Date();
+    const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
+    const newEntry = {
+      id: 'sl_'+Date.now(),
+      date: today,
+      time: timeStr,
+      text: text,
+      npcs: npcs,
+      dayNum: state.dayNum,
+      part: partNum
+    };
+    storyLog.unshift(newEntry); // 최신이 앞
+    if (storyLog.length > 200) storyLog = storyLog.slice(0, 200);
     localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
     if(fbUser)fbSaveAll();
 
-    // 연대기 피드 렌더 (타이핑 자리 확보)
-    _renderStoryFeed('', state.dayNum, today);
+    // 타이핑 슬롯 렌더
+    _renderStoryFeed(true);
     const typingEl = document.getElementById('storyTypingTarget');
 
     // 타이핑 애니메이션
     _typeInto(typingEl, text, () => {
-      btn.textContent = '↻ 재전송';
+      btn.textContent = '◈ 채널 열기';
       btn.disabled = false;
-      // 타이핑 완료 후 정식 렌더
-      _renderStoryFeed();
-      const badge = document.getElementById('storyDayBadge');
-      if(badge) badge.textContent = 'DAY ' + state.dayNum;
+      _renderStoryFeed(); // 완료 후 정식 렌더
     });
 
     const dayEl = document.getElementById('storyDayNum');
-    if (dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
+    if(dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
     const badge = document.getElementById('storyDayBadge');
     if(badge) badge.textContent = 'DAY ' + state.dayNum;
 
@@ -9501,7 +9594,7 @@ async function generateStory() {
 // ── 나탭 열릴 때 스토리 피드 복원 ──
 function initStoryCard() {
   const today = _todayKey();
-  const todayStory = storyLog.find(s => s.date === today);
+  const todayParts = storyLog.filter(function(s){ return s.date === today; });
   const dayNum = _storyDayNum();
 
   const dayEl = document.getElementById('storyDayNum');
@@ -9509,15 +9602,16 @@ function initStoryCard() {
   const badge = document.getElementById('storyDayBadge');
   if (badge) badge.textContent = 'DAY ' + dayNum;
 
-  // 연대기 피드 렌더
   _renderStoryFeed();
 
-  if (todayStory) {
-    _updateNpcChips(todayStory.npcs || {});
+  if (todayParts.length > 0) {
+    // 최신 조각의 NPC 상태 반영
+    const latest = todayParts.sort(function(a,b){ return (b.part||1)-(a.part||1); })[0];
+    _updateNpcChips(latest.npcs || {});
     const btn = document.getElementById('storyGenBtn');
-    if (btn) btn.textContent = '↻ 재전송';
+    if (btn) btn.textContent = '◈ 채널 열기';
   } else if (API_KEY) {
-    setTimeout(() => generateStory(), 1200);
+    setTimeout(function(){ generateStory(); }, 1200);
   }
 }
 
