@@ -2042,8 +2042,9 @@ select {
 #page-me .me-header-inner {
   max-width: 1400px; margin: 0 auto;
   display: grid;
-  grid-template-columns: 200px 1fr 200px auto;
+  grid-template-columns: 200px 1fr auto auto;
   gap: 0; align-items: stretch;
+  min-height: 160px;
 }
 /* me-header-profile: see pixel avatar section below */
 #page-me .me-header-focus {
@@ -2145,11 +2146,11 @@ select {
 
 /* 미디어쿼리 헤더 반응형 */
 @media(max-width:900px){
-  #page-me .me-header-inner { grid-template-columns: auto 1fr auto; }
+  #page-me .me-header-inner { grid-template-columns: 180px 1fr auto; }
   #page-me .me-header-inbox { display: none; }
 }
 @media(max-width:600px){
-  #page-me .me-header-inner { grid-template-columns: auto 1fr; }
+  #page-me .me-header-inner { grid-template-columns: 160px 1fr; }
   #page-me .me-header-check-zone { display: none; }
   #page-me .me-header-focus { display: none; }
 }
@@ -2661,14 +2662,19 @@ select {
   padding: 10px 12px 6px;
   position: relative;
   background: linear-gradient(180deg, rgba(14,17,23,0) 0%, rgba(45,255,170,.03) 100%);
+  min-height: 110px;
+  flex-shrink: 0;
 }
 
 /* 픽셀 캔버스 */
 #pixelAvatarCanvas {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
-  width: 96px; height: 96px;
-  display: block;
+  image-rendering: -moz-crisp-edges;
+  image-rendering: -webkit-optimize-contrast;
+  width: 96px !important; height: 96px !important;
+  display: block !important;
+  flex-shrink: 0;
   filter: drop-shadow(0 0 8px rgba(45,255,170,.4));
 }
 #pixelAvatarImg {
@@ -2915,10 +2921,11 @@ select {
   flex-direction: column;
   align-items: stretch;
   width: 200px;
-  min-width: 200px;
-  max-width: 200px;
+  min-width: 160px;
+  max-width: 220px;
   height: 100%;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 0;
   gap: 0;
   border-right: 1px solid rgba(45,255,170,.12);
@@ -8000,22 +8007,23 @@ function _applyFirebaseData(d){
   if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);}
   // 할일 (me탭)
   if(d.todoItems){
-    todoItems=JSON.parse(d.todoItems);
+    try{ todoItems=JSON.parse(d.todoItems); }catch(e){ todoItems=[]; }
     localStorage.setItem('todo_items',d.todoItems);
-    renderMeTodo&&renderMeTodo();
+    try{ renderMeTodo&&renderMeTodo(); }catch(e){}
   }
   // 할일탭 아이템/카테고리
   if(d.taskItemsV1){
-    taskItems=JSON.parse(d.taskItemsV1);
+    try{ taskItems=JSON.parse(d.taskItemsV1); }catch(e){ taskItems=[]; }
     localStorage.setItem('task_items_v1',d.taskItemsV1);
   }
   if(d.taskCatsV1){
-    const parsed=JSON.parse(d.taskCatsV1);
-    if(parsed&&parsed.length>0){
-      taskCats=parsed;
-      localStorage.setItem('task_cats_v1',d.taskCatsV1);
-    }
+    try{
+      const parsed=JSON.parse(d.taskCatsV1);
+      if(parsed&&parsed.length>0){ taskCats=parsed; localStorage.setItem('task_cats_v1',d.taskCatsV1); }
+    }catch(e){}
   }
+  // 할일탭 열려있으면 재렌더
+  try{ if(typeof renderTaskTab==='function') renderTaskTab(); }catch(e){}
   // 인박스
   if(d.inboxV1){
     inboxItems=JSON.parse(d.inboxV1);
@@ -8039,6 +8047,10 @@ function _applyFirebaseData(d){
   if(d.storyLogV1){
     storyLog=JSON.parse(d.storyLogV1);
     localStorage.setItem('story_log_v1',d.storyLogV1);
+    // 나탭이 열려있으면 스토리 카드 갱신
+    if(typeof initStoryCard==='function'){
+      try{ initStoryCard(); }catch(e){}
+    }
   }
   // 현재 열린 탭 재렌더
   _reRenderCurrentTab();
@@ -8247,18 +8259,17 @@ function drawPixelAvatar(state, frame) {
   try { ctx = canvas.getContext('2d', {willReadFrequently:false}); }
   catch(e) { ctx = canvas.getContext('2d'); }
   if(!ctx) return;
-  // DPR 처리 (고해상도 기기)
-  if(!canvas._dprSet) {
-    const dpr = Math.min(window.devicePixelRatio||1, 2);
-    const sz = 96;
+  // DPR 처리 (고해상도 기기 선명도)
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const sz = 96;
+  if(canvas.width !== sz*dpr || canvas.height !== sz*dpr) {
     canvas.width = sz * dpr;
     canvas.height = sz * dpr;
     canvas.style.width = sz+'px';
     canvas.style.height = sz+'px';
-    ctx.scale(dpr, dpr);
-    canvas._dprSet = true;
   }
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0,0,sz,sz); // 논리 크기로 clear
 
   const sprite = getAvatarSprite(state, frame);
   const offsetX = Math.floor((canvas.width - AVATAR_W * PIXEL_SIZE) / 2);
@@ -8955,40 +8966,51 @@ function _todayKey() { return new Date().toISOString().slice(0,10); }
 // ── 시스템 상태 수집 ──
 function _collectSystemState() {
   const today = _todayKey();
+  const d = new Date();
+  const yr = d.getFullYear(), mo = d.getMonth()+1, dy = d.getDate();
 
   // 에너지 배터리
   const battery = parseInt(localStorage.getItem('battery_level') || '5');
 
-  // RPG 스탯 체크
+  // RPG 스탯 체크 (오늘 체크된 항목 수)
   const rpgChecks = JSON.parse(localStorage.getItem('rpg_checks_v1') || '{}');
   const todayChecks = rpgChecks[today] || {};
   const checkedCount = Object.values(todayChecks).filter(Boolean).length;
 
-  // 오늘 충전/방전
-  const rewardData = JSON.parse(localStorage.getItem('reward_data') || '{"charge":[],"drain":[]}');
-  const todayCharge = (rewardData.charge || []).filter(r => r.date && r.date.includes(today.slice(0,7)));
-  const todayDrain  = (rewardData.drain  || []).filter(r => r.date && r.date.includes(today.slice(0,7)));
+  // 오늘 충전/방전 — todaycharge_YYYY_M_D 키에 문자열[] 형태
+  const chargeKey = 'todaycharge_'+yr+'_'+mo+'_'+dy;
+  const drainKey  = 'todaydrain_'+yr+'_'+mo+'_'+dy;
+  const todayChargeList = JSON.parse(localStorage.getItem(chargeKey) || '[]');
+  const todayDrainList  = JSON.parse(localStorage.getItem(drainKey)  || '[]');
 
-  // 활성 할일
-  const todos = JSON.parse(localStorage.getItem('todo_items') || '[]').filter(t => !t.done);
-  const tasks = JSON.parse(localStorage.getItem('task_items_v1') || '[]').filter(t => !t.done);
+  // 활성/완료 할일
+  const allTodos = JSON.parse(localStorage.getItem('todo_items') || '[]');
+  const todos    = allTodos.filter(t => !t.done);
+  const doneTodos = allTodos.filter(t => t.done).length;
+  const allTasks = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
+  const tasks    = allTasks.filter(t => !t.done);
+  const doneTasks = allTasks.filter(t => t.done).length;
 
   // 프로필
   const profile = JSON.parse(localStorage.getItem('profile_data') || '{}');
-  const agentName = profile.name || '요원';
-
-  // 레벨/칭호
-  const rpgStats = JSON.parse(localStorage.getItem('rpg_stats_v1') || '[]');
+  const agentName = (profile.name || profile.codename || '요원').trim() || '요원';
+  const agentClass = profile.agentClass || profile.class || '';
 
   // 인박스 미처리
   const inbox = JSON.parse(localStorage.getItem('inbox_v1') || '[]').filter(m => !m.done);
 
-  // 체크인 결과 (워크시트)
-  const wsAnswers = JSON.parse(localStorage.getItem('ws_answers_today') || '{}');
+  // 체크인 결과 — ws_answers_YYYY-MM-DD 형태인지 확인
+  let wsAnswers = {};
+  try {
+    wsAnswers = JSON.parse(localStorage.getItem('ws_answers_today') || '{}');
+    if(!wsAnswers || typeof wsAnswers !== 'object') wsAnswers = {};
+  } catch(e) { wsAnswers = {}; }
 
   return {
-    battery, checkedCount, todayCharge, todayDrain,
-    todos, tasks, agentName, inbox, wsAnswers,
+    battery, checkedCount,
+    todayChargeList, todayDrainList,
+    todos, tasks, doneTodos, doneTasks,
+    agentName, agentClass, inbox, wsAnswers,
     date: today,
     dayNum: _storyDayNum(),
   };
@@ -8996,49 +9018,66 @@ function _collectSystemState() {
 
 // ── 프롬프트 생성 ──
 function _buildStoryPrompt(state) {
-  const battDesc = state.battery >= 8 ? '에너지 넘침 (배터리 '+state.battery+'/10)' :
-                   state.battery >= 5 ? '보통 컨디션 (배터리 '+state.battery+'/10)' :
-                   state.battery >= 3 ? '피로 누적 (배터리 '+state.battery+'/10)' :
-                                        '극도로 지침 (배터리 '+state.battery+'/10)';
+  const batt = state.battery;
+  const battDesc = batt >= 8 ? '넘치는 에너지 ('+batt+'/10)' :
+                   batt >= 6 ? '양호한 컨디션 ('+batt+'/10)' :
+                   batt >= 4 ? '보통 ('+batt+'/10)' :
+                   batt >= 2 ? '피로 누적 ('+batt+'/10)' :
+                               '완전 방전 ('+batt+'/10)';
 
-  const chargeList = state.todayCharge.map(r => r.name || r.label || r.text).filter(Boolean).join(', ') || '없음';
-  const drainList  = state.todayDrain.map(r => r.name || r.label || r.text).filter(Boolean).join(', ') || '없음';
+  const chargeList = state.todayChargeList.filter(Boolean).join(', ') || '없음';
+  const drainList  = state.todayDrainList.filter(Boolean).join(', ')  || '없음';
 
   const missionList = [...state.todos.slice(0,3), ...state.tasks.slice(0,3)]
-    .map(t => t.text).filter(Boolean).slice(0,4).join(', ') || '현재 임무 없음';
+    .map(t => t.text).filter(Boolean).slice(0,4).join(' / ') || '없음';
 
+  const doneCount = (state.doneTodos||0) + (state.doneTasks||0);
   const inboxCount = state.inbox.length;
 
-  const mood = state.wsAnswers.mood || '미확인';
-  const body = state.wsAnswers.body || '미확인';
+  const mood = state.wsAnswers.mood || state.wsAnswers['기분'] || '';
+  const body_ = state.wsAnswers.body || state.wsAnswers['신체'] || '';
+  const moodLine = (mood || body_) ? ('기분: '+mood+(body_?' / 신체: '+body_:'')) : '체크 안 함';
 
-  return `너는 사이버펑크 세계관의 스토리텔러야. 나는 이 세계의 요원(코드네임: ${state.agentName})이야.
+  const cls = state.agentClass ? (' ['+state.agentClass+']') : '';
 
-[오늘 상황 — DAY ${state.dayNum}]
-- 컨디션: ${battDesc}
-- 오늘 기분/몸 상태: 기분 ${mood}, 신체 ${body}
-- 충전된 것들: ${chargeList}
-- 소모된 것들: ${drainList}
-- 진행 중인 임무들: ${missionList}
-- 처리 안 된 정보들: ${inboxCount}건
-- 오늘 자기관리 체크: ${state.checkedCount}개 완료
+  return '너는 사이버펑크 힐링 세계관 SECTOR 7의 스토리텔러야. 요원 코드네임: '+state.agentName+cls+'. DAY '+state.dayNum+'.
 
-[고정 등장 NPC — 자연스럽게 1~2명만 등장시켜]
-- CHIP: 기지에 사는 고양이. 요원의 컨디션을 본능적으로 감지함.
-- VERDE: 창가에서 키우는 식물. 물주기나 햇빛 상태 등 소소한 일상의 거울.
-- HANDLER: 본부 연락책. 임무 브리핑, 격려, 가끔 잔소리.
-- CITIZEN: 섹터 7 주민. 동네 사람, 카페 직원, 이웃 등 랜덤한 인물.
+'
+    + '[오늘 상태]
+'
+    + '컨디션: '+battDesc+'
+'
+    + (moodLine !== '체크 안 함' ? '체크인: '+moodLine+'
+' : '')
+    + '오늘 에너지 충전: '+chargeList+'
+'
+    + '오늘 에너지 소모: '+drainList+'
+'
+    + '진행 중 임무: '+missionList+'
+'
+    + (doneCount > 0 ? '오늘 완료한 것: '+doneCount+'개
+' : '')
+    + (inboxCount > 0 ? '미처리 메시지: '+inboxCount+'건
+' : '')
+    + '자기관리 체크: '+state.checkedCount+'항목 완료
 
-[작성 규칙]
-1. 분량: 4~6문장. 짧고 임팩트 있게.
-2. 오늘의 실제 상태(컨디션, 임무, 충전/방전)를 자연스럽게 녹여줘.
-3. 사이버펑크 분위기지만 너무 어둡지 않게. 약간 따뜻하고 힐링 느낌도 있게.
-4. 구어체. 특수문자(**,#,*,_) 절대 금지. 한자(漢字)나 일본어 문자 절대 사용 금지.
-5. 마지막 문장은 오늘 하루에 대한 짧은 격려나 관찰로 끝내.
-6. NPC 대사는 따옴표 안에 넣어줘.
-7. 반드시 한국어로.
+'
+    + '[등장 가능한 NPC — 1~2명 자연스럽게 등장]
+'
+    + 'CHIP: 기지 고양이. 요원 컨디션을 본능적으로 알아챔.
+'
+    + 'VERDE: 창가 식물. 일상의 소소한 변화를 반영.
+'
+    + 'HANDLER: 본부 연락책. 임무 체크, 격려, 가끔 잔소리.
+'
+    + 'CITIZEN: 섹터 7 이웃. 카페 직원, 동네 사람 등 랜덤.
 
-오늘의 임무 보고서를 작성해줘.`;
+'
+    + '[규칙] 순수 한국어. 한자 금지. 특수문자 금지. 구어체. 4~6문장. '
+    + '사이버펑크+힐링 분위기. 마지막 문장은 오늘 하루 격려나 따뜻한 관찰. NPC 대사는 큰따옴표.
+
+'
+    + '오늘의 임무 보고서를 써줘.';
 }
 
 // ── NPC 등장 감지 ──
@@ -9170,6 +9209,9 @@ function initStoryCard() {
     _updateNpcChips(todayStory.npcs || {});
     const btn = document.getElementById('storyGenBtn');
     if (btn) btn.textContent = '↻ 다시 생성';
+  } else if (API_KEY) {
+    // 오늘 스토리 없고 API 키 있으면 자동 생성
+    setTimeout(() => generateStory(), 1200);
   }
 }
 
