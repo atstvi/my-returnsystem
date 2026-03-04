@@ -3114,15 +3114,38 @@ select {
 .story-npc-mini.on { opacity: 1; filter: none; }
 .me-header-story-body {
   flex: 1; overflow-y: auto; min-height: 0;
-  font-family: var(--font-mono); font-size: 11px;
-  line-height: 1.65; color: var(--foreground-2);
   scrollbar-width: thin;
+  display: flex; flex-direction: column; gap: 0;
 }
+/* 연대기 엔트리 */
+.story-entry {
+  padding: 8px 0 10px;
+  border-bottom: 1px solid rgba(45,255,170,.06);
+  flex-shrink: 0;
+}
+.story-entry:last-child { border-bottom: none; }
+.story-entry-date {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 2px;
+  color: rgba(45,255,170,.35); margin-bottom: 5px;
+}
+.story-entry-text {
+  font-family: var(--font-mono); font-size: 11px;
+  line-height: 1.7; color: var(--foreground-2);
+  white-space: pre-wrap; word-break: break-word;
+}
+.story-entry.today .story-entry-text { color: var(--foreground); }
+.story-entry-cursor { display: inline-block; width: 2px; height: 12px;
+  background: var(--accent); margin-left: 1px; vertical-align: middle;
+  animation: battPulse .8s steps(1) infinite; }
 .me-header-story-body::-webkit-scrollbar { width: 2px; }
 .me-header-story-body::-webkit-scrollbar-thumb { background: rgba(45,255,170,.2); }
 .me-header-story-footer {
-  display: flex; align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 8px;
   margin-top: 6px; flex-shrink: 0; position: relative; overflow: visible;
+}
+.story-day-badge {
+  font-family: var(--font-label); font-size: 8px; letter-spacing: 2px;
+  color: rgba(45,255,170,.4); margin-left: auto;
 }
 .me-header-story-footer .story-gen-btn {
   font-size: 9px; padding: 3px 10px;
@@ -3282,11 +3305,8 @@ select {
           <span class="dim">// STANDBY</span>
         </div>
         <div class="me-header-story-footer">
-          <button class="story-gen-btn" id="storyGenBtn" onclick="generateStory()">✦ 생성</button>
-          <button class="story-log-btn" onclick="toggleStoryLog()">◫ 기록</button>
-          <div class="story-log-panel" id="storyLogPanel" style="position:absolute;top:100%;right:0;left:0;z-index:10">
-            <div id="storyLogList"></div>
-          </div>
+          <button class="story-gen-btn" id="storyGenBtn" onclick="generateStory()">◈ 채널 열기</button>
+          <span class="story-day-badge" id="storyDayBadge"></span>
         </div>
       </div>
 
@@ -4191,6 +4211,7 @@ function renderTaskList(){
   const renderedCatIds=new Set(orderedCats.map(c=>c.id));
   const emptyCats=taskCats.filter(c=>!renderedCatIds.has(c.id));
 
+  const _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
   listEl.innerHTML=orderedCats.map(cat=>{
     const items=groups[cat.id];
     // 시간 순 정렬 (시간없으면 뒤)
@@ -4224,7 +4245,7 @@ function renderTaskList(){
     }).join('');
 
     // 빠른 추가 폼 (data-catid로 식별)
-    return `<div class="task-sec" id="taskSec-${cat.id}">
+    return `<div class="task-sec${_secCollapsed[cat.id]?' collapsed':''}" id="taskSec-${cat.id}">
       <div class="task-sec-head" style="border-left-color:${cat.color}" onclick="toggleTaskSec('${cat.id}')">
         <span class="task-sec-icon">${cat.icon}</span>
         <span class="task-sec-name" id="catName-${cat.id}" style="color:${cat.color}">${esc(cat.label)}</span>
@@ -4241,7 +4262,7 @@ function renderTaskList(){
     </div>`;
   }).join('')
   + emptyCats.map(c=>`
-    <div class="task-sec" id="taskSec-${c.id}">
+    <div class="task-sec${_secCollapsed[c.id]?' collapsed':''}" id="taskSec-${c.id}">
       <div class="task-sec-head" style="border-left-color:${c.color}">
         <span class="task-sec-icon">${c.icon}</span>
         <span class="task-sec-name" id="catName-${c.id}" style="color:${c.color}">${esc(c.label)}</span>
@@ -4295,7 +4316,13 @@ function startCatRename(catId) {
   inp.select();
 }
 function toggleTaskSec(catId){
-  document.getElementById('taskSec-'+catId)?.classList.toggle('collapsed');
+  const el = document.getElementById('taskSec-'+catId);
+  if(!el) return;
+  el.classList.toggle('collapsed');
+  // collapsed 상태 저장
+  const collapsed = JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
+  collapsed[catId] = el.classList.contains('collapsed');
+  localStorage.setItem('task_sec_collapsed', JSON.stringify(collapsed));
 }
 
 // ── 할일 토글 ──
@@ -9346,6 +9373,71 @@ function _triggerStoryRegen(){
 }
 
 // ── 스토리 생성 ──
+
+// ── 스토리 피드 렌더 (연대기 방식) ──
+function _renderStoryFeed(typingText, typingDayNum, typingDate) {
+  const body = document.getElementById('storyBody');
+  if (!body) return;
+
+  // 과거 기록 (오늘 제외, 최신 7개)
+  const today = _todayKey();
+  const past = storyLog.filter(s => s.date !== today).slice(0, 6).reverse();
+
+  let html = past.map(s => `
+    <div class="story-entry">
+      <div class="story-entry-date">DAY ${s.dayNum||'?'} — ${s.date}</div>
+      <div class="story-entry-text">${esc(s.text)}</div>
+    </div>`).join('');
+
+  // 오늘 엔트리
+  const todayStory = storyLog.find(s => s.date === today);
+  if (todayStory && !typingText) {
+    html += `<div class="story-entry today">
+      <div class="story-entry-date">DAY ${todayStory.dayNum||_storyDayNum()} — ${today} · TODAY</div>
+      <div class="story-entry-text">${esc(todayStory.text)}</div>
+    </div>`;
+  } else if (!todayStory && !typingText) {
+    html += `<div class="story-entry today">
+      <div class="story-entry-date">DAY ${_storyDayNum()} — ${today} · TODAY</div>
+      <div class="story-entry-text dim">// STANDBY — 채널을 열어줘.</div>
+    </div>`;
+  } else if (typingText !== undefined) {
+    // 타이핑 중
+    html += `<div class="story-entry today" id="storyTodayEntry">
+      <div class="story-entry-date">DAY ${typingDayNum||_storyDayNum()} — ${typingDate||today} · TODAY</div>
+      <div class="story-entry-text" id="storyTypingTarget"></div>
+    </div>`;
+  }
+
+  body.innerHTML = html;
+  // 맨 아래로 스크롤
+  body.scrollTop = body.scrollHeight;
+}
+
+// ── 타이핑 애니메이션 (새 방식: 특정 el에 타이핑) ──
+function _typeInto(el, text, onDone) {
+  if (!el) { if(onDone) onDone(); return; }
+  el.innerHTML = '';
+  let i = 0;
+  const cursor = document.createElement('span');
+  cursor.className = 'story-entry-cursor';
+  el.appendChild(cursor);
+  const body = document.getElementById('storyBody');
+
+  const speed = Math.max(15, Math.min(35, Math.floor(2800 / text.length)));
+  const timer = setInterval(() => {
+    if (i < text.length) {
+      cursor.before(document.createTextNode(text[i]));
+      i++;
+      if(body) body.scrollTop = body.scrollHeight;
+    } else {
+      clearInterval(timer);
+      cursor.remove();
+      if (onDone) onDone();
+    }
+  }, speed);
+}
+
 async function generateStory() {
   if (!API_KEY) { showToast('설정에서 API 키를 먼저 입력해줘'); return; }
 
@@ -9354,80 +9446,77 @@ async function generateStory() {
   if (!btn || !body) return;
 
   btn.disabled = true;
-  btn.textContent = '◌ 생성 중...';
-  body.innerHTML = '<span class="dim">// SECTOR 7 통신 연결 중...</span><span class="story-cursor"></span>';
+  btn.textContent = '◌ 교신 중...';
+  // 연결 중 메시지를 피드 마지막에 추가
+  const _loadEntry = document.createElement('div');
+  _loadEntry.className = 'story-entry today';
+  _loadEntry.innerHTML = '<div class="story-entry-text dim">// SECTOR 7 교신 중<span class="story-entry-cursor"></span></div>';
+  body.appendChild(_loadEntry);
+  body.scrollTop = body.scrollHeight;
 
   try {
     const state = _collectSystemState();
     const prompt = _buildStoryPrompt(state);
-    const text = await callAI(prompt, 600);
+    const text = await callAI(prompt, 700);
 
-    // NPC 감지
+    // 로그 저장 (타이핑 전에 먼저)
+    const today = _todayKey();
     const npcs = _detectNpcs(text);
     _updateNpcChips(npcs);
-
-    // 타이핑 출력
-    _typeStory(body, text, () => {
-      btn.textContent = '↻ 다시 생성';
-      btn.disabled = false;
-    });
-
-    // 로그 저장
-    const today = _todayKey();
-    storyLog = storyLog.filter(s => s.date !== today); // 오늘 것 교체
+    storyLog = storyLog.filter(s => s.date !== today);
     storyLog.unshift({ date: today, text, npcs, dayNum: state.dayNum });
     if (storyLog.length > 60) storyLog = storyLog.slice(0, 60);
     localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
     if(fbUser)fbSaveAll();
 
-    // 일수 뱃지
+    // 연대기 피드 렌더 (타이핑 자리 확보)
+    _renderStoryFeed('', state.dayNum, today);
+    const typingEl = document.getElementById('storyTypingTarget');
+
+    // 타이핑 애니메이션
+    _typeInto(typingEl, text, () => {
+      btn.textContent = '↻ 재전송';
+      btn.disabled = false;
+      // 타이핑 완료 후 정식 렌더
+      _renderStoryFeed();
+      const badge = document.getElementById('storyDayBadge');
+      if(badge) badge.textContent = 'DAY ' + state.dayNum;
+    });
+
     const dayEl = document.getElementById('storyDayNum');
     if (dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
+    const badge = document.getElementById('storyDayBadge');
+    if(badge) badge.textContent = 'DAY ' + state.dayNum;
 
   } catch(e) {
-    body.innerHTML = '<span class="warn">// 통신 오류: ' + e.message + '</span>';
-    btn.textContent = '↻ 재시도';
+    body.innerHTML = '<div class="story-entry today"><div class="story-entry-text warn">// 통신 오류: ' + e.message + '</div></div>';
+    btn.textContent = '◈ 채널 열기';
     btn.disabled = false;
   }
 }
 
 // ── 스토리 로그 토글 ──
-function toggleStoryLog() {
-  const panel = document.getElementById('storyLogPanel');
-  const list  = document.getElementById('storyLogList');
-  if (!panel || !list) return;
+// toggleStoryLog: 연대기 방식으로 대체됨
 
-  panel.classList.toggle('open');
-  panel.style.display = panel.classList.contains('open') ? 'block' : 'none';
-  if (!panel.classList.contains('open')) return;
-
-  if (storyLog.length === 0) {
-    list.innerHTML = '<div class="story-log-item"><div class="story-log-text dim">// 아직 기록이 없어.</div></div>';
-    return;
-  }
-  list.innerHTML = storyLog.map(s => `
-    <div class="story-log-item">
-      <div class="story-log-date">DAY ${s.dayNum || '?'} — ${s.date}</div>
-      <div class="story-log-text">${s.text}</div>
-    </div>
-  `).join('');
-}
-
-// ── 나탭 열릴 때 오늘 스토리 복원 ──
+// ── 나탭 열릴 때 스토리 피드 복원 ──
 function initStoryCard() {
   const today = _todayKey();
   const todayStory = storyLog.find(s => s.date === today);
+  const dayNum = _storyDayNum();
+
   const dayEl = document.getElementById('storyDayNum');
-  if (dayEl) dayEl.textContent = 'DAY ' + _storyDayNum();
+  if (dayEl) dayEl.textContent = 'DAY ' + dayNum;
+  const badge = document.getElementById('storyDayBadge');
+  if (badge) badge.textContent = 'DAY ' + dayNum;
+
+  // 연대기 피드 렌더
+  _renderStoryFeed();
 
   if (todayStory) {
-    const body = document.getElementById('storyBody');
-    if (body) body.textContent = todayStory.text;
     _updateNpcChips(todayStory.npcs || {});
     const btn = document.getElementById('storyGenBtn');
-    if (btn) btn.textContent = '↻ 다시 생성';
+    if (btn) btn.textContent = '↻ 재전송';
   } else if (API_KEY) {
-    // 오늘 스토리 없고 API 키 있으면 자동 생성
     setTimeout(() => generateStory(), 1200);
   }
 }
