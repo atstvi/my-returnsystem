@@ -2892,26 +2892,13 @@ select {
   background: linear-gradient(180deg, rgba(14,17,23,0) 0%, rgba(45,255,170,.03) 100%);
   flex-shrink: 0;
   overflow: visible;
-  min-height: 152px;
-  /* AI 이미지 + canvas 겹치기 위한 기준 */
+  min-height: auto;
+  /* 이미지 업로드 아바타 기준 */
   isolation: isolate;
 }
 
-/* 픽셀 캔버스 */
-#pixelAvatarCanvas {
-  display: block !important;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  image-rendering: -moz-crisp-edges;
-  image-rendering: -webkit-optimize-contrast;
-  width: 96px !important;
-  height: 144px !important;
-  max-width: none !important;
-  flex-shrink: 0;
-  position: relative; z-index: 1;
-  filter: drop-shadow(0 0 8px rgba(45,255,170,.4));
-  transition: opacity .4s;
-}
+/* 픽셀 Canvas → 이미지 업로드 방식으로 교체 */
+#pixelAvatarCanvas { display: none !important; }
 #pixelAvatarImg {
   width: 96px; height: 96px;
   object-fit: cover;
@@ -3493,9 +3480,22 @@ select {
       <!-- 왼쪽: 프로필 -->
       <div class="me-header-profile">
 
-        <!-- 픽셀 아바타 -->
-        <div class="pixel-avatar-zone">
-          <canvas id="pixelAvatarCanvas" width="96" height="144"></canvas>
+        <!-- 아바타 (이미지 등록) -->
+        <div class="pixel-avatar-zone" onclick="document.getElementById('avatarInp').click()" style="cursor:pointer;min-height:auto;padding:8px 8px 4px" title="클릭해서 아바타 사진 등록">
+          <div id="avatarUploadZone" style="position:relative;width:96px;height:96px;flex-shrink:0;">
+            <img id="pixelAvatarImg" style="display:none;width:96px;height:96px;object-fit:cover;
+              clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
+              filter:drop-shadow(0 0 10px rgba(45,255,170,.4));" alt="">
+            <div id="avatarPlaceholder" style="width:96px;height:96px;display:flex;flex-direction:column;
+              align-items:center;justify-content:center;gap:4px;
+              clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px));
+              background:rgba(45,255,170,.04);border:1px solid rgba(45,255,170,.18);
+              color:rgba(45,255,170,.5);font-family:var(--font-label);font-size:9px;letter-spacing:2px;">
+              <span style="font-size:22px;opacity:0.5">&#9711;</span>
+              <span>AVATAR</span>
+              <span style="font-size:8px;opacity:0.6">클릭하여 등록</span>
+            </div>
+          </div>
           <div class="avatar-state-label" id="avatarStateLabel">STANDBY</div>
         </div>
 
@@ -5575,21 +5575,18 @@ function onAvatarUpload(e){
 }
 function _showAvatarImage(src){
   const pixImg=document.getElementById('pixelAvatarImg');
-  const pixCanvas=document.getElementById('pixelAvatarCanvas');
+  const placeholder=document.getElementById('avatarPlaceholder');
   if(pixImg){ pixImg.src=src; pixImg.style.display='block'; }
-  if(pixCanvas) pixCanvas.style.display='none';
-  // 애니메이션 멈춤 (이미지 있을 때)
-  if(_avatarAnimId){ cancelAnimationFrame(_avatarAnimId); _avatarAnimId=null; }
+  if(placeholder) placeholder.style.display='none';
+  // 픽셀 Canvas 애니메이션 중단 (더 이상 없음)
+  if(typeof _avatarAnimId!=='undefined'&&_avatarAnimId){ cancelAnimationFrame(_avatarAnimId); _avatarAnimId=null; }
 }
 function _showAvatarPixel(){
+  // 업로드 이미지 없을 때 → 플레이스홀더 표시
   const pixImg=document.getElementById('pixelAvatarImg');
-  const pixCanvas=document.getElementById('pixelAvatarCanvas');
+  const placeholder=document.getElementById('avatarPlaceholder');
   if(pixImg) pixImg.style.display='none';
-  if(pixCanvas){ pixCanvas.style.display='block'; }
-  // 탭 전환 시 강제 재시작
-  if(_avatarAnimId){ cancelAnimationFrame(_avatarAnimId); _avatarAnimId=null; }
-  drawPixelAvatar(_avatarState, _avatarFrame); // 즉시 한 프레임 그리기
-  startAvatarAnim();
+  if(placeholder) placeholder.style.display='flex';
 }
 
 function renderMeTab(){
@@ -6946,78 +6943,79 @@ function _pixelateImage(srcUrl, targetW, targetH, callback) {
   img.src = srcUrl;
 }
 
-// 현재 bgImg에 표시 중인 sid 추적
-var _bgCurrentSid = null;
+// 렌더 시퀀스 — 비동기 경쟁 방지 (슬라이드 이동 시 이전 렌더 무시)
+var _bgRenderSeq = 0;
 
 async function _renderStoryBg(storyEntry) {
   const canvas = document.getElementById('storyPixelCanvas');
   const vp = canvas?.parentElement;
   if (!vp || !canvas) return;
 
-  const sid = storyEntry?.id;
-
-  // 같은 스토리면 스킵
-  if (sid && sid === _bgCurrentSid) return;
-  _bgCurrentSid = sid || null;
-
-  // 1) 즉시 Canvas에 로딩 표시 (기존 씬 유지하거나 dim)
-  // 2) AI에서 씬 파라미터 받아서 Canvas 다시 그리기
+  // 이 렌더 요청의 고유 번호 — 나중에 변경됐으면 결과 버림
+  const mySeq = ++_bgRenderSeq;
 
   const canvas2d = canvas.getContext('2d');
 
-  // 레이아웃이 확정된 후 렌더 (탭 전환 직후 offsetWidth=0 방지)
   const doRender = () => {
-  const vW = vp.offsetWidth  || 320;
-  const vH = vp.offsetHeight || 130;
+    // 이미 새 렌더 요청이 왔으면 포기
+    if (mySeq !== _bgRenderSeq) return;
 
-  // Canvas 크기 설정
-  canvas.width  = vW;
-  canvas.height = vH;
-  canvas.style.width  = vW + 'px';
-  canvas.style.height = vH + 'px';
-  canvas.style.imageRendering = 'auto';
-  canvas.style.opacity = '1';
+    const vW = vp.offsetWidth  || 320;
+    const vH = vp.offsetHeight || 130;
 
-  // bgImg 숨기기 (AI 이미지 없음)
-  const bgImg = document.getElementById('storyBgImg');
-  if (bgImg) bgImg.style.opacity = '0';
+    canvas.width  = vW;
+    canvas.height = vH;
+    canvas.style.width  = vW + 'px';
+    canvas.style.height = vH + 'px';
+    canvas.style.imageRendering = 'auto';
+    canvas.style.opacity = '1';
 
-  if (!storyEntry || !storyEntry.text) {
-    _drawSceneFromVis(canvas2d, vW, vH, null, {});
-    return;
-  }
+    const bgImg = document.getElementById('storyBgImg');
+    if (bgImg) bgImg.style.opacity = '0';
 
-  // API 키 없으면 텍스트 해시 기반 fallback
-  if (!API_KEY) {
-    const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-    _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
-    return;
-  }
+    if (!storyEntry || !storyEntry.text) {
+      _drawSceneFromVis(canvas2d, vW, vH, null, {});
+      return;
+    }
 
-  // 로딩 중 — 기존 씬 dim 처리
-  canvas2d.fillStyle = 'rgba(4,7,15,0.6)';
-  canvas2d.fillRect(0, 0, vW, vH);
-  canvas2d.fillStyle = 'rgba(45,255,170,0.3)';
-  canvas2d.font = `${Math.floor(vH*0.07)}px monospace`;
-  canvas2d.textAlign = 'center';
-  canvas2d.fillText('// RENDERING...', vW/2, vH/2);
-
-  generateStoryScene(storyEntry).then(vis => {
-    if (_bgCurrentSid !== sid) return;
-    if (vis) {
-      _drawSceneFromVis(canvas2d, vW, vH, vis, storyEntry.npcs || {});
-    } else {
+    // API 키 없으면 텍스트 해시 기반 fallback 즉시 렌더
+    if (!API_KEY) {
       const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
       _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
+      return;
     }
-  }).catch(() => {
-    if (_bgCurrentSid !== sid) return;
-    const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-    _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
-  });
-  }; // end doRender
 
-  // offsetWidth가 0이면 rAF 후 재시도 (탭 비활성 시 레이아웃 미확정)
+    // 캐시에 이미 있으면 즉시 렌더 (로딩 표시 없음)
+    const sid = storyEntry.id;
+    if (sid && _storySceneCache[sid]) {
+      _drawSceneFromVis(canvas2d, vW, vH, _storySceneCache[sid], storyEntry.npcs || {});
+      return;
+    }
+
+    // 로딩 중 표시
+    canvas2d.fillStyle = 'rgba(4,7,15,0.85)';
+    canvas2d.fillRect(0, 0, vW, vH);
+    canvas2d.fillStyle = 'rgba(45,255,170,0.35)';
+    canvas2d.font = `${Math.floor(vH*0.07)}px monospace`;
+    canvas2d.textAlign = 'center';
+    canvas2d.fillText('// RENDERING...', vW/2, vH/2);
+
+    generateStoryScene(storyEntry).then(vis => {
+      if (mySeq !== _bgRenderSeq) return; // 슬라이드 이동했으면 버림
+      if (vis) {
+        _drawSceneFromVis(canvas2d, vW, vH, vis, storyEntry.npcs || {});
+      } else {
+        const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
+        _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
+      }
+    }).catch(() => {
+      if (mySeq !== _bgRenderSeq) return;
+      const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
+      _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
+    });
+  };
+
+  // offsetWidth=0 이면 레이아웃 확정 후 실행
   if (vp.offsetWidth === 0) {
     requestAnimationFrame(doRender);
   } else {
@@ -9622,6 +9620,7 @@ function _px(ctx, x, y, color, s) {
 
 // ── 메인 렌더 함수 ──
 function drawPixelAvatar(state, frame) {
+  // 픽셀 Canvas 아바타 제거됨 — 이미지 업로드 방식으로 교체
   const canvas = document.getElementById('pixelAvatarCanvas');
   if (!canvas) return;
   let ctx;
@@ -10034,26 +10033,8 @@ function drawPixelAvatar(state, frame) {
 }
 
 function startAvatarAnim() {
-  if(_avatarAnimId) return;
-  // 캔버스 없으면 최대 10회 재시도 (탭 전환 시 DOM 미준비 대응)
-  if(!document.getElementById('pixelAvatarCanvas')) {
-    var tries=0;
-    var wait=setInterval(function(){
-      tries++;
-      if(document.getElementById('pixelAvatarCanvas')){ clearInterval(wait); startAvatarAnim(); }
-      else if(tries>10) clearInterval(wait);
-    },200);
-    return;
-  }
-  function loop(ts) {
-    if(ts - _avatarLastFrameTime > FRAME_INTERVAL) {
-      _avatarFrame++;
-      drawPixelAvatar(_avatarState, _avatarFrame);
-      _avatarLastFrameTime = ts;
-    }
-    _avatarAnimId = requestAnimationFrame(loop);
-  }
-  _avatarAnimId = requestAnimationFrame(loop);
+  // 픽셀 아바타 Canvas 제거됨 — 이미지 업로드 방식으로 교체
+  // 하위 호환을 위해 함수는 유지 (no-op)
 }
 
 function setAvatarState(state) {
@@ -11800,10 +11781,9 @@ async function generateStory() {
       // 최신 조각으로 인덱스 이동
       storyCurrentIdx = _storySorted().length - 1;
       _renderStorySlide(storyCurrentIdx);
-      // 새 스토리 → bgCurrentSid 리셋으로 항상 새 배경 생성
+      // 새 스토리 → 항상 새 배경 생성 (시퀀스 번호로 자동 처리)
       var lastEntry = _storySorted()[storyCurrentIdx];
       if (lastEntry && typeof _renderStoryBg === 'function') {
-        _bgCurrentSid = null;
         _renderStoryBg(lastEntry);
       }
     });
