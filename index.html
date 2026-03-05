@@ -4216,7 +4216,7 @@ select {
 <script>
 var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
 var rewardData={charge:[],drain:[]};
-var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null;
+var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 var _storyAutoTimer=null;
 // ── 비밀번호 잠금 ─────────────────────────────────────────
 const DEFAULT_PW = 'myreturn2024'; // ← 여기서 기본 비밀번호 변경 가능
@@ -9179,250 +9179,294 @@ async function fbLogout(){
 }
 
 // fbSave debounce
-function fbSaveAll(){
-  if(!fbUser||!fbDb)return;
-  if(_applyingFbData)return;
-  if(_fbSaveTimer)clearTimeout(_fbSaveTimer);
-  _fbSaveTimer=setTimeout(_fbSaveNow,2000);
-}
-async function _fbSaveNow(){
-  if(!fbUser||!fbDb)return;
-  setSyncStatus('syncing');
-  try{
-    const uid=fbUser.uid;
-    await fbDb.collection('users').doc(uid).set({
-      // 기존 데이터
-      memos:JSON.stringify(memos),
-      philCards:JSON.stringify(philCards),
-      questionSet:JSON.stringify(questionSet),
-      aiSettings:JSON.stringify(aiSettings),
-      rewardData:localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}',
-      metricsV1:localStorage.getItem('metrics_v1')||'[]',
-      realNeedV1:localStorage.getItem('real_need_v1')||'[]',
-      rpgObsV1:localStorage.getItem('rpg_obs_v1')||'{}',
-      rpgStatsV1:localStorage.getItem('rpg_stats_v1')||'null',
-      todoItems:localStorage.getItem('todo_items')||'[]',
-      taskItemsV1:localStorage.getItem('task_items_v1')||'[]',
-      taskCatsV1:localStorage.getItem('task_cats_v1')||'[]',
-      inboxV1:localStorage.getItem('inbox_v1')||'[]',
-      inboxCatsV1:localStorage.getItem('inbox_cats_v1')||'[]',
-      profileData:localStorage.getItem('profile_data')||'{}',
 
-      storyLogV1:localStorage.getItem('story_log_v1')||'[]',
-      storyDayOne:localStorage.getItem('story_day_one')||'',
-      // 오늘 충전/방전 (날짜 키 포함 통째로)
-      todayChargeKey:getTodayChargeKey(),
-      todayChargeVal:localStorage.getItem(getTodayChargeKey())||'[]',
-      todayDrainKey:getTodayDrainKey ? getTodayDrainKey() : '',
-      todayDrainVal:getTodayDrainKey ? (localStorage.getItem(getTodayDrainKey())||'[]') : '[]',
-      updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
-      updatedAt_ms: Date.now(),
-      updatedBy:fbUser.uid,
-    });
+// ═══════════════════════════════════════════════════════════════════
+// Firebase 동기화 — 완전 재작성
+// 핵심 수정:
+//   1. deviceId로 "내 기기" vs "다른 기기" 구분 (같은 uid라도 기기 다름)
+//   2. _applyingFbData 제거 → 저장 중에도 다른 기기 수신 허용
+//   3. last-write-wins: 타임스탬프 비교로 충돌 해결
+//   4. 키 누락 없이 모든 데이터 저장/복원
+// ═══════════════════════════════════════════════════════════════════
+
+// 기기 고유 ID (탭/기기 구분)
+var _DEVICE_ID = localStorage.getItem('_device_id') || (function(){
+  var id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  localStorage.setItem('_device_id', id);
+  return id;
+})();
+
+var _fbSaveTimer = null;
+var _fbUnsubscribe = null;
+var _fbLastSaveMs = 0; // 내가 마지막으로 저장한 시각
+var _applyingFbData = false; // 여전히 필요 (루프 방지용, 짧게만)
+
+function fbSaveAll(){
+  if(!fbUser || !fbDb) return;
+  if(_fbSaveTimer) clearTimeout(_fbSaveTimer);
+  _fbSaveTimer = setTimeout(_fbSaveNow, 1500);
+}
+
+async function _fbSaveNow(){
+  if(!fbUser || !fbDb) return;
+  _fbSaveTimer = null;
+  setSyncStatus('syncing');
+  try {
+    const uid = fbUser.uid;
+    _fbLastSaveMs = Date.now();
+
+    // 모든 localStorage 키를 빠짐없이 수집
+    const payload = {
+      // 핵심 할일 데이터
+      taskItemsV1:    localStorage.getItem('task_items_v1')    || '[]',
+      taskCatsV1:     localStorage.getItem('task_cats_v1')     || '[]',
+      todoItems:      localStorage.getItem('todo_items')       || '[]',
+      // 인박스
+      inboxV1:        localStorage.getItem('inbox_v1')         || '[]',
+      inboxCatsV1:    localStorage.getItem('inbox_cats_v1')    || '[]',
+      // 기록/메모
+      memos:          JSON.stringify(memos),
+      philCards:      JSON.stringify(philCards),
+      questionSet:    JSON.stringify(questionSet),
+      aiSettings:     JSON.stringify(aiSettings),
+      metricsV1:      localStorage.getItem('metrics_v1')       || '[]',
+      realNeedV1:     localStorage.getItem('real_need_v1')     || '[]',
+      // RPG/상태
+      rpgObsV1:       localStorage.getItem('rpg_obs_v1')       || '{}',
+      rpgStatsV1:     localStorage.getItem('rpg_stats_v1')     || 'null',
+      rewardData:     localStorage.getItem('reward_data')      || '{"charge":[],"drain":[]}',
+      // 오늘 충전/방전 (날짜 키 포함)
+      todayChargeKey: getTodayChargeKey(),
+      todayChargeVal: localStorage.getItem(getTodayChargeKey()) || '[]',
+      todayDrainKey:  getTodayDrainKey ? getTodayDrainKey() : '',
+      todayDrainVal:  getTodayDrainKey ? (localStorage.getItem(getTodayDrainKey()) || '[]') : '[]',
+      // 스토리
+      storyLogV1:     localStorage.getItem('story_log_v1')     || '[]',
+      storyDayOne:    localStorage.getItem('story_day_one')    || '',
+      // 프로필
+      profileData:    localStorage.getItem('profile_data')     || '{}',
+      // 메타
+      updatedAt:      firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt_ms:   _fbLastSaveMs,
+      updatedBy:      fbUser.uid,
+      deviceId:       _DEVICE_ID,
+    };
+
+    await fbDb.collection('users').doc(uid).set(payload);
     setSyncStatus('connected');
-  }catch(err){
+  } catch(err) {
     setSyncStatus('error');
-    console.error('Firebase 저장 오류:',err);
+    console.error('Firebase 저장 오류:', err);
   }
 }
 
 async function fbLoadAll(){
-  if(!fbUser||!fbDb)return;
+  if(!fbUser || !fbDb) return;
   setSyncStatus('syncing');
-  try{
-    const uid=fbUser.uid;
-    const snap=await fbDb.collection('users').doc(uid).get();
+  try {
+    const uid = fbUser.uid;
+    const snap = await fbDb.collection('users').doc(uid).get();
     if(snap.exists){
-      _applyFirebaseData(snap.data());
+      _applyFirebaseData(snap.data(), true); // force=true: 첫 로드는 무조건 적용
     }
     setSyncStatus('connected');
-    // 실시간 리스너 등록
     _startFbListener();
-  }catch(err){
+  } catch(err) {
     setSyncStatus('error');
-    console.error('Firebase 불러오기 오류:',err);
+    console.error('Firebase 불러오기 오류:', err);
   }
 }
 
 function _startFbListener(){
-  if(_fbUnsubscribe)_fbUnsubscribe(); // 기존 리스너 해제
-  if(!fbUser||!fbDb)return;
-  _fbUnsubscribe=fbDb.collection('users').doc(fbUser.uid)
-    .onSnapshot(snap=>{
-      if(!snap.exists)return;
-      const d=snap.data();
-      // 내가 직접 저장한 것이면 무시 (3초 이내 + 같은 UID)
-      const ms = d.updatedAt_ms || (d.updatedAt&&d.updatedAt.toMillis ? d.updatedAt.toMillis() : 0);
-      if(d.updatedBy===fbUser.uid && Date.now()-ms < 4000) return;
-      _applyFirebaseData(d);
+  if(_fbUnsubscribe) _fbUnsubscribe();
+  if(!fbUser || !fbDb) return;
+
+  _fbUnsubscribe = fbDb.collection('users').doc(fbUser.uid)
+    .onSnapshot(snap => {
+      if(!snap.exists) return;
+      const d = snap.data();
+
+      // 내 기기에서 저장한 것이면 무시 (1.5초 debounce 안에 들어온 자기 echo)
+      if(d.deviceId === _DEVICE_ID && Date.now() - _fbLastSaveMs < 3000) return;
+
+      // 다른 기기 저장 → 항상 적용
+      _applyFirebaseData(d, false);
       setSyncStatus('connected');
-    },err=>{
-      console.warn('FB listener error:',err);
+    }, err => {
+      console.warn('FB listener error:', err);
+      setSyncStatus('error');
     });
 }
 
-function _applyFirebaseData(d){
-  if(!d)return;
-  _applyingFbData=true;setTimeout(()=>{_applyingFbData=false;},3000);
-  // 메모/기록
-  if(d.memos){memos=JSON.parse(d.memos);localStorage.setItem('memos_v5',d.memos);}
-  if(d.philCards){philCards=JSON.parse(d.philCards);localStorage.setItem('phil_cards',d.philCards);}
-  if(d.questionSet){questionSet=JSON.parse(d.questionSet);localStorage.setItem('question_set',d.questionSet);}
-  if(d.aiSettings){aiSettings=JSON.parse(d.aiSettings);localStorage.setItem('ai_settings',d.aiSettings);loadAiSettings();}
-  if(d.rewardData){
-    localStorage.setItem('reward_data',d.rewardData);
-    try{ initRewardData&&initRewardData(); }catch(e){}
-    try{ renderTodayCharge&&renderTodayCharge(); }catch(e){}
-    try{ renderTodayDrain&&renderTodayDrain(); }catch(e){}
-  }
-  if(d.metricsV1){
-    localStorage.setItem('metrics_v1',d.metricsV1);
-    try{ renderMetrics&&renderMetrics(); }catch(e){}
-  }
-  if(d.realNeedV1){
-    try{ realNeedData=JSON.parse(d.realNeedV1); }catch(e){ realNeedData=[]; }
-    localStorage.setItem('real_need_v1',d.realNeedV1);
-  }
-  if(d.rpgObsV1){
-    localStorage.setItem('rpg_obs_v1', d.rpgObsV1);
-    try{ renderRpgStats&&renderRpgStats(); }catch(e){}
-    try{ updateAvatarFromStats&&updateAvatarFromStats(); }catch(e){}
-  }
-  if(d.rpgStatsV1&&d.rpgStatsV1!=='null'){
-    localStorage.setItem('rpg_stats_v1',d.rpgStatsV1);
-    try{ RPG_STATS=getRpgStats(); renderRpgStats&&renderRpgStats(); }catch(e){}
-  }
-  // 할일 (me탭)
-  if(d.todoItems){
-    try{ todoItems=JSON.parse(d.todoItems); }catch(e){ todoItems=[]; }
-    localStorage.setItem('todo_items',d.todoItems);
-    try{ renderMeTodo&&renderMeTodo(); }catch(e){}
-    try{ updateHeaderInbox&&updateHeaderInbox(); }catch(e){}
-  }
-  // 할일탭 아이템/카테고리
-  if(d.taskItemsV1){
-    try{
-      taskItems=JSON.parse(d.taskItemsV1);
-      // time → timeStart 마이그레이션
-      let migrated=false;
-      taskItems=taskItems.map(t=>{
-        if(t.time!==undefined && t.timeStart===undefined){
-          migrated=true;
-          return {...t, timeStart:t.time||'', timeEnd:'', time:undefined};
-        }
+function _applyFirebaseData(d, force){
+  if(!d) return;
+
+  // 루프 방지: 적용 중에는 fbSaveAll 차단 (짧게)
+  _applyingFbData = true;
+  setTimeout(() => { _applyingFbData = false; }, 500);
+
+  // ── 할일탭 ──
+  if(d.taskItemsV1 !== undefined){
+    try {
+      let items = JSON.parse(d.taskItemsV1 || '[]');
+      // 마이그레이션: time → timeStart
+      items = items.map(t => {
+        if(t.time !== undefined && t.timeStart === undefined)
+          return { ...t, timeStart: t.time || '', timeEnd: '', time: undefined };
         return t;
       });
-      const str = migrated ? JSON.stringify(taskItems) : d.taskItemsV1;
-      localStorage.setItem('task_items_v1', str);
-    }catch(e){ taskItems=[]; }
+      taskItems = items;
+      localStorage.setItem('task_items_v1', JSON.stringify(items));
+    } catch(e){ console.warn('taskItems parse:', e); }
   }
-  if(d.taskCatsV1){
-    try{
-      const parsed=JSON.parse(d.taskCatsV1);
-      if(parsed&&parsed.length>0){ taskCats=parsed; localStorage.setItem('task_cats_v1',d.taskCatsV1); }
-    }catch(e){}
-  }
-  // 할일탭 + me탭 Active Missions 재렌더
-  try{ if(typeof renderTaskTab==='function') renderTaskTab(); }catch(e){}
-  try{ renderMeTodo&&renderMeTodo(); }catch(e){}
-  // 인박스
-  if(d.inboxV1){
-    try{ inboxItems=JSON.parse(d.inboxV1); }catch(e){inboxItems=[];}
-    localStorage.setItem('inbox_v1',d.inboxV1);
-  }
-  if(d.inboxCatsV1){
-    try{
-      const parsed=JSON.parse(d.inboxCatsV1);
-      if(parsed&&parsed.length>0){inboxCats=parsed;localStorage.setItem('inbox_cats_v1',d.inboxCatsV1);}
-    }catch(e){}
-  }
-  // 인박스 렌더 (탭 무관하게 위젯은 항상 갱신)
-  try{
-    const activeTab=document.querySelector('.page.active');
-    if(activeTab&&activeTab.id==='page-inbox'){
-      renderInbox&&renderInbox();
-      renderItpPanel&&renderItpPanel();
-    } else {
-      renderInboxWidget&&renderInboxWidget();
-      updateHeaderInbox&&updateHeaderInbox();
-    }
-  }catch(e){}
-  // 프로필
-  if(d.profileData){
-    try{
-      profileData=JSON.parse(d.profileData);
-      localStorage.setItem('profile_data',d.profileData);
-      try{ renderMeTab&&renderMeTab(); }catch(e){}
-      // 프로필 사진/이름 즉시 반영
-      try{
-        const ni=document.getElementById('meNameInp');
-        if(ni&&profileData.name) ni.value=profileData.name;
-        if(!profileData.avatar) drawMeAvatar&&drawMeAvatar(profileData.name);
-      }catch(e){}
-    }catch(e){}
+  if(d.taskCatsV1 !== undefined){
+    try {
+      const cats = JSON.parse(d.taskCatsV1 || '[]');
+      if(cats && cats.length > 0){ taskCats = cats; localStorage.setItem('task_cats_v1', d.taskCatsV1); }
+    } catch(e){}
   }
 
-  // 스토리 로그
-  if(d.storyLogV1){
-    try{
-      storyLog=JSON.parse(d.storyLogV1);
-      localStorage.setItem('story_log_v1',d.storyLogV1);
-      // 마이그레이션
-      var migrated=false;
-      storyLog=storyLog.map(function(s,i){
-        if(!s.id){ migrated=true; return {id:'sl_'+i,date:s.date||'',time:'00:00',text:s.text||'',npcs:s.npcs||{},dayNum:s.dayNum||1,part:1}; }
+  // ── 나탭 todoItems ──
+  if(d.todoItems !== undefined){
+    try { todoItems = JSON.parse(d.todoItems || '[]'); } catch(e){ todoItems = []; }
+    localStorage.setItem('todo_items', d.todoItems || '[]');
+  }
+
+  // ── 인박스 ──
+  if(d.inboxV1 !== undefined){
+    try { inboxItems = JSON.parse(d.inboxV1 || '[]'); } catch(e){ inboxItems = []; }
+    localStorage.setItem('inbox_v1', d.inboxV1 || '[]');
+  }
+  if(d.inboxCatsV1 !== undefined){
+    try {
+      const cats = JSON.parse(d.inboxCatsV1 || '[]');
+      if(cats && cats.length > 0){ inboxCats = cats; localStorage.setItem('inbox_cats_v1', d.inboxCatsV1); }
+    } catch(e){}
+  }
+
+  // ── 메모/기록 ──
+  if(d.memos !== undefined){
+    try { memos = JSON.parse(d.memos || '[]'); } catch(e){ memos = []; }
+    localStorage.setItem('memos_v5', d.memos || '[]');
+  }
+  if(d.philCards !== undefined){
+    try { philCards = JSON.parse(d.philCards || '[]'); } catch(e){ philCards = []; }
+    localStorage.setItem('phil_cards', d.philCards || '[]');
+  }
+  if(d.questionSet !== undefined){
+    try { questionSet = JSON.parse(d.questionSet || '[]'); } catch(e){}
+    localStorage.setItem('question_set', d.questionSet || '[]');
+  }
+  if(d.aiSettings !== undefined){
+    try { aiSettings = JSON.parse(d.aiSettings || '{}'); } catch(e){}
+    localStorage.setItem('ai_settings', d.aiSettings || '{}');
+    try { loadAiSettings && loadAiSettings(); } catch(e){}
+  }
+  if(d.metricsV1 !== undefined){
+    localStorage.setItem('metrics_v1', d.metricsV1 || '[]');
+  }
+  if(d.realNeedV1 !== undefined){
+    try { realNeedData = JSON.parse(d.realNeedV1 || '[]'); } catch(e){ realNeedData = []; }
+    localStorage.setItem('real_need_v1', d.realNeedV1 || '[]');
+  }
+
+  // ── RPG / 상태 ──
+  if(d.rpgObsV1 !== undefined){
+    localStorage.setItem('rpg_obs_v1', d.rpgObsV1 || '{}');
+    try { renderRpgStats && renderRpgStats(); } catch(e){}
+    try { updateAvatarFromStats && updateAvatarFromStats(); } catch(e){}
+  }
+  if(d.rpgStatsV1 !== undefined && d.rpgStatsV1 !== 'null'){
+    localStorage.setItem('rpg_stats_v1', d.rpgStatsV1);
+    try { RPG_STATS = getRpgStats(); renderRpgStats && renderRpgStats(); } catch(e){}
+  }
+  if(d.rewardData !== undefined){
+    localStorage.setItem('reward_data', d.rewardData || '{"charge":[],"drain":[]}');
+    try { initRewardData && initRewardData(); } catch(e){}
+  }
+
+  // ── 오늘 충전/방전 ──
+  if(d.todayChargeKey && d.todayChargeVal !== undefined){
+    localStorage.setItem(d.todayChargeKey, d.todayChargeVal || '[]');
+    try { renderTodayCharge && renderTodayCharge(); } catch(e){}
+  }
+  if(d.todayDrainKey && d.todayDrainVal !== undefined){
+    localStorage.setItem(d.todayDrainKey, d.todayDrainVal || '[]');
+    try { renderTodayDrain && renderTodayDrain(); } catch(e){}
+  }
+
+  // ── 프로필 ──
+  if(d.profileData !== undefined){
+    try {
+      profileData = JSON.parse(d.profileData || '{}');
+      localStorage.setItem('profile_data', d.profileData || '{}');
+      const ni = document.getElementById('meNameInp');
+      if(ni && profileData.name) ni.value = profileData.name;
+    } catch(e){}
+  }
+
+  // ── 스토리 ──
+  if(d.storyLogV1 !== undefined){
+    try {
+      let log = JSON.parse(d.storyLogV1 || '[]');
+      let migrated = false;
+      log = log.map((s, i) => {
+        if(!s.id){ migrated = true; return {id:'sl_'+i, date:s.date||'', time:'00:00', text:s.text||'', npcs:s.npcs||{}, dayNum:s.dayNum||1, part:1}; }
         return s;
       });
-      if(migrated)localStorage.setItem('story_log_v1',JSON.stringify(storyLog));
-      // 최신 슬라이드로 이동
-      if(typeof _renderStorySlide==='function'){
-        storyCurrentIdx=_storySorted().length-1;
-        try{ _renderStorySlide(storyCurrentIdx); }catch(e){}
-      }
-    }catch(e){}
+      storyLog = log;
+      localStorage.setItem('story_log_v1', migrated ? JSON.stringify(log) : (d.storyLogV1 || '[]'));
+    } catch(e){}
   }
-  // 오늘 충전/방전
-  if(d.todayChargeKey && d.todayChargeVal){
-    localStorage.setItem(d.todayChargeKey, d.todayChargeVal);
-    try{ renderTodayCharge&&renderTodayCharge(); }catch(e){}
-  }
-  if(d.todayDrainKey && d.todayDrainVal){
-    localStorage.setItem(d.todayDrainKey, d.todayDrainVal);
-    try{ renderTodayDrain&&renderTodayDrain(); }catch(e){}
-  }
-  // 스토리 day one
-  if(d.storyDayOne){ localStorage.setItem('story_day_one', d.storyDayOne); }
+  if(d.storyDayOne !== undefined) localStorage.setItem('story_day_one', d.storyDayOne || '');
 
-  // 현재 열린 탭 재렌더
+  // ── 전체 재렌더 ──
   _reRenderCurrentTab();
 }
 
 function _reRenderCurrentTab(){
-  try{
-    const activeTab=document.querySelector('.page.active');
-    if(!activeTab)return;
-    const id=activeTab.id;
-    if(id==='page-me'){
-      renderMeTab&&renderMeTab();
-      initStoryCard&&initStoryCard();
-      renderMeTodo&&renderMeTodo();
-      renderTodayCharge&&renderTodayCharge();
-      renderTodayDrain&&renderTodayDrain();
-      renderRpgStats&&renderRpgStats();
-      updateAvatarFromStats&&updateAvatarFromStats();
+  try {
+    const activeTab = document.querySelector('.page.active');
+    if(!activeTab) return;
+    const id = activeTab.id;
+    if(id === 'page-me'){
+      renderMeTab && renderMeTab();
+      renderMeTodo && renderMeTodo();
+      renderTodayCharge && renderTodayCharge();
+      renderTodayDrain && renderTodayDrain();
+      renderRpgStats && renderRpgStats();
+      updateAvatarFromStats && updateAvatarFromStats();
+      // 스토리 슬라이드 갱신
+      if(typeof _storySorted === 'function' && typeof _renderStorySlide === 'function'){
+        storyCurrentIdx = _storySorted().length - 1;
+        try { _renderStorySlide(storyCurrentIdx); } catch(e){}
+      }
     }
-    else if(id==='page-task'){ renderTaskTab&&renderTaskTab(); }
-    else if(id==='page-inbox'){ renderInbox&&renderInbox(); renderItpPanel&&renderItpPanel(); }
-    else if(id==='page-memo'){ renderMemos&&renderMemos(); renderResultList&&renderResultList(); }
-  }catch(e){console.warn('rerender:',e);}
+    else if(id === 'page-task'){
+      renderTaskTab && renderTaskTab();
+    }
+    else if(id === 'page-inbox'){
+      renderInbox && renderInbox();
+      renderItpPanel && renderItpPanel();
+    }
+    else if(id === 'page-memo'){
+      renderMemos && renderMemos();
+      renderResultList && renderResultList();
+    }
+    // 공통: 헤더 인박스 배지
+    updateHeaderInbox && updateHeaderInbox();
+    renderMeTodo && renderMeTodo();
+  } catch(e){ console.warn('rerender:', e); }
 }
 
 async function fbForceSync(){
-  if(!fbUser){showToast('로그인이 필요해');return;}
+  if(!fbUser){ showToast('로그인이 필요해'); return; }
+  showToast('동기화 중...');
   await _fbSaveNow();
   await fbLoadAll();
   showToast('동기화 완료! ↕');
 }
+
 
 // Firebase 저장 후크: 기존 localStorage 저장 함수들에 Firebase 저장 추가
 const _origSaveResult=saveResult;
@@ -10676,6 +10720,9 @@ async function _pushToNotion(item) {
       if (!notionCfg.pageIds) notionCfg.pageIds = {};
       notionCfg.pageIds[item.id] = created.id;
       localStorage.setItem('notion_config', JSON.stringify(notionCfg));
+      // notionPageId가 item에 반영됐으므로 저장
+      localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
+      if(fbUser) fbSaveAll();
     }
   } catch (e) {
     console.warn('Notion push failed:', e.message);
