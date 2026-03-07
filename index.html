@@ -4004,12 +4004,12 @@ select {
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px"></div>
 
-          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ Together AI 키 <span style="font-size:9px;opacity:.5">(스토리 씬 AI 이미지 생성용)</span></div>
+          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ Stable Horde API 키 <span style="font-size:9px;opacity:.5">(스토리 씬 AI 이미지 — 완전 무료)</span></div>
           <div class="input-wrap">
-            <input id="hfTokenInp" class="setting-inp" type="password" placeholder="Together AI API 키">
+            <input id="hfTokenInp" class="setting-inp" type="password" placeholder="키 없이도 익명 사용 가능">
           </div>
           <div class="setting-hint">
-            <a href="https://api.together.ai" target="_blank">api.together.ai</a> — 무료 가입, FLUX.1-schnell 무료 사용 가능. API Keys 메뉴에서 발급.
+            키 없어도 작동 (익명 큐). 우선순위 높이려면 <a href="https://stablehorde.net/register" target="_blank">stablehorde.net</a> 무료 가입 후 키 입력.
           </div>
           <div class="api-status" id="hfStatus"></div>
           <div class="btn-row">
@@ -6910,7 +6910,7 @@ function saveHfToken(){
   const t=v.trim();
   if(!t){showToast('API 키를 입력해줘');return;}
   HF_TOKEN=t; localStorage.setItem('hf_token',t);
-  renderHfStatus(); showToast('Together AI 키 저장됐어 🎨');
+  renderHfStatus(); showToast('Stable Horde 키 저장됐어 🎨');
 }
 
 function renderHfStatus(){
@@ -7046,8 +7046,9 @@ function _buildImagePrompt(imageScene) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ── 스토리 씬 이미지 생성 — Together AI FLUX.1-schnell ──
-// api.together.ai 무료 가입, CORS 허용, GitHub Pages에서 작동
+// ── 스토리 씬 이미지 생성 — Stable Horde (완전 무료, CORS OK) ──
+// https://stablehorde.net — 커뮤니티 GPU, 키 없이 익명 사용 가능
+// API 키 있으면 우선순위 높아짐 (stablehorde.net 무료 가입)
 
 function _buildStoryScenePrompt(storyEntry) {
   if (!storyEntry) return null;
@@ -7058,38 +7059,86 @@ function _buildStoryScenePrompt(storyEntry) {
   const loc   = storyEntry.location ? storyEntry.location + '. ' : '';
   const title = storyEntry.title    ? storyEntry.title + '. '    : '';
 
-  // 주어진 프롬프트 템플릿 적용
-  return `fantasy book illustration, atmospheric storytelling, painterly textures, cinematic composition, dramatic lighting, environmental storytelling. Scene: ${title}${loc}${scene}. Style: classic fantasy novel illustration, NOT anime, NOT cartoon, NOT photorealistic CGI. Mood: mysterious, magical, immersive. Focus on environment and atmosphere, characters as silhouettes or distant figures only. Magical lighting with lanterns candlelight moonlight, ancient stone wooden floors dust floating papers glowing runes, depth and perspective, rich controlled color palette, professional illustrator quality, no text no watermark`.slice(0, 500);
+  return (
+    'fantasy book illustration, atmospheric storytelling, painterly textures, ' +
+    'cinematic composition, dramatic magical lighting, environmental storytelling, ' +
+    'classic fantasy novel illustration style, mysterious and immersive mood, ' +
+    'focus on environment not characters, silhouettes only, ' +
+    'magical lighting with lanterns candlelight moonlight, ' +
+    'ancient stone wooden floors dust floating papers glowing runes, ' +
+    'depth and perspective, rich color palette, professional illustrator quality, ' +
+    'no text, no watermark, not anime, not cartoon, not CGI. ' +
+    'Scene: ' + title + loc + scene
+  ).slice(0, 500);
 }
 
-// Together AI — FLUX.1-schnell-Free, CORS 허용
-async function _togetherGenerateImage(prompt) {
-  if (!HF_TOKEN) throw new Error('no key');
-  const res = await fetch('https://api.together.xyz/v1/images/generations', {
+// Stable Horde — 비동기 생성 (요청 → 폴링 → 이미지)
+async function _hordeGenerateImage(prompt) {
+  const apiKey = HF_TOKEN || '0000000000'; // 키 없으면 익명
+
+  // 1. 생성 요청
+  const reqRes = await fetch('https://stablehorde.net/api/v2/generate/async', {
     method: 'POST',
     headers: {
-      'Authorization': 'Bearer ' + HF_TOKEN,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'apikey': apiKey,
+      'Client-Agent': 'return-system:1:github'
     },
     body: JSON.stringify({
-      model: 'black-forest-labs/FLUX.1-schnell-Free',
       prompt: prompt,
-      width: 768,
-      height: 432,
-      steps: 4,
-      n: 1,
-      response_format: 'b64_json'
+      params: {
+        width: 768, height: 432,
+        steps: 20,
+        sampler_name: 'k_euler',
+        cfg_scale: 7,
+        karras: true,
+        n: 1
+      },
+      models: ['stable_diffusion'],
+      nsfw: false,
+      censor_nsfw: true,
+      slow_workers: true,
+      shared: true
     }),
-    signal: AbortSignal.timeout(60000)
+    signal: AbortSignal.timeout(15000)
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error('Together ' + res.status + ': ' + err.slice(0, 100));
+
+  if (!reqRes.ok) throw new Error('Horde request ' + reqRes.status);
+  const { id } = await reqRes.json();
+  if (!id) throw new Error('no job id');
+
+  // 2. 폴링 (최대 3분)
+  for (let i = 0; i < 36; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+
+    const checkRes = await fetch('https://stablehorde.net/api/v2/generate/check/' + id, {
+      signal: AbortSignal.timeout(10000)
+    });
+    if (!checkRes.ok) continue;
+    const check = await checkRes.json();
+
+    if (check.done) {
+      // 완료 → 결과 가져오기
+      const statusRes = await fetch('https://stablehorde.net/api/v2/generate/status/' + id, {
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!statusRes.ok) throw new Error('status fetch failed');
+      const status = await statusRes.json();
+      const img = status.generations && status.generations[0];
+      if (img && img.img) {
+        // img는 base64 또는 URL
+        if (img.img.startsWith('http')) return img.img;
+        return 'data:image/webp;base64,' + img.img;
+      }
+      throw new Error('no image in result');
+    }
+
+    // 진행상황 표시
+    const wait = check.wait_time || '?';
+    const pos  = check.queue_position || '?';
+    _setStoryImgStatus('◌ 대기 중... ' + wait + 's (큐:' + pos + ')', 'rgba(240,64,255,.7)');
   }
-  const data = await res.json();
-  const b64 = data.data && data.data[0] && data.data[0].b64_json;
-  if (!b64) throw new Error('no image data');
-  return 'data:image/png;base64,' + b64;
+  throw new Error('timeout');
 }
 
 
@@ -7169,7 +7218,7 @@ async function _renderStoryBg(storyEntry) {
     _renderCanvasBg(storyEntry);
 
     try {
-      const dataUrl = await _togetherGenerateImage(prompt);
+      const dataUrl = await _hordeGenerateImage(prompt);
       if (sid) {
         _storyImgCache[sid] = dataUrl;
         try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
@@ -7235,7 +7284,7 @@ function regenStoryBg() {
     try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
   if (HF_TOKEN) {
-    showToast('🖼 AI 씬 생성 중... (10~30초)');
+    showToast('🖼 AI 씬 생성 중... (대기열에 따라 30초~3분)');
   } else {
     showToast('🖼 씬 생성 — HF 토큰 없어서 픽셀 씬으로 표시');
   }
