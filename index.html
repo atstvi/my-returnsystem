@@ -3665,13 +3665,15 @@ select {
           <button class="story-nav-btn" id="storyNavNext" onclick="storyNavMove(1)" title="다음">›</button>
           <span class="story-transmit" id="storyTransmit"></span>
           <button class="story-del-btn" id="storyDelBtn" onclick="deleteCurrentStory()" title="이 조각 삭제">✕</button>
-          <button onclick="regenStoryBg()" title="AI씬 재생성" style="
+          <button id="storyRegenBtn" onclick="regenStoryBg()" title="AI씬 재생성 / 길게 누르면 전체화면" style="
             background:none;border:1px solid rgba(45,255,170,.2);color:rgba(45,255,170,.5);
             font-size:10px;padding:0 6px;height:22px;cursor:pointer;
             font-family:'Share Tech Mono',monospace;letter-spacing:1px;
             transition:all .15s;flex-shrink:0;
           " onmouseover="this.style.borderColor='rgba(45,255,170,.6)';this.style.color='rgba(45,255,170,.9)'"
              onmouseout="this.style.borderColor='rgba(45,255,170,.2)';this.style.color='rgba(45,255,170,.5)'"
+             onmousedown="_storyImgLongPressStart(event)" ontouchstart="_storyImgLongPressStart(event)"
+             onmouseup="_storyImgLongPressCancel()" onmouseleave="_storyImgLongPressCancel()" ontouchend="_storyImgLongPressCancel()"
           >🖼</button>
         </div>
 
@@ -5872,7 +5874,15 @@ function toggleTodo(idx, iconEl){
   if(iconEl){ iconEl.classList.add('checking'); setTimeout(()=>iconEl.classList.remove('checking'),350); }
   const wasActive=!t.done;
   t.done=!t.done;
+  t.updatedAt=Date.now();
   saveTodos();
+  // taskItems도 완료 상태 동기화
+  const _linked=taskItems.find(function(ti){ return ti.id===t.id; });
+  if(_linked){
+    _linked.done=t.done; _linked.updatedAt=t.updatedAt;
+    saveTaskData();
+    if(notionCfg&&notionCfg.workerUrl) _pushToNotion(_linked).catch(function(e){});
+  }
   renderMeTodo();
   // 완료 전환 시 회고 팝업 (짧게)
   if(wasActive&&t.done){
@@ -6362,6 +6372,15 @@ function _todoModalHtml(t, isEdit){
       </button>
       <div id="todoAiResult_${t._editIdx}" class="todo-ai-result" style="display:none"></div>
     </div>`:''}
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">카테고리 <span style="opacity:.5;font-size:10px">(Notion 연동)</span></div>
+      <select id="todoCatId" class="nds-inp" style="font-size:12px">
+        <option value="">-- 미분류 --</option>
+        \${(typeof taskCats !== 'undefined' ? taskCats : []).map(cat =>
+          \`<option value="\${cat.id}" \${(t.catId||'')=== cat.id?'selected':''}>\${cat.label||cat.name||cat.id}</option>\`
+        ).join('')}
+      </select>
+    </div>
     <div class="nds-btn-row">
       <button class="nds-btn-primary" onclick="${isEdit?`saveTodoEdit(${t._editIdx})`:'saveTodoFromModal()'}">${isEdit?'저장':'추가'}</button>
       <button class="nds-btn-ghost" onclick="this.closest('.nds-modal').remove()">취소</button>
@@ -6406,9 +6425,21 @@ function saveTodoEdit(idx){
   t.blockReason=document.getElementById('todoBlockReason')?.value||'';
   t.energyReq=document.getElementById('todoEnergyReq')?.value||'';
   t.longTask=document.getElementById('todoLongTask')?.checked||false;
+  t.catId=document.getElementById('todoCatId')?.value||t.catId||'';
+  t.updatedAt=Date.now();
   saveTodos();
+  // taskItems도 동기화
+  const linked=taskItems.find(function(ti){ return ti.id===t.id; });
+  if(linked){
+    linked.text=t.text; linked.priority=t.priority; linked.catId=t.catId;
+    linked.blockReason=t.blockReason; linked.energyReq=t.energyReq;
+    linked.longTask=t.longTask; linked.trigger=t.trigger; linked.updatedAt=t.updatedAt;
+    saveTaskData();
+    if(notionCfg&&notionCfg.workerUrl) _pushToNotion(linked).catch(function(e){});
+  }
   document.querySelector('.nds-modal')?.remove();
-  renderMeTodo();showToast('수정됐어!');
+  renderMeTodo(); renderTaskList&&renderTaskList();
+  showToast('수정됐어!');
 }
 
 // ── Todo AI 돌파구 분석 ─────────────────────────────────────
@@ -6515,18 +6546,48 @@ function selectPrio(p){
 function saveTodoFromModal(){
   const text=document.getElementById('todoText')?.value.trim();
   if(!text){showToast('내용을 입력해줘');return;}
-  todoItems.unshift({
-    id:Date.now(),text,
-    priority:window._selectedPrio||'mid',
-    trigger:document.getElementById('todoTrigger')?.value.trim()||'',
-    blockReason:document.getElementById('todoBlockReason')?.value||'',
-    energyReq:document.getElementById('todoEnergyReq')?.value||'',
-    longTask:document.getElementById('todoLongTask')?.checked||false,
-    done:false,date:new Date().toLocaleDateString('ko-KR'),timeStart:'',timeEnd:''
-  });
+  const catId = document.getElementById('todoCatId')?.value || '';
+  const now = Date.now();
+  const item = {
+    id: now, text,
+    priority: window._selectedPrio||'mid',
+    trigger: document.getElementById('todoTrigger')?.value.trim()||'',
+    blockReason: document.getElementById('todoBlockReason')?.value||'',
+    energyReq: document.getElementById('todoEnergyReq')?.value||'',
+    longTask: document.getElementById('todoLongTask')?.checked||false,
+    done: false, date: new Date().toLocaleDateString('ko-KR'), timeStart:'', timeEnd:'',
+    catId,
+    createdAt: now, updatedAt: now
+  };
+  todoItems.unshift(item);
   saveTodos();
+
+  // 할일탭에도 동일 항목 추가 (통합 관리)
+  const taskItem = {
+    id: now, text,
+    catId,
+    date: new Date().toISOString().slice(0,10),
+    time: '', note: '',
+    priority: item.priority,
+    done: false,
+    createdAt: now, updatedAt: now,
+    blockReason: item.blockReason,
+    energyReq: item.energyReq,
+    longTask: item.longTask,
+    trigger: item.trigger,
+    _fromMissions: true  // ACTIVE MISSIONS에서 생성됨 표시
+  };
+  taskItems.push(taskItem);
+  saveTaskData();
+
+  // Notion push
+  if (notionCfg && notionCfg.workerUrl) {
+    _pushToNotion(taskItem).catch(function(e){ console.log('Notion push:', e.message); });
+  }
+
   document.querySelector('.nds-modal')?.remove();
-  renderMeTodo();showToast('추가됐어!');
+  renderMeTodo(); renderTaskList && renderTaskList();
+  showToast(catId ? '추가됐어! (Notion 연동 중)' : '추가됐어!');
   _triggerStoryRegen('checkin');
 }
 
@@ -7247,6 +7308,59 @@ function _renderCanvasBg(storyEntry) {
   canvas.style.opacity    = '1';
   _setStoryImgStatus('');
 }
+
+
+// ── 스토리 씬 이미지 전체화면 ──
+var _storyLongPressTimer = null;
+
+function _storyImgLongPressStart(e) {
+  _storyLongPressTimer = setTimeout(function() {
+    _storyLongPressTimer = null;
+    _openStoryImgFullscreen();
+  }, 500);
+}
+
+function _storyImgLongPressCancel() {
+  if (_storyLongPressTimer) {
+    clearTimeout(_storyLongPressTimer);
+    _storyLongPressTimer = null;
+  }
+}
+
+function _openStoryImgFullscreen() {
+  // canvas 또는 img에서 현재 이미지 가져오기
+  const img  = document.getElementById('storyBgImg');
+  const canvas = document.getElementById('storyPixelCanvas');
+  let src = null;
+  if (img && parseFloat(getComputedStyle(img).opacity) > 0.3 && img.src) {
+    src = img.src;
+  } else if (canvas) {
+    src = canvas.toDataURL();
+  }
+  if (!src) { showToast('표시할 이미지가 없어'); return; }
+
+  // 오버레이 생성
+  const ov = document.createElement('div');
+  ov.id = 'storyImgFullOv';
+  ov.style.cssText = [
+    'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.95);',
+    'display:flex;align-items:center;justify-content:center;',
+    'cursor:zoom-out;animation:fadeIn .2s ease;'
+  ].join('');
+  ov.onclick = function() { ov.remove(); };
+
+  const imgEl = document.createElement('img');
+  imgEl.src = src;
+  imgEl.style.cssText = 'max-width:96vw;max-height:96vh;object-fit:contain;border-radius:4px;box-shadow:0 0 60px rgba(45,255,170,.15);';
+  ov.appendChild(imgEl);
+
+  // ESC 닫기
+  function onKey(e) { if (e.key === 'Escape') { ov.remove(); document.removeEventListener('keydown', onKey); } }
+  document.addEventListener('keydown', onKey);
+
+  document.body.appendChild(ov);
+}
+
 
 function regenStoryBg() {
   const sorted = _storySorted ? _storySorted() : [];
