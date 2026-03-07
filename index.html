@@ -3348,13 +3348,10 @@ select {
   object-position: center top;
   z-index: 1;
   opacity: 0;
-  transition: opacity 1.2s ease;
-  filter: brightness(0.6) saturate(1.15);
+  transition: opacity 1.5s ease;
+  filter: brightness(0.65) saturate(1.1);
   display: block;
   pointer-events: none;
-}
-#storyBgImg[src]:not([src=""]):not([src*="gif;base64"]) {
-  /* src가 실제 URL이면 transition 없이도 보이게 — JS에서 opacity 설정 */
 }
 /* 스토리 배경 위 그라데이션 오버레이 */
 .story-slide-viewport::after {
@@ -4368,9 +4365,9 @@ select {
               <div class="setting-hint" style="margin-bottom:8px">앱을 열어둔 동안 주기적으로 Notion과 자동 동기화해.</div>
               <div style="display:flex;align-items:center;gap:10px">
                 <select id="notionAutoSyncInterval" class="setting-inp" style="width:auto;padding:8px 12px;cursor:pointer">
-                  <option value="0">자동 동기화 끄기</option>
+                  <option value="0" selected>자동 동기화 끄기</option>
                   <option value="5">5분마다</option>
-                  <option value="15" selected>15분마다</option>
+                  <option value="15">15분마다</option>
                   <option value="30">30분마다</option>
                   <option value="60">1시간마다</option>
                 </select>
@@ -7110,7 +7107,6 @@ function _renderStoryBg(storyEntry) {
   const bgImg = document.getElementById('storyBgImg');
   if (!bgImg) return;
 
-  // canvas 숨김
   const cv = document.getElementById('storyPixelCanvas');
   if (cv) cv.style.opacity = '0';
 
@@ -7121,7 +7117,6 @@ function _renderStoryBg(storyEntry) {
   const prompt = _buildStoryScenePrompt(storyEntry);
   if (!prompt) { bgImg.style.opacity = '0'; return; }
 
-  // URL 생성 (캐시 우선)
   const sid = storyEntry.id || '';
   let url = sid && _storyImgCache[sid] ? _storyImgCache[sid] : null;
   if (!url) {
@@ -7135,18 +7130,19 @@ function _renderStoryBg(storyEntry) {
     }
   }
 
-  // 직접 img 태그에 꽂기 — onload/onerror 없이
-  // pollinations는 느리므로 브라우저가 알아서 로드되면 보이게
-  bgImg.style.transition = 'none';
-  bgImg.style.opacity = '0.01'; // 거의 투명하게 시작
-  bgImg.src = url;
+  bgImg.style.opacity = '0';
 
-  // src 설정 직후 opacity 올림 — 로드 안 됐어도 자리는 잡음
-  // 실제로 이미지 로드되면 브라우저가 렌더링
-  requestAnimationFrame(function() {
-    bgImg.style.transition = 'opacity 1.5s ease';
+  // 완전히 새 Image 객체로 로드 확인 후 bgImg에 표시
+  var loader = new Image();
+  loader.onload = function() {
+    bgImg.src = url;
     bgImg.style.opacity = '1';
-  });
+  };
+  loader.onerror = function() {
+    // 실패해도 그냥 src 꽂아봄 (캐시에 있을 수도)
+    if (sid) delete _storyImgCache[sid];
+  };
+  loader.src = url;
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
@@ -10589,7 +10585,7 @@ function saveNotionConfig() {
   };
 
   // 자동 동기화 주기
-  const autoInterval = parseInt(document.getElementById('notionAutoSyncInterval')?.value || '15');
+  const autoInterval = parseInt(document.getElementById('notionAutoSyncInterval')?.value || '0');
 
   notionCfg = { ...notionCfg, workerUrl, token, mappings, propNames, autoInterval };
   localStorage.setItem('notion_config', JSON.stringify(notionCfg));
@@ -10620,7 +10616,7 @@ async function notionApi(method, path, body) {
       'X-Notion-Token': notionCfg.token,
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(8000),
   });
   const data = await res.json();
   if (data.object === 'error') throw new Error(data.message || 'Notion API error');
@@ -11004,10 +11000,8 @@ function _hookNotionForTaskTab() {
   const origGoTab = goTab;
   goTab = function(t) {
     origGoTab(t);
-    if (t === 'task' && notionCfg.workerUrl && notionCfg.token) {
-      // 비동기로 백그라운드 동기화 (UI 블로킹 없이)
-      syncAllNotion().catch(() => {});
-    }
+    // 탭 전환 시 자동 sync 제거 — 수동 sync 버튼만 사용
+    // (자동 sync가 로컬 변경을 덮어쓰는 문제 방지)
     if (t === 'settings') {
       initNotionSettings();
     }
