@@ -3346,26 +3346,24 @@ select {
   width: 100%; height: 100%;
   object-fit: cover;
   object-position: center top;
-  image-rendering: auto;
   z-index: 1;
   opacity: 0;
-  transition: opacity .8s ease;
-  filter: brightness(0.42) saturate(1.3) contrast(1.05);
+  transition: opacity 1s ease;
+  filter: brightness(0.55) saturate(1.2);
   display: block;
 }
-/* 스토리 배경 위 그라데이션 오버레이 — 텍스트 가독성 + 이미지 살림 */
+/* 스토리 배경 위 그라데이션 오버레이 */
 .story-slide-viewport::after {
   content: '';
   position: absolute; inset: 0;
   z-index: 2;
   pointer-events: none;
-  background:
-    linear-gradient(180deg,
-      rgba(4,8,18,.5) 0%,
-      rgba(4,8,18,.12) 25%,
-      rgba(4,8,18,.12) 65%,
-      rgba(4,8,18,.65) 100%
-    );
+  background: linear-gradient(180deg,
+    rgba(4,8,18,.45) 0%,
+    rgba(4,8,18,.05) 30%,
+    rgba(4,8,18,.05) 70%,
+    rgba(4,8,18,.55) 100%
+  );
 }
 .story-slide-track { position: relative; z-index: 3; }
 .story-slide-track {
@@ -7048,39 +7046,25 @@ function _buildStoryScenePrompt(storyEntry) {
 async function generateStoryImage(storyEntry) {
   if (!storyEntry || !storyEntry.id) return null;
   const sid = storyEntry.id;
-
-  // 캐시 확인
   if (_storyImgCache[sid]) return _storyImgCache[sid];
 
   const prompt = _buildStoryScenePrompt(storyEntry);
   if (!prompt) return null;
 
-  try {
-    const seed = Math.floor(Math.random() * 999999);
-    const url  = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt)
-               + '?width=768&height=432&model=flux&seed=' + seed + '&nologo=true&enhance=false&safe=false';
+  // 프롬프트를 200자로 제한 (URL 길이 문제 방지)
+  const shortPrompt = prompt.slice(0, 200);
+  const seed = Math.floor(Math.random() * 999999);
+  const url = 'https://image.pollinations.ai/prompt/'
+    + encodeURIComponent(shortPrompt)
+    + '?width=512&height=288&model=flux&seed=' + seed + '&nologo=true';
 
-    await new Promise((resolve, reject) => {
-      const img = new Image();
-      const t = setTimeout(() => reject(new Error('timeout')), 45000);
-      img.onload  = () => { clearTimeout(t); resolve(); };
-      img.onerror = () => { clearTimeout(t); reject(new Error('load error')); };
-      img.src = url;
-    });
-
-    _storyImgCache[sid] = url;
-    const keys = Object.keys(_storyImgCache);
-    if (keys.length > 20) delete _storyImgCache[keys[0]];
-    try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
-    return url;
-  } catch(e) {
-    console.warn('[StoryImg] Pollinations failed:', e.message);
-    return null;
-  }
+  _storyImgCache[sid] = url;
+  try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
+  return url;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 슬라이드 배경 렌더 — Pollinations 이미지, 생성 중엔 shimmer 표시
+// 슬라이드 배경 렌더 — 단순하고 확실하게
 // ─────────────────────────────────────────────────────────────────
 var _bgRenderSeq = 0;
 
@@ -7089,18 +7073,12 @@ function _setStoryImgStatus(msg, color) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'storyImgStatus';
-    el.style.cssText = [
-      'position:absolute;bottom:6px;right:8px;z-index:10;',
-      'font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;',
-      'padding:2px 7px;background:rgba(0,0,0,.55);',
-      'pointer-events:none;transition:opacity .4s;',
-    ].join('');
+    el.style.cssText = 'position:absolute;bottom:4px;right:6px;z-index:10;font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;padding:1px 6px;background:rgba(0,0,0,.55);pointer-events:none;';
     const vp = document.querySelector('.story-slide-viewport');
     if (vp) vp.appendChild(el);
   }
   el.textContent = msg;
   el.style.color = color || 'rgba(45,255,170,.7)';
-  el.style.opacity = msg ? '1' : '0';
 }
 
 function _showBgShimmer(vp, show) {
@@ -7108,16 +7086,13 @@ function _showBgShimmer(vp, show) {
   if (!sh && show) {
     sh = document.createElement('div');
     sh.id = 'storyBgShimmer';
-    sh.style.cssText = [
-      'position:absolute;inset:0;z-index:1;pointer-events:none;',
-      'background:linear-gradient(110deg,',
-      '  rgba(45,255,170,.03) 0%,',
-      '  rgba(45,255,170,.07) 40%,',
-      '  rgba(34,211,238,.05) 60%,',
-      '  rgba(45,255,170,.03) 100%);',
-      'background-size:200% 100%;',
-      'animation:bgShimmer 2s linear infinite;',
-    ].join('');
+    sh.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(110deg,rgba(45,255,170,.02) 0%,rgba(45,255,170,.06) 40%,rgba(34,211,238,.04) 60%,rgba(45,255,170,.02) 100%);background-size:200% 100%;animation:bgShimmer 2s linear infinite;';
+    if (!document.getElementById('bgShimmerStyle')) {
+      const s = document.createElement('style');
+      s.id = 'bgShimmerStyle';
+      s.textContent = '@keyframes bgShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
+      document.head.appendChild(s);
+    }
     vp.appendChild(sh);
   }
   if (sh) sh.style.display = show ? 'block' : 'none';
@@ -7125,23 +7100,11 @@ function _showBgShimmer(vp, show) {
 
 async function _renderStoryBg(storyEntry) {
   const vp = document.querySelector('.story-slide-viewport');
-  if (!vp) return;
+  const bgImg = document.getElementById('storyBgImg');
+  if (!vp || !bgImg) return;
 
   const mySeq = ++_bgRenderSeq;
 
-  // shimmer 애니메이션 keyframe (한 번만 주입)
-  if (!document.getElementById('bgShimmerStyle')) {
-    const s = document.createElement('style');
-    s.id = 'bgShimmerStyle';
-    s.textContent = '@keyframes bgShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
-    document.head.appendChild(s);
-  }
-
-  // HTML에 미리 있는 bgImg 사용
-  const bgImg = document.getElementById('storyBgImg');
-  if (!bgImg) return;
-
-  // canvas는 숨김
   const canvas = document.getElementById('storyPixelCanvas');
   if (canvas) canvas.style.opacity = '0';
 
@@ -7152,61 +7115,41 @@ async function _renderStoryBg(storyEntry) {
     return;
   }
 
-  const sid = storyEntry.id;
-
-  // 캐시된 이미지 → 즉시 표시
-  if (sid && _storyImgCache[sid]) {
-    if (mySeq !== _bgRenderSeq) return;
-    _showBgShimmer(vp, false);
-    bgImg.onload = null;
-    bgImg.onerror = null;
-    bgImg.style.opacity = '0';
-    bgImg.onload = () => {
-      if (mySeq === _bgRenderSeq) {
-        bgImg.style.opacity = '1';
-        _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
-        setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
-      }
-    };
-    bgImg.src = _storyImgCache[sid];
-    return;
-  }
-
-  // 생성 중: shimmer + 상태 표시
   _showBgShimmer(vp, true);
   _setStoryImgStatus('◌ GENERATING...', 'rgba(251,191,36,.9)');
 
-  try {
-    const url = await generateStoryImage(storyEntry);
-    if (mySeq !== _bgRenderSeq) return;
+  const url = await generateStoryImage(storyEntry);
+  if (mySeq !== _bgRenderSeq) return;
 
-    _showBgShimmer(vp, false);
+  _showBgShimmer(vp, false);
 
-    if (url) {
-      bgImg.onload = null;
-      bgImg.onerror = null;
-      bgImg.style.opacity = '0';
-      bgImg.onload = () => {
-        if (mySeq !== _bgRenderSeq) return;
-        bgImg.style.opacity = '1';
-        _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
-        setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
-      };
-      bgImg.onerror = () => {
-        _setStoryImgStatus('');
-        _renderStoryBgCanvas(storyEntry, mySeq);
-      };
-      bgImg.src = url;
-    } else {
-      _setStoryImgStatus('');
-      _renderStoryBgCanvas(storyEntry, mySeq);
-    }
-  } catch(e) {
-    if (mySeq !== _bgRenderSeq) return;
-    _showBgShimmer(vp, false);
+  if (!url) {
     _setStoryImgStatus('');
     _renderStoryBgCanvas(storyEntry, mySeq);
+    return;
   }
+
+  // src 초기화 후 핸들러 등록 → src 설정
+  bgImg.style.opacity = '0';
+  bgImg.src = '';
+
+  bgImg.onload = function() {
+    if (mySeq !== _bgRenderSeq) return;
+    bgImg.style.opacity = '1';
+    _setStoryImgStatus('✦ AI', 'rgba(45,255,170,.5)');
+    setTimeout(() => _setStoryImgStatus(''), 3000);
+  };
+  bgImg.onerror = function() {
+    console.warn('[BG] failed to load:', url.slice(0, 60));
+    if (storyEntry.id) delete _storyImgCache[storyEntry.id];
+    _setStoryImgStatus('');
+  };
+
+  // 약간의 딜레이로 브라우저가 '' src를 처리하게 한 뒤 설정
+  setTimeout(() => {
+    if (mySeq !== _bgRenderSeq) return;
+    bgImg.src = url;
+  }, 30);
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
