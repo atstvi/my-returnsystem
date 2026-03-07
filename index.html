@@ -3348,8 +3348,10 @@ select {
   object-position: center top;
   image-rendering: auto;
   z-index: 1;
+  opacity: 0;
   transition: opacity .8s ease;
   filter: brightness(0.42) saturate(1.3) contrast(1.05);
+  display: block;
 }
 /* 스토리 배경 위 그라데이션 오버레이 — 텍스트 가독성 + 이미지 살림 */
 .story-slide-viewport::after {
@@ -3649,6 +3651,7 @@ select {
 
         <!-- 본문: 슬라이드 뷰포트 -->
         <div class="story-slide-viewport">
+          <img id="storyBgImg" alt="">
           <canvas id="storyPixelCanvas" class="story-pixel-bg"></canvas>
           <div class="story-slide-track" id="storySlideTrack">
             <div class="story-slide" id="storyBody">
@@ -5147,6 +5150,8 @@ function toggleTaskItem(idx){
   renderTaskCal();
   // 완료로 바뀔 때만 트리거
   if(!wasDone && taskItems[idx].done) _triggerStoryRegen('task_done');
+  // Notion 즉시 반영
+  if(typeof _pushToNotion === 'function') _pushToNotion(taskItems[idx]).catch(()=>{});
 }
 function deleteTaskItem(idx){
   if(!confirm('삭제할까?'))return;
@@ -5330,11 +5335,16 @@ function saveTaskItemEdit(idx){
   t.catId=document.getElementById('taskEditCat')?.value||t.catId;
   t.priority=document.getElementById('taskEditPrio')?.value||'';
   saveTaskData();
-  _pushToNotion(t).catch(()=>{});
   document.querySelector('.nds-modal')?.remove();
   renderTaskList();
   renderTaskCal();
   showToast('수정됐어!');
+  // Notion 반영
+  if(typeof _pushToNotion === 'function'){
+    _pushToNotion(t)
+      .then(()=>{ showToast('Notion 반영 완료 ✓'); })
+      .catch((e)=>{ showToast('Notion 반영 실패: ' + (e.message||'오류')); });
+  }
 }
 
 // ── 카테고리 관리 (색/이모지/순서/이름 편집) ──
@@ -7127,20 +7137,9 @@ async function _renderStoryBg(storyEntry) {
     document.head.appendChild(s);
   }
 
-  // bgImg 요소 (없으면 생성)
-  let bgImg = document.getElementById('storyBgImg');
-  if (!bgImg) {
-    bgImg = document.createElement('img');
-    bgImg.id = 'storyBgImg';
-    bgImg.style.cssText = [
-      'position:absolute;inset:0;width:100%;height:100%;',
-      'object-fit:cover;object-position:center top;',
-      'z-index:1;transition:opacity .8s ease;',
-      'filter:brightness(0.38) saturate(1.2) contrast(1.1);',
-      'opacity:0;',
-    ].join('');
-    vp.insertBefore(bgImg, vp.firstChild);
-  }
+  // HTML에 미리 있는 bgImg 사용
+  const bgImg = document.getElementById('storyBgImg');
+  if (!bgImg) return;
 
   // canvas는 숨김
   const canvas = document.getElementById('storyPixelCanvas');
@@ -7160,10 +7159,16 @@ async function _renderStoryBg(storyEntry) {
     if (mySeq !== _bgRenderSeq) return;
     _showBgShimmer(vp, false);
     bgImg.onload = null;
+    bgImg.onerror = null;
+    bgImg.style.opacity = '0';
+    bgImg.onload = () => {
+      if (mySeq === _bgRenderSeq) {
+        bgImg.style.opacity = '1';
+        _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
+        setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
+      }
+    };
     bgImg.src = _storyImgCache[sid];
-    bgImg.style.opacity = '1';
-    _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
-    setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
     return;
   }
 
@@ -7178,8 +7183,9 @@ async function _renderStoryBg(storyEntry) {
     _showBgShimmer(vp, false);
 
     if (url) {
+      bgImg.onload = null;
+      bgImg.onerror = null;
       bgImg.style.opacity = '0';
-      // onload 먼저 등록 후 src 설정
       bgImg.onload = () => {
         if (mySeq !== _bgRenderSeq) return;
         bgImg.style.opacity = '1';
@@ -11043,7 +11049,7 @@ function _hookNotionForTaskTab() {
   };
 }
 
-// ── submitTaskQuick, toggleTaskItem, deleteTaskItem 훅 ──
+// ── submitTaskQuick, deleteTaskItem 훅 ──
 let _notionHooked = false;
 function _hookNotionForTaskOps() {
   if (_notionHooked) return; _notionHooked = true;
@@ -11055,12 +11061,7 @@ function _hookNotionForTaskOps() {
     if (item) _pushToNotion(item).catch(() => {});
   };
 
-  const origToggle = toggleTaskItem;
-  toggleTaskItem = function(idx) {
-    origToggle(idx);
-    const item = taskItems[idx];
-    if (item) _pushToNotion(item).catch(() => {});
-  };
+  // toggleTaskItem은 함수 내부에 직접 _pushToNotion 포함 — 훅 불필요
 
   const origDelete = deleteTaskItem;
   deleteTaskItem = function(idx) {
