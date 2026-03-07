@@ -780,12 +780,13 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
 .memo-empty { padding: 40px 24px; text-align: center; font-size: 12px; color: var(--foreground-muted); line-height: 1.9; font-family: var(--font-label); }
 
 .memo-item {
-  background: var(--card); padding: 11px 14px;
+  background: transparent; padding: 10px 14px;
   display: flex; align-items: flex-start; gap: 10px;
   cursor: pointer; transition: var(--t-snap);
+  border-bottom: 1px solid rgba(255,255,255,.05);
 }
-.memo-item:hover        { background: var(--muted); }
-.memo-item.result-item  { border-left: 2px solid rgba(34,211,238,.4); }
+.memo-item:hover        { background: rgba(45,255,170,.03); }
+.memo-item.result-item  { border-left: 2px solid rgba(34,211,238,.4); background: rgba(34,211,238,.02); }
 .memo-date { font-family: var(--font-label); font-size: 10px; color: var(--foreground-muted); white-space: nowrap; margin-top: 2px; }
 .memo-type { font-family: var(--font-label); font-size: 9px; padding: 2px 6px; font-weight: 700; letter-spacing: 2px; }
 .memo-text { font-size: 13px; color: var(--foreground-2); flex: 1; line-height: 1.5; min-width: 0; }
@@ -7227,11 +7228,11 @@ async function _buildStoryScenePrompt(storyEntry) {
   if (!fullText && !loc && !title) return null;
 
   const stylePrefix =
-    'fantasy book illustration, atmospheric painterly textures, ' +
-    'cinematic composition, dramatic magical lighting, ' +
-    'classic fantasy novel style, mysterious immersive mood, ' +
-    'environment focus, characters as silhouettes only, ' +
-    'no text no watermark, not anime not cartoon not CGI. Scene: ';
+    'oil painting fantasy book illustration, highly detailed atmospheric scene, ' +
+    'painterly brushwork, cinematic depth, dramatic chiaroscuro lighting, ' +
+    'classic fantasy novel art style, rich color palette, immersive environment, ' +
+    'characters as distant silhouettes only, no portraits, no faces, ' +
+    'no text no watermark, not anime not cartoon not photorealistic. Scene: ';
 
   // API 키 없으면 텍스트 앞부분만 사용
   if (!API_KEY) {
@@ -7241,16 +7242,21 @@ async function _buildStoryScenePrompt(storyEntry) {
   // Groq로 장면 핵심 추출 → 영어 이미지 프롬프트 생성
   try {
     const sysPrompt =
-      'You are an expert at writing Stable Diffusion image generation prompts for fantasy illustrations. ' +
-      'Given a story fragment, extract the key visual scene and write a concise English image prompt (max 80 words). ' +
-      'Focus on: setting/environment, lighting, atmosphere, time of day, weather, notable objects. ' +
-      'Do NOT describe characters directly — only silhouettes or distant figures. ' +
-      'Output ONLY the scene description in English, no extra text.';
+      'You are a master visual artist and Stable Diffusion prompt engineer specializing in atmospheric fantasy book illustrations. ' +
+      'Read the story fragment carefully and extract the most visually striking scene moment. ' +
+      'Write a vivid English image prompt (60-90 words) that captures: ' +
+      '1) The specific setting (room, forest, corridor, castle hall, etc.) with architectural/natural details. ' +
+      '2) The exact lighting (candlelight, moonbeam through window, glowing runes, torch, dawn mist, etc.). ' +
+      '3) The emotional atmosphere (tension, wonder, melancholy, hope, dread). ' +
+      '4) Key objects or magical elements mentioned in the story. ' +
+      '5) Time of day and weather if mentioned. ' +
+      'Characters appear only as silhouettes, cloaked figures, or distant shadows — never faces or portraits. ' +
+      'Output ONLY the English scene description. No preamble, no explanation.';
 
-    const userMsg = `Story title: ${title}
-Location: ${loc}
-Story text:
-${fullText}`;
+    const userMsg = `STORY TITLE: ${title}\nLOCATION: ${loc}\n`
+      + (storyEntry.time ? `Time: ${storyEntry.time}\n` : '')
+      + (storyEntry.npcs && Object.keys(storyEntry.npcs).length ? `Characters present: ${Object.values(storyEntry.npcs).map(n=>n.name||'').filter(Boolean).join(', ')}\n` : '')
+      + `\nFULL STORY TEXT:\n${fullText}\n\nDescribe the most atmospheric visual moment from this story as a Stable Diffusion image prompt.`
 
     const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -8181,6 +8187,28 @@ const FOCUS_MODES = {
 };
 
 // focusState is declared globally above
+
+
+function startFocusTimerTask(taskRealIdx) {
+  const t = taskItems[taskRealIdx]; if(!t) return;
+  if(focusState.running && focusState.taskId === t.id) {
+    showFocusOverlay(); return;
+  }
+  focusState.taskId   = t.id;
+  focusState.taskText = t.text;
+  focusState.phase    = 'work';
+  focusState.sessions = 0;
+  focusState.elapsed  = 0;
+  const modeConf = FOCUS_MODES[focusState.mode];
+  focusState.remaining = modeConf.work || 999999;
+  focusState.running   = true;
+  clearInterval(focusState._interval);
+  focusState._interval = setInterval(tickFocus, 1000);
+  showFocusOverlay();
+  renderMeTodo();
+  updateHeaderFocus && updateHeaderFocus();
+}
+
 
 function startFocusTimer(todoIdx) {
   const t = todoItems[todoIdx]; if(!t) return;
@@ -10908,6 +10936,10 @@ function renderMeTodo() {
           <button class="me-todo-add-sub" onclick="event.stopPropagation();mqAddSub('${t.id}',${realIdx})" style="margin-top:3px">＋ 서브임무</button>
         </div>
         <div class="quest-actions">
+          ${!t.done?`<button class="quest-focus-btn${focusState.taskId===t.id&&focusState.running?' active':''}"
+            onclick="event.stopPropagation();startFocusTimerTask(${realIdx})">
+            ${focusState.taskId===t.id&&focusState.running?'⏱ IN PROGRESS':'▶ START'}
+          </button>`:''}
           <button class="quest-btn" onclick="event.stopPropagation();mqOpenEdit(event,'${t.id}',${realIdx})">✎</button>
           <button class="quest-btn del" onclick="event.stopPropagation();deleteTaskItem(${realIdx});renderMeTodo()">×</button>
         </div>
