@@ -5150,10 +5150,12 @@ function toggleTaskItem(idx){
   saveTaskData();
   renderTaskList();
   renderTaskCal();
-  // 완료로 바뀔 때만 트리거
   if(!wasDone && taskItems[idx].done) _triggerStoryRegen('task_done');
-  // Notion 즉시 반영
-  if(typeof _pushToNotion === 'function') _pushToNotion(taskItems[idx]).catch(()=>{});
+  // Notion 반영
+  var item = taskItems[idx];
+  if(typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+    _pushToNotion(item).catch(function(e){ showToast('Notion 오류: '+e.message); });
+  }
 }
 function deleteTaskItem(idx){
   if(!confirm('삭제할까?'))return;
@@ -7103,59 +7105,46 @@ function _showBgShimmer(vp, show) {
 }
 
 function _renderStoryBg(storyEntry) {
-  const vp    = document.querySelector('.story-slide-viewport');
   const bgImg = document.getElementById('storyBgImg');
-  if (!vp || !bgImg) { console.warn('[BG] no vp or bgImg'); return; }
+  if (!bgImg) return;
 
-  const seq = ++_bgRenderSeq;
-
+  // canvas 숨김
   const cv = document.getElementById('storyPixelCanvas');
   if (cv) cv.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
-    bgImg.style.opacity = '0';
-    _setStoryImgStatus('');
-    return;
+    bgImg.style.opacity = '0'; return;
   }
 
   const prompt = _buildStoryScenePrompt(storyEntry);
   if (!prompt) { bgImg.style.opacity = '0'; return; }
 
+  // URL 생성 (캐시 우선)
   const sid = storyEntry.id || '';
-  let url = sid ? _storyImgCache[sid] : null;
-
+  let url = sid && _storyImgCache[sid] ? _storyImgCache[sid] : null;
   if (!url) {
-    const seed = (Date.now() % 999999);
-    const short = prompt.slice(0, 180);
+    const seed = Date.now() % 999999;
     url = 'https://image.pollinations.ai/prompt/'
-        + encodeURIComponent(short)
+        + encodeURIComponent(prompt.slice(0, 180))
         + '?width=512&height=288&model=flux&seed=' + seed + '&nologo=true';
     if (sid) {
       _storyImgCache[sid] = url;
-      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_){}
+      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
     }
   }
 
-  _setStoryImgStatus('◌', 'rgba(251,191,36,.9)');
-
-  bgImg.onload  = null;
-  bgImg.onerror = null;
-
-  bgImg.onload = function() {
-    if (seq !== _bgRenderSeq) return;
-    bgImg.style.opacity = '1';
-    _setStoryImgStatus('');
-  };
-  bgImg.onerror = function() {
-    console.warn('[BG] load error');
-    if (sid) delete _storyImgCache[sid];
-    bgImg.style.opacity = '0';
-    _setStoryImgStatus('');
-  };
-
-  bgImg.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  // 직접 img 태그에 꽂기 — onload/onerror 없이
+  // pollinations는 느리므로 브라우저가 알아서 로드되면 보이게
+  bgImg.style.transition = 'none';
+  bgImg.style.opacity = '0.01'; // 거의 투명하게 시작
   bgImg.src = url;
-  console.log('[BG] set src:', url.slice(0,80));
+
+  // src 설정 직후 opacity 올림 — 로드 안 됐어도 자리는 잡음
+  // 실제로 이미지 로드되면 브라우저가 렌더링
+  requestAnimationFrame(function() {
+    bgImg.style.transition = 'opacity 1.5s ease';
+    bgImg.style.opacity = '1';
+  });
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
@@ -10943,48 +10932,43 @@ async function syncAllNotion() {
 
 // ── 할일 추가/수정/완료 시 Notion에 즉시 반영 ──
 async function _pushToNotion(item) {
-  if (!notionCfg.workerUrl || !notionCfg.token) {
-    console.log('[Notion] 설정 없음 - skip push');
-    return;
-  }
-  const mappings = notionCfg.mappings || {};
-  // catId로 DB 찾기, 없으면 첫 번째 매핑 DB 사용
-  let dbId = mappings[item.catId];
-  if (!dbId) {
-    const firstEntry = Object.entries(mappings)[0];
-    if (firstEntry) {
-      console.log('[Notion] catId 매핑 없음, 첫번째 DB 사용:', firstEntry[0]);
-      dbId = firstEntry[1];
-    }
-  }
-  if (!dbId) {
-    console.log('[Notion] DB 매핑 없음 - skip. catId:', item.catId, 'mappings:', JSON.stringify(mappings));
-    return;
-  }
+  if (!notionCfg || !notionCfg.workerUrl || !notionCfg.token) return;
 
   try {
-    console.log('[Notion] pushing item:', item.text, 'pageId:', item.notionPageId, 'dbId:', dbId);
     if (item.notionPageId) {
+      // pageId 있으면 catId/dbId 없어도 바로 PATCH
       await notionApi('PATCH', `/pages/${item.notionPageId}`, {
         properties: taskToNotionProps(item),
       });
-      console.log('[Notion] PATCH ok');
-    } else {
-      const created = await notionApi('POST', '/pages', {
-        parent: { database_id: dbId },
-        properties: taskToNotionProps(item),
-      });
-      item.notionPageId = created.id;
-      if (!notionCfg.pageIds) notionCfg.pageIds = {};
-      notionCfg.pageIds[item.id] = created.id;
-      localStorage.setItem('notion_config', JSON.stringify(notionCfg));
-      localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
-      if(fbUser) fbSaveAll();
-      console.log('[Notion] POST ok, new pageId:', created.id);
+      showToast('Notion ✓');
+      return;
     }
+
+    // 새 페이지 생성 — dbId 필요
+    const mappings = notionCfg.mappings || {};
+    let dbId = mappings[item.catId];
+    if (!dbId) {
+      const vals = Object.values(mappings);
+      dbId = vals[0] || null;
+    }
+    if (!dbId) {
+      showToast('Notion: DB 매핑 없음 (설정에서 카테고리-DB 연결 필요)');
+      return;
+    }
+    const created = await notionApi('POST', '/pages', {
+      parent: { database_id: dbId },
+      properties: taskToNotionProps(item),
+    });
+    item.notionPageId = created.id;
+    if (!notionCfg.pageIds) notionCfg.pageIds = {};
+    notionCfg.pageIds[item.id] = created.id;
+    localStorage.setItem('notion_config', JSON.stringify(notionCfg));
+    localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
+    if (typeof fbUser !== 'undefined' && fbUser) fbSaveAll();
+    showToast('Notion ✓ 새 항목 생성');
   } catch (e) {
-    console.warn('[Notion] push failed:', e.message);
-    showToast('Notion 반영 실패: ' + e.message);
+    showToast('Notion 실패: ' + (e.message || '오류'));
+    throw e;
   }
 }
 
