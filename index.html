@@ -7170,54 +7170,19 @@ function _applyBgUrl(url) {
   console.log('[IMG] src set:', url.slice(0, 100));
 }
 
-async function _renderStoryBg(storyEntry) {
-  const cv = document.getElementById('storyPixelCanvas');
+function _renderStoryBg(storyEntry) {
+  const bg = document.getElementById('storyBgImg');
+  if (bg) bg.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
-    const bg = document.getElementById('storyBgImg');
-    if (bg) bg.style.opacity = '0';
+    const cv = document.getElementById('storyPixelCanvas');
     if (cv) cv.style.opacity = '0';
     _setStoryImgStatus('');
     return;
   }
 
-  const sid = storyEntry.id || '';
-
-  if (HF_TOKEN) {
-    // HF 토큰 있음 → AI 이미지
-    if (cv) cv.style.opacity = '0';
-
-    // 캐시 확인
-    if (sid && _storyImgCache[sid]) {
-      _applyBgUrl(_storyImgCache[sid]);
-      return;
-    }
-
-    const prompt = _buildStoryScenePrompt(storyEntry);
-    if (!prompt) return;
-
-    _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.8)');
-    try {
-      const dataUrl = await _hfGenerateImage(prompt);
-      if (sid) {
-        _storyImgCache[sid] = dataUrl;
-        try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
-      }
-      _applyBgUrl(dataUrl);
-    } catch(e) {
-      console.log('[IMG] HF failed:', e.message, '→ canvas fallback');
-      _setStoryImgStatus('');
-      _renderCanvasBg(storyEntry);
-    }
-
-  } else {
-    // HF 토큰 없음 → canvas 씬 (항상 작동)
-    const bg = document.getElementById('storyBgImg');
-    if (bg) bg.style.opacity = '0';
-    console.log('[CANVAS] rendering for:', storyEntry && storyEntry.id, storyEntry && storyEntry.text && storyEntry.text.slice(0,40));
-    // 나탭이 렌더된 후 실행 보장
-    setTimeout(function() { _renderCanvasBg(storyEntry); }, 50);
-  }
+  // canvas 씬 — 항상 작동, 즉시 렌더
+  setTimeout(function() { _renderCanvasBg(storyEntry); }, 30);
 }
 
 function _renderCanvasBg(storyEntry) {
@@ -9387,21 +9352,22 @@ async function initFirebase(){
     document.getElementById('fbAuthDomain').value=fbConfigSaved.authDomain;
     document.getElementById('fbProjectId').value=fbConfigSaved.projectId;
     fbAuth.onAuthStateChanged(user=>{
+      const getEl = id => document.getElementById(id);
       if(user){
         fbUser=user;
         setSyncStatus('connected');
         showToast('Firebase 연결됨 — 동기화 중');
-        document.getElementById('fbLoggedUser').textContent=user.email||user.displayName||'로그인됨';
-        document.getElementById('fbStatusArea').style.display='block';
-        document.getElementById('fbLoginSection').style.display='none';
-        document.getElementById('fbUserLabel').textContent=user.email||user.displayName||'';
+        if(getEl('fbLoggedUser')) getEl('fbLoggedUser').textContent=user.email||user.displayName||'로그인됨';
+        if(getEl('fbStatusArea'))  getEl('fbStatusArea').style.display='block';
+        if(getEl('fbLoginSection'))getEl('fbLoginSection').style.display='none';
+        if(getEl('fbUserLabel'))   getEl('fbUserLabel').textContent=user.email||user.displayName||'';
         fbLoadAll();
       } else {
         fbUser=null;
         setSyncStatus('disconnected');
-        document.getElementById('fbStatusArea').style.display='none';
-        document.getElementById('fbLoginSection').style.display='block';
-        document.getElementById('fbUserLabel').textContent='';
+        if(getEl('fbStatusArea'))  getEl('fbStatusArea').style.display='none';
+        if(getEl('fbLoginSection'))getEl('fbLoginSection').style.display='block';
+        if(getEl('fbUserLabel'))   getEl('fbUserLabel').textContent='';
       }
     });
   }catch(err){
