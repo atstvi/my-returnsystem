@@ -8926,9 +8926,10 @@ function renderInboxCatTabs(){
   const validCatIds=new Set(inboxCats.map(c=>c.id));
   const unclassCount=inboxItems.filter(m=>!m.done&&(!m.catId||m.catId==='misc'||!validCatIds.has(m.catId))).length;
   let html=`<button class="inbox-cat-tab${inboxActiveCat==='all'?' active':''}" onclick="setInboxCat('all')">전체 ${allCount>0?allCount:''}</button>`;
-  html+=`<button class="inbox-cat-tab${inboxActiveCat==='__unclassified__'?' active':''}" onclick="setInboxCat('__unclassified__')" style="${inboxActiveCat==='__unclassified__'?'background:#64748b;border-color:#64748b':''}">미분류${unclassCount>0?' '+unclassCount:''}</button>`;
+  html+=`<button class="inbox-cat-tab${inboxActiveCat==='misc'?' active':''}" onclick="setInboxCat('misc')" style="${inboxActiveCat==='misc'?'background:#64748b;border-color:#64748b':''}">미분류${unclassCount>0?' '+unclassCount:''}</button>`;
   inboxCats.forEach(cat=>{
-    if(cat.id==='misc') return; // 미분류는 상단 __unclassified__ 탭으로 표시
+    // misc는 맨 마지막에 따로 렌더 (아래에서 처리)
+    if(cat.id==='misc') return;
     const n=inboxItems.filter(m=>m.catId===cat.id&&!m.done).length;
     html+=`<button class="inbox-cat-tab${inboxActiveCat===cat.id?' active':''}" onclick="setInboxCat('${cat.id}')" style="${inboxActiveCat===cat.id?'background:'+cat.color+';border-color:'+cat.color:''}">${cat.label}${n>0?' '+n:''}</button>`;
   });
@@ -8955,8 +8956,9 @@ function renderInboxMessages(scrollTop){
   } else {
     if(inboxActiveCat==='all'){
       items=[...inboxItems];
-    } else if(inboxActiveCat==='__unclassified__'){
-      const validIds=new Set(inboxCats.filter(c=>c.id!=='misc').map(c=>c.id));
+    } else if(inboxActiveCat==='misc'){
+      // 미분류 = catId 없음 OR catId='misc' OR 유효하지 않은 catId
+      const validIds=new Set(inboxCats.filter(x=>x.id!=='misc').map(x=>x.id));
       items=inboxItems.filter(m=>!m.catId||m.catId==='misc'||!validIds.has(m.catId));
     } else {
       items=inboxItems.filter(m=>m.catId===inboxActiveCat);
@@ -9231,7 +9233,7 @@ function openInboxCatManager(){
     <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
       <span style="font-size:16px;width:20px;text-align:center;background:${c.color}22;border-radius:4px;padding:2px">${c.label[0]}</span>
       <span style="flex:1;font-size:13px">${esc(c.label)}</span>
-      <button class="inbox-action-btn" onclick="deleteInboxCat(${i})">삭제</button>
+      <button class="inbox-action-btn" onclick="deleteInboxCat(${i})" ${c.id==='misc'?'style="display:none"':''}>삭제</button>
     </div>`).join('');
   makeModal(`
     <div class="nds-modal-title">카테고리 관리</div>
@@ -9262,6 +9264,7 @@ function addInboxCat(){
 function deleteInboxCat(i){
   const cat=inboxCats[i];
   if(!cat)return;
+  if(cat.id==='misc'){showToast('미분류는 삭제할 수 없어');return;}
   const cnt=inboxItems.filter(m=>m.catId===cat.id).length;
   const msg=cnt>0?`"${cat.label}" 카테고리를 삭제할까? 해당 항목 ${cnt}개는 미분류로 이동돼.`:`"${cat.label}" 카테고리를 삭제할까?`;
   if(!confirm(msg))return;
@@ -10926,10 +10929,9 @@ function renderMeTodo() {
     const borderColor = prio==='high'?'#ff4d6d':prio==='mid'?'#fbbf24':prio==='low'?'#2dffaa':'#2d3748';
 
     return `<div class="quest-item${t.done?' done':''}${isFocusing?' focusing':''}"
-      style="border-left-color:${borderColor}"
-      onclick="openTodoEdit(${realIdx})">
+      style="border-left-color:${borderColor}">
       <div class="quest-icon ${prio||'none'}" title="클릭해서 완료" onclick="event.stopPropagation();toggleTodo(${realIdx},this)" style="cursor:pointer">${t.done?'✓':prioIcon[prio]||'◦'}</div>
-      <div class="quest-body">
+      <div class="quest-body" onclick="openTodoEdit(${realIdx})" style="cursor:pointer">
         <div class="quest-text">${esc(t.text)}${t.longTask?'<span style="opacity:.5;font-size:9px;margin-left:4px">⏳</span>':''}</div>
         ${metaTags ? `<div class="quest-meta">${metaTags}</div>` : ''}
         ${t.trigger ? `<div class="quest-trigger">▷ ${esc(t.trigger)}</div>` : ''}
