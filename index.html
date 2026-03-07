@@ -3340,18 +3340,18 @@ select {
   z-index: 0;
   transition: opacity .4s ease;
 }
-/* AI 생성 스토리 배경 이미지 (Puter concept art) */
+/* AI 생성 스토리 배경 이미지 */
 #storyBgImg {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
-  object-position: center center;
+  object-position: center top;
   image-rendering: auto;
   z-index: 1;
-  transition: opacity .65s ease;
-  filter: brightness(0.52) saturate(1.1) contrast(1.06);
+  transition: opacity .8s ease;
+  filter: brightness(0.42) saturate(1.3) contrast(1.05);
 }
-/* 스토리 배경 위에 덮는 다크 그라데이션 오버레이 */
+/* 스토리 배경 위 그라데이션 오버레이 — 텍스트 가독성 + 이미지 살림 */
 .story-slide-viewport::after {
   content: '';
   position: absolute; inset: 0;
@@ -3359,16 +3359,10 @@ select {
   pointer-events: none;
   background:
     linear-gradient(180deg,
-      rgba(4,8,18,.55) 0%,
-      rgba(4,8,18,.25) 30%,
-      rgba(4,8,18,.25) 70%,
-      rgba(4,8,18,.75) 100%
-    ),
-    linear-gradient(90deg,
-      rgba(4,8,18,.4) 0%,
-      transparent 20%,
-      transparent 80%,
-      rgba(4,8,18,.4) 100%
+      rgba(4,8,18,.5) 0%,
+      rgba(4,8,18,.12) 25%,
+      rgba(4,8,18,.12) 65%,
+      rgba(4,8,18,.65) 100%
     );
 }
 .story-slide-track { position: relative; z-index: 3; }
@@ -7052,22 +7046,18 @@ async function generateStoryImage(storyEntry) {
   if (!prompt) return null;
 
   try {
-    // Pollinations.ai FLUX — 스토리 텍스트 기반 씬 생성
     const seed = Math.floor(Math.random() * 999999);
     const url  = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt)
-               + '?width=768&height=432&model=flux&seed=' + seed + '&nologo=true&enhance=true';
+               + '?width=768&height=432&model=flux&seed=' + seed + '&nologo=true&enhance=false&safe=false';
 
-    // 이미지 실제 로딩 확인 (실패 감지용)
     await new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
-      const t = setTimeout(() => reject(new Error('timeout')), 40000);
+      const t = setTimeout(() => reject(new Error('timeout')), 45000);
       img.onload  = () => { clearTimeout(t); resolve(); };
       img.onerror = () => { clearTimeout(t); reject(new Error('load error')); };
       img.src = url;
     });
 
-    // 캐시 저장 (최대 20개 — URL만 저장)
     _storyImgCache[sid] = url;
     const keys = Object.keys(_storyImgCache);
     if (keys.length > 20) delete _storyImgCache[keys[0]];
@@ -7080,7 +7070,7 @@ async function generateStoryImage(storyEntry) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 슬라이드 배경 렌더 — Pollinations 이미지 우선, 없으면 Canvas fallback
+// 슬라이드 배경 렌더 — Pollinations 이미지, 생성 중엔 shimmer 표시
 // ─────────────────────────────────────────────────────────────────
 var _bgRenderSeq = 0;
 
@@ -7103,11 +7093,39 @@ function _setStoryImgStatus(msg, color) {
   el.style.opacity = msg ? '1' : '0';
 }
 
+function _showBgShimmer(vp, show) {
+  let sh = document.getElementById('storyBgShimmer');
+  if (!sh && show) {
+    sh = document.createElement('div');
+    sh.id = 'storyBgShimmer';
+    sh.style.cssText = [
+      'position:absolute;inset:0;z-index:1;pointer-events:none;',
+      'background:linear-gradient(110deg,',
+      '  rgba(45,255,170,.03) 0%,',
+      '  rgba(45,255,170,.07) 40%,',
+      '  rgba(34,211,238,.05) 60%,',
+      '  rgba(45,255,170,.03) 100%);',
+      'background-size:200% 100%;',
+      'animation:bgShimmer 2s linear infinite;',
+    ].join('');
+    vp.appendChild(sh);
+  }
+  if (sh) sh.style.display = show ? 'block' : 'none';
+}
+
 async function _renderStoryBg(storyEntry) {
   const vp = document.querySelector('.story-slide-viewport');
   if (!vp) return;
 
   const mySeq = ++_bgRenderSeq;
+
+  // shimmer 애니메이션 keyframe (한 번만 주입)
+  if (!document.getElementById('bgShimmerStyle')) {
+    const s = document.createElement('style');
+    s.id = 'bgShimmerStyle';
+    s.textContent = '@keyframes bgShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
+    document.head.appendChild(s);
+  }
 
   // bgImg 요소 (없으면 생성)
   let bgImg = document.getElementById('storyBgImg');
@@ -7116,59 +7134,71 @@ async function _renderStoryBg(storyEntry) {
     bgImg.id = 'storyBgImg';
     bgImg.style.cssText = [
       'position:absolute;inset:0;width:100%;height:100%;',
-      'object-fit:cover;object-position:center;',
-      'z-index:1;transition:opacity .6s ease;',
-      'filter:brightness(0.5) saturate(1.15) contrast(1.08);',
+      'object-fit:cover;object-position:center top;',
+      'z-index:1;transition:opacity .8s ease;',
+      'filter:brightness(0.38) saturate(1.2) contrast(1.1);',
       'opacity:0;',
     ].join('');
     vp.insertBefore(bgImg, vp.firstChild);
   }
 
-  // Canvas fallback은 뒤에 숨김
+  // canvas는 숨김
   const canvas = document.getElementById('storyPixelCanvas');
   if (canvas) canvas.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
     bgImg.style.opacity = '0';
+    _showBgShimmer(vp, false);
     _setStoryImgStatus('');
     return;
   }
 
   const sid = storyEntry.id;
 
-  // 캐시된 이미지가 있으면 즉시 표시
+  // 캐시된 이미지 → 즉시 표시
   if (sid && _storyImgCache[sid]) {
     if (mySeq !== _bgRenderSeq) return;
+    _showBgShimmer(vp, false);
+    bgImg.onload = null;
     bgImg.src = _storyImgCache[sid];
     bgImg.style.opacity = '1';
-    _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.5)');
+    _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
+    setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
     return;
   }
 
-  // 로딩 표시
-  bgImg.style.opacity = '0.15';
-  _setStoryImgStatus('◌ GENERATING SCENE...', 'rgba(251,191,36,.8)');
+  // 생성 중: shimmer + 상태 표시
+  _showBgShimmer(vp, true);
+  _setStoryImgStatus('◌ GENERATING...', 'rgba(251,191,36,.9)');
 
   try {
     const url = await generateStoryImage(storyEntry);
     if (mySeq !== _bgRenderSeq) return;
+
+    _showBgShimmer(vp, false);
+
     if (url) {
+      bgImg.style.opacity = '0';
+      // onload 먼저 등록 후 src 설정
       bgImg.onload = () => {
-        if (mySeq === _bgRenderSeq) {
-          bgImg.style.opacity = '1';
-          _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.5)');
-          // 3초 후 상태 숨기기
-          setTimeout(() => { if(mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 3000);
-        }
+        if (mySeq !== _bgRenderSeq) return;
+        bgImg.style.opacity = '1';
+        _setStoryImgStatus('✦ AI SCENE', 'rgba(45,255,170,.4)');
+        setTimeout(() => { if (mySeq === _bgRenderSeq) _setStoryImgStatus(''); }, 2500);
+      };
+      bgImg.onerror = () => {
+        _setStoryImgStatus('');
+        _renderStoryBgCanvas(storyEntry, mySeq);
       };
       bgImg.src = url;
     } else {
-      _setStoryImgStatus('◈ CANVAS MODE', 'rgba(100,120,150,.5)');
+      _setStoryImgStatus('');
       _renderStoryBgCanvas(storyEntry, mySeq);
     }
   } catch(e) {
     if (mySeq !== _bgRenderSeq) return;
-    _setStoryImgStatus('◈ CANVAS MODE', 'rgba(100,120,150,.5)');
+    _showBgShimmer(vp, false);
+    _setStoryImgStatus('');
     _renderStoryBgCanvas(storyEntry, mySeq);
   }
 }
@@ -11144,6 +11174,12 @@ Each generated piece is called a **Story Fragment**.
 When all fragments are combined, they should form **one continuous novel about the protagonist's life at Hogwarts**.
 Each time this prompt is used, generate **only ONE Story Fragment**.
 --------------------------------------------------
+## Narrative Point of View
+Write ENTIRELY in **second-person ("you")**.
+The reader IS the protagonist. Use "you", "your", "yourself" — never "she", "her", or the character's name as subject.
+Example: "You fold the letter carefully." NOT "Liora folded the letter carefully."
+This must be consistent throughout every fragment.
+--------------------------------------------------
 ## Story Structure
 Each fragment must follow this structure:
 STORY NUMBER: (continue from previous)
@@ -11153,7 +11189,7 @@ TIME:
 LOCATION:
 (example: Slytherin Dormitory / Great Hall / Transfiguration Classroom)
 STORY FRAGMENT:
-Write a cinematic narrative scene.
+Write a cinematic narrative scene in second-person ("you").
 The writing style should feel like a **novel combined with a TRPG moment**.
 Requirements:
 - Focus on a **small slice of life** at Hogwarts
@@ -11164,7 +11200,7 @@ Requirements:
 The fragment should feel like **one brief scene of a longer book**.
 --------------------------------------------------
 ## Closing Line
-End the fragment with one atmospheric closing sentence that subtly hints at what might come next.
+End the fragment with one atmospheric closing sentence (in second-person) that subtly hints at what might come next.
 Do NOT label it as a "hook". Do NOT use any header or marker. It must read as a natural final sentence of the scene.
 --------------------------------------------------
 ## World Rules
@@ -11172,7 +11208,7 @@ Setting:
 - Hogwarts, about 30 years after the Harry Potter books
 - Voldemort is gone but traces of darkness remain
 - New generation of students
-Protagonist:
+Protagonist (the "you"):
 - Name: Liora Rosier
 - House: Slytherin
 - Gender: Female
@@ -12083,7 +12119,7 @@ async function generateStory() {
         messages: [
           {
             role: 'system',
-            content: 'You are a literary Harry Potter fan-fiction writer AI. Follow the user prompt structure EXACTLY. Output MUST start with STORY NUMBER: and end with IMAGE SCENE: section. Story text in English — KEEP IT BRIEF: 1-2 short paragraphs, 80-120 words maximum for the STORY FRAGMENT. IMAGE SCENE in English. No preamble or closing remarks outside the required sections.',
+            content: 'You are a literary Harry Potter fan-fiction writer AI. Write ENTIRELY in second-person ("you", "your") — the reader IS the protagonist. Never use "she", "her", or the character name as subject. Follow the user prompt structure EXACTLY. Output MUST start with STORY NUMBER: and end with IMAGE SCENE: section. Story text in English — KEEP IT BRIEF: 1-2 short paragraphs, 80-120 words maximum for the STORY FRAGMENT. IMAGE SCENE in English. No preamble or closing remarks outside the required sections.',
           },
           { role: 'user', content: prompt }
         ]
