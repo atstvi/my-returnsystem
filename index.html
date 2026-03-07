@@ -4002,18 +4002,7 @@ select {
           </div>
           <div class="test-result" id="testResult"></div>
 
-          <div style="border-top:1px solid var(--border);margin:14px 0 10px"></div>
-
-          <div class="setting-lbl" style="color:rgba(0,200,255,.9)">◈ AI 이미지 생성 <span style="font-size:9px;background:rgba(0,200,100,.15);color:rgba(0,220,120,.9);padding:1px 6px;border-radius:2px;margin-left:4px">완전 무료</span></div>
-          <div class="setting-hint" style="color:var(--foreground-muted);margin-bottom:8px">
-            <strong style="color:rgba(0,200,255,.8)">Pollinations.ai</strong>를 통해 API 키 없이 FLUX 이미지 생성이 가능해.<br>
-            아바타 AI 생성 또는 스토리 배경 생성을 눌러봐.
-          </div>
-          <div class="btn-row" style="flex-wrap:wrap;gap:6px">
-            <button class="btn-primary" onclick="regenAvatarImage()" style="background:rgba(0,160,255,.15);border-color:rgba(0,200,255,.4);color:rgba(0,220,255,.9)">🎨 아바타 생성</button>
-            <button class="btn-secondary" onclick="regenStoryBg()" style="border-color:rgba(45,255,170,.3);color:rgba(45,255,170,.7)">🖼 현재 스토리 배경 생성</button>
-          </div>
-          <div id="togetherGenProgress" style="display:none;font-family:var(--font-label);font-size:9px;letter-spacing:1px;color:var(--warning);margin-top:6px;padding:6px 8px;background:rgba(255,180,0,.05);border:1px solid rgba(255,180,0,.15)"></div>
+          <div id="togetherGenProgress" style="display:none"></div>
         </div>
       </div>
 
@@ -7024,24 +7013,19 @@ function _buildImagePrompt(imageScene) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// 스토리 텍스트 → Pollinations.ai 씬 이미지 생성
-// 스토리 본문을 직접 프롬프트로 변환해서 장면을 생성
+// ── 스토리 씬 이미지 생성 — Lexica.art (AI 판타지 이미지 검색, 무료)
+// fallback: Unsplash Source (실사진, 키워드 기반, 완전 무료)
 // ─────────────────────────────────────────────────────────────────
+
 function _buildStoryScenePrompt(storyEntry) {
   if (!storyEntry) return null;
-
-  // imageScene 우선, 없으면 스토리 텍스트 앞부분 사용
   let sceneDesc = (storyEntry.imageScene || '').trim();
   if (!sceneDesc && storyEntry.text) {
-    // 스토리 텍스트를 씬 묘사로 — 핵심 문장만 추출
     sceneDesc = storyEntry.text.replace(/\n/g, ' ').trim().slice(0, 200);
   }
   if (!sceneDesc) return null;
-
-  // 위치/타이틀 보강
   const locationTag = storyEntry.location ? storyEntry.location + ', ' : '';
   const titleTag    = storyEntry.title    ? storyEntry.title + ' scene, ' : '';
-
   return (
     titleTag + sceneDesc + ', ' + locationTag +
     'cinematic magical fantasy illustration, Hogwarts castle atmosphere, ' +
@@ -7050,29 +7034,62 @@ function _buildStoryScenePrompt(storyEntry) {
   );
 }
 
+// 키워드 추출 (Unsplash/Lexica용)
+function _buildSceneKeywords(storyEntry) {
+  const text = ((storyEntry && storyEntry.text) || '').slice(0, 300);
+  const loc  = (storyEntry && storyEntry.location) || '';
+  // 주요 키워드 조합
+  const base = ['magical', 'fantasy', 'dark', 'castle', 'candlelight'];
+  if (/owl|letter|envelope/i.test(text)) base.push('owl', 'letter');
+  if (/forest|wood|tree/i.test(text))    base.push('forest', 'dark woods');
+  if (/potion|brew|cauldron/i.test(text)) base.push('potion', 'witch');
+  if (/wand|spell|magic/i.test(text))    base.push('wand', 'spell');
+  if (/library|book|scroll/i.test(text)) base.push('library', 'ancient books');
+  if (/night|dark|moon/i.test(text))     base.push('night', 'moonlight');
+  if (/morning|dawn|sunrise/i.test(text)) base.push('dawn', 'misty morning');
+  if (/bedroom|room|manor/i.test(text))  base.push('bedroom', 'manor');
+  if (/dungeon|underground/i.test(text)) base.push('dungeon', 'stone');
+  if (/market|street|town/i.test(text))  base.push('street', 'medieval town');
+  if (loc) base.push(loc.split(',')[0]);
+  return base.slice(0, 6).join(',');
+}
+
 async function generateStoryImage(storyEntry) {
   if (!storyEntry || !storyEntry.id) return null;
   const sid = storyEntry.id;
   if (_storyImgCache[sid]) return _storyImgCache[sid];
 
-  const prompt = _buildStoryScenePrompt(storyEntry);
-  if (!prompt) return null;
+  const keywords = _buildSceneKeywords(storyEntry);
 
-  // 프롬프트를 200자로 제한 (URL 길이 문제 방지)
-  const shortPrompt = prompt.slice(0, 200);
-  const seed = Math.floor(Math.random() * 999999);
-  const url = 'https://image.pollinations.ai/prompt/'
-    + encodeURIComponent(shortPrompt)
-    + '?width=512&height=288&model=flux&seed=' + seed + '&nologo=true';
+  // 1차: Lexica.art — AI 생성 판타지 이미지 검색 API (무료, 키 없음)
+  try {
+    const query = encodeURIComponent('hogwarts magical fantasy ' + keywords);
+    const res = await fetch('https://lexica.art/api/v1/search?q=' + query, {
+      signal: AbortSignal.timeout(8000)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const images = (data.images || []).filter(img => img.width >= 400 && img.src);
+      if (images.length > 0) {
+        // 랜덤 선택
+        const pick = images[Math.floor(Math.random() * Math.min(images.length, 8))];
+        const url = pick.src;
+        _storyImgCache[sid] = url;
+        try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
+        return url;
+      }
+    }
+  } catch(e) { console.log('[IMG] Lexica failed:', e.message); }
 
+  // 2차 fallback: Unsplash Source (즉시 응답, 안정적)
+  const seed = Math.floor(Math.random() * 1000);
+  const url = 'https://source.unsplash.com/512x288/?' + encodeURIComponent(keywords) + '&sig=' + seed;
   _storyImgCache[sid] = url;
-  try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
+  try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
   return url;
 }
 
-// ─────────────────────────────────────────────────────────────────
-// 슬라이드 배경 렌더 — 단순하고 확실하게
-// ─────────────────────────────────────────────────────────────────
+
 var _bgRenderSeq = 0;
 
 function _setStoryImgStatus(msg, color) {
@@ -7080,7 +7097,7 @@ function _setStoryImgStatus(msg, color) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'storyImgStatus';
-    el.style.cssText = 'position:absolute;bottom:4px;right:6px;z-index:10;font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;padding:1px 6px;background:rgba(0,0,0,.55);pointer-events:none;';
+    el.style.cssText = 'position:absolute;bottom:4px;right:6px;z-index:10;font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;padding:1px 6px;background:rgba(0,0,0,.6);pointer-events:none;';
     const vp = document.querySelector('.story-slide-viewport');
     if (vp) vp.appendChild(el);
   }
@@ -7088,116 +7105,61 @@ function _setStoryImgStatus(msg, color) {
   el.style.color = color || 'rgba(45,255,170,.7)';
 }
 
-function _showBgShimmer(vp, show) {
-  let sh = document.getElementById('storyBgShimmer');
-  if (!sh && show) {
-    sh = document.createElement('div');
-    sh.id = 'storyBgShimmer';
-    sh.style.cssText = 'position:absolute;inset:0;z-index:1;pointer-events:none;background:linear-gradient(110deg,rgba(45,255,170,.02) 0%,rgba(45,255,170,.06) 40%,rgba(34,211,238,.04) 60%,rgba(45,255,170,.02) 100%);background-size:200% 100%;animation:bgShimmer 2s linear infinite;';
-    if (!document.getElementById('bgShimmerStyle')) {
-      const s = document.createElement('style');
-      s.id = 'bgShimmerStyle';
-      s.textContent = '@keyframes bgShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}';
-      document.head.appendChild(s);
-    }
-    vp.appendChild(sh);
-  }
-  if (sh) sh.style.display = show ? 'block' : 'none';
-}
-
 function _renderStoryBg(storyEntry) {
-  const bgImg = document.getElementById('storyBgImg');
-  if (!bgImg) return;
+  const vp = document.querySelector('.story-slide-viewport');
+  if (!vp) return;
 
   const cv = document.getElementById('storyPixelCanvas');
   if (cv) cv.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
-    bgImg.style.opacity = '0'; return;
+    const old = document.getElementById('storyBgImg');
+    if (old) old.style.opacity = '0';
+    return;
   }
 
-  const prompt = _buildStoryScenePrompt(storyEntry);
-  if (!prompt) { bgImg.style.opacity = '0'; return; }
+  const seq = ++_bgRenderSeq;
 
-  const sid = storyEntry.id || '';
-  let url = sid && _storyImgCache[sid] ? _storyImgCache[sid] : null;
-  if (!url) {
-    const seed = Date.now() % 999999;
-    url = 'https://image.pollinations.ai/prompt/'
-        + encodeURIComponent(prompt.slice(0, 180))
-        + '?width=512&height=288&model=flux&seed=' + seed + '&nologo=true';
-    if (sid) {
-      _storyImgCache[sid] = url;
-      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
-    }
-  }
+  generateStoryImage(storyEntry).then(function(url) {
+    if (seq !== _bgRenderSeq) return;
+    if (!url) return;
 
-  bgImg.style.transition = '';
-  bgImg.style.opacity = '0';
+    // 기존 img 제거 후 새 img 교체 — onload 100% 보장
+    const old = document.getElementById('storyBgImg');
+    const newImg = document.createElement('img');
+    newImg.id = 'storyBgImg';
+    newImg.alt = '';
+    newImg.style.cssText = [
+      'position:absolute;inset:0;width:100%;height:100%;',
+      'object-fit:cover;object-position:center top;',
+      'z-index:1;opacity:0;display:block;pointer-events:none;',
+      'filter:brightness(0.65) saturate(1.1);'
+    ].join('');
 
-  // 완전 새 img 엘리먼트 교체 방식 — onload 발화 100% 보장
-  const vp = bgImg.parentElement;
-  const newImg = document.createElement('img');
-  newImg.id = 'storyBgImg';
-  newImg.style.cssText = bgImg.style.cssText;
-  newImg.style.opacity = '0';
-  newImg.style.position = 'absolute';
-  newImg.style.inset = '0';
-  newImg.style.width = '100%';
-  newImg.style.height = '100%';
-  newImg.style.objectFit = 'cover';
-  newImg.style.objectPosition = 'center top';
-  newImg.style.zIndex = '1';
-  newImg.style.filter = 'brightness(0.65) saturate(1.1)';
-  newImg.style.display = 'block';
-  newImg.style.pointerEvents = 'none';
+    newImg.onload = function() {
+      if (seq !== _bgRenderSeq) return;
+      newImg.style.transition = 'opacity 1.2s ease';
+      newImg.style.opacity = '1';
+      _setStoryImgStatus('✦ AI', 'rgba(45,255,170,.5)');
+      setTimeout(function() { _setStoryImgStatus(''); }, 3000);
+    };
+    newImg.onerror = function() {
+      if (url.includes('lexica')) {
+        // Lexica 실패시 Unsplash로 재시도
+        const kw = _buildSceneKeywords(storyEntry);
+        newImg.src = 'https://source.unsplash.com/512x288/?' + encodeURIComponent(kw);
+      }
+    };
+    newImg.src = url;
 
-  newImg.onload = function() {
-    newImg.style.transition = 'opacity 1s ease';
-    newImg.style.opacity = '1';
-    // 상태 표시
-    var st = document.getElementById('storyImgStatus');
-    if (st) { st.textContent = '✦ AI'; st.style.color = 'rgba(45,255,170,.5)'; setTimeout(function(){ st.textContent=''; }, 3000); }
-  };
-  newImg.onerror = function() {
-    if (sid) delete _storyImgCache[sid];
-  };
-  newImg.src = url;
+    if (old) old.replaceWith(newImg);
+    else vp.insertBefore(newImg, vp.firstChild);
 
-  bgImg.replaceWith(newImg);
-
-  // 상태 표시
-  var st = document.getElementById('storyImgStatus');
-  if (!st) {
-    st = document.createElement('div');
-    st.id = 'storyImgStatus';
-    st.style.cssText = 'position:absolute;bottom:4px;right:6px;z-index:10;font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;padding:1px 6px;background:rgba(0,0,0,.55);pointer-events:none;color:rgba(251,191,36,.9)';
-    if (vp) vp.appendChild(st);
-  }
-  st.textContent = '◌ loading...';
-  st.style.color = 'rgba(251,191,36,.9)';
+    _setStoryImgStatus('◌', 'rgba(251,191,36,.8)');
+  }).catch(function() {});
 }
 
 
-// Canvas fallback (Puter 없거나 실패 시)
-function _renderStoryBgCanvas(storyEntry, mySeq) {
-  const canvas = document.getElementById('storyPixelCanvas');
-  const vp = canvas ? canvas.parentElement : null;
-  if (!canvas || !vp) return;
-  const doRender = () => {
-    if (mySeq !== _bgRenderSeq) return;
-    const vW = vp.offsetWidth || 320, vH = vp.offsetHeight || 130;
-    canvas.width = vW; canvas.height = vH;
-    canvas.style.width = vW + 'px'; canvas.style.height = vH + 'px';
-    canvas.style.opacity = '0.85';
-    const ctx = canvas.getContext('2d');
-    const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-    _drawSceneFromVis(ctx, vW, vH, fallback, storyEntry.npcs || {});
-  };
-  if (vp.offsetWidth === 0) requestAnimationFrame(doRender); else doRender();
-}
-
-// ── 수동 배경 재생성 버튼 ──
 function regenStoryBg() {
   const sorted = _storySorted ? _storySorted() : [];
   if (sorted.length === 0) { showToast('스토리가 없어'); return; }
