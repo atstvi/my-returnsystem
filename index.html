@@ -3348,9 +3348,10 @@ select {
   object-position: center top;
   z-index: 1;
   opacity: 0;
-  filter: brightness(0.65) saturate(1.1);
+  filter: brightness(0.6) saturate(1.1);
   display: block;
   pointer-events: none;
+  transition: opacity 1.5s ease;
 }
 /* 스토리 배경 위 그라데이션 오버레이 */
 .story-slide-viewport::after {
@@ -7077,9 +7078,7 @@ function _buildSceneKeywords(storyEntry) {
   return kw.slice(0,6).join(',');
 }
 
-// 캐시: sid → dataURL or pollinations URL
-var _storyImgCache = {};
-try { _storyImgCache = JSON.parse(localStorage.getItem('story_img_cache_v3') || '{}'); } catch(_) {}
+// 캐시: _storyImgCache 는 위 7034줄에서 이미 선언됨
 
 // HuggingFace FLUX.1-schnell — blob → base64 dataURL
 async function _hfGenerateImage(prompt) {
@@ -7133,32 +7132,42 @@ function _setStoryImgStatus(msg, color) {
   el.style.color = color || 'rgba(45,255,170,.7)';
 }
 
-function _applyBgUrl(url, seq) {
-  if (seq !== _bgRenderSeq) return;
+function _applyBgUrl(url) {
   const vp = document.querySelector('.story-slide-viewport');
-  if (!vp) return;
+  if (!vp || !url) return;
 
-  const newImg = document.createElement('img');
-  newImg.id  = 'storyBgImg';
-  newImg.alt = '';
-  newImg.style.cssText = [
+  // 기존 img 재사용 또는 새로 생성
+  let img = document.getElementById('storyBgImg');
+  if (!img) {
+    img = document.createElement('img');
+    img.id  = 'storyBgImg';
+    img.alt = '';
+    vp.insertBefore(img, vp.firstChild);
+  }
+
+  // 스타일 완전 초기화
+  img.style.cssText = [
     'position:absolute;inset:0;width:100%;height:100%;',
     'object-fit:cover;object-position:center top;',
     'z-index:1;opacity:0;display:block;pointer-events:none;',
-    'filter:brightness(0.6) saturate(1.15) contrast(1.05);'
+    'filter:brightness(0.6) saturate(1.1);',
+    'transition:opacity 1.5s ease;'
   ].join('');
 
-  newImg.onload = function() {
-    if (seq !== _bgRenderSeq) return;
-    newImg.style.transition = 'opacity 1.5s ease';
-    newImg.style.opacity = '1';
+  img.onload = null;
+  img.onerror = null;
+
+  img.onload = function() {
+    img.style.opacity = '1';
     _setStoryImgStatus('');
   };
-  newImg.onerror = function() { _setStoryImgStatus(''); };
+  img.onerror = function() {
+    console.log('[IMG] onerror, url:', url.slice(0,80));
+    _setStoryImgStatus('✗', 'rgba(255,100,100,.7)');
+  };
 
-  const old = document.getElementById('storyBgImg');
-  if (old) old.replaceWith(newImg); else vp.insertBefore(newImg, vp.firstChild);
-  newImg.src = url;
+  img.src = url;
+  console.log('[IMG] src set:', url.slice(0, 100));
 }
 
 async function _renderStoryBg(storyEntry) {
@@ -7172,48 +7181,44 @@ async function _renderStoryBg(storyEntry) {
     return;
   }
 
-  const seq = ++_bgRenderSeq;
   const sid = (storyEntry.id || '');
   const prompt = _buildStoryScenePrompt(storyEntry);
   if (!prompt) return;
 
   // 캐시 확인
   if (sid && _storyImgCache[sid]) {
-    _applyBgUrl(_storyImgCache[sid], seq);
+    console.log('[IMG] cache hit');
+    _applyBgUrl(_storyImgCache[sid]);
     return;
   }
 
   if (HF_TOKEN) {
-    // HF FLUX.1-schnell — AI 생성
-    _setStoryImgStatus('◌  AI 씬 생성 중...', 'rgba(240,64,255,.8)');
+    _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.8)');
     try {
       const dataUrl = await _hfGenerateImage(prompt);
-      if (seq !== _bgRenderSeq) return;
       if (sid) {
         _storyImgCache[sid] = dataUrl;
         try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
       }
-      _applyBgUrl(dataUrl, seq);
+      _applyBgUrl(dataUrl);
     } catch(e) {
-      console.log('[IMG] HF failed:', e.message, '— Pollinations fallback');
-      if (seq !== _bgRenderSeq) return;
-      _setStoryImgStatus('◌  fallback...', 'rgba(251,191,36,.7)');
+      console.log('[IMG] HF failed:', e.message);
+      _setStoryImgStatus('◌ loading...', 'rgba(251,191,36,.7)');
       const url = _pollinationsUrl(prompt, sid);
       if (sid) {
         _storyImgCache[sid] = url;
         try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
       }
-      _applyBgUrl(url, seq);
+      _applyBgUrl(url);
     }
   } else {
-    // 토큰 없음 — Pollinations 직접
-    _setStoryImgStatus('◌  loading...', 'rgba(251,191,36,.7)');
+    _setStoryImgStatus('◌ loading...', 'rgba(251,191,36,.7)');
     const url = _pollinationsUrl(prompt, sid);
     if (sid) {
       _storyImgCache[sid] = url;
       try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
     }
-    _applyBgUrl(url, seq);
+    _applyBgUrl(url);
   }
 }
 
