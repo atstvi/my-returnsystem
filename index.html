@@ -780,13 +780,13 @@ textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--g
 .memo-empty { padding: 40px 24px; text-align: center; font-size: 12px; color: var(--foreground-muted); line-height: 1.9; font-family: var(--font-label); }
 
 .memo-item {
-  background: transparent; padding: 10px 14px;
+  background: rgba(255,255,255,.04); padding: 10px 14px;
   display: flex; align-items: flex-start; gap: 10px;
   cursor: pointer; transition: var(--t-snap);
-  border-bottom: 1px solid rgba(255,255,255,.05);
+  border-bottom: 1px solid rgba(255,255,255,.06);
 }
-.memo-item:hover        { background: rgba(45,255,170,.03); }
-.memo-item.result-item  { border-left: 2px solid rgba(34,211,238,.4); background: rgba(34,211,238,.02); }
+.memo-item:hover        { background: rgba(255,255,255,.07); }
+.memo-item.result-item  { border-left: 2px solid rgba(34,211,238,.4); background: rgba(34,211,238,.04); }
 .memo-date { font-family: var(--font-label); font-size: 10px; color: var(--foreground-muted); white-space: nowrap; margin-top: 2px; }
 .memo-type { font-family: var(--font-label); font-size: 9px; padding: 2px 6px; font-weight: 700; letter-spacing: 2px; }
 .memo-text { font-size: 13px; color: var(--foreground-2); flex: 1; line-height: 1.5; min-width: 0; }
@@ -3367,6 +3367,23 @@ select {
   );
 }
 .story-slide-track { position: relative; z-index: 3; }
+/* 그림만 보기 모드 */
+.story-art-mode .story-slide-track { opacity: 0; pointer-events: none; }
+.story-art-mode .story-nav-btn,
+.story-art-mode .story-nav-meta,
+.story-art-mode .story-transmit,
+.story-art-mode .story-del-btn,
+.story-art-mode #storyRegenBtn { opacity: 0; pointer-events: none; }
+.story-art-mode #storyArtViewBtn {
+  border-color: rgba(45,255,170,.8) !important;
+  color: rgba(45,255,170,1) !important;
+  background: rgba(45,255,170,.08) !important;
+}
+.story-slide-track,
+.story-nav-btn, .story-nav-meta, .story-transmit, .story-del-btn, #storyRegenBtn {
+  transition: opacity .35s ease;
+}
+#storyArtViewBtn { transition: all .2s ease; }
 .story-slide-track {
   display: flex;
   width: 100%; height: 100%;
@@ -3666,15 +3683,21 @@ select {
           <button class="story-nav-btn" id="storyNavNext" onclick="storyNavMove(1)" title="다음">›</button>
           <span class="story-transmit" id="storyTransmit"></span>
           <button class="story-del-btn" id="storyDelBtn" onclick="deleteCurrentStory()" title="이 조각 삭제">✕</button>
-          <button id="storyRegenBtn" onclick="regenStoryBg()" title="AI씬 재생성 / 길게 누르면 전체화면" style="
+          <button id="storyRegenBtn" onclick="regenStoryBg()" title="AI씬 재생성" style="
             background:none;border:1px solid rgba(45,255,170,.2);color:rgba(45,255,170,.5);
             font-size:10px;padding:0 6px;height:22px;cursor:pointer;
             font-family:'Share Tech Mono',monospace;letter-spacing:1px;
             transition:all .15s;flex-shrink:0;
           " onmouseover="this.style.borderColor='rgba(45,255,170,.6)';this.style.color='rgba(45,255,170,.9)'"
              onmouseout="this.style.borderColor='rgba(45,255,170,.2)';this.style.color='rgba(45,255,170,.5)'"
-             onmousedown="_storyImgLongPressStart(event)" ontouchstart="_storyImgLongPressStart(event)"
-             onmouseup="_storyImgLongPressCancel()" onmouseleave="_storyImgLongPressCancel()" ontouchend="_storyImgLongPressCancel()"
+          >↺</button>
+          <button id="storyArtViewBtn" onclick="toggleStoryArtMode()" title="그림만 보기" style="
+            background:none;border:1px solid rgba(45,255,170,.2);color:rgba(45,255,170,.5);
+            font-size:11px;padding:0 7px;height:22px;cursor:pointer;
+            font-family:'Share Tech Mono',monospace;letter-spacing:1px;
+            transition:all .2s;flex-shrink:0;
+          " onmouseover="this.style.borderColor='rgba(45,255,170,.7)';this.style.color='rgba(45,255,170,1)'"
+             onmouseout="if(!window._storyArtMode){this.style.borderColor='rgba(45,255,170,.2)';this.style.color='rgba(45,255,170,.5)'}"
           >🖼</button>
         </div>
 
@@ -7428,20 +7451,26 @@ function _renderCanvasBg(storyEntry) {
 }
 
 
-// ── 스토리 씬 이미지 전체화면 ──
-var _storyLongPressTimer = null;
+// ── 스토리 그림만 보기 모드 ──
+var _storyArtMode = false;
 
-function _storyImgLongPressStart(e) {
-  _storyLongPressTimer = setTimeout(function() {
-    _storyLongPressTimer = null;
-    _openStoryImgFullscreen();
-  }, 500);
-}
-
-function _storyImgLongPressCancel() {
-  if (_storyLongPressTimer) {
-    clearTimeout(_storyLongPressTimer);
-    _storyLongPressTimer = null;
+function toggleStoryArtMode() {
+  _storyArtMode = !_storyArtMode;
+  // me-header-story 컨테이너에 art-mode 클래스 적용
+  const storySection = document.querySelector('.me-header-story');
+  if (storySection) storySection.classList.toggle('story-art-mode', _storyArtMode);
+  
+  const btn = document.getElementById('storyArtViewBtn');
+  if (btn) {
+    if (_storyArtMode) {
+      btn.title = '텍스트로 돌아가기';
+      btn.textContent = '🖼';
+    } else {
+      btn.style.borderColor = 'rgba(45,255,170,.2)';
+      btn.style.color = 'rgba(45,255,170,.5)';
+      btn.style.background = 'none';
+      btn.title = '그림만 보기';
+    }
   }
 }
 
