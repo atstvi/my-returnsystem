@@ -4004,12 +4004,12 @@ select {
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px"></div>
 
-          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ Hugging Face 토큰 <span style="font-size:9px;opacity:.5">(스토리 씬 AI 이미지 생성용)</span></div>
+          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ Together AI 키 <span style="font-size:9px;opacity:.5">(스토리 씬 AI 이미지 생성용)</span></div>
           <div class="input-wrap">
-            <input id="hfTokenInp" class="setting-inp" type="password" placeholder="hf_...로 시작하는 토큰">
+            <input id="hfTokenInp" class="setting-inp" type="password" placeholder="Together AI API 키">
           </div>
           <div class="setting-hint">
-            <a href="https://huggingface.co/settings/tokens" target="_blank">huggingface.co/settings/tokens</a> — 무료 계정으로 발급. Read 권한이면 충분해.
+            <a href="https://api.together.ai" target="_blank">api.together.ai</a> — 무료 가입, FLUX.1-schnell 무료 사용 가능. API Keys 메뉴에서 발급.
           </div>
           <div class="api-status" id="hfStatus"></div>
           <div class="btn-row">
@@ -6908,17 +6908,16 @@ function loadSavedKey(){
 function saveHfToken(){
   const v=(document.getElementById('hfTokenInp')||{}).value||'';
   const t=v.trim();
-  if(!t){showToast('토큰을 입력해줘');return;}
-  if(!t.startsWith('hf_')){showToast('hf_...로 시작하는 토큰을 입력해줘');return;}
+  if(!t){showToast('API 키를 입력해줘');return;}
   HF_TOKEN=t; localStorage.setItem('hf_token',t);
-  renderHfStatus(); showToast('HF 토큰 저장됐어 🎨');
+  renderHfStatus(); showToast('Together AI 키 저장됐어 🎨');
 }
 
 function renderHfStatus(){
   const el=document.getElementById('hfStatus'); if(!el) return;
   el.innerHTML = HF_TOKEN
-    ? '<div class="status-dot ok"></div><span style="color:var(--green)">토큰 저장됨 ✓</span>'
-    : '<div class="status-dot none"></div><span style="color:var(--foreground-muted)">토큰 없음 — 씬 이미지 생성 불가</span>';
+    ? '<div class="status-dot ok"></div><span style="color:var(--green)">Together AI 키 저장됨 ✓</span>'
+    : '<div class="status-dot none"></div><span style="color:var(--foreground-muted)">키 없음 — 픽셀 씬으로 표시됨</span>';
 }
 function renderApiStatus(){
   const el=document.getElementById('apiStatus');if(!el)return;
@@ -7047,72 +7046,50 @@ function _buildImagePrompt(imageScene) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ── 스토리 씬 이미지 생성 — Hugging Face FLUX.1-schnell ──
-// HF 토큰(무료) → blob → base64 dataURL → img.src
-// fallback: Pollinations (img src 직접)
+// ── 스토리 씬 이미지 생성 — Together AI FLUX.1-schnell ──
+// api.together.ai 무료 가입, CORS 허용, GitHub Pages에서 작동
 
 function _buildStoryScenePrompt(storyEntry) {
   if (!storyEntry) return null;
   let scene = (storyEntry.imageScene || '').trim();
   if (!scene && storyEntry.text)
-    scene = storyEntry.text.replace(/\n/g, ' ').trim().slice(0, 180);
+    scene = storyEntry.text.replace(/\n/g, ' ').trim().slice(0, 300);
   if (!scene) return null;
-  const loc   = storyEntry.location ? storyEntry.location + ', ' : '';
-  const title = storyEntry.title    ? storyEntry.title + ', '    : '';
-  return (title + scene + ', ' + loc +
-    'cinematic magical fantasy art, Hogwarts atmosphere, ' +
-    'dramatic candlelight, painterly concept art style, ' +
-    'dark gothic, highly detailed, no text, no watermark').slice(0, 300);
+  const loc   = storyEntry.location ? storyEntry.location + '. ' : '';
+  const title = storyEntry.title    ? storyEntry.title + '. '    : '';
+
+  // 주어진 프롬프트 템플릿 적용
+  return `fantasy book illustration, atmospheric storytelling, painterly textures, cinematic composition, dramatic lighting, environmental storytelling. Scene: ${title}${loc}${scene}. Style: classic fantasy novel illustration, NOT anime, NOT cartoon, NOT photorealistic CGI. Mood: mysterious, magical, immersive. Focus on environment and atmosphere, characters as silhouettes or distant figures only. Magical lighting with lanterns candlelight moonlight, ancient stone wooden floors dust floating papers glowing runes, depth and perspective, rich controlled color palette, professional illustrator quality, no text no watermark`.slice(0, 500);
 }
 
-function _buildSceneKeywords(storyEntry) {
-  const text = ((storyEntry && storyEntry.text) || '').toLowerCase();
-  const kw = ['magical','fantasy','dark','castle','candlelight'];
-  if (/owl|letter/.test(text))       kw.push('owl');
-  if (/forest|wood|tree/.test(text)) kw.push('forest');
-  if (/potion|cauldron/.test(text))  kw.push('potion');
-  if (/library|book/.test(text))     kw.push('library');
-  if (/night|moon/.test(text))       kw.push('night','moon');
-  if (/castle|tower/.test(text))     kw.push('gothic castle');
-  return kw.slice(0,6).join(',');
-}
-
-// 캐시: _storyImgCache 는 위 7034줄에서 이미 선언됨
-
-// HuggingFace FLUX.1-schnell — blob → base64 dataURL
-async function _hfGenerateImage(prompt) {
-  if (!HF_TOKEN) throw new Error('no token');
-  const res = await fetch(
-    'https://api-inference.huggingface.co/models/black-forest-labs/FLUX.1-schnell',
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + HF_TOKEN,
-        'Content-Type': 'application/json',
-        'x-use-cache': 'false'
-      },
-      body: JSON.stringify({ inputs: prompt, parameters: { num_inference_steps: 4 } }),
-      signal: AbortSignal.timeout(60000)
-    }
-  );
-  if (!res.ok) throw new Error('HF ' + res.status);
-  const blob = await res.blob();
-  return await new Promise(function(resolve, reject) {
-    const reader = new FileReader();
-    reader.onload = function() { resolve(reader.result); };
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
+// Together AI — FLUX.1-schnell-Free, CORS 허용
+async function _togetherGenerateImage(prompt) {
+  if (!HF_TOKEN) throw new Error('no key');
+  const res = await fetch('https://api.together.xyz/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + HF_TOKEN,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: 'black-forest-labs/FLUX.1-schnell-Free',
+      prompt: prompt,
+      width: 768,
+      height: 432,
+      steps: 4,
+      n: 1,
+      response_format: 'b64_json'
+    }),
+    signal: AbortSignal.timeout(60000)
   });
-}
-
-// Pollinations fallback (img src 직접)
-function _pollinationsUrl(prompt, sid) {
-  const seed = sid
-    ? Math.abs(sid.split('').reduce(function(a,c){return((a<<5)-a)+c.charCodeAt(0);},0)) % 999983
-    : Date.now() % 999983;
-  return 'https://image.pollinations.ai/prompt/'
-    + encodeURIComponent(prompt.slice(0, 200))
-    + '?width=768&height=432&model=flux&seed=' + seed + '&nologo=true&nofeed=true';
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error('Together ' + res.status + ': ' + err.slice(0, 100));
+  }
+  const data = await res.json();
+  const b64 = data.data && data.data[0] && data.data[0].b64_json;
+  if (!b64) throw new Error('no image data');
+  return 'data:image/png;base64,' + b64;
 }
 
 
@@ -7169,17 +7146,44 @@ function _applyBgUrl(url) {
   console.log('[IMG] src set:', url.slice(0, 100));
 }
 
-function _renderStoryBg(storyEntry) {
+async function _renderStoryBg(storyEntry) {
   const bg = document.getElementById('storyBgImg');
   if (bg) bg.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
     _setStoryImgStatus('');
+    _renderCanvasBg(storyEntry);
     return;
   }
 
-  // canvas 씬 — 즉시 렌더
-  _renderCanvasBg(storyEntry);
+  const sid = storyEntry.id || '';
+
+  if (HF_TOKEN) {
+    // Together AI 키 있음 → AI 이미지 생성
+    const cached = sid && _storyImgCache[sid];
+    if (cached) { _applyBgUrl(cached); return; }
+
+    const prompt = _buildStoryScenePrompt(storyEntry);
+    _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.85)');
+    // canvas도 먼저 보여주고 AI 완성되면 교체
+    _renderCanvasBg(storyEntry);
+
+    try {
+      const dataUrl = await _togetherGenerateImage(prompt);
+      if (sid) {
+        _storyImgCache[sid] = dataUrl;
+        try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
+      }
+      _applyBgUrl(dataUrl);
+      _setStoryImgStatus('');
+    } catch(e) {
+      console.log('[IMG] Together failed:', e.message);
+      _setStoryImgStatus('');
+    }
+  } else {
+    // 키 없음 → canvas 픽셀 씬
+    _renderCanvasBg(storyEntry);
+  }
 }
 
 function _renderCanvasBg(storyEntry) {
