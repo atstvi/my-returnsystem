@@ -10618,87 +10618,161 @@ function _hookFocusForAvatar() {
 
 // ── 퀘스트 렌더 — renderMeTodo 덮어쓰기 ──
 // ── TODAY 할일탭 아이템 편집 함수들 ──
-var _mqOpen = null;
-function meTodayTaskToggle(e, itemId, realIdx) {
-  // 아이콘(완료버튼), 체크박스, 버튼 클릭은 무시
-  if (e.target.closest('input,button,.me-todo-subitem')) return;
-  const editId = 'mqedit-' + itemId;
-  const panel = document.getElementById(editId);
-  if (!panel) return;
-  const opening = panel.style.display === 'none';
-  // 기존 열린 것 닫기
-  if (_mqOpen && _mqOpen !== itemId) {
-    const prev = document.getElementById('mqedit-' + _mqOpen);
-    if (prev) prev.style.display = 'none';
-  }
-  panel.style.display = opening ? 'flex' : 'none';
-  _mqOpen = opening ? itemId : null;
-}
+// openTodoEdit과 동일한 모달 방식으로 통일
 
-function mqSetField(itemId, field, val, btn, groupClass) {
-  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+function mqOpenEdit(e, itemId, realIdx) {
+  // 아이콘(완료), 서브임무, 버튼 클릭은 무시
+  if (e.target.closest('.quest-icon,.quest-btn,.me-todo-subitem,.me-todo-add-sub,.me-todo-subdel')) return;
+  const t = taskItems[realIdx];
   if (!t) return;
-  t[field] = t[field] === val ? '' : val;
-  // 버튼 sel 토글
-  const panel = document.getElementById('mqedit-' + itemId);
-  if (panel) panel.querySelectorAll('.' + groupClass).forEach(function(b){ b.classList.remove('sel'); });
-  if (t[field]) btn.classList.add('sel');
+  // todoItems에 해당 항목이 있으면 거기서 편집
+  const todoIdx = todoItems.findIndex(function(td){ return td.id === t.id; });
+  if (todoIdx >= 0) {
+    openTodoEdit(todoIdx);
+    return;
+  }
+  // todoItems에 없는 순수 할일탭 항목 → taskItem 편집 모달
+  _openTaskEditModal(realIdx);
 }
 
-function mqSave(itemId, realIdx) {
-  const t = taskItems[realIdx]; if (!t) return;
-  const editId = 'mqedit-' + itemId;
-  const textEl = document.getElementById(editId + '-text');
-  const trigEl = document.getElementById(editId + '-trigger');
-  if (textEl && textEl.value.trim()) t.text = textEl.value.trim();
-  if (trigEl) t.trigger = trigEl.value.trim();
-  // 서브임무 텍스트
-  if (t.subs) {
-    t.subs.forEach(function(s, si) {
-      const inp = document.getElementById(editId + '-sub-' + si);
-      if (inp) s.text = inp.value.trim();
-    });
-  }
-  t.updatedAt = Date.now();
+function _openTaskEditModal(realIdx) {
+  const t = taskItems[realIdx];
+  if (!t) return;
+  const blockOpts = [
+    {k:'fear',l:'😨 두려움'},{k:'boring',l:'😑 귀찮음'},
+    {k:'unclear',l:'❓ 불명확'},{k:'energy',l:'🔋 에너지 없음'},{k:'waiting',l:'⏸ 대기 중'},
+  ];
+  const energyOpts = [
+    {k:'high',l:'⚡ 고집중'},{k:'mid',l:'🔆 중간'},{k:'low',l:'☁ 루틴'},
+  ];
+  const subs = t.subs || [];
+  const html = `
+    <div class="nds-modal-title">할일 편집</div>
+    <div class="nds-field">
+      <div class="nds-field-label">할 일</div>
+      <input id="tmeText" class="nds-inp" value="${esc(t.text||'')}">
+    </div>
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">우선순위</div>
+      <div style="display:flex;gap:8px">
+        ${['high','mid','low'].map(p=>`<button class="ws-opt${(t.priority||'')=== p?' sel '+p:''}" id="tmePrio-${p}" onclick="selectTaskPrio('${p}')">${p==='high'?'🔴 핵심':p==='mid'?'🟡 일반':'🟢 여유'}</button>`).join('')}
+      </div>
+      <input type="hidden" id="tmePrioVal" value="${t.priority||'mid'}">
+    </div>
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">에너지 요구도</div>
+      <div class="todo-energy-opts">
+        ${energyOpts.map(o=>`<button class="todo-energy-opt${(t.energyReq||'')=== o.k?' sel '+o.k:''}" data-energy="${o.k}"
+          onclick="selectTodoOpt('tmeEnergy','${o.k}',this,'todo-energy-opt','sel '+this.dataset.energy)">${o.l}</button>`).join('')}
+      </div>
+      <input type="hidden" id="tmeEnergy" value="${t.energyReq||''}">
+    </div>
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">막힌 이유</div>
+      <div class="todo-block-opts">
+        ${blockOpts.map(o=>`<button class="todo-block-opt${(t.blockReason||'')=== o.k?' sel':''}" data-block="${o.k}"
+          onclick="selectTodoOpt('tmeBlock','${o.k}',this,'todo-block-opt','sel')">${o.l}</button>`).join('')}
+      </div>
+      <input type="hidden" id="tmeBlock" value="${t.blockReason||''}">
+    </div>
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">트리거</div>
+      <input id="tmeTrigger" class="nds-inp" placeholder="지금 당장 시작하면 뭐부터?" value="${esc(t.trigger||'')}">
+    </div>
+    <div class="todo-edit-section">
+      <div class="todo-edit-section-title">서브임무</div>
+      <div id="tmeSubList" style="display:flex;flex-direction:column;gap:4px">
+        ${subs.map((s,si)=>`
+          <div style="display:flex;gap:4px;align-items:center">
+            <input type="checkbox" ${s.done?'checked':''} style="accent-color:var(--accent);flex-shrink:0"
+              onchange="window._tmeSubs[${si}].done=this.checked">
+            <input class="nds-inp" style="flex:1" value="${esc(s.text||'')}"
+              oninput="window._tmeSubs[${si}].text=this.value">
+            <button class="nds-btn-ghost" style="padding:0 6px" onclick="tmeDelSub(${si})">×</button>
+          </div>`).join('')}
+      </div>
+      <button class="ws-opt" style="font-size:10px;padding:2px 10px;margin-top:4px" onclick="tmeAddSub()">＋ 서브임무 추가</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+      <input type="checkbox" id="tmeLong" ${t.longTask?'checked':''} style="accent-color:var(--accent)">
+      <label for="tmeLong" style="font-size:12px;cursor:pointer">⏳ 시간이 많이 필요한 일</label>
+    </div>
+    <div class="nds-btn-row">
+      <button class="nds-btn-primary" onclick="tmeSave(${realIdx})">저장</button>
+      <button class="nds-btn-ghost" onclick="this.closest('.nds-modal').remove()">취소</button>
+    </div>`;
+  window._tmeRealIdx = realIdx;
+  window._tmeSubs = JSON.parse(JSON.stringify(subs));
+  makeModal(html);
+}
+
+function selectTaskPrio(p) {
+  document.getElementById('tmePrioVal').value = p;
+  ['high','mid','low'].forEach(function(v){
+    const btn = document.getElementById('tmePrio-'+v);
+    if(btn){ btn.classList.toggle('sel', v===p); ['high','mid','low'].forEach(k=>btn.classList.remove(k)); if(v===p)btn.classList.add(p); }
+  });
+}
+
+function tmeAddSub() {
+  if(!window._tmeSubs) window._tmeSubs=[];
+  const si = window._tmeSubs.length;
+  window._tmeSubs.push({text:'',done:false});
+  const list = document.getElementById('tmeSubList');
+  if(!list) return;
+  const div = document.createElement('div');
+  div.style.cssText='display:flex;gap:4px;align-items:center';
+  div.innerHTML=`<input type="checkbox" style="accent-color:var(--accent);flex-shrink:0" onchange="window._tmeSubs[${si}].done=this.checked">
+    <input class="nds-inp" style="flex:1" oninput="window._tmeSubs[${si}].text=this.value">
+    <button class="nds-btn-ghost" style="padding:0 6px" onclick="tmeDelSub(${si})">×</button>`;
+  list.appendChild(div);
+  div.querySelector('.nds-inp')?.focus();
+}
+
+function tmeDelSub(si) {
+  if(!window._tmeSubs) return;
+  window._tmeSubs.splice(si,1);
+  _openTaskEditModal(window._tmeRealIdx);
+}
+
+function tmeSave(realIdx) {
+  const t = taskItems[realIdx]; if(!t) return;
+  const textVal = document.getElementById('tmeText')?.value.trim();
+  if(textVal) t.text = textVal;
+  t.priority   = document.getElementById('tmePrioVal')?.value || t.priority;
+  t.energyReq  = document.getElementById('tmeEnergy')?.value  || '';
+  t.blockReason= document.getElementById('tmeBlock')?.value   || '';
+  t.trigger    = document.getElementById('tmeTrigger')?.value.trim() || '';
+  t.longTask   = document.getElementById('tmeLong')?.checked  || false;
+  t.subs       = window._tmeSubs || [];
+  t.updatedAt  = Date.now();
   saveTaskData();
   // todoItems 동기화
-  const linked = todoItems.find(function(td){ return td.id === t.id; });
-  if (linked) {
-    linked.text=t.text; linked.trigger=t.trigger;
-    linked.energyReq=t.energyReq; linked.blockReason=t.blockReason;
-    linked.subs=t.subs; linked.updatedAt=t.updatedAt;
+  const linked = todoItems.find(function(td){ return td.id===t.id; });
+  if(linked){
+    Object.assign(linked, {text:t.text,priority:t.priority,energyReq:t.energyReq,
+      blockReason:t.blockReason,trigger:t.trigger,longTask:t.longTask,subs:t.subs,updatedAt:t.updatedAt});
     saveTodos();
   }
-  if (notionCfg && notionCfg.workerUrl) _pushToNotion(t).catch(function(e){});
-  _mqOpen = null;
-  renderMeTodo();
+  if(notionCfg&&notionCfg.workerUrl) _pushToNotion(t).catch(function(e){});
+  document.querySelector('.nds-modal')?.remove();
+  renderMeTodo(); renderTaskList&&renderTaskList();
   showToast('저장됐어!');
 }
 
 function mqAddSub(itemId, realIdx) {
-  const t = taskItems[realIdx]; if (!t) return;
-  if (!t.subs) t.subs = [];
-  t.subs.push({text: '', done: false});
+  const t = taskItems[realIdx]; if(!t) return;
+  if(!t.subs) t.subs=[];
+  t.subs.push({text:'',done:false});
   saveTaskData();
   renderMeTodo();
-  // 새로 열기
-  const panel = document.getElementById('mqedit-' + itemId);
-  if (panel) panel.style.display = 'flex';
-  _mqOpen = String(itemId);
-  // 마지막 서브임무 인풋 포커스
-  const si = t.subs.length - 1;
-  const inp = document.getElementById('mqedit-' + itemId + '-sub-' + si);
-  if (inp) inp.focus();
 }
 
 function mqDelSub(itemId, realIdx, si) {
-  const t = taskItems[realIdx]; if (!t || !t.subs) return;
-  t.subs.splice(si, 1);
+  const t = taskItems[realIdx]; if(!t||!t.subs) return;
+  t.subs.splice(si,1);
   saveTaskData();
   renderMeTodo();
-  // 다시 열기
-  const panel = document.getElementById('mqedit-' + itemId);
-  if (panel) { panel.style.display = 'flex'; _mqOpen = String(itemId); }
 }
 
 function toggleTaskSubItem(realIdx, si) {
@@ -10790,66 +10864,52 @@ function renderMeTodo() {
     const divider = `<div style="font-family:var(--font-label);font-size:8px;letter-spacing:2px;
       color:rgba(45,255,170,.4);padding:6px 14px 4px;border-top:1px solid var(--border)">
       TODAY · 할일탭</div>`;
-    const blockLabelsT={fear:'😨 두려움',boring:'😑 귀찮음',unclear:'❓ 불명확',energy:'🔋 에너지 없음',waiting:'⏸ 대기 중'};
-    const energyLabelsT={high:'⚡ 고집중',mid:'🔆 중간',low:'☁ 루틴'};
     const taskHtml = todayTasks.map(t => {
       const cat = taskCats.find(c=>c.id===t.catId)||{color:'#94a3b8',icon:'📌'};
       const realIdx = taskItems.indexOf(t);
+      const prio = t.priority || '';
+      const prioIconT = {high:'!', mid:'▲', low:'–', '':'◦'};
+      const blockLabelsT = {fear:'😨 두려움',boring:'😑 귀찮음',unclear:'❓ 불명확',energy:'🔋 에너지 없음',waiting:'⏸ 대기 중'};
+      const energyLabelsT = {high:'⚡ 고집중',mid:'🔆 중간',low:'☁ 루틴'};
+      const borderColor = prio==='high'?'#ff4d6d':prio==='mid'?'#fbbf24':prio==='low'?'#2dffaa':cat.color;
+
       const subs = t.subs || [];
       const doneSubs = subs.filter(s=>s.done).length;
-      const subBar = subs.length>0?`
+      const subBarHtml = subs.length > 0 ? `
         <div class="quest-sub-bar"><div class="quest-sub-fill" style="width:${Math.round(doneSubs/subs.length*100)}%"></div></div>
-        <div style="font-family:var(--font-label);font-size:8px;color:var(--foreground-muted);margin-top:2px;letter-spacing:1px">${doneSubs}/${subs.length} 완료</div>`:'';
-      const subItemsHtml = subs.length>0?`<div class="me-todo-subitems" style="margin-top:4px">${
-        subs.map((s,si)=>`<div class="me-todo-subitem${s.done?' done':''}"
+        <div style="font-family:var(--font-label);font-size:8px;color:var(--foreground-muted);margin-top:2px;letter-spacing:1px">${doneSubs}/${subs.length} 완료</div>
+      ` : '';
+      const subItemsHtml = subs.length > 0 ? `<div class="me-todo-subitems" style="margin-top:4px">${
+        subs.map((s,si) => `<div class="me-todo-subitem${s.done?' done':''}"
           onclick="event.stopPropagation();toggleTaskSubItem(${realIdx},${si});renderMeTodo()">
           <div class="me-todo-subcheck">${s.done?'✓':''}</div>
           <span class="me-todo-subtext">${esc(s.text||'')}</span>
+          <button class="me-todo-subdel" onclick="event.stopPropagation();mqDelSub('${t.id}',${realIdx},${si})">×</button>
         </div>`).join('')
-      }</div>`:'';
-      const editId = 'mqedit-'+t.id;
-      return `<div class="quest-item" id="mqitem-${t.id}" style="border-left-color:${cat.color};opacity:${t.done?.4:1};cursor:pointer"
-        onclick="meTodayTaskToggle(event,'${t.id}',${realIdx})">
-        <div style="display:flex;align-items:flex-start;gap:8px;width:100%">
-          <div class="quest-icon none" style="border-color:${cat.color}44;color:${cat.color};flex-shrink:0"
-            onclick="event.stopPropagation();toggleTaskItem(${realIdx});renderMeTodo()">${cat.icon}</div>
-          <div class="quest-body" style="flex:1;min-width:0">
-            <div class="quest-text">${esc(t.text)}</div>
-            ${t.timeStart?`<div style="font-family:var(--font-label);font-size:8px;color:var(--foreground-muted);margin-top:2px">🕐 ${t.timeStart}${t.timeEnd?' – '+t.timeEnd:''}</div>`:''}
-            ${t.blockReason?`<span class="quest-tag block">${blockLabelsT[t.blockReason]||t.blockReason}</span>`:''}
-            ${t.energyReq?`<span class="quest-tag energy">${energyLabelsT[t.energyReq]||t.energyReq}</span>`:''}
-            ${subBar}${subItemsHtml}
-          </div>
+      }</div>` : '';
+
+      const metaTags = [
+        t.blockReason ? `<span class="quest-tag" style="border-color:rgba(240,64,255,.3);color:var(--accent-secondary)">${blockLabelsT[t.blockReason]||t.blockReason}</span>` : '',
+        t.energyReq   ? `<span class="quest-tag" style="border-color:rgba(45,255,170,.25);color:var(--accent)">${energyLabelsT[t.energyReq]||''}</span>` : '',
+        prio === 'high' ? `<span class="quest-tag" style="border-color:rgba(255,77,109,.4);color:var(--destructive)">PRIORITY</span>` : '',
+      ].filter(Boolean).join('');
+
+      return `<div class="quest-item${t.done?' done':''}" style="border-left-color:${borderColor}"
+        onclick="mqOpenEdit(event,'${t.id}',${realIdx})">
+        <div class="quest-icon ${prio||'none'}" title="클릭해서 완료"
+          onclick="event.stopPropagation();toggleTaskItem(${realIdx});renderMeTodo()" style="cursor:pointer;border-color:${cat.color}44;color:${cat.color}">
+          ${t.done?'✓':cat.icon}
         </div>
-        <div class="me-quest-edit-panel" id="${editId}" style="display:none;flex-direction:column;gap:6px;padding:8px 0 4px 0;margin-top:6px;border-top:1px solid rgba(255,255,255,.07)">
-          <input class="nds-inp" style="font-size:12px" id="${editId}-text" value="${esc(t.text)}" onclick="event.stopPropagation()" placeholder="할일 제목">
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${[['high','⚡ 고집중'],['mid','🔆 중간'],['low','☁ 루틴']].map(([v,lbl])=>`
-              <button class="ws-opt${(t.energyReq||'')===v?' sel':''}" style="font-size:10px;padding:2px 8px"
-                onclick="event.stopPropagation();mqSetField('${t.id}','energyReq','${v}',this,'mqenergy')">${lbl}</button>`).join('')}
-          </div>
-          <div style="display:flex;gap:4px;flex-wrap:wrap">
-            ${[['fear','😨 두려움'],['boring','😑 귀찮음'],['unclear','❓ 불명확'],['energy','🔋 에너지 없음'],['waiting','⏸ 대기']].map(([v,lbl])=>`
-              <button class="ws-opt${(t.blockReason||'')===v?' sel':''}" style="font-size:10px;padding:2px 8px"
-                onclick="event.stopPropagation();mqSetField('${t.id}','blockReason','${v}',this,'mqblock')">${lbl}</button>`).join('')}
-          </div>
-          <input class="nds-inp" style="font-size:11px" id="${editId}-trigger" value="${esc(t.trigger||'')}" onclick="event.stopPropagation()" placeholder="▷ 트리거: 지금 당장 시작하면?">
-          <div id="${editId}-subs" style="display:flex;flex-direction:column;gap:3px">
-            ${subs.map((s,si)=>`
-              <div style="display:flex;gap:4px;align-items:center">
-                <input type="checkbox" ${s.done?'checked':''} onclick="event.stopPropagation();toggleTaskSubItem(${realIdx},${si});renderMeTodo()" style="accent-color:var(--accent);flex-shrink:0">
-                <input class="nds-inp" style="flex:1;font-size:11px" value="${esc(s.text||'')}" id="${editId}-sub-${si}" onclick="event.stopPropagation()">
-                <button style="background:none;border:none;color:var(--foreground-muted);cursor:pointer;padding:0 4px" onclick="event.stopPropagation();mqDelSub('${t.id}',${realIdx},${si})">×</button>
-              </div>`).join('')}
-            <button class="ws-opt" style="font-size:10px;padding:2px 8px;align-self:flex-start;margin-top:2px"
-              onclick="event.stopPropagation();mqAddSub('${t.id}',${realIdx})">+ 서브임무</button>
-          </div>
-          <div style="display:flex;gap:6px;margin-top:2px">
-            <button class="btn-primary" style="font-size:11px;padding:3px 12px"
-              onclick="event.stopPropagation();mqSave('${t.id}',${realIdx})">✓ 저장</button>
-            <button class="nds-btn-ghost" style="font-size:11px;padding:3px 10px"
-              onclick="event.stopPropagation();toggleTaskItem(${realIdx});renderMeTodo()">완료</button>
-          </div>
+        <div class="quest-body">
+          <div class="quest-text">${esc(t.text)}${t.longTask?'<span style="opacity:.5;font-size:9px;margin-left:4px">⏳</span>':''}</div>
+          ${metaTags ? `<div class="quest-meta">${metaTags}</div>` : ''}
+          ${t.trigger ? `<div class="quest-trigger">▷ ${esc(t.trigger)}</div>` : ''}
+          ${subBarHtml}${subItemsHtml}
+          <button class="me-todo-add-sub" onclick="event.stopPropagation();mqAddSub('${t.id}',${realIdx})" style="margin-top:3px">＋ 서브임무</button>
+        </div>
+        <div class="quest-actions">
+          <button class="quest-btn" onclick="event.stopPropagation();mqOpenEdit(event,'${t.id}',${realIdx})">✎</button>
+          <button class="quest-btn del" onclick="event.stopPropagation();deleteTaskItem(${realIdx});renderMeTodo()">×</button>
         </div>
       </div>`;
     }).join('');
