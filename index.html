@@ -3265,18 +3265,16 @@ select {
   z-index: 0;
   transition: opacity .4s ease;
 }
-/* AI 생성 스토리 배경 이미지 */
+/* AI 생성 스토리 배경 이미지 (Puter concept art) */
 #storyBgImg {
   position: absolute; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
-  /* 픽셀 느낌 — 저해상도 업스케일 */
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
+  object-position: center center;
+  image-rendering: auto;
   z-index: 1;
-  transition: opacity .5s ease;
-  /* 색상 포스터리제이션 느낌 */
-  filter: contrast(1.2) saturate(0.8) brightness(0.5);
+  transition: opacity .65s ease;
+  filter: brightness(0.52) saturate(1.1) contrast(1.06);
 }
 /* 스토리 배경 위에 덮는 다크 그라데이션 오버레이 */
 .story-slide-viewport::after {
@@ -6716,7 +6714,6 @@ async function testApiKey(){
 // ═══════════════════════════════════════════════════════════════════
 
 let _avatarGenUrl = localStorage.getItem('avatar_gen_url') || '';
-let _storyImgCache = {}; // storyEntry.id → img element src
 let _puterReady = false;
 
 // Puter.js 준비 확인
@@ -6816,237 +6813,170 @@ function _applyGeneratedAvatar(url) {
 // ── AI 씬 캐시 (sid → visuals 객체) ──
 var _storySceneCache = (function(){ try { return JSON.parse(localStorage.getItem('story_scene_cache_v1') || '{}'); } catch(e){ return {}; } })();
 
-async function generateStoryScene(storyEntry) {
+// ── 스토리 이미지 캐시 (sid → blob URL) ──
+var _storyImgCache = (function(){
+  try { return JSON.parse(localStorage.getItem('story_img_cache_v2') || '{}'); } catch(e) { return {}; }
+})();
+
+// ─────────────────────────────────────────────────────────────────
+// 이미지 프롬프트 생성 — IMAGE SCENE 설명 → Puter 이미지 프롬프트
+// ─────────────────────────────────────────────────────────────────
+function _buildImagePrompt(imageScene) {
+  if (!imageScene) return null;
+  return (
+    'SCENE: ' + imageScene.trim() + '  ' +
+    'STYLE: cinematic cyberpunk illustration, high-end concept art, ' +
+    'dark futuristic megacity, rain-soaked streets, neon reflections, ' +
+    'volumetric lighting, film still composition, 35mm lens, dramatic shadows, ' +
+    'ultra detailed environment. ' +
+    'Visual style inspired by Syd Mead, Blade Runner production art, ' +
+    'Ghost in the Shell backgrounds. ' +
+    'Hand-painted concept art look, NOT AI glossy, natural imperfections, textured brushwork. ' +
+    'Wide cinematic framing. Very dark and atmospheric.'
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Puter.js로 스토리 씬 이미지 생성
+// ─────────────────────────────────────────────────────────────────
+async function generateStoryImage(storyEntry) {
   if (!storyEntry || !storyEntry.id) return null;
   const sid = storyEntry.id;
-  if (_storySceneCache[sid]) return _storySceneCache[sid];
 
-  if (!API_KEY) return null;
+  // 캐시 확인
+  if (_storyImgCache[sid]) return _storyImgCache[sid];
 
-  const storyText = (storyEntry.text || '').trim();
-  if (!storyText) return null;
+  // Puter.js 필요
+  if (!_checkPuter()) return null;
 
-  const prompt = [
-    '다음 이야기 장면을 읽고, 배경 그림을 그리기 위한 파라미터를 JSON으로만 출력해.',
-    '절대 다른 텍스트 없이 JSON만 출력할 것.',
-    '',
-    '이야기:',
-    '"' + storyText + '"',
-    '',
-    '출력할 JSON 형식:',
-    '{',
-    '  "scene": "street|rooftop|indoor|sea|forest|alley|dreamscape",',
-    '  "time": "midnight|dawn|morning|day|dusk|night",',
-    '  "weather": "clear|rain|storm|fog|snow",',
-    '  "mood": "melancholy|hopeful|tense|quiet|warm|neutral",',
-    '  "neonColor": "#rrggbb",',
-    '  "accentColor": "#rrggbb",',
-    '  "skyTop": "#rrggbb",',
-    '  "skyBot": "#rrggbb",',
-    '  "details": ["장면에 있는 구체적 오브젝트1", "오브젝트2", "오브젝트3"]',
-    '}',
-    '',
-    '이야기 내용을 정확히 반영해서 결정해. 같은 이야기면 항상 같은 값.',
-  ].join('\n');
+  // imageScene 없으면 storyText로 fallback 씬 구성
+  const imageScene = (storyEntry.imageScene || '').trim() ||
+    (storyEntry.text ? storyEntry.text.slice(0, 150) + ', cyberpunk city at night, neon rain' : null);
+  if (!imageScene) return null;
+
+  const prompt = _buildImagePrompt(imageScene);
+  if (!prompt) return null;
 
   try {
-    const raw = await callAI(prompt, 300);
-    const jsonStr = raw.replace(/```json|```/g, '').trim();
-    const vis = JSON.parse(jsonStr);
-    _storySceneCache[sid] = vis;
-    try { localStorage.setItem('story_scene_cache_v1', JSON.stringify(_storySceneCache)); } catch(e){}
-    return vis;
+    const imgEl = await _puterGenerate(prompt, 768, 432);
+    const url = imgEl.src;
+    // 캐시 저장 (최대 15개)
+    _storyImgCache[sid] = url;
+    const keys = Object.keys(_storyImgCache);
+    if (keys.length > 15) delete _storyImgCache[keys[0]];
+    try { localStorage.setItem('story_img_cache_v2', JSON.stringify(_storyImgCache)); } catch(e) {}
+    return url;
   } catch(e) {
-    console.warn('Scene parse failed:', e.message);
+    console.warn('[StoryImg] Puter generation failed:', e.message);
     return null;
   }
 }
 
-
-// ── 스토리 슬라이드 배경 업데이트 (비동기) ──
-
-// 아바타 이미지 픽셀화 (캐릭터 스프라이트 느낌)
-function _pixelateAvatar(srcUrl, callback) {
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = function() {
-    const W = 96, H = 144;
-    const BLOCK = 4; // 4px 픽셀 블록 (캐릭터는 더 세밀하게)
-    const sw = Math.floor(W / BLOCK), sh = Math.floor(H / BLOCK);
-
-    const small = document.createElement('canvas');
-    small.width = sw; small.height = sh;
-    const sCtx = small.getContext('2d');
-    sCtx.imageSmoothingEnabled = false;
-    sCtx.drawImage(img, 0, 0, sw, sh);
-
-    // 색상 포스터리제이션
-    const id = sCtx.getImageData(0, 0, sw, sh);
-    const d = id.data;
-    const LEVELS = 8;
-    for (let i = 0; i < d.length; i += 4) {
-      d[i]   = Math.round(d[i]   / (255/LEVELS)) * (255/LEVELS);
-      d[i+1] = Math.round(d[i+1] / (255/LEVELS)) * (255/LEVELS);
-      d[i+2] = Math.round(d[i+2] / (255/LEVELS)) * (255/LEVELS);
-    }
-    sCtx.putImageData(id, 0, 0);
-
-    const big = document.createElement('canvas');
-    big.width = W; big.height = H;
-    const bCtx = big.getContext('2d');
-    bCtx.imageSmoothingEnabled = false;
-    bCtx.drawImage(small, 0, 0, W, H);
-
-    callback(big.toDataURL('image/png'));
-  };
-  img.onerror = function() { callback(srcUrl); };
-  img.src = srcUrl;
-}
-// AI 이미지를 저해상도 픽셀아트로 변환
-function _pixelateImage(srcUrl, targetW, targetH, callback) {
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload = function() {
-    // 1단계: 저해상도로 축소 (픽셀화 핵심)
-    const PIXEL_SCALE = 6; // 6px 픽셀 블록
-    const smallW = Math.floor(targetW / PIXEL_SCALE);
-    const smallH = Math.floor(targetH / PIXEL_SCALE);
-
-    const small = document.createElement('canvas');
-    small.width = smallW; small.height = smallH;
-    const sCtx = small.getContext('2d');
-    sCtx.imageSmoothingEnabled = true;
-    sCtx.imageSmoothingQuality = 'low';
-    sCtx.drawImage(img, 0, 0, smallW, smallH);
-
-    // 2단계: 색상 포스터리제이션 (색 수 줄이기)
-    const id = sCtx.getImageData(0, 0, smallW, smallH);
-    const d = id.data;
-    const LEVELS = 6; // 색상 단계 수
-    for (let i = 0; i < d.length; i += 4) {
-      d[i]   = Math.round(d[i]   / (255/LEVELS)) * (255/LEVELS);
-      d[i+1] = Math.round(d[i+1] / (255/LEVELS)) * (255/LEVELS);
-      d[i+2] = Math.round(d[i+2] / (255/LEVELS)) * (255/LEVELS);
-    }
-    sCtx.putImageData(id, 0, 0);
-
-    // 3단계: 크게 다시 그리기 (crisp 픽셀 블록)
-    const big = document.createElement('canvas');
-    big.width = targetW; big.height = targetH;
-    const bCtx = big.getContext('2d');
-    bCtx.imageSmoothingEnabled = false;
-    bCtx.drawImage(small, 0, 0, targetW, targetH);
-
-    callback(big.toDataURL('image/png'));
-  };
-  img.onerror = function() { callback(srcUrl); }; // 실패시 원본
-  img.src = srcUrl;
-}
-
-// 렌더 시퀀스 — 비동기 경쟁 방지 (슬라이드 이동 시 이전 렌더 무시)
+// ─────────────────────────────────────────────────────────────────
+// 슬라이드 배경 렌더 — Puter 이미지 우선, 없으면 Canvas fallback
+// ─────────────────────────────────────────────────────────────────
 var _bgRenderSeq = 0;
 
 async function _renderStoryBg(storyEntry) {
-  const canvas = document.getElementById('storyPixelCanvas');
-  const vp = canvas?.parentElement;
-  if (!vp || !canvas) return;
+  const vp = document.querySelector('.story-slide-viewport');
+  if (!vp) return;
 
-  // 이 렌더 요청의 고유 번호 — 나중에 변경됐으면 결과 버림
   const mySeq = ++_bgRenderSeq;
 
-  const canvas2d = canvas.getContext('2d');
+  // bgImg 요소 (없으면 생성)
+  let bgImg = document.getElementById('storyBgImg');
+  if (!bgImg) {
+    bgImg = document.createElement('img');
+    bgImg.id = 'storyBgImg';
+    bgImg.style.cssText = [
+      'position:absolute;inset:0;width:100%;height:100%;',
+      'object-fit:cover;object-position:center;',
+      'z-index:1;transition:opacity .6s ease;',
+      'filter:brightness(0.5) saturate(1.15) contrast(1.08);',
+      'opacity:0;',
+    ].join('');
+    vp.insertBefore(bgImg, vp.firstChild);
+  }
 
-  const doRender = () => {
-    // 이미 새 렌더 요청이 왔으면 포기
+  // Canvas fallback은 항상 뒤에 숨김
+  const canvas = document.getElementById('storyPixelCanvas');
+  if (canvas) canvas.style.opacity = '0';
+
+  if (!storyEntry || !storyEntry.text) {
+    bgImg.style.opacity = '0';
+    return;
+  }
+
+  const sid = storyEntry.id;
+
+  // 캐시된 이미지가 있으면 즉시 표시
+  if (sid && _storyImgCache[sid]) {
     if (mySeq !== _bgRenderSeq) return;
+    bgImg.src = _storyImgCache[sid];
+    bgImg.style.opacity = '1';
+    return;
+  }
 
-    const vW = vp.offsetWidth  || 320;
-    const vH = vp.offsetHeight || 130;
+  // Puter 없으면 Canvas fallback으로
+  if (!_checkPuter()) {
+    _renderStoryBgCanvas(storyEntry, mySeq);
+    return;
+  }
 
-    canvas.width  = vW;
-    canvas.height = vH;
-    canvas.style.width  = vW + 'px';
-    canvas.style.height = vH + 'px';
-    canvas.style.imageRendering = 'auto';
-    canvas.style.opacity = '1';
+  // 로딩 중: 현재 이미지 dimming
+  bgImg.style.opacity = '0.2';
 
-    const bgImg = document.getElementById('storyBgImg');
-    if (bgImg) bgImg.style.opacity = '0';
-
-    if (!storyEntry || !storyEntry.text) {
-      _drawSceneFromVis(canvas2d, vW, vH, null, {});
-      return;
+  try {
+    const url = await generateStoryImage(storyEntry);
+    if (mySeq !== _bgRenderSeq) return;
+    if (url) {
+      bgImg.onload = () => {
+        if (mySeq === _bgRenderSeq) bgImg.style.opacity = '1';
+      };
+      bgImg.src = url;
+    } else {
+      // Puter 실패 → Canvas fallback
+      _renderStoryBgCanvas(storyEntry, mySeq);
     }
-
-    // API 키 없으면 텍스트 해시 기반 fallback 즉시 렌더
-    if (!API_KEY) {
-      const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-      _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
-      return;
-    }
-
-    // 캐시에 이미 있으면 즉시 렌더 (로딩 표시 없음)
-    const sid = storyEntry.id;
-    if (sid && _storySceneCache[sid]) {
-      _drawSceneFromVis(canvas2d, vW, vH, _storySceneCache[sid], storyEntry.npcs || {});
-      return;
-    }
-
-    // 로딩 중 표시
-    canvas2d.fillStyle = 'rgba(4,7,15,0.85)';
-    canvas2d.fillRect(0, 0, vW, vH);
-    canvas2d.fillStyle = 'rgba(45,255,170,0.35)';
-    canvas2d.font = `${Math.floor(vH*0.07)}px monospace`;
-    canvas2d.textAlign = 'center';
-    canvas2d.fillText('// RENDERING...', vW/2, vH/2);
-
-    generateStoryScene(storyEntry).then(vis => {
-      if (mySeq !== _bgRenderSeq) return; // 슬라이드 이동했으면 버림
-      if (vis) {
-        _drawSceneFromVis(canvas2d, vW, vH, vis, storyEntry.npcs || {});
-      } else {
-        const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-        _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
-      }
-    }).catch(() => {
-      if (mySeq !== _bgRenderSeq) return;
-      const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
-      _drawSceneFromVis(canvas2d, vW, vH, fallback, storyEntry.npcs || {});
-    });
-  };
-
-  // offsetWidth=0 이면 레이아웃 확정 후 실행
-  if (vp.offsetWidth === 0) {
-    requestAnimationFrame(doRender);
-  } else {
-    doRender();
+  } catch(e) {
+    if (mySeq !== _bgRenderSeq) return;
+    _renderStoryBgCanvas(storyEntry, mySeq);
   }
 }
 
+// Canvas fallback (Puter 없거나 실패 시)
+function _renderStoryBgCanvas(storyEntry, mySeq) {
+  const canvas = document.getElementById('storyPixelCanvas');
+  const vp = canvas ? canvas.parentElement : null;
+  if (!canvas || !vp) return;
+  const doRender = () => {
+    if (mySeq !== _bgRenderSeq) return;
+    const vW = vp.offsetWidth || 320, vH = vp.offsetHeight || 130;
+    canvas.width = vW; canvas.height = vH;
+    canvas.style.width = vW + 'px'; canvas.style.height = vH + 'px';
+    canvas.style.opacity = '0.85';
+    const ctx = canvas.getContext('2d');
+    const fallback = _fallbackVis(storyEntry.text, storyEntry.id);
+    _drawSceneFromVis(ctx, vW, vH, fallback, storyEntry.npcs || {});
+  };
+  if (vp.offsetWidth === 0) requestAnimationFrame(doRender); else doRender();
+}
 
-// ── 수동 스토리 배경 재생성 버튼 ──
+// ── 수동 배경 재생성 버튼 ──
 async function regenStoryBg() {
   const sorted = _storySorted ? _storySorted() : [];
   if (sorted.length === 0) { showToast('스토리가 없어'); return; }
-  const entry = sorted[storyCurrentIdx >= 0 ? storyCurrentIdx : sorted.length-1];
+  const entry = sorted[storyCurrentIdx >= 0 ? storyCurrentIdx : sorted.length - 1];
   if (!entry) return;
-  // 캐시 삭제 후 재생성
-  delete _storyImgCache[entry.id];
-  showToast('스토리 배경 생성 중...');
-  const url = await generateStoryImage(entry);
-  if (url) {
-    const vp = document.getElementById('storyPixelCanvas')?.parentElement;
-    const bgImg = document.getElementById('storyBgImg');
-    if (bgImg && vp) {
-      bgImg.src = url; bgImg.style.opacity = '1';
-      const canvas = document.getElementById('storyPixelCanvas');
-      if (canvas) canvas.style.opacity = '0';
-    }
-    showToast('배경 생성 완료! 🖼');
-  } else {
-    showToast('생성 실패 (Puter.js 확인해줘)');
+  if (entry.id) {
+    delete _storyImgCache[entry.id];
+    try { localStorage.setItem('story_img_cache_v2', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
+  showToast('배경 이미지 생성 중... (Puter AI)');
+  await _renderStoryBg(entry);
+  showToast('배경 생성 완료! 🎨');
 }
+
 
 // ── onload 초기화 ──
 function initTogetherAI() {
@@ -10932,70 +10862,98 @@ function _collectSystemState() {
 // ── 프롬프트 생성 ──
 function _buildStoryPrompt(state) {
   const batt = state.battery;
-  const battDesc = batt >= 8 ? '에너지가 넘쳐흐르는 상태야' :
-                   batt >= 6 ? '컨디션이 꽤 좋아' :
-                   batt >= 4 ? '그럭저럭 버티는 중이야' :
-                   batt >= 2 ? '피로가 꽤 쌓였어' :
-                               '거의 방전 직전이야';
+  const energyLevel = batt >= 8 ? 'very high — overflowing' :
+                      batt >= 6 ? 'good — running steady' :
+                      batt >= 4 ? 'moderate — holding on' :
+                      batt >= 2 ? 'low — fatigue building' :
+                                  'critical — nearly depleted';
 
-  const chargeList = state.todayChargeList.filter(Boolean).join(', ') || null;
-  const drainList  = state.todayDrainList.filter(Boolean).join(', ')  || null;
-  const missionList = [...state.todos.slice(0,2), ...state.tasks.slice(0,2)]
-    .map(function(t){ return t.text; }).filter(Boolean).slice(0,3).join(', ') || null;
-  const doneCount = (state.doneTodos||0) + (state.doneTasks||0);
-  const mood = state.wsAnswers.mood || state.wsAnswers['기분'] || '';
-  const cls = state.agentClass ? (' ['+state.agentClass+']') : '';
+  const chargeList  = state.todayChargeList.filter(Boolean).join(', ') || null;
+  const drainList   = state.todayDrainList.filter(Boolean).join(', ')  || null;
+  const missionList = [...state.todos.slice(0,3), ...state.tasks.slice(0,3)]
+    .map(function(t){ return t.text; }).filter(Boolean).slice(0,4).join('; ') || null;
+  const doneCount   = (state.doneTodos || 0) + (state.doneTasks || 0);
+  const mood        = state.wsAnswers.mood || state.wsAnswers['기분'] || null;
 
-  // 오늘 이미 생성된 조각들 (연속성용)
+  // 연속성: 오늘/전날 이전 조각
   const today = _todayKey();
-  const todayParts = storyLog.filter(function(s){ return s.date===today; })
-    .sort(function(a,b){ return (a.part||1)-(b.part||1); });
-  const partNum = todayParts.length + 1;
+  const todayParts = storyLog
+    .filter(function(s){ return s.date === today; })
+    .sort(function(a,b){ return (a.part||1) - (b.part||1); });
+  const partNum  = todayParts.length + 1;
   const lastPart = todayParts.length > 0 ? todayParts[todayParts.length-1] : null;
-  const lastText = lastPart ? lastPart.text.slice(0,120)+'...' : null;
+  const lastText = lastPart ? lastPart.text.slice(0, 200) : null;
 
-  // 전날 마지막 조각 (이어쓰기)
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate()-1);
-  const yKey = yesterday.toISOString().slice(0,10);
-  const yParts = storyLog.filter(function(s){ return s.date===yKey; })
-    .sort(function(a,b){ return (a.part||1)-(b.part||1); });
-  const prevDayText = yParts.length > 0 ? yParts[yParts.length-1].text.slice(0,100)+'...' : null;
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const yKey = yesterday.toISOString().slice(0, 10);
+  const yParts = storyLog
+    .filter(function(s){ return s.date === yKey; })
+    .sort(function(a,b){ return (a.part||1) - (b.part||1); });
+  const prevDayText = yParts.length > 0 ? yParts[yParts.length-1].text.slice(0, 150) : null;
 
-  var lines = [
-    '【역할】',
-    '너는 사이버펑크 힐링 세계관 "SECTOR 7"의 1인칭 이야기 작가야.',
-    '나는 요원 '+state.agentName+cls+'. DAY '+state.dayNum+', 오늘의 '+partNum+'번째 이야기 조각.',
-    '',
-    '【세계관】',
-    '근미래 도시 섹터 7. 네온사인, 빗소리, 낡은 기지. 전투보다 일상이 중심인 힐링 TRPG.',
-    '기지엔 고양이 CHIP, 창가 화분 VERDE, 연락책 HANDLER, 그리고 이웃 CITIZEN이 있어.',
-    '',
-    '【나의 오늘 상태】',
-    '컨디션: '+battDesc,
-    mood ? '기분: '+mood : null,
-    chargeList ? '오늘 힘이 됐던 것: '+chargeList : null,
-    drainList ? '소모된 것: '+drainList : null,
-    missionList ? '진행 중인 일: '+missionList : null,
-    doneCount > 0 ? '오늘 해낸 것: '+doneCount+'가지' : null,
-    '',
-    lastText ? '【이어쓰기 — 바로 전 조각 끝부분】\n'+lastText : (prevDayText ? '【전날 마지막 이야기 끝부분】\n'+prevDayText : '【첫 번째 이야기】'),
-    '',
-    '【작성 규칙 — 반드시 지켜야 함】',
-    '1. 1인칭 시점으로 써. "나는", "내가", "나의" 등 1인칭 주어 사용.',
-    '2. 순수 한국어만. 한자(漢字), 일본어 문자, 한자어 표기 절대 금지.',
-    '   금지 예시: 人, 日, 心, 月, 年, 分, 時, 間 등 한자 자체를 쓰지 말 것.',
-    '   대신 한글로: 사람, 날, 마음, 달, 해, 분, 시간 등으로 써.',
-    '3. 특수문자 (**,#,*,_,~,`) 금지. 큰따옴표(\")만 NPC 대사에 허용.',
-    '4. 3~5문장. 구어체. 너무 무겁지 않게.',
-    '5. 전 조각과 자연스럽게 이어지는 장면이나 생각.',
-    '6. NPC 1명 이하만 등장. 대사는 짧게.',
-    '7. 마지막 문장은 열린 결말이나 다음 순간을 암시.',
-    '',
-    '지금 바로 이야기만 써. 제목, 설명, 번호 없이.'
-  ];
+  var userState = [
+    'Current mood: '  + (mood || 'unspecified'),
+    'Energy level: '  + energyLevel,
+    chargeList  ? 'Things that recharged today: ' + chargeList  : null,
+    drainList   ? 'Things that drained today: '   + drainList   : null,
+    missionList ? 'Active goals / tasks: '         + missionList : null,
+    doneCount > 0 ? 'Completed today: ' + doneCount + ' items'  : null,
+  ].filter(Boolean).join('\n');
 
-  return lines.filter(function(l){ return l !== null; }).join('\n');
+  var continuity = lastText
+    ? 'PREVIOUS SEGMENT (continue the narrative from here):\n' + lastText
+    : (prevDayText
+      ? 'PREVIOUS DAY\'s LAST SEGMENT:\n' + prevDayText
+      : 'This is the very first segment. Establish the world and introduce the operative.');
+
+  return [
+    'You are the narrative engine of an ongoing cyberpunk story world.',
+    'The story must feel like a novel unfolding in another universe,',
+    'but it subtly reflects the user\'s real-life state, actions, and changes.',
+    '',
+    'USER STATE (transform symbolically — never reference these literally):',
+    userState,
+    '',
+    continuity,
+    '',
+    'DAY ' + state.dayNum + ', segment ' + partNum + '.',
+    '',
+    'RULES:',
+    '1. Do NOT directly mention the real-life task, mood, or energy.',
+    '2. Transform everything symbolically into cyberpunk world events.',
+    '3. The story must feel like part of a continuous, serious sci-fi novel.',
+    '4. The protagonist is an unnamed operative in a vast cyberpunk megacity.',
+    '5. Tone: atmospheric, grounded, literary — NOT game-like, NOT melodramatic.',
+    '6. Write the STORY SEGMENT in Korean only.',
+    '   NO Chinese characters (漢字): write 사람 not 人, 시간 not 時間, 날 not 日, 마음 not 心.',
+    '   NO Japanese script. NO markdown (**,#,*,_,~,`).',
+    '   Double quotes allowed only for NPC dialogue.',
+    '7. Write the IMAGE SCENE in English only — one sentence, cinematic and specific.',
+    '8. Avoid: game quest formatting, obvious metaphor explanation, mixed languages in text.',
+    '',
+    'Output EXACTLY this format — two labeled sections, nothing else before or after:',
+    '',
+    'STORY SEGMENT',
+    '(3–5 paragraphs in Korean. Novel-like prose. Atmospheric. Symbolic.)',
+    '',
+    'IMAGE SCENE',
+    '(One English sentence. A cinematic visual moment from the story — location, light, key element.)',
+  ].join('\n');
 }
+
+// ── AI 응답 파싱: STORY SEGMENT / IMAGE SCENE 분리 ──
+function _parseStoryResponse(raw) {
+  // 두 섹션 헤더 사이를 기준으로 분리
+  const storyMatch = raw.match(/STORY SEGMENT\s*\n([\s\S]*?)(?=\nIMAGE SCENE|$)/i);
+  const imageMatch = raw.match(/IMAGE SCENE\s*\n([\s\S]*?)$/i);
+  const storyText  = storyMatch ? storyMatch[1].trim() : raw.trim();
+  // 괄호 안 안내문이 그대로 나오는 경우 제거
+  const imageScene = imageMatch
+    ? imageMatch[1].trim().replace(/^\(.*?\)\s*/,'').trim()
+    : '';
+  return { storyText, imageScene };
+}
+
 
 // ── NPC 등장 감지 ──
 function _detectNpcs(text) {
@@ -11728,72 +11686,96 @@ function _typeInto(el, text, onDone) {
 }
 
 async function generateStory() {
-  if (!API_KEY) return; // 자동생성 — 키 없으면 조용히 종료
+  if (!API_KEY) return;
 
   const btn  = document.getElementById('storyGenBtn');
   const body = document.getElementById('storyBody');
   if (!body) return;
 
-  if(btn){ btn.disabled=true; }
-  // 로딩 슬라이드 표시
-  if(body) {
-    body.className = 'story-slide today';
-    body.innerHTML = '<span class="dim">// SECTOR 7 교신 중<span class="story-entry-cursor"></span></span>';
-  }
+  if (btn) btn.disabled = true;
+  body.className = 'story-slide today';
+  body.innerHTML = '<span class="dim">// SECTOR 7 교신 중<span class="story-entry-cursor"></span></span>';
   var transmit = document.getElementById('storyTransmit');
-  if(transmit) transmit.textContent = '◌';
+  if (transmit) transmit.textContent = '◌';
 
   try {
-    const state = _collectSystemState();
+    const state  = _collectSystemState();
     const prompt = _buildStoryPrompt(state);
-    const text = await callAI(prompt, 700);
 
-    // 새 조각 저장 (날짜별 누적)
-    const today = _todayKey();
-    const npcs = _detectNpcs(text);
+    // 스토리 전용 호출 — 시스템 프롬프트를 영어로
+    const key = API_KEY;
+    const res  = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 950,
+        temperature: 0.85,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'You are a literary cyberpunk narrative AI.',
+              'Follow all user instructions exactly.',
+              'The STORY SEGMENT must be written in pure Korean (한글 only).',
+              'Absolutely NO Chinese characters (漢字) — write 사람 not 人, 시간 not 時間.',
+              'The IMAGE SCENE must be written in English only.',
+              'Output format must match exactly: "STORY SEGMENT" header then Korean text,',
+              'then "IMAGE SCENE" header then one English sentence. Nothing else.',
+            ].join(' ')
+          },
+          { role: 'user', content: prompt }
+        ]
+      })
+    });
+    const d = await res.json();
+    if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
+    const raw = d.choices?.[0]?.message?.content || '';
+
+    const { storyText, imageScene } = _parseStoryResponse(raw);
+
+    // 새 조각 저장
+    const today    = _todayKey();
+    const npcs     = _detectNpcs(storyText);
     _updateNpcChips(npcs);
     const todayParts = storyLog.filter(s => s.date === today);
-    const partNum = todayParts.length + 1;
-    const now = new Date();
-    const timeStr = now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0');
-    const newEntry = {
-      id: 'sl_'+Date.now(),
+    const partNum    = todayParts.length + 1;
+    const now        = new Date();
+    const timeStr    = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+    const newEntry   = {
+      id: 'sl_' + Date.now(),
       date: today,
       time: timeStr,
-      text: text,
+      text: storyText,
+      imageScene: imageScene,   // Puter 이미지 생성에 사용
       npcs: npcs,
       dayNum: state.dayNum,
       part: partNum
     };
-    storyLog.unshift(newEntry); // 최신이 앞
+    storyLog.unshift(newEntry);
     if (storyLog.length > 200) storyLog = storyLog.slice(0, 200);
     localStorage.setItem('story_log_v1', JSON.stringify(storyLog));
-    if(fbUser)fbSaveAll();
+    if (fbUser) fbSaveAll();
 
-    // storyBody에 직접 타이핑
-    if(body) {
-      body.className = 'story-slide today';
-      body.innerHTML = '';
-    }
+    body.className = 'story-slide today';
+    body.innerHTML = '';
 
-    _typeInto(body, text, function() {
-      if(btn){ btn.disabled=false; }
-      // 최신 조각으로 인덱스 이동
+    _typeInto(body, storyText, function() {
+      if (btn) btn.disabled = false;
       storyCurrentIdx = _storySorted().length - 1;
       _renderStorySlide(storyCurrentIdx);
-      // 새 스토리 → 항상 새 배경 생성 (시퀀스 번호로 자동 처리)
+      // 타이핑 완료 후 배경 이미지 비동기 생성
       var lastEntry = _storySorted()[storyCurrentIdx];
-      if (lastEntry && typeof _renderStoryBg === 'function') {
-        _renderStoryBg(lastEntry);
-      }
+      if (lastEntry) _renderStoryBg(lastEntry);
     });
 
     const dayEl = document.getElementById('storyDayNum');
-    if(dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
+    if (dayEl) dayEl.textContent = 'DAY ' + state.dayNum;
 
   } catch(e) {
-    if(body){ body.className='story-slide'; body.innerHTML='<span class="warn">// 통신 오류: '+e.message+'</span>'; }
-    if(btn){ btn.textContent='◈ 채널 열기'; btn.disabled=false; }
+    body.className = 'story-slide';
+    body.innerHTML = '<span class="warn">// 통신 오류: ' + e.message + '</span>';
+    if (btn) { btn.textContent = '◈ 채널 열기'; btn.disabled = false; }
   }
 }
 
