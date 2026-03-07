@@ -7222,9 +7222,9 @@ function _applyGeneratedAvatar(url) {
 var _storySceneCache = (function(){ try { return JSON.parse(localStorage.getItem('story_scene_cache_v1') || '{}'); } catch(e){ return {}; } })();
 
 // ── 스토리 이미지 캐시 (sid → blob URL) ──
-// story_img_cache_v3 — 프롬프트 스타일 변경으로 캐시 버전 업
+// story_img_cache_v4 — 프롬프트 스타일 변경으로 캐시 버전 업
 var _storyImgCache = (function(){
-  try { return JSON.parse(localStorage.getItem('story_img_cache_v3') || '{}'); } catch(e) { return {}; }
+  try { return JSON.parse(localStorage.getItem('story_img_cache_v4') || '{}'); } catch(e) { return {}; }
 })();
 
 // ─────────────────────────────────────────────────────────────────
@@ -7250,12 +7250,8 @@ async function _buildStoryScenePrompt(storyEntry) {
   const title    = storyEntry.title    ? storyEntry.title + '. '    : '';
   if (!fullText && !loc && !title) return null;
 
-  const stylePrefix =
-    'oil painting fantasy book illustration, highly detailed atmospheric scene, ' +
-    'painterly brushwork, cinematic depth, dramatic chiaroscuro lighting, ' +
-    'classic fantasy novel art style, rich color palette, immersive environment, ' +
-    'characters as distant silhouettes only, no portraits, no faces, ' +
-    'no text no watermark, not anime not cartoon not photorealistic. Scene: ';
+  // stylePrefix는 _puterGenerateImage의 hpDNA가 담당하므로 비워둠
+  const stylePrefix = '';
 
   // API 키 없으면 텍스트 앞부분만 사용
   if (!API_KEY) {
@@ -7265,16 +7261,27 @@ async function _buildStoryScenePrompt(storyEntry) {
   // Groq로 장면 핵심 추출 → 영어 이미지 프롬프트 생성
   try {
     const sysPrompt =
-      'You are a master visual artist and Stable Diffusion prompt engineer specializing in atmospheric fantasy book illustrations. ' +
-      'Read the story fragment carefully and extract the most visually striking scene moment. ' +
-      'Write a vivid English image prompt (60-90 words) that captures: ' +
-      '1) The specific setting (room, forest, corridor, castle hall, etc.) with architectural/natural details. ' +
-      '2) The exact lighting (candlelight, moonbeam through window, glowing runes, torch, dawn mist, etc.). ' +
-      '3) The emotional atmosphere (tension, wonder, melancholy, hope, dread). ' +
-      '4) Key objects or magical elements mentioned in the story. ' +
-      '5) Time of day and weather if mentioned. ' +
-      'Characters appear only as silhouettes, cloaked figures, or distant shadows — never faces or portraits. ' +
-      'Output ONLY the English scene description. No preamble, no explanation.';
+      'You are translating a story into Harry Potter world visual elements for Stable Diffusion. ' +
+      'The model knows HP well. Your job: map the story content to SPECIFIC HP visual vocabulary that the model recognizes. ' +
+      '\n' +
+      'HP LOCATION VOCABULARY (use these exact terms when relevant): ' +
+      'Hogwarts Great Hall, Gryffindor common room, Slytherin dungeon, Astronomy Tower, ' +
+      'Hogwarts library, stone corridor moving staircases, Dumbledore office, ' +
+      'Potions classroom, Forbidden Forest, Hogsmeade village, Diagon Alley, ' +
+      'Platform Nine and Three Quarters, Ministry of Magic atrium, Azkaban fortress. ' +
+      '\n' +
+      'HP OBJECT VOCABULARY: ' +
+      'glowing wand tip, Gryffindor scarlet and gold, Slytherin green and silver, ' +
+      'floating candles, cauldron bubbling potion, enchanted portraits on walls, ' +
+      'silver Patronus mist, dark mark green smoke, golden snitch, ' +
+      'leather spell book, magic map glowing, Sorting Hat, time-turner gold, ' +
+      'Hogwarts house crest banners, quill and parchment, owl feathers. ' +
+      '\n' +
+      'TASK: Read the story. Pick the ONE most dramatic visual moment. ' +
+      'Map it to HP locations and objects above. Describe: location + objects + lighting + mood. ' +
+      'Be specific. Use HP vocabulary. 40-60 words. English only. ' +
+      'NO character faces. Robed figures or silhouettes only. ' +
+      'Output ONLY the scene description. Nothing else.';
 
     const userMsg = `STORY TITLE: ${title}\nLOCATION: ${loc}\n`
       + (storyEntry.time ? `Time: ${storyEntry.time}\n` : '')
@@ -7310,9 +7317,17 @@ async function _buildStoryScenePrompt(storyEntry) {
 
 async function _puterGenerateImage(prompt) {
   if (typeof puter === 'undefined') throw new Error('Puter.js not loaded');
-  // Lykon/DreamShaper: fantasy illustration에 최적화, Puter 무료 모델
-  const imgEl = await puter.ai.txt2img(prompt, {
-    model: 'Lykon/DreamShaper'
+
+  // HP 스타일 고정 태그 — 모델이 학습한 HP 비주얼 어휘
+  const hpStyle =
+    'Harry Potter wizarding world, Jim Kay illustration style, ' +
+    'oil painting, dark gothic atmosphere, painterly, cinematic, ' +
+    'no faces no text no watermark, ';
+
+  const finalPrompt = hpStyle + prompt;
+
+  const imgEl = await puter.ai.txt2img(finalPrompt, {
+    model: 'stabilityai/stable-diffusion-xl-base-1.0'
   });
   if (!imgEl || !imgEl.src) throw new Error('no image element');
   return imgEl.src;
@@ -7400,7 +7415,7 @@ async function _renderStoryBg(storyEntry) {
     const dataUrl = await _puterGenerateImage(prompt);
     if (sid && dataUrl) {
       _storyImgCache[sid] = dataUrl;
-      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
+      try { localStorage.setItem('story_img_cache_v4', JSON.stringify(_storyImgCache)); } catch(_) {}
     }
     if (dataUrl) _applyBgUrl(dataUrl);
     _setStoryImgStatus('');
@@ -7516,7 +7531,7 @@ function regenStoryBg() {
   if (!entry) return;
   if (entry.id) {
     delete _storyImgCache[entry.id];
-    try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
+    try { localStorage.setItem('story_img_cache_v4', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
   showToast('🖼 AI 씬 생성 중...');
   _renderStoryBg(entry);
@@ -8217,6 +8232,18 @@ const FOCUS_MODES = {
 
 // focusState is declared globally above
 
+
+
+function startFocusByTodoId(id) {
+  var idx = todoItems.findIndex(function(t){ return t.id == id; });
+  if(idx < 0) return;
+  startFocusTimer(idx);
+}
+function startFocusByTaskId(id) {
+  var idx = taskItems.findIndex(function(t){ return t.id == id; });
+  if(idx < 0) return;
+  startFocusTimerTask(idx);
+}
 
 function startFocusTimerTask(taskRealIdx) {
   const t = taskItems[taskRealIdx]; if(!t) return;
@@ -10907,7 +10934,7 @@ function renderMeTodo() {
       </div>
       <div class="quest-actions">
         ${!t.done ? `<button class="quest-focus-btn${isFocusing?' active':''}"
-          onclick="event.stopPropagation();startFocusTimer(${realIdx})">
+          onclick="event.stopPropagation();startFocusByTodoId('${t.id}')">
           ${isFocusing?'⏱ IN PROGRESS':'▶ START'}
         </button>` : ''}
         <button class="quest-btn" onclick="event.stopPropagation();openTodoEdit(${realIdx})">✎</button>
@@ -10966,7 +10993,7 @@ function renderMeTodo() {
         </div>
         <div class="quest-actions">
           ${!t.done?`<button class="quest-focus-btn${focusState.taskId===t.id&&focusState.running?' active':''}"
-            onclick="event.stopPropagation();startFocusTimerTask(${realIdx})">
+            onclick="event.stopPropagation();startFocusByTaskId('${t.id}')">
             ${focusState.taskId===t.id&&focusState.running?'⏱ IN PROGRESS':'▶ START'}
           </button>`:''}
           <button class="quest-btn" onclick="event.stopPropagation();mqOpenEdit(event,'${t.id}',${realIdx})">✎</button>
@@ -11844,7 +11871,7 @@ function clearStoryLog() {
   if (!confirm('스토리 전체를 삭제할까? 되돌릴 수 없어.')) return;
   storyLog = [];
   localStorage.removeItem('story_log_v1');
-  localStorage.removeItem('story_img_cache_v3');
+  localStorage.removeItem('story_img_cache_v4');
   if (typeof _storyImgCache !== 'undefined') _storyImgCache = {};
   storyCurrentIdx = -1;
   _renderStorySlide(-1);
@@ -12460,18 +12487,18 @@ function _updateStoryPixel(s) {
 
 // ── 트리거 종류별 딜레이 ──
 var _STORY_DELAY = {
-  task_done: 30000,   // 할일 완료 — 30초 후
-  charge:    40000,   // 충전 추가 — 40초 후
-  drain:     40000,   // 방전 추가 — 40초 후
-  checkin:   20000,   // 체크인 완료 — 20초 후
-  battery:   60000,   // 배터리 변화 — 60초 후
+  task_done: 120000,  // 할일 완료 — 2분 후
+  charge:    180000,  // 충전 추가 — 3분 후
+  drain:     180000,  // 방전 추가 — 3분 후
+  checkin:   90000,   // 체크인 완료 — 1.5분 후
+  battery:   300000,  // 배터리 변화 — 5분 후
   random:        0,   // 랜덤 (자체 타이머)
 };
 
 function _triggerStoryRegen(reason){
   if(!API_KEY) return;
   var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
-  if(todayParts.length >= 6) return;
+  if(todayParts.length >= 2) return;
 
   var delay = _STORY_DELAY[reason] || 10000;
   if(_storyAutoTimer) clearTimeout(_storyAutoTimer);
@@ -12485,13 +12512,13 @@ function _triggerStoryRegen(reason){
 var _storyRandomTimer = null;
 function _scheduleRandomStory(){
   if(_storyRandomTimer) clearTimeout(_storyRandomTimer);
-  var min = 60 * 60 * 1000;   // 60분
-  var max = 120 * 60 * 1000;  // 120분
+  var min = 3 * 60 * 60 * 1000;   // 3시간
+  var max = 5 * 60 * 60 * 1000;   // 5시간
   var delay = min + Math.floor(Math.random() * (max - min));
   _storyRandomTimer = setTimeout(function(){
     _storyRandomTimer = null;
     var todayParts = storyLog.filter(function(s){ return s.date===_todayKey(); });
-    if(API_KEY && todayParts.length < 6) generateStory();
+    if(API_KEY && todayParts.length < 3) generateStory(); // 하루 최대 3편
     _scheduleRandomStory(); // 다음 랜덤 예약
   }, delay);
 }
@@ -12756,9 +12783,7 @@ function initStoryCard() {
 
   // 오늘 조각 없으면 자동생성
   var todayParts = storyLog.filter(function(s){ return s.date === today; });
-  if (todayParts.length === 0 && API_KEY) {
-    setTimeout(function(){ generateStory(); }, 1200);
-  }
+  // 앱 시작 시 자동생성 비활성화 (이벤트 기반으로만 생성)
 }
 
 </script>
