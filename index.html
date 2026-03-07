@@ -5147,6 +5147,7 @@ function toggleTaskItem(idx){
   if(!taskItems[idx])return;
   var wasDone = taskItems[idx].done;
   taskItems[idx].done = !wasDone;
+  taskItems[idx].updatedAt = Date.now();
   saveTaskData();
   renderTaskList();
   renderTaskCal();
@@ -5338,6 +5339,7 @@ function saveTaskItemEdit(idx){
   t.timeEnd=document.getElementById('taskEditTimeEnd')?.value||'';
   t.catId=document.getElementById('taskEditCat')?.value||t.catId;
   t.priority=document.getElementById('taskEditPrio')?.value||'';
+  t.updatedAt = Date.now();
   saveTaskData();
   document.querySelector('.nds-modal')?.remove();
   renderTaskList();
@@ -10833,18 +10835,27 @@ async function syncNotionCategory(catId, dbId) {
 
   // 2b. 로컬에 있는 항목 → Notion 상태와 동기화
   const localItems = taskItems.filter(t => t.catId === catId);
-  const toRemove = []; // 로컬에서 제거할 item id 목록
+  const toRemove = [];
   for (const item of localItems) {
     if (item.notionPageId && notionPageMap[item.notionPageId]) {
-      // Notion에도 있음 → Notion 기준으로 업데이트
-      const np = notionPageToTask(notionPageMap[item.notionPageId], catId);
-      item.done      = np.done;
-      item.date      = np.date      || item.date;
-      item.timeStart = np.timeStart !== undefined ? np.timeStart : item.timeStart;
-      item.timeEnd   = np.timeEnd   !== undefined ? np.timeEnd   : item.timeEnd;
-      item.priority  = np.priority  || item.priority;
+      const notionPage = notionPageMap[item.notionPageId];
+      // Notion의 마지막 수정 시간 vs 로컬 마지막 수정 시간 비교
+      const notionEditedAt = new Date(notionPage.last_edited_time || 0).getTime();
+      const localUpdatedAt = item.updatedAt || item.createdAt || 0;
+
+      if (notionEditedAt > localUpdatedAt) {
+        // Notion이 더 최신 → Notion 기준으로 업데이트
+        const np = notionPageToTask(notionPage, catId);
+        item.done      = np.done;
+        item.date      = np.date      || item.date;
+        item.timeStart = np.timeStart !== undefined ? np.timeStart : item.timeStart;
+        item.timeEnd   = np.timeEnd   !== undefined ? np.timeEnd   : item.timeEnd;
+        item.priority  = np.priority  || item.priority;
+        item.updatedAt = notionEditedAt;
+      }
+      // 로컬이 더 최신이면 → 그대로 유지 (push는 수정 시점에 이미 됨)
     } else if (item.notionPageId && !notionPageMap[item.notionPageId]) {
-      // notionPageId가 있는데 Notion 결과에 없음 → 노션에서 삭제됨 → 로컬에서도 제거
+      // notionPageId가 있는데 Notion에 없음 → Notion에서 삭제됨 → 로컬도 제거
       toRemove.push(item.id);
     } else if (!item.notionPageId) {
       // 로컬에만 있음 → Notion에 새 페이지 생성
@@ -10853,6 +10864,7 @@ async function syncNotionCategory(catId, dbId) {
         properties: taskToNotionProps(item),
       });
       item.notionPageId = created.id;
+      item.updatedAt = Date.now();
       pageIds[item.id] = created.id;
     }
   }
@@ -10937,9 +10949,13 @@ async function _pushToNotion(item) {
   try {
     if (item.notionPageId) {
       // pageId 있으면 catId/dbId 없어도 바로 PATCH
-      await notionApi('PATCH', `/pages/${item.notionPageId}`, {
+      const patched = await notionApi('PATCH', `/pages/${item.notionPageId}`, {
         properties: taskToNotionProps(item),
       });
+      // Notion 수정 시간 기록 → 다음 동기화 시 로컬이 더 최신임을 알 수 있게
+      if (patched && patched.last_edited_time) {
+        item.updatedAt = new Date(patched.last_edited_time).getTime();
+      }
       showToast('Notion ✓');
       return;
     }
