@@ -7045,25 +7045,65 @@ function _buildImagePrompt(imageScene) {
 // ── 스토리 씬 이미지 생성 — Puter.js (완전 무료, API 키 불필요) ──
 // https://js.puter.com/v2/ — FLUX.1-schnell 사용, 사용자 Puter 계정으로 처리
 
-function _buildStoryScenePrompt(storyEntry) {
+// Groq로 스토리 → 이미지 프롬프트 생성
+async function _buildStoryScenePrompt(storyEntry) {
   if (!storyEntry) return null;
-  let scene = (storyEntry.imageScene || '').trim();
-  if (!scene && storyEntry.text)
-    scene = storyEntry.text.replace(/\n/g, ' ').trim().slice(0, 300);
-  if (!scene) return null;
-  const loc   = storyEntry.location ? storyEntry.location + '. ' : '';
-  const title = storyEntry.title    ? storyEntry.title + '. '    : '';
-  return (
-    'fantasy book illustration, atmospheric storytelling, painterly textures, ' +
-    'cinematic composition, dramatic magical lighting, environmental storytelling, ' +
-    'classic fantasy novel illustration style, mysterious and immersive mood, ' +
-    'focus on environment not characters, silhouettes only if people present, ' +
-    'magical lighting lanterns candlelight moonlight, ' +
-    'ancient stone wooden floors dust floating papers glowing runes, ' +
-    'depth and perspective, rich color palette, professional illustrator quality, ' +
-    'no text, no watermark, not anime, not cartoon, not CGI. ' +
-    'Scene: ' + title + loc + scene
-  ).slice(0, 500);
+  const fullText = (storyEntry.text || '').trim();
+  const loc      = storyEntry.location ? storyEntry.location + '. ' : '';
+  const title    = storyEntry.title    ? storyEntry.title + '. '    : '';
+  if (!fullText && !loc && !title) return null;
+
+  const stylePrefix =
+    'fantasy book illustration, atmospheric painterly textures, ' +
+    'cinematic composition, dramatic magical lighting, ' +
+    'classic fantasy novel style, mysterious immersive mood, ' +
+    'environment focus, characters as silhouettes only, ' +
+    'no text no watermark, not anime not cartoon not CGI. Scene: ';
+
+  // API 키 없으면 텍스트 앞부분만 사용
+  if (!API_KEY) {
+    return (stylePrefix + title + loc + fullText.slice(0, 300)).slice(0, 500);
+  }
+
+  // Groq로 장면 핵심 추출 → 영어 이미지 프롬프트 생성
+  try {
+    const sysPrompt =
+      'You are an expert at writing Stable Diffusion image generation prompts for fantasy illustrations. ' +
+      'Given a story fragment, extract the key visual scene and write a concise English image prompt (max 80 words). ' +
+      'Focus on: setting/environment, lighting, atmosphere, time of day, weather, notable objects. ' +
+      'Do NOT describe characters directly — only silhouettes or distant figures. ' +
+      'Output ONLY the scene description in English, no extra text.';
+
+    const userMsg = `Story title: ${title}
+Location: ${loc}
+Story text:
+${fullText}`;
+
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + API_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        max_tokens: 120,
+        temperature: 0.7,
+        messages: [
+          { role: 'system', content: sysPrompt },
+          { role: 'user',   content: userMsg }
+        ]
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!res.ok) throw new Error('groq ' + res.status);
+    const data = await res.json();
+    const scene = (data.choices[0].message.content || '').trim();
+    console.log('[PROMPT] Groq scene:', scene);
+    if (scene) return (stylePrefix + scene).slice(0, 600);
+  } catch(e) {
+    console.log('[PROMPT] Groq failed, fallback:', e.message);
+  }
+
+  // fallback: 텍스트 앞부분
+  return (stylePrefix + title + loc + fullText.slice(0, 300)).slice(0, 500);
 }
 
 async function _puterGenerateImage(prompt) {
@@ -7149,8 +7189,9 @@ async function _renderStoryBg(storyEntry) {
   const cached = sid && _storyImgCache[sid];
   if (cached) { _applyBgUrl(cached); return; }
 
-  const prompt = _buildStoryScenePrompt(storyEntry);
-  if (!prompt) return;
+  _setStoryImgStatus('◌ 장면 분석 중...', 'rgba(240,64,255,.6)');
+  const prompt = await _buildStoryScenePrompt(storyEntry);
+  if (!prompt) { _setStoryImgStatus(''); return; }
   _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.7)');
 
   try {
