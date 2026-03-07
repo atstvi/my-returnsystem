@@ -3336,9 +3336,8 @@ select {
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   image-rendering: -moz-crisp-edges;
-  opacity: 0.9;
+  opacity: 1;
   z-index: 0;
-  transition: opacity .4s ease;
 }
 /* AI 생성 스토리 배경 이미지 */
 #storyBgImg {
@@ -7181,34 +7180,40 @@ function _renderStoryBg(storyEntry) {
     return;
   }
 
-  // canvas 씬 — 항상 작동, 즉시 렌더
-  setTimeout(function() { _renderCanvasBg(storyEntry); }, 30);
+  // canvas 씬 — 즉시 렌더
+  _renderCanvasBg(storyEntry);
 }
 
 function _renderCanvasBg(storyEntry) {
   const canvas = document.getElementById('storyPixelCanvas');
-  const vp = canvas ? canvas.parentElement : null;
-  if (!canvas || !vp) return;
+  if (!canvas) return;
+  const vp = canvas.parentElement;
 
-  // CSS로 강제 크기 지정 후 렌더 (display:none 상태에서도 동작)
-  canvas.style.display = 'block';
-  const vW = vp.offsetWidth  || canvas.offsetWidth  || 400;
-  const vH = vp.offsetHeight || canvas.offsetHeight || 180;
-
-  const W = vW  > 10 ? vW  : 400;
-  const H = vH  > 10 ? vH  : 180;
+  // 크기: viewport 또는 고정값
+  const W = (vp && vp.offsetWidth  > 20 ? vp.offsetWidth  : 400);
+  const H = (vp && vp.offsetHeight > 20 ? vp.offsetHeight : 200);
 
   canvas.width  = W;
   canvas.height = H;
-  canvas.style.width  = W + 'px';
-  canvas.style.height = H + 'px';
+  canvas.style.cssText += ';position:absolute;inset:0;width:100%;height:100%;display:block;z-index:0;';
 
   const ctx = canvas.getContext('2d');
-  const vis = _fallbackVis(storyEntry.text, storyEntry.id);
-  _drawSceneFromVis(ctx, W, H, vis, storyEntry.npcs || {});
+  if (!ctx) return;
 
-  canvas.style.transition = 'opacity 0.6s ease';
-  canvas.style.opacity = '0.92';
+  try {
+    const vis = _fallbackVis((storyEntry && storyEntry.text) || '', (storyEntry && storyEntry.id) || '');
+    _drawSceneFromVis(ctx, W, H, vis, (storyEntry && storyEntry.npcs) || {});
+  } catch(e) {
+    // 완전 fallback: 그냥 gradient
+    console.log('[CANVAS] draw error:', e.message);
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#04070f');
+    g.addColorStop(1, '#0a0318');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  canvas.style.opacity = '1';
   _setStoryImgStatus('');
 }
 
