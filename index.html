@@ -6900,8 +6900,11 @@ function loadSavedKey(){
 function renderApiStatus(){
   const el=document.getElementById('apiStatus');if(!el)return;
   el.innerHTML=API_KEY
-    ?`<div class="status-dot ok"></div><span style="color:var(--green)">키 저장됨</span>`
+    ?`<div class="status-dot ok"></div><span style="color:var(--green)">키 저장됨 ✓</span>`
     :`<div class="status-dot none"></div><span style="color:var(--foreground-muted)">키 없음</span>`;
+  // 배지도 업데이트
+  const badge = document.querySelector('#sec-api')?.previousElementSibling?.querySelector('.set-section-badge');
+  if(badge){ badge.className = 'set-section-badge ' + (API_KEY ? 'ok' : 'off'); }
 }
 function saveApiKey(){
   const v=document.getElementById('apiKeyInp').value.trim();
@@ -7109,10 +7112,6 @@ function _renderStoryBg(storyEntry) {
   const cv = document.getElementById('storyPixelCanvas');
   if (cv) cv.style.opacity = '0';
 
-  // 이전 핸들러 클리어
-  bgImg.onload = null;
-  bgImg.onerror = null;
-
   if (!storyEntry || !storyEntry.text) {
     bgImg.style.opacity = '0'; return;
   }
@@ -7136,28 +7135,49 @@ function _renderStoryBg(storyEntry) {
   bgImg.style.transition = '';
   bgImg.style.opacity = '0';
 
-  // src를 먼저 비워서 같은 URL도 onload 발화 보장
-  bgImg.src = '';
+  // 완전 새 img 엘리먼트 교체 방식 — onload 발화 100% 보장
+  const vp = bgImg.parentElement;
+  const newImg = document.createElement('img');
+  newImg.id = 'storyBgImg';
+  newImg.style.cssText = bgImg.style.cssText;
+  newImg.style.opacity = '0';
+  newImg.style.position = 'absolute';
+  newImg.style.inset = '0';
+  newImg.style.width = '100%';
+  newImg.style.height = '100%';
+  newImg.style.objectFit = 'cover';
+  newImg.style.objectPosition = 'center top';
+  newImg.style.zIndex = '1';
+  newImg.style.filter = 'brightness(0.65) saturate(1.1)';
+  newImg.style.display = 'block';
+  newImg.style.pointerEvents = 'none';
 
-  bgImg.onload = function() {
-    bgImg.style.transition = 'opacity 1s ease';
-    bgImg.style.opacity = '1';
-    bgImg.onload = null;
-    bgImg.onerror = null;
+  newImg.onload = function() {
+    newImg.style.transition = 'opacity 1s ease';
+    newImg.style.opacity = '1';
+    // 상태 표시
+    var st = document.getElementById('storyImgStatus');
+    if (st) { st.textContent = '✦ AI'; st.style.color = 'rgba(45,255,170,.5)'; setTimeout(function(){ st.textContent=''; }, 3000); }
   };
-  bgImg.onerror = function() {
-    bgImg.onload = null;
-    bgImg.onerror = null;
+  newImg.onerror = function() {
     if (sid) delete _storyImgCache[sid];
-    // onerror여도 한 번 더 시도 (pollinations 간헐적 실패)
-    setTimeout(function() {
-      bgImg.src = url;
-    }, 2000);
   };
+  newImg.src = url;
 
-  // 짧은 딜레이로 src='' 처리 완료 보장
-  setTimeout(function() { bgImg.src = url; }, 50);
+  bgImg.replaceWith(newImg);
+
+  // 상태 표시
+  var st = document.getElementById('storyImgStatus');
+  if (!st) {
+    st = document.createElement('div');
+    st.id = 'storyImgStatus';
+    st.style.cssText = 'position:absolute;bottom:4px;right:6px;z-index:10;font-family:"Share Tech Mono",monospace;font-size:8px;letter-spacing:1px;padding:1px 6px;background:rgba(0,0,0,.55);pointer-events:none;color:rgba(251,191,36,.9)';
+    if (vp) vp.appendChild(st);
+  }
+  st.textContent = '◌ loading...';
+  st.style.color = 'rgba(251,191,36,.9)';
 }
+
 
 // Canvas fallback (Puter 없거나 실패 시)
 function _renderStoryBgCanvas(storyEntry, mySeq) {
