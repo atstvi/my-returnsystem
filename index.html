@@ -3348,9 +3348,13 @@ select {
   object-position: center top;
   z-index: 1;
   opacity: 0;
-  transition: opacity 1s ease;
-  filter: brightness(0.55) saturate(1.2);
+  transition: opacity 1.2s ease;
+  filter: brightness(0.6) saturate(1.15);
   display: block;
+  pointer-events: none;
+}
+#storyBgImg[src]:not([src=""]):not([src*="gif;base64"]) {
+  /* src가 실제 URL이면 transition 없이도 보이게 — JS에서 opacity 설정 */
 }
 /* 스토리 배경 위 그라데이션 오버레이 */
 .story-slide-viewport::after {
@@ -7098,58 +7102,60 @@ function _showBgShimmer(vp, show) {
   if (sh) sh.style.display = show ? 'block' : 'none';
 }
 
-async function _renderStoryBg(storyEntry) {
-  const vp = document.querySelector('.story-slide-viewport');
+function _renderStoryBg(storyEntry) {
+  const vp    = document.querySelector('.story-slide-viewport');
   const bgImg = document.getElementById('storyBgImg');
-  if (!vp || !bgImg) return;
+  if (!vp || !bgImg) { console.warn('[BG] no vp or bgImg'); return; }
 
-  const mySeq = ++_bgRenderSeq;
+  const seq = ++_bgRenderSeq;
 
-  const canvas = document.getElementById('storyPixelCanvas');
-  if (canvas) canvas.style.opacity = '0';
+  const cv = document.getElementById('storyPixelCanvas');
+  if (cv) cv.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
     bgImg.style.opacity = '0';
-    _showBgShimmer(vp, false);
     _setStoryImgStatus('');
     return;
   }
 
-  _showBgShimmer(vp, true);
-  _setStoryImgStatus('◌ GENERATING...', 'rgba(251,191,36,.9)');
+  const prompt = _buildStoryScenePrompt(storyEntry);
+  if (!prompt) { bgImg.style.opacity = '0'; return; }
 
-  const url = await generateStoryImage(storyEntry);
-  if (mySeq !== _bgRenderSeq) return;
-
-  _showBgShimmer(vp, false);
+  const sid = storyEntry.id || '';
+  let url = sid ? _storyImgCache[sid] : null;
 
   if (!url) {
-    _setStoryImgStatus('');
-    _renderStoryBgCanvas(storyEntry, mySeq);
-    return;
+    const seed = (Date.now() % 999999);
+    const short = prompt.slice(0, 180);
+    url = 'https://image.pollinations.ai/prompt/'
+        + encodeURIComponent(short)
+        + '?width=512&height=288&model=flux&seed=' + seed + '&nologo=true';
+    if (sid) {
+      _storyImgCache[sid] = url;
+      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_){}
+    }
   }
 
-  // src 초기화 후 핸들러 등록 → src 설정
-  bgImg.style.opacity = '0';
-  bgImg.src = '';
+  _setStoryImgStatus('◌', 'rgba(251,191,36,.9)');
+
+  bgImg.onload  = null;
+  bgImg.onerror = null;
 
   bgImg.onload = function() {
-    if (mySeq !== _bgRenderSeq) return;
+    if (seq !== _bgRenderSeq) return;
     bgImg.style.opacity = '1';
-    _setStoryImgStatus('✦ AI', 'rgba(45,255,170,.5)');
-    setTimeout(() => _setStoryImgStatus(''), 3000);
+    _setStoryImgStatus('');
   };
   bgImg.onerror = function() {
-    console.warn('[BG] failed to load:', url.slice(0, 60));
-    if (storyEntry.id) delete _storyImgCache[storyEntry.id];
+    console.warn('[BG] load error');
+    if (sid) delete _storyImgCache[sid];
+    bgImg.style.opacity = '0';
     _setStoryImgStatus('');
   };
 
-  // 약간의 딜레이로 브라우저가 '' src를 처리하게 한 뒤 설정
-  setTimeout(() => {
-    if (mySeq !== _bgRenderSeq) return;
-    bgImg.src = url;
-  }, 30);
+  bgImg.src = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  bgImg.src = url;
+  console.log('[BG] set src:', url.slice(0,80));
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
@@ -10937,18 +10943,33 @@ async function syncAllNotion() {
 
 // ── 할일 추가/수정/완료 시 Notion에 즉시 반영 ──
 async function _pushToNotion(item) {
-  if (!notionCfg.workerUrl || !notionCfg.token) return;
-  const dbId = (notionCfg.mappings || {})[item.catId];
-  if (!dbId) return;
+  if (!notionCfg.workerUrl || !notionCfg.token) {
+    console.log('[Notion] 설정 없음 - skip push');
+    return;
+  }
+  const mappings = notionCfg.mappings || {};
+  // catId로 DB 찾기, 없으면 첫 번째 매핑 DB 사용
+  let dbId = mappings[item.catId];
+  if (!dbId) {
+    const firstEntry = Object.entries(mappings)[0];
+    if (firstEntry) {
+      console.log('[Notion] catId 매핑 없음, 첫번째 DB 사용:', firstEntry[0]);
+      dbId = firstEntry[1];
+    }
+  }
+  if (!dbId) {
+    console.log('[Notion] DB 매핑 없음 - skip. catId:', item.catId, 'mappings:', JSON.stringify(mappings));
+    return;
+  }
 
   try {
+    console.log('[Notion] pushing item:', item.text, 'pageId:', item.notionPageId, 'dbId:', dbId);
     if (item.notionPageId) {
-      // 기존 페이지 업데이트
       await notionApi('PATCH', `/pages/${item.notionPageId}`, {
         properties: taskToNotionProps(item),
       });
+      console.log('[Notion] PATCH ok');
     } else {
-      // 새 페이지 생성
       const created = await notionApi('POST', '/pages', {
         parent: { database_id: dbId },
         properties: taskToNotionProps(item),
@@ -10957,12 +10978,13 @@ async function _pushToNotion(item) {
       if (!notionCfg.pageIds) notionCfg.pageIds = {};
       notionCfg.pageIds[item.id] = created.id;
       localStorage.setItem('notion_config', JSON.stringify(notionCfg));
-      // notionPageId가 item에 반영됐으므로 저장
       localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
       if(fbUser) fbSaveAll();
+      console.log('[Notion] POST ok, new pageId:', created.id);
     }
   } catch (e) {
-    console.warn('Notion push failed:', e.message);
+    console.warn('[Notion] push failed:', e.message);
+    showToast('Notion 반영 실패: ' + e.message);
   }
 }
 
