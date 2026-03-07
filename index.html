@@ -4846,7 +4846,41 @@ function renderTaskList(){
             <span class="tie-label">메모</span>
             <input class="tie-inp" id="tien-${t.id}" value="${esc(t.note||'')}" placeholder="메모..." onclick="event.stopPropagation()">
           </div>
-          <button class="tie-save-btn" onclick="event.stopPropagation();tieSave('${t.id}',${realIdx})">✓ 저장</button>
+          <div class="tie-row">
+            <span class="tie-label">트리거</span>
+            <input class="tie-inp" id="tietr-${t.id}" value="${esc(t.trigger||'')}" placeholder="지금 당장 시작하면 뭐부터?" onclick="event.stopPropagation()">
+          </div>
+          <div class="tie-row">
+            <span class="tie-label">에너지</span>
+            ${[['high','⚡ 고집중'],['mid','🔆 중간'],['low','☁ 루틴']].map(([v,lbl])=>`
+              <button class="tie-chip${(t.energyReq||'')=== v?' sel':''}" id="tieenergy-${t.id}-${v}"
+                onclick="event.stopPropagation();tieSetEnergy('${t.id}','${v}')">${lbl}</button>`).join('')}
+          </div>
+          <div class="tie-row">
+            <span class="tie-label">막힌 이유</span>
+            ${[['fear','😨 두려움'],['boring','😑 귀찮음'],['unclear','❓ 불명확'],['energy','🔋 에너지 없음'],['waiting','⏸ 기다리는 것']].map(([v,lbl])=>`
+              <button class="tie-chip${(t.blockReason||'')=== v?' sel':''}" id="tieblock-${t.id}-${v}"
+                onclick="event.stopPropagation();tieSetBlock('${t.id}','${v}')">${lbl}</button>`).join('')}
+          </div>
+          <div class="tie-row" id="tierow-subs-${t.id}">
+            <span class="tie-label">서브임무</span>
+            <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+              ${(t.subs||[]).map((s,si)=>`
+                <div style="display:flex;gap:4px;align-items:center">
+                  <input type="checkbox" ${s.done?'checked':''} onclick="event.stopPropagation();tieToggleSub('${t.id}',${si})" style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">
+                  <input class="tie-inp" style="flex:1" value="${esc(s.text||'')}" id="tiesub-${t.id}-${si}" onclick="event.stopPropagation()">
+                  <button class="tie-chip" style="padding:0 4px;opacity:.5" onclick="event.stopPropagation();tieDelSub('${t.id}',${si})">×</button>
+                </div>`).join('')}
+              <button class="tie-chip" style="align-self:flex-start;margin-top:2px" onclick="event.stopPropagation();tieAddSub('${t.id}')">+ 서브임무 추가</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+            <button class="tie-save-btn" onclick="event.stopPropagation();tieSave('${t.id}',${realIdx})">✓ 저장</button>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:11px;opacity:.7" onclick="event.stopPropagation()">
+              <input type="checkbox" ${t.longTask?'checked':''} id="tielong-${t.id}" style="accent-color:var(--accent)">
+              ⏳ 시간 많이 필요
+            </label>
+          </div>
         </div>
       </div>`;
     }).join('');
@@ -5066,15 +5100,93 @@ function tieSave(itemId, realIdx) {
   const t = taskItems[realIdx]; if(!t) return;
   const tv = document.getElementById('tiet-'+itemId)?.value.trim();
   const nv = document.getElementById('tien-'+itemId)?.value.trim();
+  const trv = document.getElementById('tietr-'+itemId)?.value.trim();
   if(tv) t.text = tv;
   t.note = nv||'';
+  if(trv !== undefined) t.trigger = trv;
+  t.longTask = document.getElementById('tielong-'+itemId)?.checked || false;
+  // 서브임무 텍스트 저장
+  if(t.subs) {
+    t.subs.forEach(function(s,si) {
+      const inp = document.getElementById('tiesub-'+itemId+'-'+si);
+      if(inp) s.text = inp.value.trim();
+    });
+  }
+  t.updatedAt = Date.now();
   saveTaskData();
+  // todoItems 양방향 동기화
+  const linked = todoItems.find(function(td){ return td.id === t.id; });
+  if(linked) {
+    linked.text=t.text; linked.note=t.note; linked.trigger=t.trigger;
+    linked.energyReq=t.energyReq; linked.blockReason=t.blockReason;
+    linked.longTask=t.longTask; linked.subs=t.subs; linked.updatedAt=t.updatedAt;
+    saveTodos();
+  }
+  if(notionCfg&&notionCfg.workerUrl) _pushToNotion(t).catch(function(e){});
   const el = document.getElementById('ti-'+itemId);
   if(el) el.classList.remove('editing');
   _tieOpen = null;
   tieClosePickers();
   renderTaskList(); renderTaskCal();
   showToast('저장됐어!');
+}
+
+// 서브임무 관련 helpers
+function tieAddSub(itemId) {
+  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  if(!t) return;
+  if(!t.subs) t.subs=[];
+  t.subs.push({text:'',done:false});
+  saveTaskData();
+  // 패널만 새로 그리지 않고 DOM에 직접 추가
+  const row = document.getElementById('tierow-subs-'+itemId);
+  if(row) {
+    const si = t.subs.length-1;
+    const div = document.createElement('div');
+    div.style.cssText='display:flex;gap:4px;align-items:center';
+    div.innerHTML = '<input type="checkbox" style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0" onclick="event.stopPropagation();tieToggleSub("+itemId+","+si+")">'
+      +'<input class="tie-inp" style="flex:1" id="tiesub-'+itemId+'-'+si+'" onclick="event.stopPropagation()">'
+      +'<button class="tie-chip" style="padding:0 4px;opacity:.5" onclick="event.stopPropagation();tieDelSub("+itemId+","+si+")">×</button>';
+    const addBtn = row.querySelector('button');
+    row.querySelector('div').insertBefore(div, addBtn);
+    div.querySelector('input[type=text], .tie-inp')?.focus();
+  }
+}
+
+function tieToggleSub(itemId, si) {
+  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  if(!t||!t.subs||!t.subs[si]) return;
+  t.subs[si].done = !t.subs[si].done;
+  saveTaskData();
+}
+
+function tieDelSub(itemId, si) {
+  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  if(!t||!t.subs) return;
+  t.subs.splice(si,1);
+  saveTaskData();
+  renderTaskList();
+}
+
+function tieSetEnergy(itemId, val) {
+  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  if(!t) return;
+  t.energyReq = t.energyReq===val ? '' : val;
+  // 버튼 sel 토글
+  ['high','mid','low'].forEach(function(v) {
+    const btn = document.getElementById('tieenergy-'+itemId+'-'+v);
+    if(btn) btn.classList.toggle('sel', t.energyReq===v);
+  });
+}
+
+function tieSetBlock(itemId, val) {
+  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  if(!t) return;
+  t.blockReason = t.blockReason===val ? '' : val;
+  ['fear','boring','unclear','energy','waiting'].forEach(function(v) {
+    const btn = document.getElementById('tieblock-'+itemId+'-'+v);
+    if(btn) btn.classList.toggle('sel', t.blockReason===v);
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -6376,8 +6488,8 @@ function _todoModalHtml(t, isEdit){
       <div class="todo-edit-section-title">카테고리 <span style="opacity:.5;font-size:10px">(Notion 연동)</span></div>
       <select id="todoCatId" class="nds-inp" style="font-size:12px">
         <option value="">-- 미분류 --</option>
-        \${(typeof taskCats !== 'undefined' ? taskCats : []).map(cat =>
-          \`<option value="\${cat.id}" \${(t.catId||'')=== cat.id?'selected':''}>\${cat.label||cat.name||cat.id}</option>\`
+        ${(typeof taskCats !== 'undefined' ? taskCats : []).map(cat =>
+          `<option value="${cat.id}" ${(t.catId||'')=== cat.id?'selected':''}>${cat.label||cat.name||cat.id}</option>`
         ).join('')}
       </select>
     </div>
