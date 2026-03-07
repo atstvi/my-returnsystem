@@ -7172,27 +7172,30 @@ function _applyBgUrl(url) {
 
 async function _renderStoryBg(storyEntry) {
   const cv = document.getElementById('storyPixelCanvas');
-  if (cv) cv.style.opacity = '0';
 
   if (!storyEntry || !storyEntry.text) {
     const bg = document.getElementById('storyBgImg');
     if (bg) bg.style.opacity = '0';
+    if (cv) cv.style.opacity = '0';
     _setStoryImgStatus('');
     return;
   }
 
-  const sid = (storyEntry.id || '');
-  const prompt = _buildStoryScenePrompt(storyEntry);
-  if (!prompt) return;
-
-  // 캐시 확인
-  if (sid && _storyImgCache[sid]) {
-    console.log('[IMG] cache hit');
-    _applyBgUrl(_storyImgCache[sid]);
-    return;
-  }
+  const sid = storyEntry.id || '';
 
   if (HF_TOKEN) {
+    // HF 토큰 있음 → AI 이미지
+    if (cv) cv.style.opacity = '0';
+
+    // 캐시 확인
+    if (sid && _storyImgCache[sid]) {
+      _applyBgUrl(_storyImgCache[sid]);
+      return;
+    }
+
+    const prompt = _buildStoryScenePrompt(storyEntry);
+    if (!prompt) return;
+
     _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.8)');
     try {
       const dataUrl = await _hfGenerateImage(prompt);
@@ -7202,38 +7205,49 @@ async function _renderStoryBg(storyEntry) {
       }
       _applyBgUrl(dataUrl);
     } catch(e) {
-      console.log('[IMG] HF failed:', e.message);
-      _setStoryImgStatus('◌ loading...', 'rgba(251,191,36,.7)');
-      const url = _pollinationsUrl(prompt, sid);
-      if (sid) {
-        _storyImgCache[sid] = url;
-        try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
-      }
-      _applyBgUrl(url);
+      console.log('[IMG] HF failed:', e.message, '→ canvas fallback');
+      _setStoryImgStatus('');
+      _renderCanvasBg(storyEntry);
     }
+
   } else {
-    _setStoryImgStatus('◌ loading...', 'rgba(251,191,36,.7)');
-    const url = _pollinationsUrl(prompt, sid);
-    if (sid) {
-      _storyImgCache[sid] = url;
-      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
-    }
-    _applyBgUrl(url);
+    // HF 토큰 없음 → canvas 씬 (항상 작동)
+    const bg = document.getElementById('storyBgImg');
+    if (bg) bg.style.opacity = '0';
+    _renderCanvasBg(storyEntry);
   }
 }
 
+function _renderCanvasBg(storyEntry) {
+  const canvas = document.getElementById('storyPixelCanvas');
+  const vp = canvas ? canvas.parentElement : null;
+  if (!canvas || !vp) return;
+  const vW = vp.offsetWidth || 320;
+  const vH = vp.offsetHeight || 160;
+  canvas.width = vW; canvas.height = vH;
+  canvas.style.width = vW + 'px'; canvas.style.height = vH + 'px';
+  const ctx = canvas.getContext('2d');
+  const vis = _fallbackVis(storyEntry.text, storyEntry.id);
+  _drawSceneFromVis(ctx, vW, vH, vis, storyEntry.npcs || {});
+  canvas.style.transition = 'opacity 0.8s ease';
+  canvas.style.opacity = '0.9';
+  _setStoryImgStatus('');
+}
 
 function regenStoryBg() {
   const sorted = _storySorted ? _storySorted() : [];
   if (sorted.length === 0) { showToast('스토리가 없어'); return; }
   const entry = sorted[storyCurrentIdx >= 0 ? storyCurrentIdx : sorted.length - 1];
   if (!entry) return;
-  // 캐시 삭제 → _getSceneUrl이 새 seed로 새 URL 생성
   if (entry.id) {
     delete _storyImgCache[entry.id];
     try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
-  showToast('🖼 씬 생성 중... (30~60초 소요)');
+  if (HF_TOKEN) {
+    showToast('🖼 AI 씬 생성 중... (10~30초)');
+  } else {
+    showToast('🖼 씬 생성 — HF 토큰 없어서 픽셀 씬으로 표시');
+  }
   _renderStoryBg(entry);
 }
 
@@ -11545,32 +11559,32 @@ function _fallbackVis(text, id) {
 
   // 간단한 키워드
   var scene = scenes[h % scenes.length];
-  if (/방|기지|실내|침대|창가|카페/.test(t)) scene = 'indoor';
-  else if (/옥상|난간|하늘/.test(t))          scene = 'rooftop';
-  else if (/바다|파도|항구|물/.test(t))        scene = 'sea';
-  else if (/숲|나무|자연/.test(t))             scene = 'forest';
-  else if (/골목|어둠|공포/.test(t))           scene = 'alley';
-  else if (/꿈|환상|몽상/.test(t))             scene = 'dreamscape';
+  if (/방|기지|실내|침대|창가|카페|room|bedroom|window|manor|indoor/.test(t)) scene = 'indoor';
+  else if (/옥상|난간|rooftop|roof/.test(t))          scene = 'rooftop';
+  else if (/바다|파도|항구|sea|wave|ocean|harbor/.test(t)) scene = 'sea';
+  else if (/숲|나무|forest|wood|tree/.test(t))         scene = 'forest';
+  else if (/골목|어둠|alley|dark|shadow/.test(t))      scene = 'alley';
+  else if (/꿈|환상|dream|vision/.test(t))             scene = 'dreamscape';
 
   var time = times[(h >> 3) % times.length];
-  if (/새벽/.test(t)) time = 'dawn';
-  else if (/밤|어두/.test(t)) time = 'night';
-  else if (/자정/.test(t)) time = 'midnight';
-  else if (/아침/.test(t)) time = 'morning';
-  else if (/저녁|노을/.test(t)) time = 'dusk';
+  if (/새벽|dawn/.test(t)) time = 'dawn';
+  else if (/밤|어두|night|dark/.test(t)) time = 'night';
+  else if (/자정|midnight/.test(t)) time = 'midnight';
+  else if (/아침|morning|sunrise/.test(t)) time = 'morning';
+  else if (/저녁|노을|dusk|evening/.test(t)) time = 'dusk';
 
   var mood = moods[(h >> 6) % moods.length];
-  if (/쓸쓸|외로|슬프|지쳐/.test(t)) mood = 'melancholy';
-  else if (/설레|희망|기대/.test(t))  mood = 'hopeful';
-  else if (/긴장|두려|위험/.test(t))  mood = 'tense';
-  else if (/따뜻|포근/.test(t))       mood = 'warm';
-  else if (/조용|평온|고요/.test(t))  mood = 'quiet';
+  if (/쓸쓸|외로|슬프|지쳐|sad|lonely/.test(t)) mood = 'melancholy';
+  else if (/설레|희망|기대|hope|excit|happy/.test(t)) mood = 'hopeful';
+  else if (/긴장|두려|위험|tense|fear|danger/.test(t)) mood = 'tense';
+  else if (/따뜻|포근|warm|cozy/.test(t))       mood = 'warm';
+  else if (/조용|평온|고요|quiet|peace/.test(t)) mood = 'quiet';
 
   var weather = 'clear';
-  if (/비|빗|젖/.test(t))     weather = 'rain';
-  else if (/폭풍|번개/.test(t)) weather = 'storm';
-  else if (/안개/.test(t))     weather = 'fog';
-  else if (/눈/.test(t))       weather = 'snow';
+  if (/비|빗|젖|rain|wet/.test(t))          weather = 'rain';
+  else if (/폭풍|번개|storm|thunder/.test(t)) weather = 'storm';
+  else if (/안개|fog|mist/.test(t))           weather = 'fog';
+  else if (/눈|snow/.test(t))                 weather = 'snow';
 
   // 팔레트
   var palettes = {
