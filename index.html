@@ -7133,9 +7133,12 @@ function _renderStoryBg(storyEntry) {
     }
   }
 
+  bgImg.style.transition = '';
   bgImg.style.opacity = '0';
 
-  // onload 먼저 등록, 그 다음 src
+  // src를 먼저 비워서 같은 URL도 onload 발화 보장
+  bgImg.src = '';
+
   bgImg.onload = function() {
     bgImg.style.transition = 'opacity 1s ease';
     bgImg.style.opacity = '1';
@@ -7146,8 +7149,14 @@ function _renderStoryBg(storyEntry) {
     bgImg.onload = null;
     bgImg.onerror = null;
     if (sid) delete _storyImgCache[sid];
+    // onerror여도 한 번 더 시도 (pollinations 간헐적 실패)
+    setTimeout(function() {
+      bgImg.src = url;
+    }, 2000);
   };
-  bgImg.src = url;
+
+  // 짧은 딜레이로 src='' 처리 완료 보장
+  setTimeout(function() { bgImg.src = url; }, 50);
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
@@ -7169,18 +7178,21 @@ function _renderStoryBgCanvas(storyEntry, mySeq) {
 }
 
 // ── 수동 배경 재생성 버튼 ──
-async function regenStoryBg() {
+function regenStoryBg() {
   const sorted = _storySorted ? _storySorted() : [];
   if (sorted.length === 0) { showToast('스토리가 없어'); return; }
   const entry = sorted[storyCurrentIdx >= 0 ? storyCurrentIdx : sorted.length - 1];
   if (!entry) return;
+  // 캐시 완전 삭제
   if (entry.id) {
     delete _storyImgCache[entry.id];
     try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
-  showToast('배경 이미지 생성 중... (Pollinations AI)');
-  await _renderStoryBg(entry);
-  showToast('배경 생성 완료! 🎨');
+  // bgImg src 강제 초기화
+  const bgImg = document.getElementById('storyBgImg');
+  if (bgImg) { bgImg.src = ''; bgImg.style.opacity = '0'; }
+  showToast('🖼 배경 생성 중...');
+  _renderStoryBg(entry);
 }
 
 
