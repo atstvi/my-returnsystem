@@ -4004,17 +4004,13 @@ select {
 
           <div style="border-top:1px solid var(--border);margin:14px 0 10px"></div>
 
-          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ Stable Horde API 키 <span style="font-size:9px;opacity:.5">(스토리 씬 AI 이미지 — 완전 무료)</span></div>
-          <div class="input-wrap">
-            <input id="hfTokenInp" class="setting-inp" type="password" placeholder="키 없이도 익명 사용 가능">
-          </div>
-          <div class="setting-hint">
-            키 없어도 작동 (익명 큐). 우선순위 높이려면 <a href="https://stablehorde.net/register" target="_blank">stablehorde.net</a> 무료 가입 후 키 입력.
+          <div class="setting-lbl" style="color:rgba(240,64,255,.85)">◈ 스토리 씬 이미지 <span style="font-size:9px;opacity:.5">(AI 자동 생성 — API 키 불필요)</span></div>
+          <div class="setting-hint" style="line-height:1.7">
+            <b style="color:var(--accent)">Puter.js</b>로 자동 생성됩니다.<br>
+            처음 사용 시 <a href="https://puter.com" target="_blank">puter.com</a> 무료 계정으로 로그인 팝업이 뜹니다.<br>
+            로그인 후 씬 재생성 버튼을 누르면 AI 이미지가 생성됩니다 🎨
           </div>
           <div class="api-status" id="hfStatus"></div>
-          <div class="btn-row">
-            <button class="btn-primary" onclick="saveHfToken()">저장</button>
-          </div>
 
           <div id="togetherGenProgress" style="display:none"></div>
         </div>
@@ -6910,7 +6906,7 @@ function saveHfToken(){
   const t=v.trim();
   if(!t){showToast('API 키를 입력해줘');return;}
   HF_TOKEN=t; localStorage.setItem('hf_token',t);
-  renderHfStatus(); showToast('Stable Horde 키 저장됐어 🎨');
+  renderHfStatus(); showToast('Prodia 키 저장됐어 🎨');
 }
 
 function renderHfStatus(){
@@ -7046,9 +7042,8 @@ function _buildImagePrompt(imageScene) {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// ── 스토리 씬 이미지 생성 — Stable Horde (완전 무료, CORS OK) ──
-// https://stablehorde.net — 커뮤니티 GPU, 키 없이 익명 사용 가능
-// API 키 있으면 우선순위 높아짐 (stablehorde.net 무료 가입)
+// ── 스토리 씬 이미지 생성 — Puter.js (완전 무료, API 키 불필요) ──
+// https://js.puter.com/v2/ — FLUX.1-schnell 사용, 사용자 Puter 계정으로 처리
 
 function _buildStoryScenePrompt(storyEntry) {
   if (!storyEntry) return null;
@@ -7058,13 +7053,12 @@ function _buildStoryScenePrompt(storyEntry) {
   if (!scene) return null;
   const loc   = storyEntry.location ? storyEntry.location + '. ' : '';
   const title = storyEntry.title    ? storyEntry.title + '. '    : '';
-
   return (
     'fantasy book illustration, atmospheric storytelling, painterly textures, ' +
     'cinematic composition, dramatic magical lighting, environmental storytelling, ' +
     'classic fantasy novel illustration style, mysterious and immersive mood, ' +
-    'focus on environment not characters, silhouettes only, ' +
-    'magical lighting with lanterns candlelight moonlight, ' +
+    'focus on environment not characters, silhouettes only if people present, ' +
+    'magical lighting lanterns candlelight moonlight, ' +
     'ancient stone wooden floors dust floating papers glowing runes, ' +
     'depth and perspective, rich color palette, professional illustrator quality, ' +
     'no text, no watermark, not anime, not cartoon, not CGI. ' +
@@ -7072,73 +7066,15 @@ function _buildStoryScenePrompt(storyEntry) {
   ).slice(0, 500);
 }
 
-// Stable Horde — 비동기 생성 (요청 → 폴링 → 이미지)
-async function _hordeGenerateImage(prompt) {
-  const apiKey = HF_TOKEN || '0000000000'; // 키 없으면 익명
-
-  // 1. 생성 요청
-  const reqRes = await fetch('https://stablehorde.net/api/v2/generate/async', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'apikey': apiKey,
-      'Client-Agent': 'return-system:1:github'
-    },
-    body: JSON.stringify({
-      prompt: prompt,
-      params: {
-        width: 768, height: 432,
-        steps: 20,
-        sampler_name: 'k_euler',
-        cfg_scale: 7,
-        karras: true,
-        n: 1
-      },
-      models: ['stable_diffusion'],
-      nsfw: false,
-      censor_nsfw: true,
-      slow_workers: true,
-      shared: true
-    }),
-    signal: AbortSignal.timeout(15000)
+async function _puterGenerateImage(prompt) {
+  if (typeof puter === 'undefined') throw new Error('Puter.js not loaded');
+  // puter.ai.txt2img는 img 엘리먼트 반환
+  const imgEl = await puter.ai.txt2img(prompt, {
+    model: 'black-forest-labs/flux-schnell',
+    test_mode: false
   });
-
-  if (!reqRes.ok) throw new Error('Horde request ' + reqRes.status);
-  const { id } = await reqRes.json();
-  if (!id) throw new Error('no job id');
-
-  // 2. 폴링 (최대 3분)
-  for (let i = 0; i < 36; i++) {
-    await new Promise(r => setTimeout(r, 5000));
-
-    const checkRes = await fetch('https://stablehorde.net/api/v2/generate/check/' + id, {
-      signal: AbortSignal.timeout(10000)
-    });
-    if (!checkRes.ok) continue;
-    const check = await checkRes.json();
-
-    if (check.done) {
-      // 완료 → 결과 가져오기
-      const statusRes = await fetch('https://stablehorde.net/api/v2/generate/status/' + id, {
-        signal: AbortSignal.timeout(10000)
-      });
-      if (!statusRes.ok) throw new Error('status fetch failed');
-      const status = await statusRes.json();
-      const img = status.generations && status.generations[0];
-      if (img && img.img) {
-        // img는 base64 또는 URL
-        if (img.img.startsWith('http')) return img.img;
-        return 'data:image/webp;base64,' + img.img;
-      }
-      throw new Error('no image in result');
-    }
-
-    // 진행상황 표시
-    const wait = check.wait_time || '?';
-    const pos  = check.queue_position || '?';
-    _setStoryImgStatus('◌ 대기 중... ' + wait + 's (큐:' + pos + ')', 'rgba(240,64,255,.7)');
-  }
-  throw new Error('timeout');
+  if (!imgEl || !imgEl.src) throw new Error('no image element');
+  return imgEl.src; // blob URL 또는 data URL
 }
 
 
@@ -7207,31 +7143,29 @@ async function _renderStoryBg(storyEntry) {
 
   const sid = storyEntry.id || '';
 
-  if (HF_TOKEN) {
-    // Together AI 키 있음 → AI 이미지 생성
-    const cached = sid && _storyImgCache[sid];
-    if (cached) { _applyBgUrl(cached); return; }
+  // canvas 픽셀 씬 먼저 즉시 표시
+  _renderCanvasBg(storyEntry);
 
-    const prompt = _buildStoryScenePrompt(storyEntry);
-    _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.85)');
-    // canvas도 먼저 보여주고 AI 완성되면 교체
-    _renderCanvasBg(storyEntry);
+  // Puter.js로 AI 이미지 생성 시도 (키 불필요)
+  const cached = sid && _storyImgCache[sid];
+  if (cached) { _applyBgUrl(cached); return; }
 
-    try {
-      const dataUrl = await _hordeGenerateImage(prompt);
-      if (sid) {
-        _storyImgCache[sid] = dataUrl;
-        try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
-      }
-      _applyBgUrl(dataUrl);
-      _setStoryImgStatus('');
-    } catch(e) {
-      console.log('[IMG] Together failed:', e.message);
-      _setStoryImgStatus('');
+  const prompt = _buildStoryScenePrompt(storyEntry);
+  if (!prompt) return;
+  _setStoryImgStatus('◌ AI 씬 생성 중...', 'rgba(240,64,255,.7)');
+
+  try {
+    const dataUrl = await _puterGenerateImage(prompt);
+    if (sid && dataUrl) {
+      _storyImgCache[sid] = dataUrl;
+      try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(_) {}
     }
-  } else {
-    // 키 없음 → canvas 픽셀 씬
-    _renderCanvasBg(storyEntry);
+    if (dataUrl) _applyBgUrl(dataUrl);
+    _setStoryImgStatus('');
+  } catch(e) {
+    console.log('[PUTER] img failed:', e.message);
+    _setStoryImgStatus('');
+    // canvas 씬으로 유지
   }
 }
 
@@ -7283,11 +7217,7 @@ function regenStoryBg() {
     delete _storyImgCache[entry.id];
     try { localStorage.setItem('story_img_cache_v3', JSON.stringify(_storyImgCache)); } catch(e) {}
   }
-  if (HF_TOKEN) {
-    showToast('🖼 AI 씬 생성 중... (대기열에 따라 30초~3분)');
-  } else {
-    showToast('🖼 씬 생성 — HF 토큰 없어서 픽셀 씬으로 표시');
-  }
+  showToast('🖼 AI 씬 생성 중...');
   _renderStoryBg(entry);
 }
 
