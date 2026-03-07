@@ -3348,7 +3348,6 @@ select {
   object-position: center top;
   z-index: 1;
   opacity: 0;
-  transition: opacity 1.5s ease;
   filter: brightness(0.65) saturate(1.1);
   display: block;
   pointer-events: none;
@@ -4365,9 +4364,9 @@ select {
               <div class="setting-hint" style="margin-bottom:8px">앱을 열어둔 동안 주기적으로 Notion과 자동 동기화해.</div>
               <div style="display:flex;align-items:center;gap:10px">
                 <select id="notionAutoSyncInterval" class="setting-inp" style="width:auto;padding:8px 12px;cursor:pointer">
-                  <option value="0" selected>자동 동기화 끄기</option>
+                  <option value="0">자동 동기화 끄기</option>
                   <option value="5">5분마다</option>
-                  <option value="15">15분마다</option>
+                  <option value="15" selected>15분마다</option>
                   <option value="30">30분마다</option>
                   <option value="60">1시간마다</option>
                 </select>
@@ -7110,6 +7109,10 @@ function _renderStoryBg(storyEntry) {
   const cv = document.getElementById('storyPixelCanvas');
   if (cv) cv.style.opacity = '0';
 
+  // 이전 핸들러 클리어
+  bgImg.onload = null;
+  bgImg.onerror = null;
+
   if (!storyEntry || !storyEntry.text) {
     bgImg.style.opacity = '0'; return;
   }
@@ -7132,17 +7135,19 @@ function _renderStoryBg(storyEntry) {
 
   bgImg.style.opacity = '0';
 
-  // 완전히 새 Image 객체로 로드 확인 후 bgImg에 표시
-  var loader = new Image();
-  loader.onload = function() {
-    bgImg.src = url;
+  // onload 먼저 등록, 그 다음 src
+  bgImg.onload = function() {
+    bgImg.style.transition = 'opacity 1s ease';
     bgImg.style.opacity = '1';
+    bgImg.onload = null;
+    bgImg.onerror = null;
   };
-  loader.onerror = function() {
-    // 실패해도 그냥 src 꽂아봄 (캐시에 있을 수도)
+  bgImg.onerror = function() {
+    bgImg.onload = null;
+    bgImg.onerror = null;
     if (sid) delete _storyImgCache[sid];
   };
-  loader.src = url;
+  bgImg.src = url;
 }
 
 // Canvas fallback (Puter 없거나 실패 시)
@@ -10551,7 +10556,7 @@ function _startNotionAutoSync(intervalMin) {
   if (_notionAutoSyncTimer) { clearInterval(_notionAutoSyncTimer); _notionAutoSyncTimer = null; }
   if (!intervalMin || intervalMin <= 0) return;
   _notionAutoSyncTimer = setInterval(function() {
-    if (notionCfg.workerUrl && notionCfg.token) syncAllNotion();
+    if (notionCfg && notionCfg.workerUrl && notionCfg.token) _smartSync().catch(()=>{});
   }, intervalMin * 60 * 1000);
 }
 
@@ -10996,15 +11001,38 @@ async function _deleteFromNotion(item) {
 }
 
 // ── 탭 전환 시 자동 동기화 hook ──
+// ── 스마트 동기화: 로컬 변경 먼저 push → 그 다음 Notion pull ──
+async function _smartSync() {
+  if (!notionCfg || !notionCfg.workerUrl || !notionCfg.token) return;
+  const mappings = notionCfg.mappings || {};
+  if (!Object.keys(mappings).length) return;
+
+  // 1단계: 로컬에서 updatedAt이 있는 항목 중 notionPageId 있는 것 push
+  const dirty = taskItems.filter(t => t.notionPageId && t.updatedAt && t._notionPushedAt !== t.updatedAt);
+  for (const item of dirty) {
+    try {
+      const dbId = mappings[item.catId] || Object.values(mappings)[0];
+      if (!dbId) continue;
+      await notionApi('PATCH', `/pages/${item.notionPageId}`, {
+        properties: taskToNotionProps(item),
+      });
+      item._notionPushedAt = item.updatedAt;
+    } catch(e) { /* silent */ }
+  }
+
+  // 2단계: Notion에서 pull (타임스탬프 비교로 로컬 우선 보장)
+  await syncAllNotion().catch(() => {});
+}
+
 function _hookNotionForTaskTab() {
   const origGoTab = goTab;
   goTab = function(t) {
     origGoTab(t);
-    // 탭 전환 시 자동 sync 제거 — 수동 sync 버튼만 사용
-    // (자동 sync가 로컬 변경을 덮어쓰는 문제 방지)
-    if (t === 'settings') {
-      initNotionSettings();
+    if (t === 'task' && notionCfg && notionCfg.workerUrl && notionCfg.token) {
+      // push-first sync: 로컬 미push 항목 먼저 올리고, 그 다음 pull
+      _smartSync().catch(() => {});
     }
+    if (t === 'settings') initNotionSettings();
   };
 }
 
