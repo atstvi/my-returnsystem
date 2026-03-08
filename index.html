@@ -2149,7 +2149,7 @@ select {
 #page-me .me-header-inner {
   max-width: 1600px; margin: 0 auto;
   display: grid;
-  grid-template-columns: 200px 1fr 1.4fr;
+  grid-template-columns: 200px 175px 1fr 1.4fr;
   gap: 0; align-items: stretch;
   min-height: 180px;
 }
@@ -2187,7 +2187,7 @@ select {
 /* 인박스 패널 — 헤더 안 */
 #page-me .me-header-inbox {
   display: flex; flex-direction: column;
-  width: 180px;
+  min-width: 160px;
   border-left: 1px solid rgba(45,255,170,.12);
   border-right: 1px solid rgba(45,255,170,.12);
   overflow: hidden;
@@ -2256,10 +2256,10 @@ select {
 /* 미디어쿼리 헤더 반응형 */
 /* 태블릿(900px 이하) */
 @media(max-width:1100px){
-  #page-me .me-header-inner { grid-template-columns: 190px 1fr 1.3fr; gap: 0; }
+  #page-me .me-header-inner { grid-template-columns: 190px 165px 1fr 1.2fr; gap: 0; }
 }
 @media(max-width:900px){
-  #page-me .me-header-inner { grid-template-columns: 170px 1fr 1.1fr; }
+  #page-me .me-header-inner { grid-template-columns: 170px 155px 1fr; }
   #page-me .me-header-check-zone { display: none; }
   #page-me .me-header-focus { display: none; }
   #page-me .me-header-inbox { width: auto; max-width: none; border-right: none; }
@@ -3241,7 +3241,6 @@ select {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  width: 200px;
   min-width: 160px;
   max-width: 220px;
   overflow: visible;
@@ -15113,8 +15112,9 @@ function _drawIsland(ctx, W, H) {
   var lightX = [0.25, 0.60, 0.78, 0.50, 0.40, 0.72, 0.18];
   var lightY = [0.35, 0.32, 0.36, 0.48, 0.72, 0.68, 0.55];
   for (var li = 0; li < 7; li++) {
-    var lx = W * (lightX[li] + Math.sin(t*0.4 + li*1.3) * 0.04);
-    var ly = H * (lightY[li] + Math.cos(t*0.3 + li*2.1) * 0.03);
+    var _fp = _worldToScreen(lightX[li], lightY[li], W*0.5, H*0.5, W, H);
+    var lx = _fp.x + Math.sin(t*0.4 + li*1.3) * (W*0.022);
+    var ly = _fp.y + Math.cos(t*0.3 + li*2.1) * (H*0.018);
     var lp = Math.sin(t*1.4 + li*2.0) * 0.35 + 0.65;
     ctx.save();
     ctx.globalAlpha = lp * 0.55;
@@ -15131,9 +15131,10 @@ function _drawIsland(ctx, W, H) {
   ctx.save();
   ctx.strokeStyle = 'rgba(34,211,238,0.07)';
   ctx.lineWidth   = 1.5;
-  ctx.beginPath(); ctx.ellipse(W*0.5, H*0.52, wR1*1.60, wR1, 0, 0, Math.PI*2); ctx.stroke();
+  var _wc = _worldToScreen(0.5, 0.5, W*0.5, H*0.5, W, H);
+  ctx.beginPath(); ctx.ellipse(_wc.x, _wc.y, wR1*1.55, wR1, 0, 0, Math.PI*2); ctx.stroke();
   ctx.globalAlpha = 0.04;
-  ctx.beginPath(); ctx.ellipse(W*0.5, H*0.52, wR2*1.60, wR2, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(_wc.x, _wc.y, wR2*1.55, wR2, 0, 0, Math.PI*2); ctx.stroke();
   ctx.restore();
 
   // ── 5. 집중 구역 글로우 ──
@@ -15323,21 +15324,20 @@ function _islandAttachEvents(canvas) {
 // 아일랜드 구역은 SVG 800x480 기준으로 배치됨
 // nx=0.5, ny=0.5가 중앙
 function _worldToScreen(nx, ny, iX, iY, iW, iH) {
-  // SVG 뷰박스 800x480, 섬 중심 약 (400,280) = (0.5, 0.583)
-  // 좌표를 SVG 픽셀 위치에 정밀 매핑
-  // nx 0~1 → SVG x 165~692 (섬 너비 527px), ny 0~1 → SVG y 128~430 (섬 높이 302px)
-  var svgIslandLeft  = 165;
-  var svgIslandRight = 692;
-  var svgIslandTop   = 128;
-  var svgIslandBot   = 430;
+  // iW=W(canvas 너비), iH=H(canvas 높이)로 호출됨
+  var W = iW, H = iH;
+  // SVG cover 그리기와 완전히 동일한 좌표 계산
   var svgW = 800, svgH = 480;
-  // nx/ny를 SVG 좌표로
-  var svgX = svgIslandLeft + nx * (svgIslandRight - svgIslandLeft);
-  var svgY = svgIslandTop  + ny * (svgIslandBot   - svgIslandTop);
-  // SVG 좌표 → canvas 화면 좌표
-  var px = (svgX / svgW) * iW + (iX - iW / 2);
-  var py = (svgY / svgH) * iH + (iY - iH / 2);
-  return { x: px, y: py };
+  var scaleF = Math.max(W / svgW, H / svgH);
+  var dx = (W - svgW * scaleF) / 2;
+  var dy = (H - svgH * scaleF) / 2;
+  // 섬 영역 SVG 픽셀 (경험적 조정값)
+  var svgIL = 165, svgIR = 692, svgIT = 128, svgIB = 430;
+  // nx/ny → SVG 픽셀
+  var svgX = svgIL + nx * (svgIR - svgIL);
+  var svgY = svgIT + ny * (svgIB - svgIT);
+  // SVG 픽셀 → canvas 픽셀
+  return { x: svgX * scaleF + dx, y: svgY * scaleF + dy };
 }
 
 function _isInIsland(nx, ny) {
@@ -16112,7 +16112,6 @@ function openIslandZoneEnter(zoneId) {
   var inner   = document.getElementById('islandZoneEnterInner');
   if (!overlay || !inner) return;
 
-  var _visitKey = 'island_visits_'+zoneId;
   if (typeof fbSaveAll === 'function') fbSaveAll();
 
   var traces = [];
@@ -16278,28 +16277,28 @@ function renderIsland() {
 
 
 function _getCanvasZone(clientX, clientY, canvas) {
-  var rect = canvas.getBoundingClientRect();
-  // CSS px → canvas px 비율 보정
+  var rect   = canvas.getBoundingClientRect();
   var scaleX = canvas.width  / rect.width;
   var scaleY = canvas.height / rect.height;
+  // CSS → canvas 픽셀
   var mx = (clientX - rect.left) * scaleX;
   var my = (clientY - rect.top)  * scaleY;
-  var W = canvas.width, H = canvas.height;
-  // 줌/팬 역변환 (drawIsland의 transform과 정확히 역순)
+  var W  = canvas.width, H = canvas.height;
+  // 줌/팬 역변환 (_drawIsland transform 역순)
   var zoom = _islandZoom || 1;
   var panX = _islandPanX || 0, panY = _islandPanY || 0;
-  mx = (mx - W/2 - panX) / zoom + W/2;
-  my = (my - H/2 - panY) / zoom + H/2;
-  // 섬 영역 좌표 (drawIsland와 동일하게, offset 없음 — 팬이 이미 반영됨)
-  var iX = W*0.5, iY = H*0.5, iW = W*0.78, iH = H*0.52;
-
+  // forward: screen = (world - W/2)*zoom + W/2 + panX
+  // inverse: world  = (screen - W/2 - panX)/zoom + W/2
+  var wx = (mx - W/2 - panX) / zoom + W/2;
+  var wy = (my - H/2 - panY) / zoom + H/2;
+  // _worldToScreen과 동일한 파라미터로 각 구역 위치 계산
   var hit = null, minDist = Infinity;
   islandZones.forEach(function(zone) {
-    var px = _worldToScreen(zone.x, zone.y, iX, iY, iW, iH);
-    var dist = Math.hypot(mx - px.x, my - px.y);
-    if (dist < 28 && dist < minDist) { minDist = dist; hit = zone; }
+    var px = _worldToScreen(zone.x, zone.y, W*0.5, H*0.5, W, H);
+    var dist = Math.hypot(wx - px.x, wy - px.y);
+    if (dist < 42 && dist < minDist) { minDist = dist; hit = zone; }
   });
-  return { zone: hit, mx: mx, my: my };
+  return { zone: hit, mx: wx, my: wy };
 }
 
 function _updateIslandHover(e, canvas) {
