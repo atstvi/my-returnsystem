@@ -2482,8 +2482,15 @@ select {
   display: grid;
   grid-template-columns: 420px 1fr;
   flex: 1; min-height: 0; overflow: hidden;
+  transition: grid-template-columns .3s ease;
 }
-@media(max-width:960px){ .task-page-wrap { grid-template-columns: 300px 1fr; } }
+.task-page-wrap.deadline-expanded {
+  grid-template-columns: 1fr 280px;
+}
+@media(max-width:960px){
+  .task-page-wrap { grid-template-columns: 300px 1fr; }
+  .task-page-wrap.deadline-expanded { grid-template-columns: 1fr 240px; }
+}
 @media(max-width:760px){
   .task-page-wrap { grid-template-columns: 1fr; }
   .task-cal-panel { display: none; }
@@ -2547,6 +2554,7 @@ select {
 
 .task-cal-day {
   min-height: 72px; padding: 3px 3px 2px;
+  transition: min-height .3s ease;
   border: 1px solid var(--border);
   cursor: pointer; transition: var(--t-snap);
   position: relative; background: var(--card);
@@ -3745,6 +3753,15 @@ select {
 /* 달력 셀 - 데드라인 뷰 모드 */
 .task-cal-grid.deadline-mode .task-cal-day {
   cursor: pointer;
+  min-height: 90px;
+}
+.task-cal-grid.deadline-mode .task-cal-item-pill {
+  font-size: 10px;
+  padding: 2px 5px;
+}
+.task-cal-grid.deadline-mode .task-cal-day-num {
+  font-size: 13px;
+  font-weight: 600;
 }
 .task-cal-day.is-deadline {
   border: 1px solid rgba(34,211,238,.5) !important;
@@ -13993,19 +14010,28 @@ function toggleDeadlineView() {
   var btn = document.getElementById('deadlineViewBtn');
   var hint = document.getElementById('deadlineViewHint');
   if (btn) btn.classList.toggle('active', _deadlineViewOn);
-  if (hint) hint.style.display = _deadlineViewOn ? 'block' : 'none';
+  if (hint) hint.style.display = _deadlineViewOn ? 'inline' : 'none';
 
   var grid = document.getElementById('taskCalGrid');
   if (grid) grid.classList.toggle('deadline-mode', _deadlineViewOn);
 
+  // 달력 패널 넓히기
+  var wrap = document.querySelector('.task-page-wrap');
+  if (wrap) wrap.classList.toggle('deadline-expanded', _deadlineViewOn);
+
   renderTaskCal();
   if (_deadlineViewOn) {
-    renderDeadlineArrows();
-    renderDeadlinePanel();
+    // rAF으로 레이아웃 완성 후 화살표
+    requestAnimationFrame(function() {
+      renderDeadlineArrows();
+    });
+    renderDeadlineSidePanel();
   } else {
     removeDeadlineArrows();
-    // 오른쪽 패널 원래대로
     renderTaskList && renderTaskList();
+    // 오른쪽 헤더 복구
+    var dateEl = document.getElementById('taskListDate');
+    if (dateEl) dateEl.textContent = taskSelDate ? taskDateDisp(taskSelDate) : '날짜를 선택해줘';
   }
 }
 
@@ -14017,119 +14043,168 @@ function renderDeadlineArrows() {
 
   removeDeadlineArrows();
 
+  // 링크 수집
+  var links = [];
+  taskItems.forEach(function(item) {
+    if (!item.deadlineId) return;
+    var deadline = taskItems.find(function(d) { return String(d.id) === String(item.deadlineId); });
+    if (!deadline || !deadline.date || !item.date) return;
+    if (item.date === deadline.date) return; // 같은 날짜면 화살표 불필요
+    links.push({ task: item, deadline: deadline });
+  });
+  if (!links.length) return;
+
   var canvas = document.createElement('canvas');
   canvas.id = 'deadlineCanvas';
   var wRect = wrap.getBoundingClientRect();
   canvas.width = wRect.width;
   canvas.height = wRect.height;
   wrap.appendChild(canvas);
-
   var ctx = canvas.getContext('2d');
 
-  // 각 할일과 연결된 일정 아이템 쌍 수집
-  var links = [];
-  taskItems.forEach(function(item) {
-    if (!item.deadlineId) return;
-    var deadline = taskItems.find(function(d) { return String(d.id) === String(item.deadlineId); });
-    if (!deadline || !deadline.date || !item.date) return;
-    links.push({ task: item, deadline: deadline });
-  });
-
-  if (!links.length) return;
-
-  // 날짜 셀 위치 맵 만들기
+  // 날짜 → 셀 rect 맵
   var cells = grid.querySelectorAll('.task-cal-day');
   var dateRectMap = {};
   cells.forEach(function(cell) {
-    var onclick = cell.getAttribute('onclick') || '';
-    var m = onclick.match(/taskSelDay\('([^']+)'\)/);
-    if (m) {
-      var r = cell.getBoundingClientRect();
-      var wr = wrap.getBoundingClientRect();
-      dateRectMap[m[1]] = {
-        x: r.left - wr.left + r.width / 2,
-        y: r.top - wr.top + r.height / 2,
-        top: r.top - wr.top,
-        bottom: r.bottom - wr.top,
-        left: r.left - wr.left,
-        right: r.right - wr.left,
-        width: r.width, height: r.height
-      };
-    }
+    var m = (cell.getAttribute('onclick')||'').match(/taskSelDay\('([^']+)'\)/);
+    if (!m) return;
+    var r = cell.getBoundingClientRect();
+    var wr = wRect;
+    dateRectMap[m[1]] = {
+      cx: r.left - wr.left + r.width / 2,
+      cy: r.top - wr.top + r.height / 2,
+      top: r.top - wr.top + 2,
+      bot: r.bottom - wr.top - 2,
+      left: r.left - wr.left + 2,
+      right: r.right - wr.left - 2,
+      w: r.width, h: r.height
+    };
   });
 
-  // 링크별 색상
-  var palette = ['#22d3ee','#f040ff','#2dffaa','#fbbf24','#f97316','#a78bfa'];
+  // 데드라인별 색상 고정 (같은 데드라인 = 같은 색)
+  var dlColorMap = {};
+  var palette = ['#22d3ee','#f040ff','#2dffaa','#fbbf24','#f97316','#a78bfa','#fb7185','#818cf8'];
+  var colorIdx = 0;
+  links.forEach(function(lk) {
+    var did = String(lk.deadline.id);
+    if (!dlColorMap[did]) { dlColorMap[did] = palette[colorIdx++ % palette.length]; }
+  });
 
-  links.forEach(function(lk, li) {
+  // 같은 (from→to) 쌍의 오프셋 계산 (중복 경로 분리)
+  var pairCount = {};
+  var pairOffset = {};
+  links.forEach(function(lk) {
+    var key = lk.task.date + '→' + lk.deadline.date;
+    pairCount[key] = (pairCount[key]||0) + 1;
+  });
+  var pairCur = {};
+
+  links.forEach(function(lk) {
     var from = dateRectMap[lk.task.date];
     var to   = dateRectMap[lk.deadline.date];
     if (!from || !to) return;
 
-    var color = palette[li % palette.length];
-    var days = _calcDaysLeft(lk.deadline);
+    var color = dlColorMap[String(lk.deadline.id)];
+    var days  = _calcDaysLeft(lk.deadline);
+    var key   = lk.task.date + '→' + lk.deadline.date;
+    var cur   = pairCur[key] || 0;
+    pairCur[key] = cur + 1;
+    var total = pairCount[key] || 1;
 
-    // 화살표 그리기
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.75;
-    ctx.setLineDash([4, 3]);
+    ctx.fillStyle   = color;
+    ctx.lineWidth   = 1.8;
+    ctx.globalAlpha = 0.8;
+    ctx.setLineDash([5, 3]);
 
-    // 베지어 커브
-    var x1 = from.x, y1 = from.bottom - 4;
-    var x2 = to.x, y2 = to.top + 4;
-    var cp1x = x1, cp1y = (y1 + y2) / 2;
-    var cp2x = x2, cp2y = (y1 + y2) / 2;
+    // 출발: task 셀 우측 중앙, 도착: deadline 셀 좌측 중앙
+    // 행 방향(위아래) vs 같은 행(좌우) 구분
+    var sameRow = Math.abs(from.cy - to.cy) < from.h * 0.6;
 
-    // 같은 셀이면 작은 루프
-    if (lk.task.date === lk.deadline.date) {
-      ctx.beginPath();
-      ctx.arc(from.x + from.width * 0.3, from.y, 12, 0, Math.PI * 2);
-      ctx.stroke();
+    var offsetStep = 10;
+    var offset = (cur - (total-1)/2) * offsetStep;
+
+    var x1, y1, x2, y2, cp1x, cp1y, cp2x, cp2y;
+
+    if (sameRow) {
+      // 같은 행: 위쪽으로 호
+      var goRight = to.cx > from.cx;
+      x1 = goRight ? from.right : from.left;
+      y1 = from.cy + offset;
+      x2 = goRight ? to.left : to.right;
+      y2 = to.cy + offset;
+      var arcH = -(from.h * 0.9 + Math.abs(to.cx - from.cx) * 0.12);
+      cp1x = x1 + (x2-x1)*0.25; cp1y = y1 + arcH;
+      cp2x = x1 + (x2-x1)*0.75; cp2y = y2 + arcH;
     } else {
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
-      ctx.stroke();
-
-      // 화살촉
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 0.9;
-      var angle = Math.atan2(y2 - cp2y, x2 - cp2x);
-      var aSize = 6;
-      ctx.beginPath();
-      ctx.moveTo(x2, y2);
-      ctx.lineTo(x2 - aSize * Math.cos(angle - 0.4), y2 - aSize * Math.sin(angle - 0.4));
-      ctx.lineTo(x2 - aSize * Math.cos(angle + 0.4), y2 - aSize * Math.sin(angle + 0.4));
-      ctx.closePath();
-      ctx.fill();
+      // 다른 행: 아래에서 위로
+      var goDown = to.cy > from.cy;
+      x1 = from.cx + offset;
+      y1 = goDown ? from.bot : from.top;
+      x2 = to.cx + offset;
+      y2 = goDown ? to.top : to.bot;
+      // 완만한 S 커브
+      var midY = (y1 + y2) / 2;
+      cp1x = x1; cp1y = midY;
+      cp2x = x2; cp2y = midY;
     }
 
-    // 중간에 days_left 라벨
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
+    ctx.stroke();
+
+    // 화살촉
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 0.95;
+    var dx = x2 - cp2x, dy = y2 - cp2y;
+    var angle = Math.atan2(dy, dx);
+    var aSize = 7;
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(x2 - aSize * Math.cos(angle - 0.38), y2 - aSize * Math.sin(angle - 0.38));
+    ctx.lineTo(x2 - aSize * Math.cos(angle + 0.38), y2 - aSize * Math.sin(angle + 0.38));
+    ctx.closePath();
+    ctx.fill();
+
+    // days_left 라벨 - 선 중간
     if (days !== null) {
-      var midX = (x1 + x2) / 2;
-      var midY = (y1 + y2) / 2 - 6;
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-      var label = _daysLeftLabel(days);
+      var midX = (x1+cp1x+cp2x+x2)*0.25 + (x1+cp1x+cp2x+x2)*0*0.0;
+      // 베지어 t=0.5 근사
+      var t05x = 0.125*(x1 + 3*cp1x + 3*cp2x + x2);
+      var t05y = 0.125*(y1 + 3*cp1y + 3*cp2y + y2);
+      var lbl = _daysLeftLabel(days);
       var cls = _daysLeftClass(days);
-      ctx.font = 'bold 9px "Share Tech Mono", monospace';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      var tw = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(10,12,18,0.85)';
-      ctx.fillRect(midX - tw/2 - 4, midY - 8, tw + 8, 16);
-      ctx.strokeStyle = color;
+      var lbColor = cls==='urgent'?'#ff4d6d': cls==='soon'?'#fbbf24': cls==='past'?'#64748b': color;
+      ctx.font = 'bold 8px "Share Tech Mono",monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      var tw = ctx.measureText(lbl).width + 10;
+      var th = 14;
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(14,17,23,0.9)';
+      roundRect(ctx, t05x - tw/2, t05y - th/2, tw, th, 2);
+      ctx.fill();
+      ctx.strokeStyle = lbColor;
       ctx.lineWidth = 1;
-      ctx.strokeRect(midX - tw/2 - 4, midY - 8, tw + 8, 16);
-      ctx.fillStyle = color;
-      ctx.fillText(label, midX, midY);
+      roundRect(ctx, t05x - tw/2, t05y - th/2, tw, th, 2);
+      ctx.stroke();
+      ctx.fillStyle = lbColor;
+      ctx.fillText(lbl, t05x, t05y);
     }
 
     ctx.restore();
   });
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y); ctx.arcTo(x+w,y, x+w,y+r, r);
+  ctx.lineTo(x+w, y+h-r); ctx.arcTo(x+w,y+h, x+w-r,y+h, r);
+  ctx.lineTo(x+r, y+h); ctx.arcTo(x,y+h, x,y+h-r, r);
+  ctx.lineTo(x, y+r); ctx.arcTo(x,y, x+r,y, r);
+  ctx.closePath();
 }
 
 function removeDeadlineArrows() {
@@ -14138,50 +14213,89 @@ function removeDeadlineArrows() {
 }
 
 // ── 데드라인 패널 (오른쪽 목록 패널) ──
-function renderDeadlinePanel() {
+function renderDeadlinePanel() { renderDeadlineSidePanel(); }
+function renderDeadlineSidePanel() {
   var listEl = document.getElementById('taskListScroll');
   if (!listEl) return;
 
   var schCats = _getScheduleCats();
+  var seen = {};
   var schItems = taskItems.filter(function(t) {
-    return schCats.some(function(c) { return c.id === t.catId; }) && t.date;
+    if (!schCats.some(function(c) { return c.id === t.catId; })) return false;
+    if (!t.date || !t.text) return false;
+    if (seen[t.id]) return false;
+    seen[t.id] = true;
+    return true;
   }).sort(function(a, b) { return a.date < b.date ? -1 : 1; });
 
+  var dateEl = document.getElementById('taskListDate');
+  var sumEl  = document.getElementById('taskListSummary');
+  if (dateEl) dateEl.textContent = '📅 데드라인';
+  if (sumEl)  sumEl.textContent  = schItems.length + '개 일정';
+
   if (!schItems.length) {
-    listEl.innerHTML = '<div class="task-list-empty"><span style="font-size:24px;opacity:.3">📅</span>' +
-      '<span style="font-size:12px">일정 카테고리에 항목이 없어.<br>할일탭에서 일정 카테고리를 만들고 항목을 추가해봐.</span></div>';
+    listEl.innerHTML =
+      '<div class="task-list-empty">' +
+        '<span style="font-size:28px;opacity:.3">📅</span>' +
+        '<span style="font-size:11px;color:var(--foreground-muted);text-align:center;line-height:1.8">' +
+          '일정 카테고리 항목이 없어.<br>카테고리명에 <b style="color:var(--accent-tertiary)">일정</b>이 포함되면<br>자동으로 여기 표시돼.' +
+        '</span>' +
+      '</div>';
     return;
   }
 
-  var html = '<div style="padding:10px 12px 4px"><div style="font-family:\'Orbitron\',monospace;font-size:9px;letter-spacing:2px;color:var(--accent-tertiary);margin-bottom:10px">📅 데드라인 목록</div>';
-
+  var today = new Date(); today.setHours(0,0,0,0);
+  var groups = { upcoming:[], far:[], past:[] };
   schItems.forEach(function(dl) {
-    var days = _calcDaysLeft(dl);
-    var cls = _daysLeftClass(days);
-    var label = _daysLeftLabel(days);
-
-    // 이 일정에 연결된 할일들
-    var linked = taskItems.filter(function(t) {
-      return String(t.deadlineId) === String(dl.id);
-    });
-
-    html += '<div class="deadline-event-chip' + (linked.length ? ' linked' : '') + '" onclick="openDeadlineDetail(\'' + dl.id + '\')">' +
-      '<span class="deadline-event-chip-icon">📌</span>' +
-      '<div style="flex:1;min-width:0">' +
-        '<div class="deadline-event-chip-text" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(dl.text) + '</div>' +
-        '<div class="deadline-event-chip-date">' + dl.date + (linked.length ? ' · 연결 ' + linked.length + '개' : '') + '</div>' +
-      '</div>' +
-      (label ? '<span class="deadline-event-chip-days ' + cls + '">' + label + '</span>' : '') +
-    '</div>';
+    var d = new Date(dl.date); d.setHours(0,0,0,0);
+    var diff = Math.round((d - today) / 86400000);
+    if (diff < 0) groups.past.push(dl);
+    else if (diff <= 30) groups.upcoming.push(dl);
+    else groups.far.push(dl);
   });
 
-  html += '</div>';
-  listEl.innerHTML = html;
+  function chipRow(dl, accent) {
+    var days   = _calcDaysLeft(dl);
+    var cls    = _daysLeftClass(days);
+    var label  = _daysLeftLabel(days);
+    var linked = taskItems.filter(function(t) { return String(t.deadlineId) === String(dl.id); });
+    var lnkTxt = linked.length
+      ? ' · <span style="color:var(--accent-tertiary)">연결 ' + linked.length + '개</span>'
+      : ' · 연결 없음';
+    var daysBadge = label
+      ? '<span class="deadline-event-chip-days ' + cls + '">' + label + '</span>'
+      : '';
+    var linkedCls = linked.length ? ' linked' : '';
+    var html = '<div class="deadline-event-chip' + linkedCls + '"'
+      + ' onclick="openDeadlineDetail(\'' + dl.id + '\')"'
+      + ' style="border-left:3px solid ' + accent + ';margin-bottom:5px">'
+      + '<div style="flex:1;min-width:0">'
+      + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--foreground-2);'
+      + 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(dl.text) + '</div>'
+      + '<div style="font-size:9px;color:var(--foreground-muted);margin-top:2px">'
+      + dl.date + lnkTxt
+      + '</div>'
+      + '</div>'
+      + daysBadge
+      + '</div>';
+    return html;
+  }
 
-  var dateEl = document.getElementById('taskListDate');
-  if (dateEl) dateEl.textContent = '데드라인';
-  var sumEl = document.getElementById('taskListSummary');
-  if (sumEl) sumEl.textContent = schItems.length + '개 일정';
+  function groupHtml(title, items, accent) {
+    if (!items.length) return '';
+    var rows = items.map(function(dl){ return chipRow(dl, accent); }).join('');
+    return '<div style="padding:8px 12px 4px">'
+      + '<div style="font-size:8px;letter-spacing:2px;color:' + accent
+      + ';font-family:var(--font-mono);padding-bottom:4px;border-bottom:1px solid rgba(255,255,255,.05);margin-bottom:6px">'
+      + title + '</div>'
+      + rows
+      + '</div>';
+  }
+
+  listEl.innerHTML =
+    groupHtml('▸ 30일 이내', groups.upcoming, '#22d3ee') +
+    groupHtml('▸ 예정', groups.far, '#a78bfa') +
+    groupHtml('▸ 지난 일정', groups.past, '#475569');
 }
 
 // ── 일정 상세 + 연결 관리 ──
@@ -14228,17 +14342,20 @@ function openDeadlineDetail(dlId) {
   }).join('');
 
   listEl.innerHTML =
-    '<div style="padding:10px 12px">' +
-      '<div style="font-family:\'Orbitron\',monospace;font-size:10px;letter-spacing:2px;color:var(--accent-tertiary);margin-bottom:4px">📌 ' + esc(dl.text) + '</div>' +
-      '<div style="font-family:\'Share Tech Mono\',monospace;font-size:10px;color:var(--foreground-muted);margin-bottom:8px">' +
-        dl.date + (label ? ' <span class="task-deadline-badge ' + cls + '">' + label + '</span>' : '') +
+    '<div style="padding:0">' +
+      // 헤더 (닫기 포함)
+      '<div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:2">' +
+        '<span style="font-size:16px">📌</span>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-family:\'Orbitron\',monospace;font-size:10px;letter-spacing:1px;color:var(--accent-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(dl.text) + '</div>' +
+          '<div style="font-size:9px;color:var(--foreground-muted);margin-top:1px">' + dl.date + (label ? ' · <span class=\"task-deadline-badge ' + cls + '\">' + label + '</span>' : '') + '</div>' +
+        '</div>' +
+        '<button onclick="renderDeadlineSidePanel()" style="background:none;border:1px solid var(--border);color:var(--foreground-muted);width:24px;height:24px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0" onclick="renderDeadlineSidePanel()">✕</button>' +
       '</div>' +
-      '<div style="font-family:\'Share Tech Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--foreground-muted);border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:8px">' +
-        '할일 클릭으로 연결/해제 · ' + linked.length + '개 연결됨' +
+      '<div style="padding:8px 12px 4px;font-family:\'Share Tech Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--foreground-muted)">' +
+        '클릭으로 연결/해제 &nbsp;·&nbsp; <span id="dlLinkCount">' + linked.length + '</span>개 연결' +
       '</div>' +
-      taskRows +
-      '<button onclick="renderDeadlinePanel();removeDeadlineArrows();renderDeadlineArrows();" ' +
-        'style="margin-top:10px;width:100%;padding:8px;background:rgba(34,211,238,.08);border:1px solid rgba(34,211,238,.3);color:var(--accent-tertiary);font-family:\'Share Tech Mono\',monospace;font-size:10px;cursor:pointer">← 목록으로</button>' +
+      '<div style="padding:4px 12px 10px">' + taskRows + '</div>' +
     '</div>';
 }
 
@@ -14268,12 +14385,19 @@ function toggleDeadlineLink(taskId, dlId, el) {
   t.updatedAt = Date.now();
   saveTaskData();
 
-  // 화살표 즉시 업데이트
-  removeDeadlineArrows();
-  renderDeadlineArrows();
-  // 달력 업데이트
+  // 연결 수 즉시 업데이트
+  var countEl = document.getElementById('dlLinkCount');
+  if (countEl) {
+    var newCount = taskItems.filter(function(x){ return String(x.deadlineId) === String(dlId); }).length;
+    countEl.textContent = newCount;
+  }
+
+  // 화살표 즉시 업데이트 (rAF - DOM 안정화 후)
+  requestAnimationFrame(function() {
+    removeDeadlineArrows();
+    renderDeadlineArrows();
+  });
   renderTaskCal();
-  renderDeadlineBadgesOnList();
 }
 
 // ── 할일 목록에 데드라인 뱃지 표시 ──
