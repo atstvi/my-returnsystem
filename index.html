@@ -13159,17 +13159,22 @@ function renderIsland() {
   canvas.style.height = Math.round(H) + 'px';
 
   if (_islandAnim) cancelAnimationFrame(_islandAnim);
+
+  // 첫 진입 시만 이벤트 부착
+  if (!vp._islandEventsAttached) _islandAttachEvents(canvas);
+
   _islandLoop(canvas, canvas.width, canvas.height);
-  _islandAttachEvents(canvas);
 }
 
 function _islandLoop(canvas, W, H) {
-  var ctx = canvas.getContext('2d');
+  // 항상 DOM에서 최신 canvas 참조
+  var c = document.getElementById('islandCanvas');
+  if (!c) return;
+  var ctx = c.getContext('2d');
   _islandWave += 0.025;
   ISLAND_TERRAIN.clouds.forEach(function(cl) { cl.x = (cl.x + cl.spd) % 1.1; });
-
-  _drawIsland(ctx, W, H);
-  _islandAnim = requestAnimationFrame(function() { _islandLoop(canvas, W, H); });
+  _drawIsland(ctx, c.width || W, c.height || H);
+  _islandAnim = requestAnimationFrame(function() { _islandLoop(c, c.width || W, c.height || H); });
 }
 
 function _drawIsland(ctx, W, H) {
@@ -13402,57 +13407,55 @@ function _drawZoneMarker(ctx, x, y, zone, isHover) {
 
 // ── 이벤트 핸들러 ──
 function _islandAttachEvents(canvas) {
-  // 기존 이벤트 제거
-  var newCanvas = canvas.cloneNode(true);
-  canvas.parentNode.replaceChild(newCanvas, canvas);
-  canvas = newCanvas;
+  // viewport에 이벤트 부착 (canvas cloneNode 문제 방지)
+  var vp = document.getElementById('islandViewport');
+  if (!vp || vp._islandEventsAttached) return;
+  vp._islandEventsAttached = true;
 
   var isDragging = false, lastX, lastY, dragMoved = false;
 
-  newCanvas.addEventListener('mousedown', function(e) {
+  vp.addEventListener('mousedown', function(e) {
     isDragging = true; dragMoved = false;
     lastX = e.clientX; lastY = e.clientY;
   });
-  newCanvas.addEventListener('mousemove', function(e) {
+  vp.addEventListener('mousemove', function(e) {
     if (isDragging) {
       var dx = e.clientX - lastX, dy = e.clientY - lastY;
       if (Math.abs(dx) + Math.abs(dy) > 3) dragMoved = true;
-      _islandOffset.x += dx * 0.5;
-      _islandOffset.y += dy * 0.5;
-      // 이동 제한
-      _islandOffset.x = Math.max(-80, Math.min(80, _islandOffset.x));
-      _islandOffset.y = Math.max(-60, Math.min(60, _islandOffset.y));
+      _islandOffset.x = Math.max(-120, Math.min(120, _islandOffset.x + dx * 0.6));
+      _islandOffset.y = Math.max(-80, Math.min(80, _islandOffset.y + dy * 0.6));
       lastX = e.clientX; lastY = e.clientY;
     }
-    _updateIslandHover(e, newCanvas);
+    _updateIslandHover(e, document.getElementById('islandCanvas'));
   });
-  newCanvas.addEventListener('mouseup', function(e) {
-    if (!dragMoved) _handleIslandClick(e, newCanvas);
+  vp.addEventListener('mouseup', function(e) {
+    if (!dragMoved) _handleIslandClick(e, document.getElementById('islandCanvas'));
     isDragging = false;
   });
-  newCanvas.addEventListener('mouseleave', function() {
+  vp.addEventListener('mouseleave', function() {
     isDragging = false;
     _islandHover = null;
-    document.getElementById('islandTooltip').classList.remove('show');
+    var tooltip = document.getElementById('islandTooltip');
+    if (tooltip) tooltip.classList.remove('show');
   });
 
-  // 터치
-  newCanvas.addEventListener('touchstart', function(e) {
+  vp.addEventListener('touchstart', function(e) {
     isDragging = true; dragMoved = false;
     lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
   }, {passive:true});
-  newCanvas.addEventListener('touchmove', function(e) {
+  vp.addEventListener('touchmove', function(e) {
     var dx = e.touches[0].clientX - lastX, dy = e.touches[0].clientY - lastY;
     if (Math.abs(dx)+Math.abs(dy) > 5) dragMoved = true;
-    _islandOffset.x = Math.max(-80, Math.min(80, _islandOffset.x + dx * 0.5));
-    _islandOffset.y = Math.max(-60, Math.min(60, _islandOffset.y + dy * 0.5));
+    _islandOffset.x = Math.max(-120, Math.min(120, _islandOffset.x + dx * 0.6));
+    _islandOffset.y = Math.max(-80, Math.min(80, _islandOffset.y + dy * 0.6));
     lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
   }, {passive:true});
-  newCanvas.addEventListener('touchend', function(e) {
-    if (!dragMoved) _handleIslandClick(e.changedTouches[0], newCanvas);
+  vp.addEventListener('touchend', function(e) {
+    if (!dragMoved) _handleIslandClick(e.changedTouches[0], document.getElementById('islandCanvas'));
     isDragging = false;
   });
 }
+
 
 function _getCanvasZone(clientX, clientY, canvas) {
   var rect = canvas.getBoundingClientRect();
