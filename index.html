@@ -3919,9 +3919,9 @@ select {
   position: fixed; inset: 0; z-index: 2000;
   display: flex; align-items: flex-end; justify-content: center;
   background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
-  opacity: 0; transition: opacity .2s;
+  opacity: 0; pointer-events: none; transition: opacity .2s;
 }
-.dlink-modal.open { opacity: 1; }
+.dlink-modal.open { opacity: 1; pointer-events: all; }
 .dlink-modal-box {
   width: 100%; max-width: 560px; max-height: 75vh;
   background: var(--card); border-top: 1px solid var(--border);
@@ -4001,6 +4001,78 @@ select {
 .task-daysleft.urgent { border-color: #ff4d6d; color: #ff4d6d; }
 .task-daysleft.warning { border-color: #fbbf24; color: #fbbf24; }
 .task-daysleft.ok { border-color: var(--accent); color: var(--accent); }
+
+/* ── 달력 확대 버튼 ── */
+.task-cal-expand-btn {
+  background: none; border: 1px solid var(--border);
+  color: var(--foreground-muted); font-size: 13px;
+  width: 26px; height: 22px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s; flex-shrink: 0;
+}
+.task-cal-expand-btn:hover { border-color: var(--accent); color: var(--accent); }
+.task-cal-expand-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(45,255,170,.08); }
+
+/* ── 달력 전체화면 오버레이 ── */
+.cal-expand-overlay {
+  position: fixed; inset: 0; z-index: 1500;
+  background: rgba(0,0,0,.85);
+  display: none; align-items: center; justify-content: center;
+}
+.cal-expand-overlay.open { display: flex; }
+.cal-expand-box {
+  background: var(--background); border: 1px solid var(--border);
+  width: min(98vw, 1100px); height: min(94vh, 860px);
+  display: flex; flex-direction: column;
+  box-shadow: 0 0 60px rgba(0,0,0,.8);
+}
+.cal-expand-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.cal-expand-month {
+  font-family: 'Orbitron', monospace; font-size: 14px;
+  letter-spacing: .1em; color: var(--foreground); flex: 1;
+}
+.cal-expand-body {
+  flex: 1; overflow: hidden; display: flex; flex-direction: column; padding: 8px 12px 12px;
+}
+.cal-expand-grid {
+  display: grid; grid-template-columns: repeat(7,1fr);
+  gap: 3px; flex: 1;
+}
+.cal-expand-dow {
+  font-family: var(--font-label); font-size: 9px;
+  color: var(--foreground-muted); text-align: center; padding: 4px 0 6px;
+}
+.cal-expand-day {
+  border: 1px solid var(--border); background: var(--card);
+  padding: 4px 5px; display: flex; flex-direction: column;
+  cursor: pointer; min-height: 0; overflow: hidden; position: relative;
+  transition: border-color .12s;
+}
+.cal-expand-day:hover { border-color: rgba(45,255,170,.4); }
+.cal-expand-day.today { border-color: var(--accent) !important; }
+.cal-expand-day.other-month { opacity: .35; }
+.cal-expand-day.is-deadline { border-color: rgba(34,211,238,.5) !important; background: rgba(34,211,238,.05) !important; }
+.cal-expand-day-num {
+  font-family: var(--font-label); font-size: 12px;
+  color: var(--foreground-muted); margin-bottom: 3px; flex-shrink: 0;
+}
+.cal-expand-day.today .cal-expand-day-num { color: var(--accent); font-weight: 700; }
+.cal-expand-day-items { display: flex; flex-direction: column; gap: 2px; overflow: hidden; flex: 1; }
+.cal-expand-pill {
+  font-size: 10px; padding: 2px 5px; border-radius: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-family: var(--font-mono); cursor: pointer;
+}
+.cal-expand-pill.deadline-pin { border-width: 1px; border-style: solid; }
+
+/* 데드라인 뷰 일정 핀 pill */
+.task-cal-item-pill.deadline-pin {
+  border-width: 1px; border-style: solid;
+  font-weight: 600;
+}
 
 </style>
 </head>
@@ -4427,6 +4499,22 @@ select {
 
 <!-- 할일탭 -->
 <div id="page-task" class="page">
+  <!-- 달력 전체화면 오버레이 -->
+  <div class="cal-expand-overlay" id="calExpandOverlay" onclick="if(event.target===this)toggleCalExpand()">
+    <div class="cal-expand-box">
+      <div class="cal-expand-head">
+        <button class="task-cal-nav-btn" onclick="calExpandMove(-1)">‹</button>
+        <span class="cal-expand-month" id="calExpandMonth"></span>
+        <button class="task-cal-nav-btn" onclick="calExpandMove(1)">›</button>
+        <button class="task-cal-today-btn" onclick="calExpandToday()">오늘</button>
+        <button onclick="toggleCalExpand()" style="background:none;border:1px solid var(--border);color:var(--foreground-muted);padding:2px 10px;cursor:pointer;font-family:var(--font-label);font-size:9px;letter-spacing:1px">✕ 닫기</button>
+      </div>
+      <div class="cal-expand-body">
+        <div class="cal-expand-grid" id="calExpandGrid"></div>
+      </div>
+    </div>
+  </div>
+
   <div class="task-page-wrap">
 
     <!-- 왼쪽: 달력 -->
@@ -4437,6 +4525,7 @@ select {
           <span class="task-cal-month" id="taskCalMonth"></span>
           <button class="task-cal-nav-btn" onclick="taskCalMove(1)">›</button>
           <button class="task-cal-today-btn" onclick="taskCalToday()">오늘</button>
+          <button class="task-cal-expand-btn" onclick="toggleCalExpand()" id="calExpandBtn" title="달력 크게 보기">⤢</button>
         </div>
         <!-- 카테고리 필터 칩 -->
         <div class="task-cal-filter" id="taskCalFilter"></div>
@@ -5190,6 +5279,13 @@ function renderTaskCal(){
       const bg  = cat ? cat.color+'22' : 'rgba(255,255,255,.07)';
       const col = cat ? cat.color      : 'var(--foreground-muted)';
       const timeTag = t.timeStart ? ` ${t.timeStart}` : '';
+      // 데드라인 뷰에서 일정 아이템은 📌 마커로 표시 (중복 방지)
+      if (_deadlineViewOn && _isScheduleItem && _isScheduleItem(t)) {
+        const days = _calcDaysLeft && _calcDaysLeft(t);
+        const dlCls = _daysLeftClass && _daysLeftClass(days) || '';
+        const dlColor = dlCls==='urgent'?'#ff4d6d':dlCls==='soon'?'#fbbf24':dlCls==='past'?'#475569':(cat?cat.color:'#22d3ee');
+        return `<div class="task-cal-item-pill deadline-pin${t.done?' done':''}" style="background:${dlColor}18;color:${dlColor};border:1px solid ${dlColor}55" onclick="event.stopPropagation();openDlinkModal('${t.id}')">📌 ${esc(t.text.length>9?t.text.slice(0,9)+'…':t.text)}</div>`;
+      }
       const txt = esc((t.text.length > 10 ? t.text.slice(0,10)+'…' : t.text) + timeTag);
       return `<div class="task-cal-item-pill${t.done?' done':''}" style="background:${bg};color:${col}">${txt}</div>`;
     }).join('');
@@ -14029,7 +14125,7 @@ function toggleDeadlineView() {
   } else {
     removeDeadlineArrows();
     renderTaskList && renderTaskList();
-    // 오른쪽 헤더 복구
+    closeDlinkModal && closeDlinkModal();
     var dateEl = document.getElementById('taskListDate');
     if (dateEl) dateEl.textContent = taskSelDate ? taskDateDisp(taskSelDate) : '날짜를 선택해줘';
   }
@@ -14043,13 +14139,13 @@ function renderDeadlineArrows() {
 
   removeDeadlineArrows();
 
-  // 링크 수집
+  // 연결 수집
   var links = [];
   taskItems.forEach(function(item) {
     if (!item.deadlineId) return;
     var deadline = taskItems.find(function(d) { return String(d.id) === String(item.deadlineId); });
     if (!deadline || !deadline.date || !item.date) return;
-    if (item.date === deadline.date) return; // 같은 날짜면 화살표 불필요
+    if (item.date === deadline.date) return;
     links.push({ task: item, deadline: deadline });
   });
   if (!links.length) return;
@@ -14063,41 +14159,43 @@ function renderDeadlineArrows() {
   var ctx = canvas.getContext('2d');
 
   // 날짜 → 셀 rect 맵
-  var cells = grid.querySelectorAll('.task-cal-day');
   var dateRectMap = {};
-  cells.forEach(function(cell) {
+  grid.querySelectorAll('.task-cal-day').forEach(function(cell) {
     var m = (cell.getAttribute('onclick')||'').match(/taskSelDay\('([^']+)'\)/);
     if (!m) return;
     var r = cell.getBoundingClientRect();
-    var wr = wRect;
     dateRectMap[m[1]] = {
-      cx: r.left - wr.left + r.width / 2,
-      cy: r.top - wr.top + r.height / 2,
-      top: r.top - wr.top + 2,
-      bot: r.bottom - wr.top - 2,
-      left: r.left - wr.left + 2,
-      right: r.right - wr.left - 2,
-      w: r.width, h: r.height
+      cx: r.left - wRect.left + r.width / 2,
+      cy: r.top  - wRect.top  + r.height / 2,
+      top:    r.top    - wRect.top  + 2,
+      bot:    r.bottom - wRect.top  - 2,
+      left:   r.left   - wRect.left + 2,
+      right:  r.right  - wRect.left - 2,
+      // pill 영역 아래 여유: 상단 18px은 날짜숫자+pill, 화살표는 하단 attach
+      attLeft:  r.left   - wRect.left + r.width * 0.3,
+      attRight: r.right  - wRect.left - r.width * 0.3,
+      attTop:   r.top    - wRect.top  + 4,
+      attBot:   r.bottom - wRect.top  - 4,
+      w: r.width, h: r.height,
+      col: Math.round((r.left - wRect.left) / (r.width + 2))
     };
   });
 
-  // 데드라인별 색상 고정 (같은 데드라인 = 같은 색)
+  // 데드라인별 색상 (같은 데드라인 = 같은 색)
   var dlColorMap = {};
   var palette = ['#22d3ee','#f040ff','#2dffaa','#fbbf24','#f97316','#a78bfa','#fb7185','#818cf8'];
-  var colorIdx = 0;
+  var ci = 0;
   links.forEach(function(lk) {
     var did = String(lk.deadline.id);
-    if (!dlColorMap[did]) { dlColorMap[did] = palette[colorIdx++ % palette.length]; }
+    if (!dlColorMap[did]) dlColorMap[did] = palette[ci++ % palette.length];
   });
 
-  // 같은 (from→to) 쌍의 오프셋 계산 (중복 경로 분리)
-  var pairCount = {};
-  var pairOffset = {};
+  // 같은 출발지→도착지 쌍 오프셋 (중복 경로 분리)
+  var pairCount = {}, pairCur = {};
   links.forEach(function(lk) {
-    var key = lk.task.date + '→' + lk.deadline.date;
-    pairCount[key] = (pairCount[key]||0) + 1;
+    var k = lk.task.date + '>' + lk.deadline.date;
+    pairCount[k] = (pairCount[k]||0) + 1;
   });
-  var pairCur = {};
 
   links.forEach(function(lk) {
     var from = dateRectMap[lk.task.date];
@@ -14106,50 +14204,50 @@ function renderDeadlineArrows() {
 
     var color = dlColorMap[String(lk.deadline.id)];
     var days  = _calcDaysLeft(lk.deadline);
-    var key   = lk.task.date + '→' + lk.deadline.date;
-    var cur   = pairCur[key] || 0;
-    pairCur[key] = cur + 1;
-    var total = pairCount[key] || 1;
+    var k     = lk.task.date + '>' + lk.deadline.date;
+    var cur   = pairCur[k] || 0;
+    pairCur[k] = cur + 1;
+    var total = pairCount[k] || 1;
+    var offStep = 8;
+    var off = (cur - (total - 1) / 2) * offStep;
 
     ctx.save();
     ctx.strokeStyle = color;
     ctx.fillStyle   = color;
     ctx.lineWidth   = 1.8;
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.82;
     ctx.setLineDash([5, 3]);
 
-    // 출발: task 셀 우측 중앙, 도착: deadline 셀 좌측 중앙
-    // 행 방향(위아래) vs 같은 행(좌우) 구분
-    var sameRow = Math.abs(from.cy - to.cy) < from.h * 0.6;
-
-    var offsetStep = 10;
-    var offset = (cur - (total-1)/2) * offsetStep;
-
+    var sameRow  = Math.abs(from.cy - to.cy) < from.h * 0.6;
+    var goRight  = to.cx > from.cx;
+    var goDown   = to.cy > from.cy;
     var x1, y1, x2, y2, cp1x, cp1y, cp2x, cp2y;
 
     if (sameRow) {
-      // 같은 행: 위쪽으로 호
-      var goRight = to.cx > from.cx;
-      x1 = goRight ? from.right : from.left;
-      y1 = from.cy + offset;
-      x2 = goRight ? to.left : to.right;
-      y2 = to.cy + offset;
-      var arcH = -(from.h * 0.9 + Math.abs(to.cx - from.cx) * 0.12);
-      cp1x = x1 + (x2-x1)*0.25; cp1y = y1 + arcH;
-      cp2x = x1 + (x2-x1)*0.75; cp2y = y2 + arcH;
-    } else {
-      // 다른 행: 아래에서 위로
-      var goDown = to.cy > from.cy;
-      x1 = from.cx + offset;
-      y1 = goDown ? from.bot : from.top;
-      x2 = to.cx + offset;
-      y2 = goDown ? to.top : to.bot;
-      // 완만한 S 커브
+      // 같은 행 → 위쪽 호(arc)로 연결
+      x1 = goRight ? from.right  : from.left;   y1 = from.cy + off;
+      x2 = goRight ? to.left     : to.right;    y2 = to.cy   + off;
+      var arcH = -(from.h * 0.85 + Math.abs(x2 - x1) * 0.08);
+      cp1x = x1 + (x2-x1)*0.2;  cp1y = y1 + arcH;
+      cp2x = x1 + (x2-x1)*0.8;  cp2y = y2 + arcH;
+    } else if (Math.abs(from.col - to.col) <= 1) {
+      // 같은/인접 열 → S 커브
+      x1 = from.cx + off; y1 = goDown ? from.bot : from.top;
+      x2 = to.cx   + off; y2 = goDown ? to.top   : to.bot;
       var midY = (y1 + y2) / 2;
       cp1x = x1; cp1y = midY;
       cp2x = x2; cp2y = midY;
+    } else {
+      // 대각선 → 꺾인 경로 (오른쪽 엣지 → 아래/위)
+      x1 = goRight ? from.attRight : from.attLeft;  y1 = from.cy + off;
+      x2 = to.cx + off;  y2 = goDown ? to.attTop : to.attBot;
+      // L자 경유점: x1→x2 수평 후 수직
+      var corner = to.cx + off;
+      cp1x = x1 + (corner-x1)*0.6;  cp1y = y1;
+      cp2x = corner;                  cp2y = y1 + (y2-y1)*0.4;
     }
 
+    // 선 그리기
     ctx.beginPath();
     ctx.moveTo(x1, y1);
     ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, x2, y2);
@@ -14158,39 +14256,32 @@ function renderDeadlineArrows() {
     // 화살촉
     ctx.setLineDash([]);
     ctx.globalAlpha = 0.95;
-    var dx = x2 - cp2x, dy = y2 - cp2y;
-    var angle = Math.atan2(dy, dx);
+    var angle = Math.atan2(y2 - cp2y, x2 - cp2x);
     var aSize = 7;
     ctx.beginPath();
     ctx.moveTo(x2, y2);
-    ctx.lineTo(x2 - aSize * Math.cos(angle - 0.38), y2 - aSize * Math.sin(angle - 0.38));
-    ctx.lineTo(x2 - aSize * Math.cos(angle + 0.38), y2 - aSize * Math.sin(angle + 0.38));
+    ctx.lineTo(x2 - aSize*Math.cos(angle-0.38), y2 - aSize*Math.sin(angle-0.38));
+    ctx.lineTo(x2 - aSize*Math.cos(angle+0.38), y2 - aSize*Math.sin(angle+0.38));
     ctx.closePath();
     ctx.fill();
 
-    // days_left 라벨 - 선 중간
+    // D-Day 라벨 (베지어 t=0.5 근사)
     if (days !== null) {
-      var midX = (x1+cp1x+cp2x+x2)*0.25 + (x1+cp1x+cp2x+x2)*0*0.0;
-      // 베지어 t=0.5 근사
-      var t05x = 0.125*(x1 + 3*cp1x + 3*cp2x + x2);
-      var t05y = 0.125*(y1 + 3*cp1y + 3*cp2y + y2);
-      var lbl = _daysLeftLabel(days);
-      var cls = _daysLeftClass(days);
-      var lbColor = cls==='urgent'?'#ff4d6d': cls==='soon'?'#fbbf24': cls==='past'?'#64748b': color;
+      var lbl   = _daysLeftLabel(days);
+      var dcls  = _daysLeftClass(days);
+      var lbCol = dcls==='urgent'?'#ff4d6d':dcls==='soon'?'#fbbf24':dcls==='past'?'#64748b':color;
+      var mx = 0.125*(x1 + 3*cp1x + 3*cp2x + x2);
+      var my = 0.125*(y1 + 3*cp1y + 3*cp2y + y2);
       ctx.font = 'bold 8px "Share Tech Mono",monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      var tw = ctx.measureText(lbl).width + 10;
-      var th = 14;
+      var tw = ctx.measureText(lbl).width + 10, th = 14;
       ctx.globalAlpha = 1;
-      ctx.fillStyle = 'rgba(14,17,23,0.9)';
-      roundRect(ctx, t05x - tw/2, t05y - th/2, tw, th, 2);
-      ctx.fill();
-      ctx.strokeStyle = lbColor;
-      ctx.lineWidth = 1;
-      roundRect(ctx, t05x - tw/2, t05y - th/2, tw, th, 2);
-      ctx.stroke();
-      ctx.fillStyle = lbColor;
-      ctx.fillText(lbl, t05x, t05y);
+      ctx.fillStyle = 'rgba(14,17,23,.92)';
+      roundRect(ctx, mx-tw/2, my-th/2, tw, th, 2); ctx.fill();
+      ctx.strokeStyle = lbCol; ctx.lineWidth = 1;
+      roundRect(ctx, mx-tw/2, my-th/2, tw, th, 2); ctx.stroke();
+      ctx.fillStyle = lbCol;
+      ctx.fillText(lbl, mx, my);
     }
 
     ctx.restore();
@@ -14350,7 +14441,7 @@ function openDeadlineDetail(dlId) {
           '<div style="font-family:\'Orbitron\',monospace;font-size:10px;letter-spacing:1px;color:var(--accent-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(dl.text) + '</div>' +
           '<div style="font-size:9px;color:var(--foreground-muted);margin-top:1px">' + dl.date + (label ? ' · <span class=\"task-deadline-badge ' + cls + '\">' + label + '</span>' : '') + '</div>' +
         '</div>' +
-        '<button onclick="renderDeadlineSidePanel()" style="background:none;border:1px solid var(--border);color:var(--foreground-muted);width:24px;height:24px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0" onclick="renderDeadlineSidePanel()">✕</button>' +
+        '<button onclick="renderDeadlineSidePanel()" style="background:none;border:1px solid var(--border);color:var(--foreground-muted);width:24px;height:24px;cursor:pointer;font-size:14px;line-height:1;flex-shrink:0">✕</button>' +
       '</div>' +
       '<div style="padding:8px 12px 4px;font-family:\'Share Tech Mono\',monospace;font-size:9px;letter-spacing:1px;color:var(--foreground-muted)">' +
         '클릭으로 연결/해제 &nbsp;·&nbsp; <span id="dlLinkCount">' + linked.length + '</span>개 연결' +
@@ -14483,144 +14574,91 @@ setTimeout(_installDeadlineHook, 500);
 // days_left = deadline.date 기준 오늘로부터 남은 날
 // ═══════════════════════════════════════════════════════════════
 
-var _dlinkMode = false;          // 데드라인 뷰 모드
-var _dlinkSelDeadlineId = null;  // 현재 선택된 일정 id
+
+// ── dlink 시스템 (구 openDlinkModal/closeDlinkModal 대체) ──
+var _dlinkMode = false;
+var _dlinkSelDeadlineId = null;
 var _dlinkModalOpen = false;
 
-// 일정 카테고리 항목 가져오기 (date 있는 항목이면서 '일정'류 카테고리)
 function getDeadlineItems() {
-  // 일정 카테고리 id 목록 - label에 '일정' 포함하거나 icon이 📅/🗓/🎯
-  var schedCats = taskCats.filter(function(ct) {
-    return ct.label.includes('일정') || ct.label.includes('스케줄') ||
-           ct.label.includes('schedule') || ct.icon === '📅' || ct.icon === '🗓';
-  }).map(function(ct) { return ct.id; });
-
-  // 일정 카테고리가 없으면 date가 있는 모든 항목 중 deadlineRef 역할 가능한 것
+  var schCats = _getScheduleCats ? _getScheduleCats() : [];
   return taskItems.filter(function(t) {
-    if (!t.date) return false;
-    if (schedCats.length > 0) return schedCats.includes(t.catId);
-    return true; // fallback: 날짜 있는 모든 항목
+    return schCats.some(function(c) { return c.id === t.catId; }) && t.date;
+  });
+}
+function getNonDeadlineItems() {
+  var schCats = _getScheduleCats ? _getScheduleCats() : [];
+  return taskItems.filter(function(t) {
+    return !schCats.some(function(c) { return c.id === t.catId; }) && t.text;
   });
 }
 
-// 할일 항목 (데드라인이 아닌 나머지)
-function getNonDeadlineItems() {
-  var deadlineIds = new Set(getDeadlineItems().map(function(t){ return t.id; }));
-  return taskItems.filter(function(t){ return !deadlineIds.has(t.id); });
-}
-
-// days_left 계산
-function calcDaysLeft(taskItem) {
-  if (!taskItem.deadlineId) return null;
-  var dl = taskItems.find(function(t){ return String(t.id) === String(taskItem.deadlineId); });
-  if (!dl || !dl.date) return null;
-  var today = new Date(); today.setHours(0,0,0,0);
-  var dlDate = new Date(dl.date + 'T00:00:00');
-  var diff = Math.round((dlDate - today) / 86400000);
-  return diff;
-}
-
-// days_left 배지 HTML
-function daysLeftBadge(n) {
-  if (n === null) return '';
-  var cls = n <= 3 ? 'urgent' : n <= 7 ? 'warning' : 'ok';
-  var label = n < 0 ? 'D+' + Math.abs(n) : n === 0 ? 'D-DAY' : 'D-' + n;
-  return '<span class="task-daysleft ' + cls + '">' + label + '</span>';
-}
-
-// ── 데드라인 뷰 토글 ──
-function toggleDeadlineView() {
-  _dlinkMode = !_dlinkMode;
-  var btn = document.getElementById('deadlineViewBtn');
-  var hint = document.getElementById('deadlineViewHint');
-  var overlay = document.getElementById('dlinkOverlay');
-  if (btn) btn.classList.toggle('active', _dlinkMode);
-  if (hint) hint.style.display = _dlinkMode ? '' : 'none';
-  if (overlay) overlay.style.display = _dlinkMode ? '' : 'none';
-  if (!_dlinkMode) {
-    _dlinkSelDeadlineId = null;
-    drawDeadlineArrows();
+// closeDlinkModal - 모달 닫기 (pointer-events 해결됨)
+function closeDlinkModal() {
+  _dlinkModalOpen = false;
+  var modal = document.getElementById('dlinkModal');
+  if (modal) {
+    modal.classList.remove('open');
   }
-  renderTaskCal();
-  renderTaskList();
+  _dlinkSelDeadlineId = null;
 }
 
-// ── 일정 셀 클릭 (데드라인 뷰 모드에서) ──
-function dlinkSelectDeadline(deadlineId, e) {
-  if (e) e.stopPropagation();
-  if (!_dlinkMode) return;
-  if (_dlinkSelDeadlineId === deadlineId) {
-    // 이미 선택된 거 클릭 → 연결 모달 열기
-    openDlinkModal(deadlineId);
-    return;
-  }
-  _dlinkSelDeadlineId = deadlineId;
-  renderTaskCal(); // 선택 상태 업데이트
-  openDlinkModal(deadlineId);
-}
-
-// ── 연결 모달 ──
+// openDlinkModal - 일정 클릭 시 DEADLINE LINK 모달 열기
 function openDlinkModal(deadlineId) {
   _dlinkModalOpen = true;
   _dlinkSelDeadlineId = deadlineId;
-  var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
+  var dl = taskItems.find(function(t) { return String(t.id) === String(deadlineId); });
   if (!dl) return;
 
-  // 모달 없으면 생성
   var modal = document.getElementById('dlinkModal');
   if (!modal) {
     modal = document.createElement('div');
     modal.id = 'dlinkModal';
     modal.className = 'dlink-modal';
-    modal.innerHTML = '<div class="dlink-modal-box"><div class="dlink-modal-head">' +
-      '<span class="dlink-modal-title">DEADLINE LINK</span>' +
-      '<span class="dlink-modal-sub" id="dlinkModalSub"></span>' +
-      '<button class="dlink-modal-close" onclick="closeDlinkModal()">✕</button>' +
-      '</div><div class="dlink-modal-body" id="dlinkModalBody"></div></div>';
-    modal.addEventListener('click', function(e){ if(e.target===modal) closeDlinkModal(); });
+    modal.innerHTML =
+      '<div class="dlink-modal-box">' +
+        '<div class="dlink-modal-head">' +
+          '<span class="dlink-modal-title">DEADLINE LINK</span>' +
+          '<span class="dlink-modal-sub" id="dlinkModalSub"></span>' +
+          '<button class="dlink-modal-close" onclick="closeDlinkModal()">✕</button>' +
+        '</div>' +
+        '<div class="dlink-modal-body" id="dlinkModalBody"></div>' +
+      '</div>';
+    modal.addEventListener('click', function(e) { if (e.target === modal) closeDlinkModal(); });
     document.body.appendChild(modal);
   }
 
-  var dcat = taskCats.find(function(ct){ return ct.id === dl.catId; });
+  var dcat = taskCats.find(function(ct) { return ct.id === dl.catId; });
   var sub = document.getElementById('dlinkModalSub');
-  if (sub) sub.textContent = (dcat ? dcat.icon + ' ' : '') + dl.text + (dl.date ? '  ·  ' + dl.date : '');
+  if (sub) sub.textContent = (dcat ? dcat.icon + ' ' : '🎯 ') + dl.text + (dl.date ? '  ·  ' + dl.date : '');
 
   renderDlinkModalBody(deadlineId);
   modal.classList.add('open');
-  setTimeout(function(){ modal.style.opacity='1'; }, 10);
-}
-
-function closeDlinkModal() {
-  _dlinkModalOpen = false;
-  var modal = document.getElementById('dlinkModal');
-  if (modal) modal.classList.remove('open');
-  _dlinkSelDeadlineId = null;
-  renderTaskCal();
-  drawDeadlineArrows();
-  renderTaskList();
 }
 
 function renderDlinkModalBody(deadlineId) {
   var body = document.getElementById('dlinkModalBody');
   if (!body) return;
 
-  // 연결 가능한 할일 (일정 제외)
-  var nonDl = getNonDeadlineItems();
-  // 이미 연결된 항목들
-  var linked = nonDl.filter(function(t){ return String(t.deadlineId) === String(deadlineId); });
-  var unlinked = nonDl.filter(function(t){ return String(t.deadlineId) !== String(deadlineId); });
+  var dl = taskItems.find(function(t) { return String(t.id) === String(deadlineId); });
+  var daysFromNow = dl && dl.date
+    ? Math.round((new Date(dl.date + 'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000)
+    : null;
 
-  var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
-  var daysFromNow = dl && dl.date ? Math.round((new Date(dl.date+'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000) : null;
+  var nonDl = getNonDeadlineItems();
+  var linked   = nonDl.filter(function(t) { return String(t.deadlineId) === String(deadlineId); });
+  var unlinked = nonDl.filter(function(t) { return String(t.deadlineId) !== String(deadlineId); });
 
   function rowHtml(t, isLinked) {
-    var cat = taskCats.find(function(ct){ return ct.id === t.catId; });
-    var catHtml = cat ? '<span class="dlink-task-cat" style="background:' + cat.color + '22;color:' + cat.color + ';border:1px solid ' + cat.color + '44">' + cat.icon + ' ' + cat.label + '</span>' : '';
+    var cat = taskCats.find(function(ct) { return ct.id === t.catId; });
+    var catHtml = cat
+      ? '<span class="dlink-task-cat" style="background:' + cat.color + '22;color:' + cat.color + ';border:1px solid ' + cat.color + '44">' + cat.icon + ' ' + cat.label + '</span>'
+      : '';
     var daysBadge = '';
     if (isLinked && daysFromNow !== null) {
-      var cls = daysFromNow <= 3 ? 'urgent' : daysFromNow <= 7 ? 'warning' : 'ok';
-      var lbl = daysFromNow < 0 ? 'D+'+Math.abs(daysFromNow) : daysFromNow === 0 ? 'D-DAY' : 'D-'+daysFromNow;
-      daysBadge = '<span class="dlink-days-badge ' + cls + '">' + lbl + '</span>';
+      var cls = daysFromNow < 0 ? 'past' : daysFromNow <= 3 ? 'urgent' : daysFromNow <= 7 ? 'soon' : 'ok';
+      var lbl = daysFromNow < 0 ? 'D+' + Math.abs(daysFromNow) : daysFromNow === 0 ? 'D-DAY' : 'D-' + daysFromNow;
+      daysBadge = '<span class="task-deadline-badge ' + cls + '">' + lbl + '</span>';
     }
     return '<div class="dlink-task-row' + (isLinked ? ' linked' : '') + '" onclick="dlinkToggle(\'' + t.id + '\',\'' + deadlineId + '\')">' +
       '<div class="dlink-task-check">' + (isLinked ? '✓' : '') + '</div>' +
@@ -14632,248 +14670,131 @@ function renderDlinkModalBody(deadlineId) {
   var html = '';
   if (linked.length) {
     html += '<div class="dlink-section-title">✓ 연결됨 (' + linked.length + ')</div>';
-    html += linked.map(function(t){ return rowHtml(t, true); }).join('');
+    html += linked.map(function(t) { return rowHtml(t, true); }).join('');
   }
   html += '<div class="dlink-section-title">연결할 할일 선택</div>';
-  if (unlinked.length) {
-    html += unlinked.map(function(t){ return rowHtml(t, false); }).join('');
-  } else {
-    html += '<div style="padding:16px;font-size:11px;color:var(--foreground-muted);font-family:\'Share Tech Mono\',monospace">모든 할일이 이미 연결됐어</div>';
-  }
+  html += unlinked.length
+    ? unlinked.map(function(t) { return rowHtml(t, false); }).join('')
+    : '<div style="padding:16px;font-size:11px;color:var(--foreground-muted);font-family:var(--font-mono)">모든 할일이 이미 연결됐어</div>';
 
   body.innerHTML = html;
 }
 
-// 연결 토글
 function dlinkToggle(taskId, deadlineId) {
-  var t = taskItems.find(function(x){ return String(x.id) === String(taskId); });
+  var t = taskItems.find(function(x) { return String(x.id) === String(taskId); });
   if (!t) return;
   if (String(t.deadlineId) === String(deadlineId)) {
-    delete t.deadlineId; // 해제
+    delete t.deadlineId;
   } else {
     t.deadlineId = deadlineId;
   }
+  t.updatedAt = Date.now();
   saveTaskData();
   renderDlinkModalBody(deadlineId);
   renderTaskCal();
-  drawDeadlineArrows();
-  renderTaskList();
+  requestAnimationFrame(function() {
+    removeDeadlineArrows();
+    renderDeadlineArrows();
+  });
 }
 
-// ── 화살표 캔버스 그리기 ──
-function drawDeadlineArrows() {
-  var canvas = document.getElementById('deadlineCanvas');
-  if (!canvas) return;
 
-  var wrap = canvas.parentElement;
-  if (!wrap) return;
+// ═══════════════════════════════════════════════════════
+// ⤢ 달력 전체화면 확대
+// ═══════════════════════════════════════════════════════
+var _calExpandDate = new Date();
+var _calExpandOn = false;
 
-  var W = wrap.clientWidth, H = wrap.clientHeight;
-  canvas.width = W; canvas.height = H;
-  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
-
-  var ctx = canvas.getContext('2d');
-  ctx.clearRect(0, 0, W, H);
-
-  if (!_dlinkMode) return;
-
-  // 모든 연결 쌍 수집
-  var pairs = []; // {from: taskItem, to: deadlineItem}
-  taskItems.forEach(function(t) {
-    if (!t.deadlineId) return;
-    var dl = taskItems.find(function(x){ return String(x.id) === String(t.deadlineId); });
-    if (!dl || !dl.date || !t.date) return;
-    pairs.push({ from: t, to: dl });
-  });
-
-  if (!pairs.length) return;
-
-  // 달력 셀 위치 가져오기
-  function getCellCenter(dateKey) {
-    var grid = document.getElementById('taskCalGrid');
-    if (!grid) return null;
-    var cells = grid.querySelectorAll('.task-cal-day');
-    for (var i = 0; i < cells.length; i++) {
-      if (cells[i].dataset.date === dateKey) {
-        var r = cells[i].getBoundingClientRect();
-        var gr = canvas.getBoundingClientRect();
-        return { x: r.left - gr.left + r.width/2, y: r.top - gr.top + r.height/2 };
-      }
-    }
-    return null;
+function toggleCalExpand() {
+  _calExpandOn = !_calExpandOn;
+  var overlay = document.getElementById('calExpandOverlay');
+  var btn = document.getElementById('calExpandBtn');
+  if (overlay) overlay.classList.toggle('open', _calExpandOn);
+  if (btn) btn.classList.toggle('active', _calExpandOn);
+  if (_calExpandOn) {
+    _calExpandDate = new Date(taskCalDate);
+    renderCalExpand();
   }
-
-  pairs.forEach(function(pair, pi) {
-    var fromPos = getCellCenter(pair.from.date);
-    var toPos = getCellCenter(pair.to.date);
-    if (!fromPos || !toPos) return;
-
-    // 색상
-    var cat = taskCats.find(function(ct){ return ct.id === pair.from.catId; });
-    var color = cat ? cat.color : '#2dffaa';
-    var isSelected = _dlinkSelDeadlineId && String(_dlinkSelDeadlineId) === String(pair.to.id);
-
-    ctx.save();
-    ctx.globalAlpha = isSelected ? 0.9 : 0.55;
-    ctx.strokeStyle = isSelected ? '#f040ff' : color;
-    ctx.lineWidth = isSelected ? 2 : 1.5;
-    ctx.setLineDash(isSelected ? [] : [4, 3]);
-
-    // 베지어 곡선 화살표
-    var dx = toPos.x - fromPos.x;
-    var dy = toPos.y - fromPos.y;
-    var cx1 = fromPos.x + dx * 0.4;
-    var cy1 = fromPos.y;
-    var cx2 = toPos.x - dx * 0.4;
-    var cy2 = toPos.y;
-
-    ctx.beginPath();
-    ctx.moveTo(fromPos.x, fromPos.y);
-    ctx.bezierCurveTo(cx1, cy1, cx2, cy2, toPos.x, toPos.y);
-    ctx.stroke();
-
-    // 화살표 머리
-    var angle = Math.atan2(toPos.y - cy2, toPos.x - cx2);
-    var aLen = 8;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(toPos.x, toPos.y);
-    ctx.lineTo(toPos.x - aLen * Math.cos(angle - 0.4), toPos.y - aLen * Math.sin(angle - 0.4));
-    ctx.moveTo(toPos.x, toPos.y);
-    ctx.lineTo(toPos.x - aLen * Math.cos(angle + 0.4), toPos.y - aLen * Math.sin(angle + 0.4));
-    ctx.stroke();
-
-    // 시작점 원
-    ctx.beginPath();
-    ctx.arc(fromPos.x, fromPos.y, 3, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-
-    // days_left 레이블
-    var daysLeft = Math.round((new Date(pair.to.date+'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000);
-    var lbl = daysLeft < 0 ? 'D+'+Math.abs(daysLeft) : daysLeft === 0 ? 'D-DAY' : 'D-'+daysLeft;
-    var midX = (fromPos.x + toPos.x) / 2;
-    var midY = (fromPos.y + toPos.y) / 2 - 12;
-    ctx.font = '9px "Share Tech Mono", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = ctx.strokeStyle;
-    ctx.globalAlpha = isSelected ? 1 : 0.8;
-    ctx.fillText(lbl, midX, midY);
-
-    ctx.restore();
-  });
 }
 
-// renderTaskCal에 데드라인 배지 추가 훅
-var _origRenderTaskCal = null;
-function _hookDeadlineIntoCal() {
-  if (_origRenderTaskCal) return;
-  _origRenderTaskCal = renderTaskCal;
-  renderTaskCal = function() {
-    _origRenderTaskCal();
-    _injectDeadlineBadges();
-    setTimeout(drawDeadlineArrows, 50);
-  };
+function calExpandMove(dir) {
+  _calExpandDate = new Date(_calExpandDate.getFullYear(), _calExpandDate.getMonth() + dir, 1);
+  renderCalExpand();
 }
 
-function _injectDeadlineBadges() {
-  if (!_dlinkMode) return;
-  var grid = document.getElementById('taskCalGrid');
+function calExpandToday() {
+  _calExpandDate = new Date();
+  renderCalExpand();
+}
+
+function renderCalExpand() {
+  var grid = document.getElementById('calExpandGrid');
+  var monthEl = document.getElementById('calExpandMonth');
   if (!grid) return;
 
-  var deadlines = getDeadlineItems();
-  var byDate = {};
-  deadlines.forEach(function(dl) {
-    if (!dl.date) return;
-    if (!byDate[dl.date]) byDate[dl.date] = [];
-    byDate[dl.date].push(dl);
+  var y = _calExpandDate.getFullYear(), m = _calExpandDate.getMonth();
+  if (monthEl) monthEl.textContent = y + '년 ' + (m+1) + '월';
+
+  var todayKey = taskDateKey(new Date());
+  var startDow = new Date(y, m, 1).getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+
+  var allDays = [];
+  var cur = new Date(y, m, 1 - startDow);
+  for (var i = 0; i < 42; i++) { allDays.push(new Date(cur)); cur.setDate(cur.getDate()+1); }
+
+  var itemsByDate = {};
+  taskItems.filter(function(t){ return taskCalFilterIds.has(t.catId); }).forEach(function(t) {
+    if (!t.date) return;
+    if (!itemsByDate[t.date]) itemsByDate[t.date] = [];
+    itemsByDate[t.date].push(t);
   });
 
-  var cells = grid.querySelectorAll('.task-cal-day');
-  cells.forEach(function(cell) {
-    var date = cell.dataset.date;
-    if (!date || !byDate[date]) return;
-    var itemsDiv = cell.querySelector('.task-cal-day-items');
-    if (!itemsDiv) return;
+  var schCats = _getScheduleCats ? _getScheduleCats() : [];
 
-    byDate[date].forEach(function(dl) {
-      var isSelected = _dlinkSelDeadlineId && String(_dlinkSelDeadlineId) === String(dl.id);
-      var badge = document.createElement('div');
-      badge.className = 'deadline-badge' + (isSelected ? ' is-selecting' : '');
-      badge.dataset.deadlineId = dl.id;
-      badge.textContent = '🎯 ' + dl.text.slice(0, 12) + (dl.text.length > 12 ? '…' : '');
-      badge.onclick = function(e) { dlinkSelectDeadline(dl.id, e); };
-      itemsDiv.insertBefore(badge, itemsDiv.firstChild);
-    });
+  var dow = ['월','화','수','목','금','토','일'];
+  var html = dow.map(function(d, i) {
+    return '<div class="cal-expand-dow' + (i===5?' sat':i===6?' sun':'') + '">' + d + '</div>';
+  }).join('');
 
-    // 연결된 할일 표시
-    var linkedTasks = taskItems.filter(function(t) {
-      return byDate[date].some(function(dl){ return String(t.deadlineId) === String(dl.id); });
-    });
-    if (linkedTasks.length) cell.classList.add('has-deadline');
-  });
+  allDays.forEach(function(d, i) {
+    var key = taskDateKey(d);
+    var isOther = d.getMonth() !== m;
+    var isToday = key === todayKey;
+    var items = itemsByDate[key] || [];
+    var col = i % 7;
+    var isSat = col === 5, isSun = col === 6;
+    var hasDl = _deadlineViewOn && items.some(function(t){ return schCats.some(function(c){ return c.id===t.catId; }); });
 
-  // 연결된 할일 pill에 표시
-  cells.forEach(function(cell) {
-    var date = cell.dataset.date;
-    if (!date) return;
-    var linkedToSelected = _dlinkSelDeadlineId && taskItems.filter(function(t) {
-      return t.date === date && String(t.deadlineId) === String(_dlinkSelDeadlineId);
-    }).length > 0;
-    if (linkedToSelected) {
-      cell.querySelectorAll('.task-cal-pill').forEach(function(pill){ pill.classList.add('linked'); });
-    }
-  });
-}
-
-// renderTaskList 훅 - days_left 배지 추가
-var _origRenderTaskList = null;
-function _hookDeadlineIntoList() {
-  if (_origRenderTaskList) return;
-  _origRenderTaskList = renderTaskList;
-  renderTaskList = function() {
-    _origRenderTaskList();
-    setTimeout(_injectDaysLeftBadges, 20);
-  };
-}
-
-function _injectDaysLeftBadges() {
-  var items = document.querySelectorAll('[data-task-id]');
-  items.forEach(function(el) {
-    var tid = el.dataset.taskId;
-    var t = taskItems.find(function(x){ return String(x.id) === String(tid); });
-    if (!t || !t.deadlineId) return;
-    var n = calcDaysLeft(t);
-    if (n === null) return;
-    // 이미 배지 있으면 스킵
-    if (el.querySelector('.task-daysleft')) return;
-    var badge = document.createElement('span');
-    badge.className = 'task-daysleft ' + (n <= 3 ? 'urgent' : n <= 7 ? 'warning' : 'ok');
-    badge.textContent = n < 0 ? 'D+'+Math.abs(n) : n === 0 ? 'D-DAY' : 'D-'+n;
-    var titleEl = el.querySelector('.tie-text, .task-item-text, [class*="title"]');
-    if (titleEl) titleEl.appendChild(badge);
-  });
-}
-
-// 초기화 - 탭 로드 시 훅 설치
-(function() {
-  // goTab 훅
-  var _origGoTab = window.goTab;
-  if (_origGoTab) {
-    window.goTab = function(t) {
-      _origGoTab(t);
-      if (t === 'task') {
-        _hookDeadlineIntoCal();
-        _hookDeadlineIntoList();
+    var MAX = 5;
+    var pills = items.slice(0, MAX).map(function(t) {
+      var cat = taskCats.find(function(c){ return c.id===t.catId; });
+      var isDl = schCats.some(function(c){ return c.id===t.catId; });
+      if (_deadlineViewOn && isDl) {
+        var days = _calcDaysLeft(t);
+        var dc = _daysLeftClass(days);
+        var dlCol = dc==='urgent'?'#ff4d6d':dc==='soon'?'#fbbf24':dc==='past'?'#475569':(cat?cat.color:'#22d3ee');
+        return '<div class="cal-expand-pill deadline-pin" style="background:'+dlCol+'18;color:'+dlCol+';border-color:'+dlCol+'55" onclick="event.stopPropagation();openDeadlineDetail(\''+t.id+'\')">📌 '+esc(t.text.length>10?t.text.slice(0,10)+'…':t.text)+'</div>';
       }
-    };
-  }
-  // DOMContentLoaded 시점에도 훅 (이미 task 탭이 활성화된 경우)
-  document.addEventListener('DOMContentLoaded', function() {
-    _hookDeadlineIntoCal();
-    _hookDeadlineIntoList();
+      var bg = cat ? cat.color+'22' : 'rgba(255,255,255,.07)';
+      var col2 = cat ? cat.color : 'var(--foreground-muted)';
+      return '<div class="cal-expand-pill" style="background:'+bg+';color:'+col2+'">'+esc(t.text.length>12?t.text.slice(0,12)+'…':t.text)+'</div>';
+    }).join('');
+    var more = items.length > MAX ? '<div style="font-size:9px;color:var(--foreground-muted);padding:1px 3px">+' + (items.length-MAX) + '개</div>' : '';
+
+    html += '<div class="cal-expand-day'
+      + (isOther?' other-month':'')
+      + (isToday?' today':'')
+      + (hasDl?' is-deadline':'')
+      + (isSat?' sat-col':isSun?' sun-col':'')
+      + '" onclick="taskSelDay(\''+key+'\');toggleCalExpand()">'
+      + '<div class="cal-expand-day-num">' + d.getDate() + '</div>'
+      + '<div class="cal-expand-day-items">' + pills + more + '</div>'
+      + '</div>';
   });
-})();
+
+  grid.innerHTML = html;
+}
 
 </script>
 </body>
