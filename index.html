@@ -11532,7 +11532,18 @@ function _applyFirebaseData(d, force){
     try {
       localStorage.setItem('island_zones_v1', d.islandZonesV1);
       var _iz = JSON.parse(d.islandZonesV1 || 'null');
-      if(_iz && _iz.length) islandZones = _iz;
+      if(_iz && _iz.length) {
+        // 좌표·아이콘·색상은 항상 기본값으로 덮어씀
+        var _iz2 = _iz.map(function(z) {
+          var def = ISLAND_DEFAULT_ZONES.find(function(d2){ return d2.id===z.id; });
+          if(def){ z.x=def.x; z.y=def.y; z.icon=def.icon; z.color=def.color; }
+          return z;
+        });
+        // 누락 구역 추가
+        var _savedIds = _iz.map(function(z){ return z.id; });
+        var _missing  = ISLAND_DEFAULT_ZONES.filter(function(z){ return !_savedIds.includes(z.id); });
+        islandZones = _iz2.concat(_missing);
+      }
     } catch(e){}
   }
   if(d.islandFishV1)    { try { localStorage.setItem('island_fish_v1', d.islandFishV1); } catch(e){} }
@@ -11577,6 +11588,16 @@ function _reRenderCurrentTab(){
     else if(id === 'page-memo'){
       renderMemos && renderMemos();
       renderResultList && renderResultList();
+    }
+    else if(id === 'page-island'){
+      // 섬 탭: islandZones 변경 반영 (애니메이션 루프가 이미 돌고 있으면 재시작 불필요)
+      if(typeof renderIsland === 'function') {
+        if(window._islandAnim) {
+          // 루프는 유지, 구역 마커만 즉시 반영됨 (다음 프레임에 자동)
+        } else {
+          renderIsland();
+        }
+      }
     }
     // 공통: 헤더 인박스 배지
     updateHeaderInbox && updateHeaderInbox();
@@ -15178,7 +15199,9 @@ function _drawIsland(ctx, W, H) {
   // ── 7. 구역 마커 ──
   var iX=W*0.5, iY=H*0.5, iW=W*1.0, iH=H*1.0;
   islandZones.forEach(function(zone) {
+    if (zone.x == null || zone.y == null || isNaN(zone.x) || isNaN(zone.y)) return;
     var px = _worldToScreen(zone.x, zone.y, iX, iY, iW, iH);
+    if (isNaN(px.x) || isNaN(px.y)) return;
     var isHover = _islandHover === zone.id;
     _drawZoneMarker(ctx, px.x, px.y, zone, isHover);
   });
