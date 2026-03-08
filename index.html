@@ -2145,7 +2145,7 @@ select {
 #page-me .me-header-inner {
   max-width: 1600px; margin: 0 auto;
   display: grid;
-  grid-template-columns: 200px 160px 180px 1fr 1.3fr;
+  grid-template-columns: 200px 180px 1fr 1.3fr;
   gap: 0; align-items: stretch;
   min-height: 180px;
 }
@@ -4342,8 +4342,326 @@ select {
 .task-cal-dl-badge.ok     { background: rgba(45,255,170,.1); color: #2dffaa; }
 
 @media(max-width:1100px) {
-  #page-me .me-header-inner { grid-template-columns: 190px 150px 0 1fr 1.2fr; }
+  #page-me .me-header-inner { grid-template-columns: 190px 180px 1fr 1.2fr; }
   .me-header-eisen { display: none; }
+}
+
+/* ── dlink 모달 검색창 ── */
+.dlink-search-bar {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-bottom: 1px solid rgba(34,211,238,.15);
+  background: rgba(34,211,238,.03); flex-shrink: 0;
+}
+.dlink-search-icon {
+  font-size: 14px; color: var(--accent-tertiary); flex-shrink: 0;
+}
+.dlink-search-inp {
+  flex: 1; background: none; border: none; outline: none;
+  font-family: var(--font-mono); font-size: 12px; color: var(--foreground);
+}
+.dlink-search-inp::placeholder { color: var(--foreground-muted); }
+.dlink-search-clear {
+  background: none; border: none; color: var(--foreground-muted);
+  cursor: pointer; font-size: 14px; padding: 0 2px; line-height: 1;
+  transition: color .1s;
+}
+.dlink-search-clear:hover { color: var(--destructive); }
+
+/* ══════════════════════════════════════════════════
+   🏝 FOCUS SANCTUARY
+══════════════════════════════════════════════════ */
+.sanctuary-overlay {
+  position: fixed; inset: 0; z-index: 9500;
+  display: none; flex-direction: column;
+  background: #060c14;
+}
+.sanctuary-overlay.open { display: flex; }
+
+/* 캔버스 레이어 */
+#sanctuaryCanvas {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  image-rendering: pixelated;
+}
+
+/* 섬 구역 선택 모달 */
+.sanctuary-zone-select {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  z-index: 10; gap: 20px;
+  background: rgba(6,12,20,.85);
+  backdrop-filter: blur(8px);
+}
+.sanctuary-zone-title {
+  font-family: 'Orbitron', monospace; font-size: 13px;
+  letter-spacing: 4px; color: var(--accent);
+  text-shadow: var(--glow);
+  text-transform: uppercase;
+}
+.sanctuary-zone-sub {
+  font-family: 'Share Tech Mono', monospace; font-size: 11px;
+  color: var(--foreground-muted); letter-spacing: 1px;
+  max-width: 320px; text-align: center; line-height: 1.7;
+}
+.sanctuary-zone-task-preview {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--foreground); max-width: 360px; text-align: center;
+  line-height: 1.6; padding: 8px 16px;
+  border: 1px solid rgba(45,255,170,.2);
+  background: rgba(45,255,170,.04);
+}
+.sanctuary-zone-grid {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 8px; max-width: 480px; width: 90%;
+}
+@media(max-width:480px) {
+  .sanctuary-zone-grid { grid-template-columns: repeat(2,1fr); }
+}
+.sanctuary-zone-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 14px 10px;
+  border: 1px solid var(--border); background: rgba(255,255,255,.03);
+  cursor: pointer; transition: all .2s;
+  position: relative; overflow: hidden;
+}
+.sanctuary-zone-card::before {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(135deg, currentColor, transparent);
+  opacity: 0; transition: opacity .2s;
+}
+.sanctuary-zone-card:hover { transform: translateY(-2px); }
+.sanctuary-zone-card:hover::before { opacity: 0.06; }
+.sanctuary-zone-card-icon { font-size: 24px; line-height: 1; }
+.sanctuary-zone-card-name {
+  font-family: 'Share Tech Mono', monospace; font-size: 9px;
+  letter-spacing: 1px; text-align: center; line-height: 1.4;
+}
+.sanctuary-zone-card-vibe {
+  font-size: 8px; color: var(--foreground-muted);
+  font-family: 'Share Tech Mono', monospace; letter-spacing: .5px;
+  text-align: center; line-height: 1.4;
+}
+.sanctuary-zone-skip {
+  font-family: 'Share Tech Mono', monospace; font-size: 9px;
+  color: var(--foreground-muted); letter-spacing: 2px;
+  background: none; border: 1px solid var(--border);
+  padding: 6px 18px; cursor: pointer; transition: all .15s;
+}
+.sanctuary-zone-skip:hover { border-color: rgba(255,255,255,.3); color: var(--foreground-2); }
+
+/* 집중 중 UI (캔버스 위) */
+.sanctuary-ui {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  pointer-events: none;
+  gap: 0;
+}
+
+/* 상단 바 */
+.sanctuary-top-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px;
+  background: linear-gradient(180deg, rgba(6,12,20,.8) 0%, transparent 100%);
+  pointer-events: all;
+}
+.sanctuary-zone-badge {
+  display: flex; align-items: center; gap: 8px;
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 2px; color: var(--accent); opacity: .8;
+}
+.sanctuary-time-badge {
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 1px; color: var(--foreground-muted);
+}
+.sanctuary-close-btn {
+  background: none; border: 1px solid rgba(255,255,255,.1);
+  color: var(--foreground-muted); font-size: 12px;
+  padding: 4px 10px; cursor: pointer; transition: all .15s;
+  font-family: 'Share Tech Mono', monospace; letter-spacing: 1px;
+}
+.sanctuary-close-btn:hover { border-color: rgba(255,77,109,.4); color: #ff4d6d; }
+
+/* 중앙 집중 패널 */
+.sanctuary-center {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 16px; pointer-events: all;
+  padding: 28px 32px;
+  background: rgba(6,12,20,.72);
+  border: 1px solid rgba(255,255,255,.06);
+  backdrop-filter: blur(12px);
+  max-width: min(480px, 92vw);
+  width: 100%;
+  position: relative;
+}
+.sanctuary-center::before {
+  content: ''; position: absolute;
+  top: -1px; left: 20px; right: 20px; height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: .4;
+}
+.sanctuary-task-name {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  color: var(--foreground); text-align: center; line-height: 1.6;
+  max-width: 380px;
+}
+.sanctuary-clock {
+  font-family: 'Orbitron', monospace; font-size: 60px; font-weight: 700;
+  color: var(--accent); text-shadow: 0 0 30px rgba(45,255,170,.4);
+  letter-spacing: .06em; line-height: 1;
+  transition: color .3s, text-shadow .3s;
+}
+.sanctuary-clock.break {
+  color: var(--accent-tertiary);
+  text-shadow: 0 0 30px rgba(34,211,238,.4);
+}
+.sanctuary-phase-label {
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 3px; text-transform: uppercase;
+  color: var(--foreground-muted);
+}
+.sanctuary-progress-wrap {
+  width: 100%; height: 2px;
+  background: rgba(255,255,255,.06); overflow: hidden;
+}
+.sanctuary-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-tertiary));
+  transition: width 1s linear; box-shadow: var(--glow);
+}
+
+/* 서브임무 체크리스트 */
+.sanctuary-subs {
+  width: 100%; display: flex; flex-direction: column; gap: 4px;
+  max-height: 160px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(45,255,170,.15) transparent;
+}
+.sanctuary-sub-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.04);
+  transition: background .1s;
+}
+.sanctuary-sub-item:hover { background: rgba(255,255,255,.04); }
+.sanctuary-sub-item.done { opacity: .4; }
+.sanctuary-sub-check {
+  width: 14px; height: 14px; border: 1px solid rgba(255,255,255,.2);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; transition: all .15s;
+}
+.sanctuary-sub-item.done .sanctuary-sub-check {
+  background: rgba(45,255,170,.2); color: var(--accent); border-color: var(--accent);
+}
+.sanctuary-sub-text {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--foreground-2); flex: 1;
+}
+.sanctuary-sub-item.done .sanctuary-sub-text { text-decoration: line-through; color: var(--foreground-muted); }
+
+/* 버튼 그룹 */
+.sanctuary-btns {
+  display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;
+}
+.sanctuary-btn {
+  padding: 7px 16px; font-family: 'Share Tech Mono', monospace;
+  font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+  border: 1px solid; cursor: pointer; transition: all .15s;
+  background: transparent;
+}
+.sanctuary-btn.primary {
+  border-color: rgba(45,255,170,.5); color: var(--accent);
+  background: rgba(45,255,170,.07);
+}
+.sanctuary-btn.primary:hover { background: rgba(45,255,170,.15); box-shadow: var(--glow); }
+.sanctuary-btn.ghost { border-color: rgba(255,255,255,.15); color: var(--foreground-muted); }
+.sanctuary-btn.ghost:hover { border-color: rgba(255,255,255,.3); color: var(--foreground-2); }
+.sanctuary-btn.danger { border-color: rgba(255,77,109,.3); color: #ff4d6d; }
+.sanctuary-btn.danger:hover { background: rgba(255,77,109,.1); }
+
+/* 세션 카운터 */
+.sanctuary-sessions {
+  font-family: 'Share Tech Mono', monospace; font-size: 9px;
+  letter-spacing: 2px; color: var(--foreground-muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.sanctuary-session-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(45,255,170,.2); transition: background .3s;
+}
+.sanctuary-session-dot.done { background: var(--accent); box-shadow: 0 0 4px rgba(45,255,170,.6); }
+
+/* 모드 선택 */
+.sanctuary-mode-row {
+  display: flex; gap: 4px;
+}
+.sanctuary-mode-btn {
+  padding: 3px 10px; font-family: 'Share Tech Mono', monospace;
+  font-size: 8px; letter-spacing: 1px;
+  border: 1px solid var(--border); background: none;
+  color: var(--foreground-muted); cursor: pointer; transition: all .15s;
+}
+.sanctuary-mode-btn.active {
+  border-color: var(--accent); color: var(--accent);
+  background: rgba(45,255,170,.08);
+}
+
+/* 하단: 완료 후 흔적 토스트 */
+.sanctuary-trace-toast {
+  position: absolute; bottom: 24px;
+  font-family: 'Share Tech Mono', monospace; font-size: 10px;
+  letter-spacing: 1px; color: var(--accent);
+  background: rgba(6,12,20,.9); border: 1px solid rgba(45,255,170,.3);
+  padding: 8px 16px;
+  opacity: 0; transform: translateY(8px);
+  transition: all .4s;
+  pointer-events: none;
+}
+.sanctuary-trace-toast.show { opacity: 1; transform: translateY(0); }
+
+/* 파티클 */
+.sanctuary-particle {
+  position: absolute; pointer-events: none;
+  font-size: 12px; animation: sanctuaryParticle .8s ease-out forwards;
+}
+@keyframes sanctuaryParticle {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-30px) scale(0.5); }
+}
+
+/* 배터리 미니 */
+.sanctuary-battery {
+  display: flex; align-items: center; gap: 6px;
+  font-family: 'Share Tech Mono', monospace; font-size: 9px;
+  color: var(--foreground-muted); letter-spacing: 1px;
+}
+.sanctuary-battery-bar {
+  width: 40px; height: 4px; background: rgba(255,255,255,.1);
+  overflow: hidden;
+}
+.sanctuary-battery-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-tertiary));
+  transition: width .6s;
+}
+
+/* ── 아이젠하워 집중 버튼 ── */
+.eisen-hitem-focus {
+  background: none; border: none;
+  font-size: 11px; cursor: pointer; padding: 0 2px;
+  opacity: 0; transition: opacity .1s, transform .15s;
+  flex-shrink: 0; line-height: 1;
+}
+.eisen-hitem:hover .eisen-hitem-focus { opacity: .6; }
+.eisen-hitem-focus:hover { opacity: 1 !important; transform: scale(1.2); }
+.eisen-hitem-focus.active {
+  opacity: 1 !important;
+  animation: battPulse 1.2s steps(2) infinite;
+}
+.eisen-hitem.focusing {
+  border-left: 2px solid var(--accent) !important;
+  background: rgba(45,255,170,.04);
 }
 
 </style>
@@ -4455,15 +4773,6 @@ select {
           <button class="me-header-inbox-link" onclick="goTab('inbox')">전체 →</button>
         </div>
         <div class="me-header-inbox-scroll" id="meHeaderInboxList"></div>
-      </div>
-
-      <div class="me-header-focus" id="meHeaderFocus">
-        <div class="me-header-focus-label">▶ 지금 집중 중</div>
-        <div class="me-header-focus-task me-header-focus-none" id="meHeaderFocusTask">집중 중인 task 없음</div>
-        <div class="me-header-focus-meta" id="meHeaderFocusMeta" style="display:none">
-          <span class="me-header-focus-timer" id="meHeaderFocusTimer">00:00</span>
-          <button class="me-header-focus-startbtn" onclick="stopFocusTimer()">■ 중단</button>
-        </div>
       </div>
 
       <!-- 아이젠하워 매트릭스 패널 -->
@@ -5298,6 +5607,61 @@ select {
           <button class="btn-danger-outline" onclick="clearAllData()">모든 기록 삭제</button>
         </div>
       </div>
+
+      <!-- 아이젠하워 설정 -->
+      <div class="set-section">
+        <div class="set-section-head" onclick="toggleSection('sec-eisen')">
+          <div class="set-section-icon" style="font-size:12px">⚔</div>
+          <div class="set-section-title" style="--set-accent:rgba(251,191,36,.4)">TODAY MISSIONS 설정</div>
+          <div class="set-section-badge off">MATRIX</div>
+          <div class="set-section-arrow" id="arr-sec-eisen">▼</div>
+        </div>
+        <div class="set-section-body" id="sec-eisen" style="display:none">
+          <div class="setting-lbl">⚔ 아이젠하워 매트릭스 기준</div>
+          <div class="setting-hint" style="margin-bottom:10px">D-1 사분면 분류: 중요(1·2순위) + 긴급(D-day까지 며칠 이하)</div>
+
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+            <label class="setting-lbl" style="margin:0;white-space:nowrap">긴급 기준 D-</label>
+            <input id="eisenUrgentDays" type="number" min="0" max="14" value="3"
+              class="setting-inp" style="width:70px"
+              oninput="saveEisenSettings()">
+            <span class="setting-hint" style="margin:0">일 이내</span>
+          </div>
+
+          <div class="setting-lbl" style="margin-bottom:6px">중요 우선순위 기준</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="eisenPrioHigh" checked onchange="saveEisenSettings()" style="accent-color:#ff4d6d">
+              <span style="color:#ff4d6d">🔴 핵심(high)</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer">
+              <input type="checkbox" id="eisenPrioMid" checked onchange="saveEisenSettings()" style="accent-color:#fbbf24">
+              <span style="color:#fbbf24">🟡 일반(mid)</span>
+            </label>
+          </div>
+
+          <div class="setting-lbl" style="margin-bottom:6px">표시 범위</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+            <button class="ws-opt sel" id="eisenScopeToday" onclick="setEisenScope('today')">오늘만</button>
+            <button class="ws-opt" id="eisenScopeAll" onclick="setEisenScope('all')">전체 미완료</button>
+          </div>
+
+          <div class="setting-lbl" style="margin-bottom:6px">I 사분면 이름 커스텀</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:12px">
+            <input id="eisenLabel1" class="setting-inp" placeholder="Urgent & Important" oninput="saveEisenSettings()">
+            <input id="eisenLabel2" class="setting-inp" placeholder="Not Urgent & Important" oninput="saveEisenSettings()">
+            <input id="eisenLabel3" class="setting-inp" placeholder="Urgent & Unimportant" oninput="saveEisenSettings()">
+            <input id="eisenLabel4" class="setting-inp" placeholder="Not Urgent & Unimportant" oninput="saveEisenSettings()">
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-secondary" onclick="loadEisenSettings();renderMeTodo()">✓ 적용</button>
+            <button class="btn-ghost" onclick="resetEisenSettings()">초기화</button>
+          </div>
+          <div id="eisenSettingsStatus" style="font-size:10px;color:var(--accent);margin-top:6px;font-family:var(--font-label);letter-spacing:1px"></div>
+        </div>
+      </div>
+
     </div>
   </div>
 </div>
@@ -9257,11 +9621,13 @@ function pauseResumeTimer() {
   if(focusState._paused) {
     focusState._paused = false;
     focusState._interval = setInterval(tickFocus, 1000);
-    document.getElementById('focusPauseBtn').textContent = '⏸ 일시정지';
+    var pb = document.getElementById('focusPauseBtn') || document.getElementById('sanPauseBtn');
+    if(pb) pb.textContent = '⏸ 일시정지';
   } else {
     focusState._paused = true;
     clearInterval(focusState._interval);
-    document.getElementById('focusPauseBtn').textContent = '▶ 재개';
+    var pb = document.getElementById('focusPauseBtn') || document.getElementById('sanPauseBtn');
+    if(pb) pb.textContent = '▶ 재개';
   }
 }
 
@@ -11866,7 +12232,11 @@ function renderMeTodo() {
   }
 
   // 오늘 할일탭 항목 (date === today, 미완료)
-  const todayTasks = taskItems.filter(t => !t.done && t.date === todayKey);
+  const todayTasks = taskItems.filter(t => {
+    if (t.done) return false;
+    if (_eisenCfg.scope === 'all') return true;
+    return t.date === todayKey;
+  });
 
   // 긴급: 데드라인 D-3 이내
   function isUrgent(t) {
@@ -11874,10 +12244,14 @@ function renderMeTodo() {
     const dl = taskItems.find(d => String(d.id) === String(t.deadlineId));
     if (!dl || !dl.date) return false;
     const days = _calcDaysLeft(dl);
-    return days !== null && days <= 3;
+    return days !== null && days <= (_eisenCfg.urgentDays || 3);
   }
 
-  const isImportant = t => (t.priority === 'high' || t.priority === 'mid');
+  const isImportant = t => {
+    var p = t.priority || '';
+    return (p === 'high' && _eisenCfg.prioHigh !== false)
+        || (p === 'mid'  && _eisenCfg.prioMid  !== false);
+  };
 
   const q1 = todayTasks.filter(t =>  isImportant(t) &&  isUrgent(t));
   const q2 = todayTasks.filter(t =>  isImportant(t) && !isUrgent(t));
@@ -11907,10 +12281,12 @@ function renderMeTodo() {
           if (lbl) dlBadge = `<span class="eisen-hitem-dl ${cls}">${lbl}</span>`;
         }
       }
-      return `<div class="eisen-hitem${t.done?' done':''}" onclick="mqOpenEdit(event,'${t.id}',${realIdx})">
+      const isActiveFocus = focusState.running && String(focusState.taskId) === String(t.id);
+      return `<div class="eisen-hitem${t.done?' done':''}${isActiveFocus?' focusing':''}" onclick="mqOpenEdit(event,'${t.id}',${realIdx})">
         <div class="eisen-hitem-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx});renderMeTodo()" title="완료 체크">${t.done?'✓':''}</div>
         <span class="eisen-hitem-text" title="${esc(t.text)}">${esc(t.text)}</span>
         ${dlBadge}
+        <button class="eisen-hitem-focus${isActiveFocus?' active':''}" data-task-id="${t.id}" onclick="event.stopPropagation();_sanctuaryFocusById(this.dataset.taskId)" title="🏝 집중">🏝</button>
         <button class="eisen-hitem-edit" onclick="event.stopPropagation();mqOpenEdit(event,'${t.id}',${realIdx})" title="편집">✎</button>
       </div>`;
     }).join('');
@@ -14874,6 +15250,11 @@ function openDlinkModal(deadlineId) {
           '<span class="dlink-modal-sub" id="dlinkModalSub"></span>' +
           '<button class="dlink-modal-close" onclick="closeDlinkModal()">✕</button>' +
         '</div>' +
+        '<div class="dlink-search-bar">' +
+          '<span class="dlink-search-icon">⌕</span>' +
+          '<input id="dlinkSearchInp" class="dlink-search-inp" placeholder="할일 검색..." oninput="renderDlinkModalBody(window._dlinkSelDeadlineId)" autocomplete="off">' +
+          '<button class="dlink-search-clear" onclick="document.getElementById(\'dlinkSearchInp\').value=\'\';renderDlinkModalBody(window._dlinkSelDeadlineId)">×</button>' +
+        '</div>' +
         '<div class="dlink-modal-body" id="dlinkModalBody"></div>' +
       '</div>';
     modal.addEventListener('click', function(e) { if (e.target === modal) closeDlinkModal(); });
@@ -14898,8 +15279,13 @@ function renderDlinkModalBody(deadlineId) {
     : null;
 
   var nonDl = getNonDeadlineItems();
+  var _q = (document.getElementById('dlinkSearchInp') || {}).value || '';
+  var _ql = _q.toLowerCase().trim();
   var linked   = nonDl.filter(function(t) { return String(t.deadlineId) === String(deadlineId); });
   var unlinked = nonDl.filter(function(t) { return String(t.deadlineId) !== String(deadlineId); });
+  if (_ql) {
+    unlinked = unlinked.filter(function(t) { return t.text && t.text.toLowerCase().includes(_ql); });
+  }
 
   function rowHtml(t, isLinked) {
     var cat = taskCats.find(function(ct) { return ct.id === t.catId; });
@@ -15060,6 +15446,975 @@ function toggleInboxAction(idx) {
   updateHeaderInbox();
 }
 
+
+// ══════════════════════════════════════
+// 아이젠하워 설정
+// ══════════════════════════════════════
+var _eisenCfg = {
+  urgentDays: 3,
+  prioHigh: true,
+  prioMid: true,
+  scope: 'today',   // 'today' | 'all'
+  labels: ['', '', '', '']
+};
+
+function loadEisenSettings() {
+  try {
+    var s = localStorage.getItem('eisen_cfg_v1');
+    if (s) _eisenCfg = Object.assign(_eisenCfg, JSON.parse(s));
+  } catch(e) {}
+  // UI 반영
+  var ud = document.getElementById('eisenUrgentDays');
+  if (ud) ud.value = _eisenCfg.urgentDays;
+  var ph = document.getElementById('eisenPrioHigh');
+  if (ph) ph.checked = _eisenCfg.prioHigh !== false;
+  var pm = document.getElementById('eisenPrioMid');
+  if (pm) pm.checked = _eisenCfg.prioMid !== false;
+  // scope 버튼
+  ['today','all'].forEach(function(s) {
+    var btn = document.getElementById('eisenScope' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (btn) btn.classList.toggle('sel', _eisenCfg.scope === s);
+  });
+  // labels
+  ['1','2','3','4'].forEach(function(n) {
+    var el = document.getElementById('eisenLabel' + n);
+    if (el) el.value = (_eisenCfg.labels || [])[+n-1] || '';
+  });
+  // hcell labels 업데이트
+  _updateEisenLabels();
+}
+
+function saveEisenSettings() {
+  _eisenCfg.urgentDays = parseInt(document.getElementById('eisenUrgentDays')?.value) || 3;
+  _eisenCfg.prioHigh   = document.getElementById('eisenPrioHigh')?.checked !== false;
+  _eisenCfg.prioMid    = document.getElementById('eisenPrioMid')?.checked !== false;
+  _eisenCfg.labels     = ['1','2','3','4'].map(function(n) {
+    return document.getElementById('eisenLabel' + n)?.value || '';
+  });
+  localStorage.setItem('eisen_cfg_v1', JSON.stringify(_eisenCfg));
+  var st = document.getElementById('eisenSettingsStatus');
+  if (st) { st.textContent = '✓ 저장됨'; setTimeout(function() { st.textContent = ''; }, 1500); }
+  _updateEisenLabels();
+  renderMeTodo();
+}
+
+function setEisenScope(scope) {
+  _eisenCfg.scope = scope;
+  saveEisenSettings();
+  ['today','all'].forEach(function(s) {
+    var btn = document.getElementById('eisenScope' + s.charAt(0).toUpperCase() + s.slice(1));
+    if (btn) btn.classList.toggle('sel', s === scope);
+  });
+}
+
+function resetEisenSettings() {
+  _eisenCfg = { urgentDays:3, prioHigh:true, prioMid:true, scope:'today', labels:['','','',''] };
+  localStorage.removeItem('eisen_cfg_v1');
+  loadEisenSettings();
+  renderMeTodo();
+}
+
+function _updateEisenLabels() {
+  var defs = ['I 긴급+중요', 'II 중요', 'III 긴급', 'IV 나머지'];
+  ['1','2','3','4'].forEach(function(n, i) {
+    var el = document.getElementById('eisenList' + n)?.closest('.eisen-hcell')
+          || document.getElementById('eisenList' + n);
+    if (!el) return;
+    var labelEl = el.querySelector ? el.querySelector('.eisen-hcell-label') : null;
+    if (labelEl) {
+      var custom = (_eisenCfg.labels || [])[i];
+      labelEl.textContent = custom || defs[i];
+    }
+  });
+}
+
+
+// ════════════════════════════════════════════════════
+// 🏝 FOCUS SANCTUARY — 섬으로 들어가 집중하는 공간
+// ════════════════════════════════════════════════════
+
+var _sanctuary = {
+  open: false,
+  zoneId: null,
+  canvas: null,
+  ctx: null,
+  anim: null,
+  time: 0,         // 0~1 하루 사이클 (집중 시작시 현재 시각 기준)
+  timeSpeed: 0,    // 집중 중 시간 흐름 속도
+  particles: [],
+  vitality: 0,     // 섬 생명력 (0~100)
+  subsDone: [],    // 완료된 서브임무 인덱스
+  sessionFlash: false,
+  weatherMode: 'clear', // clear | rain | night
+  plants: [],      // 동적 식물 (집중할수록 성장)
+  stars: [],       // 완료된 별
+};
+
+// 구역별 분위기 정의
+var SANCTUARY_ZONE_VIBES = {
+  fandom:   { emoji:'⭐', name:'팬덤 구역',           vibe:'별빛 아래서 집중',         skyTop:'#0a0a1a', skyBot:'#1a0a2e', accent:'#f040ff', plantType:'star'   },
+  gallery:  { emoji:'🖼', name:'갤러리',               vibe:'고요한 빛의 공간',          skyTop:'#091826', skyBot:'#0d2440', accent:'#22d3ee', plantType:'crystal' },
+  archive:  { emoji:'📚', name:'아카이브',              vibe:'지식이 쌓이는 곳',          skyTop:'#0d1117', skyBot:'#1a1a2e', accent:'#fbbf24', plantType:'book'   },
+  studio:   { emoji:'🎨', name:'크리에이티브 스튜디오', vibe:'창작이 피어나는 시간',       skyTop:'#0a1a0a', skyBot:'#0a2a14', accent:'#2dffaa', plantType:'flower' },
+  garden:   { emoji:'🌱', name:'메모리 가든',           vibe:'기억이 자라는 정원',        skyTop:'#091a12', skyBot:'#0d2218', accent:'#86efac', plantType:'tree'   },
+  music:    { emoji:'🎵', name:'뮤직',                  vibe:'리듬과 함께 흐르는 시간',   skyTop:'#14080a', skyBot:'#240a1a', accent:'#f97316', plantType:'wave'   },
+};
+
+// ─── 섬 구역 선택 모달 ─────────────────────────────
+function openSanctuary(taskId, taskText, subs) {
+  subs = subs || [];
+  var ov = document.getElementById('sanctuaryOverlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'sanctuaryOverlay';
+    ov.className = 'sanctuary-overlay';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = _buildZoneSelectHTML(taskText);
+  ov.classList.add('open');
+  _sanctuary.open = true;
+
+  // 구역 카드 클릭
+  ov.querySelectorAll('.sanctuary-zone-card').forEach(function(card) {
+    card.addEventListener('click', function() {
+      var zoneId = card.dataset.zone;
+      _startSanctuary(taskId, taskText, subs, zoneId);
+    });
+  });
+  // 건너뛰기
+  var skip = ov.querySelector('.sanctuary-zone-skip');
+  if (skip) skip.addEventListener('click', function() {
+    _startSanctuary(taskId, taskText, subs, null);
+  });
+}
+
+function _buildZoneSelectHTML(taskText) {
+  var zoneCards = islandZones.map(function(z) {
+    var vibe = SANCTUARY_ZONE_VIBES[z.id] || { emoji: z.icon, name: z.name, vibe: '' };
+    return '<div class="sanctuary-zone-card" data-zone="' + z.id + '" style="border-color:' + z.color + '33;color:' + z.color + '">' +
+      '<div class="sanctuary-zone-card-icon">' + z.icon + '</div>' +
+      '<div class="sanctuary-zone-card-name" style="color:' + z.color + '">' + z.name + '</div>' +
+      '<div class="sanctuary-zone-card-vibe">' + (vibe.vibe || z.desc || '') + '</div>' +
+    '</div>';
+  }).join('');
+
+  return '<div class="sanctuary-zone-select">' +
+    '<div class="sanctuary-zone-title">어디서 집중할까요?</div>' +
+    '<div class="sanctuary-zone-task-preview">' + esc(taskText) + '</div>' +
+    '<div class="sanctuary-zone-sub">구역의 분위기 속에서 집중이 시작됩니다<br>집중할수록 섬이 살아납니다</div>' +
+    '<div class="sanctuary-zone-grid">' + zoneCards + '</div>' +
+    '<button class="sanctuary-zone-skip">↳ 구역 없이 시작</button>' +
+  '</div>';
+}
+
+// ─── 집중 시작 ─────────────────────────────────────
+function _startSanctuary(taskId, taskText, subs, zoneId) {
+  var ov = document.getElementById('sanctuaryOverlay');
+  if (!ov) return;
+
+  _sanctuary.zoneId   = zoneId;
+  _sanctuary.subsDone = subs.map(function(s) { return !!s.done; });
+  _sanctuary.particles = [];
+  _sanctuary.plants   = _loadSanctuaryPlants(zoneId);
+  _sanctuary.stars    = _loadSanctuaryStars(zoneId);
+  _sanctuary.vitality = _loadVitality();
+  _sanctuary.sessionFlash = false;
+
+  // 현재 실제 시각 → 0~1 사이클로
+  var now = new Date();
+  _sanctuary.time = (now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()) / 86400;
+  // 집중 중 시간 흐름: 1분 집중 = 섬 1시간 (실제 시간의 60배 빠르게)
+  _sanctuary.timeSpeed = 1 / (24 * 60); // 1분마다 1/24 진행
+
+  var vibe = (zoneId && SANCTUARY_ZONE_VIBES[zoneId]) ? SANCTUARY_ZONE_VIBES[zoneId] : null;
+
+  ov.innerHTML = _buildSanctuaryUI(taskText, subs, vibe);
+  _initSanctuaryCanvas();
+  _bindSanctuaryButtons(taskId, taskText, subs);
+  _startSanctuaryAnim();
+  _updateSanctuaryUI();
+}
+
+function _buildSanctuaryUI(taskText, subs, vibe) {
+  var subsHTML = '';
+  if (subs && subs.length) {
+    subsHTML = '<div class="sanctuary-subs" id="sanctuarySubs">' +
+      subs.map(function(s, i) {
+        return '<div class="sanctuary-sub-item' + (s.done ? ' done' : '') + '" id="sanSub' + i + '" onclick="sanctuaryToggleSub(' + i + ')">' +
+          '<div class="sanctuary-sub-check">' + (s.done ? '✓' : '') + '</div>' +
+          '<div class="sanctuary-sub-text">' + esc(s.text || '') + '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  var zoneName = vibe ? (vibe.emoji + ' ' + vibe.name) : '🏝 자유 집중';
+  var modeButtons = Object.entries(FOCUS_MODES).map(function(entry) {
+    var k = entry[0], v = entry[1];
+    return '<button class="sanctuary-mode-btn' + (focusState.mode===k?' active':'') + '" onclick="setSanctuaryMode(\'' + k + '\')">' + v.label + '</button>';
+  }).join('');
+
+  var sessionDots = '';
+  for (var i = 0; i < 4; i++) {
+    sessionDots += '<div class="sanctuary-session-dot' + (focusState.sessions > i ? ' done' : '') + '" id="sanDot' + i + '"></div>';
+  }
+
+  return '<canvas id="sanctuaryCanvas"></canvas>' +
+    '<div class="sanctuary-ui">' +
+      '<div class="sanctuary-top-bar">' +
+        '<div class="sanctuary-zone-badge" id="sanZoneBadge">' + zoneName + '</div>' +
+        '<div class="sanctuary-time-badge" id="sanTimeBadge"></div>' +
+        '<button class="sanctuary-close-btn" onclick="closeSanctuaryOverlay()">↙ 최소화</button>' +
+      '</div>' +
+      '<div class="sanctuary-center">' +
+        '<div class="sanctuary-mode-row">' + modeButtons + '</div>' +
+        '<div class="sanctuary-task-name">' + esc(taskText) + '</div>' +
+        '<div class="sanctuary-clock" id="sanClock">--:--</div>' +
+        '<div class="sanctuary-phase-label" id="sanPhaseLabel">집중 시간</div>' +
+        '<div class="sanctuary-progress-wrap"><div class="sanctuary-progress-fill" id="sanProgress" style="width:100%"></div></div>' +
+        subsHTML +
+        '<div class="sanctuary-sessions" id="sanSessions">' +
+          sessionDots +
+          '<span id="sanSessionsLabel">세션 0 · 0:00</span>' +
+        '</div>' +
+        '<div class="sanctuary-btns">' +
+          '<button class="sanctuary-btn primary" id="sanPauseBtn" onclick="pauseResumeTimer()">⏸ 일시정지</button>' +
+          '<button class="sanctuary-btn ghost" onclick="closeSanctuaryOverlay()">최소화</button>' +
+          '<button class="sanctuary-btn danger" onclick="stopFocusTimer()">■ 종료</button>' +
+        '</div>' +
+      '</div>' +
+      '<div class="sanctuary-trace-toast" id="sanTraceToast"></div>' +
+    '</div>';
+}
+
+// ─── Canvas 픽셀 씬 ────────────────────────────────
+function _initSanctuaryCanvas() {
+  var cvs = document.getElementById('sanctuaryCanvas');
+  if (!cvs) return;
+  cvs.width  = window.innerWidth;
+  cvs.height = window.innerHeight;
+  cvs.style.width  = window.innerWidth + 'px';
+  cvs.style.height = window.innerHeight + 'px';
+  _sanctuary.canvas = cvs;
+  _sanctuary.ctx    = cvs.getContext('2d');
+}
+
+function _startSanctuaryAnim() {
+  if (_sanctuary.anim) cancelAnimationFrame(_sanctuary.anim);
+  function loop() {
+    if (!_sanctuary.open) return;
+    _drawSanctuaryScene();
+    _sanctuary.anim = requestAnimationFrame(loop);
+  }
+  loop();
+}
+
+// 픽셀 아트 씬 그리기
+function _drawSanctuaryScene() {
+  var ctx = _sanctuary.ctx;
+  if (!ctx) return;
+  var W = _sanctuary.canvas.width;
+  var H = _sanctuary.canvas.height;
+  var t = _sanctuary.time; // 0~1 하루 사이클
+  var vibe = (_sanctuary.zoneId && SANCTUARY_ZONE_VIBES[_sanctuary.zoneId]) || null;
+  var accentColor = vibe ? vibe.accent : '#2dffaa';
+
+  // ── 하늘 그라디언트 (시간대별) ──
+  var skyColors = _getSkyColors(t);
+  var skyGrad = ctx.createLinearGradient(0, 0, 0, H * 0.65);
+  skyGrad.addColorStop(0, skyColors.top);
+  skyGrad.addColorStop(1, skyColors.bot);
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, W, H);
+
+  // ── 별 (밤/새벽) ──
+  var nightness = _getNightness(t); // 0=낮, 1=밤
+  if (nightness > 0.1) {
+    ctx.save();
+    // 기본 별
+    for (var si = 0; si < 60; si++) {
+      var sx = (si * 137.508 % 1) * W;
+      var sy = (si * 89.3 % 1) * H * 0.55;
+      var sBright = nightness * (0.4 + (Math.sin(Date.now()/3000 + si) + 1) * 0.2);
+      ctx.fillStyle = 'rgba(255,255,255,' + sBright + ')';
+      ctx.fillRect(Math.round(sx), Math.round(sy), si%5===0 ? 2 : 1, si%5===0 ? 2 : 1);
+    }
+    // 집중 완료 별들 (영구 저장)
+    _sanctuary.stars.forEach(function(star) {
+      var sx = star.x * W;
+      var sy = star.y * H * 0.4;
+      var pulse = 0.6 + Math.sin(Date.now()/2000 + star.seed) * 0.4;
+      ctx.fillStyle = 'rgba(' + _hexToRgb(star.color) + ',' + (nightness * pulse) + ')';
+      ctx.fillRect(Math.round(sx)-1, Math.round(sy)-1, 3, 3);
+      ctx.fillStyle = 'rgba(255,255,255,' + (nightness * pulse * 0.5) + ')';
+      ctx.fillRect(Math.round(sx), Math.round(sy), 1, 1);
+    });
+    ctx.restore();
+  }
+
+  // ── 태양/달 ──
+  var sunAngle = (t - 0.25) * Math.PI * 2;
+  var sunX = W * 0.5 + Math.cos(sunAngle) * W * 0.35;
+  var sunY = H * 0.28 - Math.sin(sunAngle) * H * 0.25;
+  if (sunY < H * 0.65) {
+    ctx.save();
+    if (t < 0.2 || t > 0.8) {
+      // 달
+      ctx.fillStyle = 'rgba(220,230,255,' + nightness * 0.9 + ')';
+      ctx.beginPath(); ctx.arc(sunX, sunY, 10, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = 'rgba(180,190,220,' + nightness * 0.7 + ')';
+      ctx.beginPath(); ctx.arc(sunX+4, sunY-2, 8, 0, Math.PI*2); ctx.fill();
+    } else {
+      // 태양
+      var sunBright = 1 - nightness;
+      var sunColor = t < 0.25 || t > 0.75 ? '#ff9955' : '#ffdd44';
+      ctx.fillStyle = sunColor;
+      ctx.globalAlpha = sunBright * 0.9;
+      ctx.beginPath(); ctx.arc(sunX, sunY, 14, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = sunBright * 0.2;
+      ctx.beginPath(); ctx.arc(sunX, sunY, 22, 0, Math.PI*2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  // ── 구름 (낮) ──
+  var cloudAlpha = 0.15 * (1 - nightness * 0.8);
+  if (cloudAlpha > 0.02) {
+    ISLAND_TERRAIN.clouds.forEach(function(cl, ci) {
+      var cx = (cl.x * W + Date.now() * 0.005 * cl.spd * 50) % (W * 1.2) - W * 0.1;
+      var cy = cl.y * H * 0.4;
+      var cs = cl.s * (W / 500);
+      ctx.save();
+      ctx.globalAlpha = cloudAlpha;
+      ctx.fillStyle = t < 0.5 ? '#fff' : '#ffccaa';
+      [[0,0,28],[20,5,20],[-18,6,18],[38,3,16]].forEach(function(b) {
+        ctx.beginPath();
+        ctx.arc(cx+b[0]*cs, cy+b[1]*cs, b[2]*cs, 0, Math.PI*2);
+        ctx.fill();
+      });
+      ctx.restore();
+    });
+  }
+
+  // ── 섬 본체 ──
+  var iX = W * 0.5, iY = H * 0.56;
+  var iW = Math.min(W * 0.85, 800);
+  var iH = iW * 0.38;
+  var vitBonus = _sanctuary.vitality / 100;
+
+  // 바다
+  ctx.save();
+  var seaGrad = ctx.createLinearGradient(0, H * 0.52, 0, H);
+  var seaDark  = skyColors.seaDark  || '#0a1628';
+  var seaLight = skyColors.seaLight || '#0d2040';
+  seaGrad.addColorStop(0, seaDark); seaGrad.addColorStop(1, seaLight);
+  ctx.fillStyle = seaGrad;
+  ctx.fillRect(0, H * 0.52, W, H * 0.48);
+  // 물결
+  for (var wi = 0; wi < 5; wi++) {
+    var wy = H * (0.54 + wi * 0.06);
+    ctx.strokeStyle = 'rgba(34,211,238,' + (0.04 + wi * 0.015) + ')';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (var wx = 0; wx <= W; wx += 4) {
+      var wh = Math.sin((wx/W*5 + Date.now()/3000 + wi) * Math.PI) * (2+wi);
+      wx === 0 ? ctx.moveTo(wx, wy+wh) : ctx.lineTo(wx, wy+wh);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // 섬 그림자
+  ctx.save();
+  ctx.globalAlpha = 0.25;
+  var shGrad = ctx.createRadialGradient(iX, iY+iH*0.15, 0, iX, iY+iH*0.15, iW*0.5);
+  shGrad.addColorStop(0, '#000'); shGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = shGrad;
+  ctx.fillRect(iX-iW*0.52, iY, iW*1.04, iH*0.35);
+  ctx.restore();
+
+  // 물가
+  ctx.save();
+  ctx.beginPath();
+  ctx.ellipse(iX, iY, iW*0.5, iH*0.26, 0, 0, Math.PI*2);
+  ctx.fillStyle = '#0e1e3a';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(34,211,238,0.2)';
+  ctx.lineWidth = 1.5 + Math.sin(Date.now()/1500) * 0.5;
+  ctx.stroke();
+  ctx.restore();
+
+  // 섬 땅 (생명력에 따라 색 달라짐)
+  ctx.save();
+  var greenTop = vitBonus > 0.5 ? '#1f4a30' : '#142d1f';
+  var greenBot = vitBonus > 0.5 ? '#183d26' : '#0d1f16';
+  var landGrad = ctx.createRadialGradient(iX, iY-iH*0.05, 0, iX, iY, iW*0.48);
+  landGrad.addColorStop(0, greenTop); landGrad.addColorStop(1, greenBot);
+  ctx.beginPath();
+  ctx.ellipse(iX, iY, iW*0.46, iH*0.22, 0, 0, Math.PI*2);
+  ctx.fillStyle = landGrad;
+  ctx.fill();
+  ctx.restore();
+
+  // ── 생명력이 높을수록 꽃/풀 더 많이 ──
+  var flowerCount = Math.floor(vitBonus * 30) + 5;
+  ISLAND_TERRAIN.flowers.slice(0, flowerCount).forEach(function(fl) {
+    var px = _sanctuaryWorldToScreen(fl.x, fl.y, iX, iY, iW, iH);
+    ctx.save();
+    ctx.fillStyle = fl.c;
+    ctx.globalAlpha = 0.5 + vitBonus * 0.4;
+    ctx.beginPath(); ctx.arc(px.x, px.y, 2, 0, Math.PI*2); ctx.fill();
+    ctx.restore();
+  });
+
+  // ── 동적 식물들 (집중 흔적) ──
+  _sanctuary.plants.forEach(function(pl) {
+    var px = _sanctuaryWorldToScreen(pl.x, pl.y, iX, iY, iW, iH);
+    _drawSanctuaryPlant(ctx, px.x, px.y, pl.type, pl.growth, pl.color, W/400);
+  });
+
+  // ── 나무들 ──
+  ISLAND_TERRAIN.trees.forEach(function(tr) {
+    var px = _sanctuaryWorldToScreen(tr.x, tr.y, iX, iY, iW, iH);
+    if (px.x < -20 || px.x > W+20) return;
+    var ts = tr.s * (W/480) * (0.7 + vitBonus * 0.3);
+    _drawTree(ctx, px.x, px.y, ts);
+  });
+
+  // ── 구역 마커 (집중 중인 구역 강조) ──
+  islandZones.forEach(function(zone) {
+    var px = _sanctuaryWorldToScreen(zone.x, zone.y, iX, iY, iW, iH);
+    var isActive = zone.id === _sanctuary.zoneId;
+    _drawSanctuaryZoneMarker(ctx, px.x, px.y, zone, isActive);
+  });
+
+  // ── 비 파티클 ──
+  if (_sanctuary.weatherMode === 'rain') {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(180,220,255,0.25)';
+    ctx.lineWidth = 0.8;
+    for (var ri = 0; ri < 40; ri++) {
+      var rx = (ri * 127 + Date.now() * 0.08) % W;
+      var ry = (ri * 89 + Date.now() * 0.2) % H;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.lineTo(rx - 2, ry + 10);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  // ── JS 파티클 ──
+  _sanctuary.particles = _sanctuary.particles.filter(function(p) {
+    return Date.now() - p.born < p.life;
+  });
+  _sanctuary.particles.forEach(function(p) {
+    var age = (Date.now() - p.born) / p.life;
+    ctx.save();
+    ctx.globalAlpha = (1 - age) * p.alpha;
+    ctx.fillStyle = p.color;
+    ctx.font = p.size + 'px serif';
+    ctx.fillText(p.emoji || '✦', p.x, p.y - age * p.vy);
+    ctx.restore();
+  });
+
+  // ── 시간대 오버레이 (새벽/저녁 글로우) ──
+  if (t < 0.15 || t > 0.85) {
+    ctx.save();
+    ctx.globalAlpha = 0.12 * nightness;
+    var nightOv = ctx.createLinearGradient(0, 0, 0, H);
+    nightOv.addColorStop(0, '#1a0a2e'); nightOv.addColorStop(1, 'transparent');
+    ctx.fillStyle = nightOv;
+    ctx.fillRect(0, 0, W, H * 0.5);
+    ctx.restore();
+  } else if (t > 0.62 && t < 0.78) {
+    // 저녁 황금빛
+    ctx.save();
+    ctx.globalAlpha = 0.1;
+    var sunsetOv = ctx.createLinearGradient(0, 0, 0, H);
+    sunsetOv.addColorStop(0, '#ff6600'); sunsetOv.addColorStop(1, 'transparent');
+    ctx.fillStyle = sunsetOv;
+    ctx.fillRect(0, 0, W, H * 0.4);
+    ctx.restore();
+  }
+
+  // ── 집중 구역 글로우 (액센트 색) ──
+  if (_sanctuary.zoneId && vibe) {
+    var zoneData = islandZones.find(function(z) { return z.id === _sanctuary.zoneId; });
+    if (zoneData) {
+      var zp = _sanctuaryWorldToScreen(zoneData.x, zoneData.y, iX, iY, iW, iH);
+      ctx.save();
+      var glow = ctx.createRadialGradient(zp.x, zp.y, 0, zp.x, zp.y, 80);
+      glow.addColorStop(0, 'rgba(' + _hexToRgb(vibe.accent) + ',0.12)');
+      glow.addColorStop(1, 'transparent');
+      ctx.fillStyle = glow;
+      ctx.fillRect(0, 0, W, H);
+      ctx.restore();
+    }
+  }
+
+  // 시간 진행 (집중 중일 때)
+  if (focusState.running && focusState.phase === 'work') {
+    _sanctuary.time = (_sanctuary.time + _sanctuary.timeSpeed / 60) % 1;
+    // 생명력 천천히 증가
+    if (_sanctuary.vitality < 100) {
+      _sanctuary.vitality = Math.min(100, _sanctuary.vitality + 0.002);
+    }
+  }
+}
+
+// ── 헬퍼들 ──────────────────────────────────────────
+function _getSkyColors(t) {
+  if (t < 0.08)      return { top:'#02040c', bot:'#0a0a1e', seaDark:'#06060f', seaLight:'#0a0f1a' };
+  if (t < 0.2)       return { top:'#0d0520', bot:'#1a0a30', seaDark:'#080518', seaLight:'#100a20' }; // 새벽
+  if (t < 0.28)      return { top:'#1a0a1e', bot:'#3d1a0a', seaDark:'#0e0810', seaLight:'#1a1008' }; // 여명
+  if (t < 0.38)      return { top:'#082030', bot:'#1a3a5c', seaDark:'#081828', seaLight:'#0d2040' }; // 아침
+  if (t < 0.58)      return { top:'#071828', bot:'#0e2a44', seaDark:'#0a1628', seaLight:'#0d2040' }; // 낮
+  if (t < 0.68)      return { top:'#1a1008', bot:'#3a2010', seaDark:'#100c06', seaLight:'#1a1208' }; // 저녁
+  if (t < 0.78)      return { top:'#0a0508', bot:'#180a14', seaDark:'#080408', seaLight:'#100814' }; // 황혼
+  return               { top:'#02040c', bot:'#080818', seaDark:'#06060f', seaLight:'#0a0a18' };       // 밤
+}
+
+function _getNightness(t) {
+  if (t < 0.15 || t > 0.85) return 1;
+  if (t < 0.25) return 1 - (t - 0.15) / 0.1;
+  if (t > 0.75) return (t - 0.75) / 0.1;
+  return 0;
+}
+
+function _getTimeLabel(t) {
+  var h = Math.floor(t * 24);
+  var m = Math.floor((t * 24 - h) * 60);
+  var period = h < 5 ? '🌙 새벽' : h < 10 ? '🌅 아침' : h < 17 ? '☀ 낮' : h < 20 ? '🌆 저녁' : '🌙 밤';
+  return period + ' ' + String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+}
+
+function _hexToRgb(hex) {
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  var r = parseInt(hex.substr(0,2),16);
+  var g = parseInt(hex.substr(2,2),16);
+  var b = parseInt(hex.substr(4,2),16);
+  return r + ',' + g + ',' + b;
+}
+
+function _sanctuaryWorldToScreen(wx, wy, iX, iY, iW, iH) {
+  return {
+    x: iX + (wx - 0.5) * iW * 0.88,
+    y: iY + (wy - 0.5) * iH * 0.8,
+  };
+}
+
+function _drawSanctuaryZoneMarker(ctx, x, y, zone, isActive) {
+  var pulse = 0.6 + Math.sin(Date.now() / 1200) * 0.4;
+  ctx.save();
+  if (isActive) {
+    // 집중 중 구역 — 빛나는 링
+    ctx.strokeStyle = zone.color;
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = pulse * 0.9;
+    ctx.beginPath(); ctx.arc(x, y, 18, 0, Math.PI*2); ctx.stroke();
+    ctx.globalAlpha = pulse * 0.15;
+    ctx.fillStyle = zone.color;
+    ctx.beginPath(); ctx.arc(x, y, 16, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  } else {
+    ctx.globalAlpha = 0.5;
+  }
+  ctx.font = '16px serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(zone.icon, x, y);
+  ctx.restore();
+}
+
+function _drawSanctuaryPlant(ctx, x, y, type, growth, color, scale) {
+  if (growth <= 0) return;
+  ctx.save();
+  var g = Math.min(1, growth);
+  scale = scale || 1;
+  if (type === 'flower') {
+    ctx.globalAlpha = g;
+    ctx.fillStyle = color || '#2dffaa';
+    ctx.beginPath(); ctx.arc(x, y, 3*g*scale, 0, Math.PI*2); ctx.fill();
+    if (g > 0.5) {
+      for (var pi = 0; pi < 5; pi++) {
+        var angle = (pi / 5) * Math.PI * 2;
+        ctx.fillStyle = color || '#2dffaa';
+        ctx.globalAlpha = g * 0.6;
+        ctx.beginPath();
+        ctx.arc(x + Math.cos(angle)*5*scale, y + Math.sin(angle)*4*scale, 2*scale, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+  } else if (type === 'star') {
+    ctx.globalAlpha = g * (0.7 + Math.sin(Date.now()/1500) * 0.3);
+    ctx.fillStyle = color || '#f040ff';
+    ctx.font = Math.round(12 * g * scale) + 'px serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('✦', x, y);
+  } else if (type === 'crystal') {
+    ctx.globalAlpha = g * 0.8;
+    ctx.fillStyle = color || '#22d3ee';
+    ctx.beginPath();
+    ctx.moveTo(x, y - 6*g*scale);
+    ctx.lineTo(x + 3*scale, y);
+    ctx.lineTo(x, y + 4*g*scale);
+    ctx.lineTo(x - 3*scale, y);
+    ctx.closePath(); ctx.fill();
+  } else if (type === 'book') {
+    ctx.globalAlpha = g;
+    ctx.fillStyle = color || '#fbbf24';
+    ctx.fillRect(x - 4*scale, y - 3*g*scale, 8*scale, 6*g*scale);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.fillRect(x - 1*scale, y - 3*g*scale, 1*scale, 6*g*scale);
+  } else if (type === 'tree') {
+    ctx.globalAlpha = g;
+    var ts = 0.5 + g * 0.5;
+    _drawTree(ctx, x, y, ts * scale * 0.8);
+  } else if (type === 'wave') {
+    ctx.globalAlpha = g * 0.7;
+    ctx.strokeStyle = color || '#f97316';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (var wx2 = -10; wx2 <= 10; wx2++) {
+      var wy2 = Math.sin((wx2 + Date.now()/200) * 0.5) * 4 * g;
+      wx2 === -10 ? ctx.moveTo(x+wx2*scale, y+wy2) : ctx.lineTo(x+wx2*scale, y+wy2);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ─── 식물/별 데이터 로드/저장 ──────────────────────
+function _loadSanctuaryPlants(zoneId) {
+  if (!zoneId) return [];
+  try {
+    var key = 'sanctuary_plants_' + zoneId;
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch(e) { return []; }
+}
+
+function _saveSanctuaryPlants(zoneId, plants) {
+  if (!zoneId) return;
+  localStorage.setItem('sanctuary_plants_' + zoneId, JSON.stringify(plants));
+}
+
+function _loadSanctuaryStars(zoneId) {
+  if (!zoneId) return [];
+  try {
+    var key = 'sanctuary_stars_' + zoneId;
+    return JSON.parse(localStorage.getItem(key) || '[]');
+  } catch(e) { return []; }
+}
+
+function _saveSanctuaryStars(zoneId, stars) {
+  if (!zoneId) return;
+  localStorage.setItem('sanctuary_stars_' + zoneId, JSON.stringify(stars));
+}
+
+function _loadVitality() {
+  try {
+    var v = parseFloat(localStorage.getItem('sanctuary_vitality') || '20');
+    // 마지막 집중 후 시간 경과에 따라 감소
+    var lastFocus = parseInt(localStorage.getItem('sanctuary_last_focus') || '0');
+    var elapsed = (Date.now() - lastFocus) / (1000 * 60 * 60); // hours
+    v = Math.max(10, v - elapsed * 2); // 시간당 2 감소
+    return Math.min(100, v);
+  } catch(e) { return 20; }
+}
+
+function _saveVitality(v) {
+  localStorage.setItem('sanctuary_vitality', String(v));
+  localStorage.setItem('sanctuary_last_focus', String(Date.now()));
+}
+
+// ─── UI 업데이트 ────────────────────────────────────
+function _updateSanctuaryUI() {
+  if (!_sanctuary.open) return;
+  var clock = document.getElementById('sanClock');
+  var phaseLabel = document.getElementById('sanPhaseLabel');
+  var progress = document.getElementById('sanProgress');
+  var sessionsLabel = document.getElementById('sanSessionsLabel');
+  var timeBadge = document.getElementById('sanTimeBadge');
+  var pauseBtn = document.getElementById('sanPauseBtn');
+
+  if (clock) {
+    clock.textContent = fmtTime(focusState.remaining);
+    clock.className = 'sanctuary-clock' + (focusState.phase === 'break' ? ' break' : '');
+  }
+  if (phaseLabel) {
+    phaseLabel.textContent = focusState.phase === 'work' ? '집중 중' : '☕ 휴식';
+  }
+  if (progress) {
+    var modeConf = FOCUS_MODES[focusState.mode];
+    var total = focusState.phase === 'work' ? (modeConf.work || 1) : (modeConf.break || 1);
+    var pct = modeConf.work ? Math.max(0, (focusState.remaining / total) * 100) : 50;
+    progress.style.width = pct + '%';
+  }
+  if (sessionsLabel) {
+    sessionsLabel.textContent = '세션 ' + focusState.sessions + ' · ' + fmtElapsed(focusState.elapsed);
+  }
+  // 세션 도트
+  for (var i = 0; i < 4; i++) {
+    var dot = document.getElementById('sanDot' + i);
+    if (dot) dot.className = 'sanctuary-session-dot' + (focusState.sessions > i ? ' done' : '');
+  }
+  if (timeBadge) {
+    timeBadge.textContent = _getTimeLabel(_sanctuary.time);
+  }
+  if (pauseBtn) {
+    pauseBtn.textContent = focusState._paused ? '▶ 재개' : '⏸ 일시정지';
+  }
+}
+
+// ─── 서브임무 토글 ──────────────────────────────────
+function sanctuaryToggleSub(i) {
+  _sanctuary.subsDone[i] = !_sanctuary.subsDone[i];
+  var item = document.getElementById('sanSub' + i);
+  if (item) {
+    item.className = 'sanctuary-sub-item' + (_sanctuary.subsDone[i] ? ' done' : '');
+    var check = item.querySelector('.sanctuary-sub-check');
+    if (check) check.textContent = _sanctuary.subsDone[i] ? '✓' : '';
+  }
+  if (_sanctuary.subsDone[i]) {
+    // 파티클
+    _spawnParticle(window.innerWidth * 0.5, window.innerHeight * 0.55, '✦');
+    _spawnParticle(window.innerWidth * 0.5 + 20, window.innerHeight * 0.6, '·');
+  }
+  // 실제 focusState task의 subs에도 동기화
+  var t = todoItems.find(function(t) { return String(t.id) === String(focusState.taskId); });
+  if (t && t.subs && t.subs[i] !== undefined) {
+    t.subs[i].done = _sanctuary.subsDone[i];
+    saveTodos();
+  }
+}
+
+// ─── 파티클 스폰 ───────────────────────────────────
+function _spawnParticle(x, y, emoji, color) {
+  _sanctuary.particles.push({
+    x: x + (Math.random() - 0.5) * 40,
+    y: y,
+    emoji: emoji || '✦',
+    color: color || 'rgba(45,255,170,0.8)',
+    size: 12 + Math.random() * 8,
+    vy: 30 + Math.random() * 20,
+    alpha: 0.9,
+    born: Date.now(),
+    life: 800 + Math.random() * 400,
+  });
+}
+
+// ─── 세션 완료 이벤트 ──────────────────────────────
+function _onSanctuarySessionComplete() {
+  if (!_sanctuary.open) return;
+  var vibe = _sanctuary.zoneId ? SANCTUARY_ZONE_VIBES[_sanctuary.zoneId] : null;
+  var plantType = vibe ? vibe.plantType : 'flower';
+  var plantColor = vibe ? vibe.accent : '#2dffaa';
+
+  // 새 식물 추가
+  if (_sanctuary.zoneId) {
+    var zone = islandZones.find(function(z) { return z.id === _sanctuary.zoneId; });
+    if (zone) {
+      var spread = 0.08;
+      var plant = {
+        x: zone.x + (Math.random() - 0.5) * spread,
+        y: zone.y + (Math.random() - 0.5) * spread * 0.5,
+        type: plantType,
+        color: plantColor,
+        growth: 0,
+        grownAt: Date.now(),
+      };
+      _sanctuary.plants.push(plant);
+      // 성장 애니메이션
+      var targetGrowth = 0.6 + Math.random() * 0.4;
+      var startTime = Date.now();
+      var growDuration = 3000;
+      function growAnim() {
+        var elapsed2 = Date.now() - startTime;
+        var progress = Math.min(1, elapsed2 / growDuration);
+        plant.growth = targetGrowth * (1 - Math.pow(1 - progress, 3));
+        if (progress < 1 && _sanctuary.open) requestAnimationFrame(growAnim);
+      }
+      growAnim();
+      _saveSanctuaryPlants(_sanctuary.zoneId, _sanctuary.plants);
+    }
+  }
+
+  // 별 추가 (밤일 때)
+  if (_getNightness(_sanctuary.time) > 0.3 && _sanctuary.zoneId) {
+    var star = {
+      x: 0.1 + Math.random() * 0.8,
+      y: 0.05 + Math.random() * 0.45,
+      color: plantColor,
+      seed: Math.random() * 100,
+    };
+    _sanctuary.stars.push(star);
+    _saveSanctuaryStars(_sanctuary.zoneId, _sanctuary.stars);
+  }
+
+  // 파티클 폭발
+  var cx = window.innerWidth * 0.5;
+  var cy = window.innerHeight * 0.45;
+  for (var pi = 0; pi < 8; pi++) {
+    _spawnParticle(cx + (Math.random()-0.5)*80, cy + (Math.random()-0.5)*40,
+      ['✦','·','⭒','∗'][pi % 4], plantColor);
+  }
+
+  // 생명력 상승
+  _sanctuary.vitality = Math.min(100, _sanctuary.vitality + 5);
+  _saveVitality(_sanctuary.vitality);
+
+  // 토스트
+  _showSanctuaryToast('🌱 흔적이 새겨졌습니다');
+}
+
+function _showSanctuaryToast(msg) {
+  var toast = document.getElementById('sanTraceToast');
+  if (!toast) return;
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2500);
+}
+
+// ─── 집중 완료 흔적 저장 ────────────────────────────
+function _saveSanctuaryTrace(taskText, elapsed) {
+  if (!_sanctuary.zoneId) return;
+  var zone = islandZones.find(function(z) { return z.id === _sanctuary.zoneId; });
+  if (!zone) return;
+  var now = new Date();
+  var dateStr = (now.getMonth()+1) + '.' + now.getDate();
+  var timeStr = String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+  var mins = Math.round(elapsed / 60);
+  var icon = _getNightness(_sanctuary.time) > 0.5 ? '🌙' : '☀';
+  var trace = icon + ' [' + dateStr + ' ' + timeStr + '] ' + taskText.slice(0, 30) + (taskText.length > 30 ? '…' : '') + ' · ' + mins + 'min';
+
+  // zone.notes 앞에 추가 (최대 10개)
+  var lines = (zone.notes || '').split('\n').filter(function(l) { return l.trim(); });
+  lines.unshift(trace);
+  if (lines.length > 10) lines = lines.slice(0, 10);
+  zone.notes = lines.join('\n');
+  saveIslandData();
+}
+
+// ─── 컨트롤 ────────────────────────────────────────
+function setSanctuaryMode(mode) {
+  focusState.mode = mode;
+  var modeConf = FOCUS_MODES[mode];
+  focusState.remaining = modeConf.work || 999999;
+  focusState.phase = 'work';
+  document.querySelectorAll('.sanctuary-mode-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.textContent.includes(modeConf.label.split(' ')[0]));
+  });
+  _updateSanctuaryUI();
+}
+
+function closeSanctuaryOverlay() {
+  var ov = document.getElementById('sanctuaryOverlay');
+  if (ov) ov.classList.remove('open');
+  if (_sanctuary.anim) { cancelAnimationFrame(_sanctuary.anim); _sanctuary.anim = null; }
+  _sanctuary.open = false;
+}
+
+function _bindSanctuaryButtons(taskId, taskText, subs) {
+  // 모드 버튼 active 상태
+  document.querySelectorAll('.sanctuary-mode-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      document.querySelectorAll('.sanctuary-mode-btn').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+    });
+  });
+}
+
+// ─── tickFocus 훅 ───────────────────────────────────
+var _originalTickFocus = tickFocus;
+tickFocus = function() {
+  var prevSession = focusState.sessions;
+  var prevPhase   = focusState.phase;
+  _originalTickFocus();
+  // Sanctuary UI 동기화
+  if (_sanctuary.open) {
+    _updateSanctuaryUI();
+    // 세션 완료 감지
+    if (focusState.sessions > prevSession && prevPhase === 'work') {
+      _onSanctuarySessionComplete();
+    }
+  }
+};
+
+// ─── stopFocusTimer 훅: 완료 시 흔적 저장 ──────────
+var _originalStopFocus = stopFocusTimer;
+stopFocusTimer = function() {
+  if (_sanctuary.open && focusState.elapsed > 30) {
+    _saveSanctuaryTrace(focusState.taskText, focusState.elapsed);
+    _saveVitality(_sanctuary.vitality);
+    if (_sanctuary.zoneId) {
+      _saveSanctuaryPlants(_sanctuary.zoneId, _sanctuary.plants);
+    }
+  }
+  closeSanctuaryOverlay();
+  _originalStopFocus();
+};
+
+// ─── pauseResumeTimer 훅 ────────────────────────────
+var _origPauseResume = pauseResumeTimer;
+pauseResumeTimer = function() {
+  _origPauseResume();
+  if (_sanctuary.open) _updateSanctuaryUI();
+};
+
+// ─── startFocusTimer 훅: Sanctuary 오픈 ────────────
+var _origStartFocusTimer = startFocusTimer;
+startFocusTimer = function(todoIdx) {
+  var t = todoItems[todoIdx];
+  if (!t) { _origStartFocusTimer(todoIdx); return; }
+  // 이미 실행 중
+  if (focusState.running && focusState.taskId === t.id) {
+    if (_sanctuary.open) return;
+    openSanctuary(t.id, t.text, t.subs || []);
+    return;
+  }
+  _origStartFocusTimer(todoIdx);
+  // Sanctuary 열기 (기존 overlay 대신)
+  var existingOv = document.getElementById('focusTimerOverlay');
+  if (existingOv) existingOv.remove();
+  openSanctuary(t.id, t.text, t.subs || []);
+};
+
+// taskItems 기반 집중도 지원
+var _origStartFocusByTaskItem = typeof startFocusByTaskItem === 'function' ? startFocusByTaskItem : null;
+function openSanctuaryForTask(taskId, taskText, subs) {
+  // focusState 직접 세팅
+  var t = taskItems.find(function(t) { return String(t.id) === String(taskId); });
+  if (!t) return;
+  if (focusState.running && focusState.taskId === taskId) {
+    if (_sanctuary.open) return;
+    openSanctuary(taskId, taskText, subs);
+    return;
+  }
+  focusState.taskId   = taskId;
+  focusState.taskText = taskText;
+  focusState.phase    = 'work';
+  focusState.sessions = 0;
+  focusState.elapsed  = 0;
+  var modeConf = FOCUS_MODES[focusState.mode];
+  focusState.remaining = modeConf.work || 999999;
+  focusState.running   = true;
+  clearInterval(focusState._interval);
+  focusState._interval = setInterval(tickFocus, 1000);
+  var existingOv = document.getElementById('focusTimerOverlay');
+  if (existingOv) existingOv.remove();
+  openSanctuary(taskId, taskText, subs);
+  renderMeTodo && renderMeTodo();
+  updateHeaderFocus && updateHeaderFocus();
+}
+
+// Sanctuary - ID로 직접 열기 (template literal escape 우회)
+function _sanctuaryFocusById(taskId) {
+  var t = taskItems.find(function(x) { return String(x.id) === String(taskId); });
+  if (!t) return;
+  openSanctuaryForTask(t.id, t.text, t.subs || []);
+}
 </script>
 </body>
 </html>
