@@ -14898,42 +14898,42 @@ function initStoryCard() {
 // ── 기본 구역 데이터 ──
 var ISLAND_DEFAULT_ZONES = [
   {
-    id: 'fandom',
-    icon: '⭐', name: '팬덤 구역', color: '#f040ff',
-    desc: '좋아하는 아티스트, 콘텐츠, 팬아트',
-    x: 0.28, y: 0.32,
+    id: 'home',
+    icon: '🏠', name: '내 집', color: '#2dffaa',
+    desc: '집중 세션의 베이스캠프. 하루를 시작하고 마무리하는 곳.',
+    x: 0.50, y: 0.48,
     links: [],
     notes: '',
   },
   {
-    id: 'gallery',
-    icon: '🖼', name: '갤러리', color: '#22d3ee',
-    desc: '이미지 컬렉션과 무드보드',
-    x: 0.62, y: 0.25,
+    id: 'shop',
+    icon: '🏪', name: '상점', color: '#22d3ee',
+    desc: '아이템을 사고 섬을 꾸미는 곳.',
+    x: 0.36, y: 0.52,
     links: [],
     notes: '',
   },
   {
-    id: 'archive',
-    icon: '📚', name: '아카이브', color: '#fbbf24',
-    desc: '링크, 미디어, 자료 보관소',
-    x: 0.72, y: 0.52,
-    links: [],
-    notes: '',
-  },
-  {
-    id: 'studio',
-    icon: '🎨', name: '크리에이티브 스튜디오', color: '#2dffaa',
-    desc: '내가 만든 것들, 창작물',
-    x: 0.38, y: 0.60,
+    id: 'museum',
+    icon: '🦉', name: '박물관', color: '#f040ff',
+    desc: '낚시 기록, 성장 히스토리가 전시되는 곳.',
+    x: 0.64, y: 0.50,
     links: [],
     notes: '',
   },
   {
     id: 'garden',
-    icon: '🌱', name: '메모리 가든', color: '#86efac',
-    desc: '추억, 기록, 소중한 순간들',
-    x: 0.18, y: 0.58,
+    icon: '🌸', name: '정원', color: '#86efac',
+    desc: '소중한 기억과 추억을 모아두는 곳.',
+    x: 0.44, y: 0.38,
+    links: [],
+    notes: '',
+  },
+  {
+    id: 'studio',
+    icon: '🎨', name: '스튜디오', color: '#fbbf24',
+    desc: '창작과 아이디어를 펼치는 곳.',
+    x: 0.30, y: 0.42,
     links: [],
     notes: '',
   },
@@ -15296,175 +15296,102 @@ function _drawSeasonParticles(ctx, W, H) {
 
 // ── 메인 아일랜드 렌더 ──────────────────────────────
 function _drawIsland(ctx, W, H) {
-  var ox = _islandPanX || 0, oy = _islandPanY || 0;
   var zoom = _islandZoom || 1;
-  // 줌/팬 변환 적용
+  var ox   = _islandPanX || 0;
+  var oy   = _islandPanY || 0;
+  var t    = _islandWave;
+
+  // ── 완전 초기화 ──
+  ctx.clearRect(0, 0, W, H);
+
+  // ── 줌/팬 변환 시작 ──
   ctx.save();
   ctx.translate(W/2 + ox, H/2 + oy);
   ctx.scale(zoom, zoom);
   ctx.translate(-W/2, -H/2);
-  var t  = _islandWave; // 누적 시간
-  var now = new Date();
-  var hr  = now.getHours() + now.getMinutes()/60;
-  // 0~1 하루 사이클
-  var dayCycle = hr / 24;
-  var pal = SEASON_PALETTE[ISLAND_SEASON];
 
-  // ── SVG 배경 그리기 (있으면 전체 덮기) ──
+  // ── 1. SVG 배경 (전체를 커버) ──
   if (_islandBgImg && _islandBgImg.complete) {
-    var svgAspect = 800/480;
-    var canAspect = W/H;
-    var bsx, bsy, bsw, bsh;
-    if (canAspect > svgAspect) { bsw=W; bsh=W/svgAspect; bsx=0; bsy=(H-bsh)/2; }
-    else { bsh=H; bsw=H*svgAspect; bsx=(W-bsw)/2; bsy=0; }
-    ctx.drawImage(_islandBgImg, bsx, bsy, bsw, bsh);
+    // cover 방식: 캔버스를 꽉 채우되 비율 유지
+    var svgW = 800, svgH = 480;
+    var scaleF = Math.max(W/svgW, H/svgH);
+    var dw = svgW * scaleF, dh = svgH * scaleF;
+    var dx = (W - dw) / 2, dy = (H - dh) / 2;
+    ctx.drawImage(_islandBgImg, dx, dy, dw, dh);
   } else {
+    // 폴백 단색
+    ctx.fillStyle = '#0d1b2e';
+    ctx.fillRect(0, 0, W, H);
     _loadIslandBg(function(){});
   }
 
-  // ── 하늘 (SVG 없을 때 폴백) ──
-  var nightness = hr < 6 ? 1 - hr/6 : hr < 18 ? 0 : (hr-18)/6;
-  nightness = Math.min(1, Math.max(0, nightness));
-  var isGoldenHour = (hr > 6 && hr < 8) || (hr > 17 && hr < 19);
-  var skyTop = nightness > 0.5 ? pal.sky1 : (isGoldenHour ? '#2a1a0a' : pal.sky2);
-  var skyBot = nightness > 0.5 ? pal.sky2 : (isGoldenHour ? '#4a2a08' : '#1a3a5a');
-  var skyGrad = ctx.createLinearGradient(0,0,0,H);
-  skyGrad.addColorStop(0, skyTop); skyGrad.addColorStop(1, skyBot);
-  ctx.fillStyle = skyGrad; ctx.fillRect(0,0,W,H);
-
-  // ── 별 ──
-  if (nightness > 0.15) {
-    ctx.save();
-    for (var si=0; si<80; si++) {
-      var sx=(si*137.5%1)*W, sy=(si*89.3%1)*H*0.52;
-      var sb = nightness*(0.3+Math.sin(t*0.5+si)*0.15);
-      ctx.fillStyle='rgba(255,255,255,'+sb+')';
-      ctx.fillRect(Math.round(sx)+ox*0.02, Math.round(sy)+oy*0.02, si%7===0?2:1, si%7===0?2:1);
-    }
-    ctx.restore();
-  }
-
-  // ── 태양/달 ──
-  var sunAngle = (dayCycle - 0.25) * Math.PI * 2;
-  var sunX = W*0.5 + Math.cos(sunAngle)*W*0.35 + ox*0.1;
-  var sunY = H*0.28 - Math.sin(sunAngle)*H*0.22 + oy*0.1;
-  if (sunY < H*0.62) {
-    ctx.save();
-    if (nightness > 0.4) {
-      // 달
-      ctx.fillStyle = 'rgba(220,230,255,'+(nightness*0.9)+')';
-      ctx.beginPath(); ctx.arc(sunX,sunY,11,0,Math.PI*2); ctx.fill();
-      ctx.fillStyle = 'rgba(160,180,210,'+(nightness*0.7)+')';
-      ctx.beginPath(); ctx.arc(sunX+5,sunY-2,9,0,Math.PI*2); ctx.fill();
-    } else {
-      var sunBright = 1-nightness;
-      ctx.globalAlpha = sunBright*0.85;
-      ctx.fillStyle = isGoldenHour ? '#ff9944' : '#ffdd44';
-      ctx.beginPath(); ctx.arc(sunX,sunY,14,0,Math.PI*2); ctx.fill();
-      ctx.globalAlpha = sunBright*0.15;
-      ctx.beginPath(); ctx.arc(sunX,sunY,24,0,Math.PI*2); ctx.fill();
-      ctx.globalAlpha = 1;
-    }
-    ctx.restore();
-  }
-
-  // ── 구름 ──
-  ISLAND_TERRAIN.clouds.forEach(function(cl) {
-    var cx = (cl.x*W + t*cl.spd*25 + ox*0.15) % (W*1.2) - W*0.08;
-    var cy = cl.y*H + oy*0.1;
-    var cs = cl.s*(W/550);
-    var alpha = 0.12 + (1-nightness)*0.1;
-    if (alpha < 0.02) return;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = isGoldenHour ? '#ffccaa' : '#c8dce8';
-    [[0,0,28],[22,5,20],[-18,7,18],[40,2,16],[-36,4,14]].forEach(function(b) {
-      ctx.beginPath(); ctx.arc(cx+b[0]*cs,cy+b[1]*cs,b[2]*cs,0,Math.PI*2); ctx.fill();
-    });
-    ctx.restore();
-  });
-
-  // ── 계절 파티클 ──
+  // ── 2. 계절 파티클 (벚꽃/눈) ──
   _drawSeasonParticles(ctx, W, H);
 
-  // ── 좌표 베이스 (SVG 이미지에 맞춰 정렬) ──
-  var iX=W*0.5, iY=H*0.5;
-  var iW=W*0.78, iH=H*0.52;
-
-  // ── 계절 파티클 (동적 레이어) ──
-  _drawSeasonParticles(ctx, W, H);
-
-  // ── 반딧불/빛 효과 ──
-  var numLights = 5;
-  for (var li=0; li<numLights; li++) {
-    var lx = W*(0.25 + 0.5*(Math.sin(t*0.4+li*1.3)*0.5+0.5));
-    var ly = H*(0.3  + 0.35*(Math.cos(t*0.3+li*2.1)*0.5+0.5));
-    var lPulse = Math.sin(t*1.8 + li*2.5)*0.4 + 0.6;
-    var lColors = ['#2dffaa','#22d3ee','#f040ff','#2dffaa','#ffd700'];
+  // ── 3. 반딧불/빛 입자 (동적) ──
+  var lightColors = ['#2dffaa','#22d3ee','#f040ff','#ffd700','#2dffaa'];
+  var lightX = [0.38, 0.55, 0.32, 0.65, 0.48];
+  var lightY = [0.35, 0.42, 0.52, 0.38, 0.58];
+  for (var li = 0; li < 5; li++) {
+    var lx = W * (lightX[li] + Math.sin(t*0.4 + li*1.3) * 0.04);
+    var ly = H * (lightY[li] + Math.cos(t*0.3 + li*2.1) * 0.03);
+    var lp = Math.sin(t*1.8 + li*2.5) * 0.4 + 0.6;
     ctx.save();
-    ctx.globalAlpha = lPulse * 0.5;
-    ctx.shadowColor = lColors[li]; ctx.shadowBlur = 12;
-    ctx.fillStyle = lColors[li];
-    ctx.beginPath(); ctx.arc(lx, ly, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = lp * 0.55;
+    ctx.shadowColor = lightColors[li];
+    ctx.shadowBlur  = 10;
+    ctx.fillStyle   = lightColors[li];
+    ctx.beginPath(); ctx.arc(lx, ly, 2.2, 0, Math.PI*2); ctx.fill();
     ctx.restore();
   }
 
-  // ── 파도 애니메이션 (섬 테두리) ──
-  var waveR1 = Math.min(W,H)*0.42 + Math.sin(t*1.2)*4;
-  var waveR2 = Math.min(W,H)*0.46 + Math.sin(t*0.9+1)*5;
+  // ── 4. 파도 링 (섬 테두리 애니메이션) ──
+  var wR1 = H * 0.32 + Math.sin(t * 1.2) * 4;
+  var wR2 = H * 0.35 + Math.sin(t * 0.9 + 1) * 5;
   ctx.save();
-  ctx.strokeStyle = 'rgba(34,211,238,0.08)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.ellipse(W/2, H/2, waveR1*1.5, waveR1, 0, 0, Math.PI*2); ctx.stroke();
-  ctx.globalAlpha = 0.06;
-  ctx.beginPath(); ctx.ellipse(W/2, H/2, waveR2*1.5, waveR2, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(34,211,238,0.07)';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.ellipse(W*0.5, H*0.52, wR1*1.75, wR1, 0, 0, Math.PI*2); ctx.stroke();
+  ctx.globalAlpha = 0.05;
+  ctx.beginPath(); ctx.ellipse(W*0.5, H*0.52, wR2*1.75, wR2, 0, 0, Math.PI*2); ctx.stroke();
   ctx.restore();
 
-  // ── 집중 구역 강조 (집중 중일 때) ──
-  if (window.focusState && focusState.running && focusState.taskId) {
-    var focZone = islandZones.find(function(z){return z.id===focusState.taskId;});
-    if (focZone) {
-      var fp = _worldToScreen(focZone.x, focZone.y, iX, iY, iW, iH);
-      var fp2 = fp;
-      var pulse2 = Math.sin(t*2)*0.3+0.5;
+  // ── 5. 집중 구역 글로우 ──
+  var activeZoneId = (window.focusState && focusState.running && focusState.taskId)
+    ? focusState.taskId
+    : (_sanctuary && _sanctuary.open ? _sanctuary.zoneId : null);
+  if (activeZoneId) {
+    var iX=W*0.5, iY=H*0.5, iW=W*0.78, iH=H*0.52;
+    var fz = islandZones.find(function(z){return z.id===activeZoneId;});
+    if (fz) {
+      var fp = _worldToScreen(fz.x, fz.y, iX, iY, iW, iH);
+      var pulse = Math.sin(t*2) * 0.3 + 0.5;
       ctx.save();
-      var glow=ctx.createRadialGradient(fp2.x,fp2.y,0,fp2.x,fp2.y,60);
-      glow.addColorStop(0,'rgba(45,255,170,'+pulse2+')');
-      glow.addColorStop(1,'transparent');
-      ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
+      var g = ctx.createRadialGradient(fp.x,fp.y,0,fp.x,fp.y,55);
+      g.addColorStop(0, 'rgba(45,255,170,'+pulse+')');
+      g.addColorStop(1, 'transparent');
+      ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
       ctx.restore();
     }
   }
 
-  // ── 구역 마커 ──
+  // ── 6. 구역 마커 ──
+  var iX=W*0.5, iY=H*0.5, iW=W*0.78, iH=H*0.52;
   islandZones.forEach(function(zone) {
-    var px=_worldToScreen(zone.x,zone.y,iX,iY,iW,iH);
-    var isHover=_islandHover===zone.id;
-    _drawZoneMarker(ctx,px.x,px.y,zone,isHover);
+    var px = _worldToScreen(zone.x, zone.y, iX, iY, iW, iH);
+    var isHover = _islandHover === zone.id;
+    _drawZoneMarker(ctx, px.x, px.y, zone, isHover);
   });
 
-  // ── 집중 중 구역 글로우 ──
-  if (focusState.running && _sanctuary.zoneId) {
-    var fzone = islandZones.find(function(z){return z.id===_sanctuary.zoneId;});
-    if (fzone) {
-      var fp2=_worldToScreen(fzone.x,fzone.y,iX,iY,iW,iH);
-      var pulse2=0.06+Math.sin(t*2)*0.04;
-      ctx.save();
-      var glow=ctx.createRadialGradient(fp2.x,fp2.y,0,fp2.x,fp2.y,60);
-      glow.addColorStop(0,'rgba(45,255,170,'+pulse2+')');
-      glow.addColorStop(1,'transparent');
-      ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
-      ctx.restore();
-    }
-  }
+  // ── 줌/팬 변환 종료 ──
+  ctx.restore();
 
-  // ── 비네트 ──
-  ctx.restore(); // 줌/팬 변환 복원
-  var vig=ctx.createRadialGradient(W/2,H/2,H*0.25,W/2,H/2,H*0.75);
-  vig.addColorStop(0,'transparent'); vig.addColorStop(1,'rgba(0,0,0,0.45)');
-  ctx.fillStyle=vig; ctx.fillRect(0,0,W,H);
+  // ── 7. 비네트 (transform 밖) ──
+  var vig = ctx.createRadialGradient(W/2, H/2, H*0.25, W/2, H/2, H*0.75);
+  vig.addColorStop(0, 'transparent');
+  vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+  ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
 }
-
 
 
 // ── 이벤트 핸들러 ──
@@ -15605,10 +15532,15 @@ function _islandAttachEvents(canvas) {
 
 
 // ── 좌표 변환 ──────────────────────────────────────
+// 아일랜드 월드→스크린 좌표 변환
+// 아일랜드 구역은 SVG 800x480 기준으로 배치됨
+// nx=0.5, ny=0.5가 중앙
 function _worldToScreen(nx, ny, iX, iY, iW, iH) {
-  var dx = (nx - 0.5) * iW * 0.9;
-  var dy = (ny - 0.5) * iH * 0.45;
-  return { x: iX + dx, y: iY + dy - iH * 0.05 };
+  // SVG에서 섬 중심은 x=400/800=0.5, y=252/480=0.525
+  // 구역 좌표를 SVG 비율에 맞게 변환
+  var dx = (nx - 0.5) * iW * 0.88;
+  var dy = (ny - 0.525) * iH * 0.60;
+  return { x: iX + dx, y: iY + dy };
 }
 
 function _isInIsland(nx, ny) {
@@ -15618,30 +15550,48 @@ function _isInIsland(nx, ny) {
 
 // ── 구역 마커 ───────────────────────────────────────
 function _drawZoneMarker(ctx, x, y, zone, isHover) {
-  var pulse = Math.sin(_islandWave * 1.5 + zone.x * 10) * 0.15 + 0.85;
-  var r = (isHover ? 20 : 15) * pulse;
+  var pulse = Math.sin(_islandWave * 1.2 + (zone.x||0) * 8) * 0.12 + 0.88;
+  var r = (isHover ? 22 : 16) * pulse;
   ctx.save();
+
+  // 외부 글로우 링
   ctx.shadowColor = zone.color;
-  ctx.shadowBlur = isHover ? 20 : 10;
-  ctx.globalAlpha = isHover ? 0.9 : 0.7;
-  var grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-  grad.addColorStop(0, zone.color + 'cc');
-  grad.addColorStop(0.6, zone.color + '55');
-  grad.addColorStop(1, zone.color + '00');
-  ctx.fillStyle = grad;
-  ctx.beginPath(); ctx.arc(x, y, r * 1.5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = 'rgba(10,12,18,0.85)';
-  ctx.beginPath(); ctx.arc(x, y, r * 0.65, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = zone.color; ctx.lineWidth = 1.5; ctx.stroke();
-  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
-  ctx.font = (r * 0.8) + 'px serif';
-  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowBlur  = isHover ? 22 : 12;
+  ctx.globalAlpha = isHover ? 0.35 : 0.18;
+  ctx.strokeStyle = zone.color;
+  ctx.lineWidth   = isHover ? 2 : 1.2;
+  ctx.beginPath(); ctx.arc(x, y, r * 1.9, 0, Math.PI*2); ctx.stroke();
+  ctx.globalAlpha = isHover ? 0.15 : 0.08;
+  ctx.beginPath(); ctx.arc(x, y, r * 2.5, 0, Math.PI*2); ctx.stroke();
+
+  // 배경 원
+  ctx.shadowBlur  = 0;
+  ctx.globalAlpha = isHover ? 0.92 : 0.82;
+  ctx.fillStyle   = 'rgba(8,14,22,0.9)';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.fill();
+
+  // 컬러 테두리
+  ctx.globalAlpha = 1;
+  ctx.shadowColor = zone.color;
+  ctx.shadowBlur  = isHover ? 14 : 6;
+  ctx.strokeStyle = zone.color;
+  ctx.lineWidth   = isHover ? 2.5 : 1.8;
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI*2); ctx.stroke();
+
+  // 아이콘
+  ctx.shadowBlur  = 0;
+  ctx.font        = Math.round(r * 0.95) + 'px serif';
+  ctx.textAlign   = 'center';
+  ctx.textBaseline= 'middle';
   ctx.fillText(zone.icon, x, y);
+
+  // 호버 라벨
   if (isHover) {
-    ctx.font = '10px "Share Tech Mono", monospace';
-    ctx.fillStyle = zone.color;
-    ctx.shadowColor = zone.color; ctx.shadowBlur = 8;
-    ctx.fillText(zone.name, x, y + r * 1.8);
+    ctx.shadowColor = zone.color; ctx.shadowBlur = 10;
+    ctx.font        = 'bold 11px "Share Tech Mono", monospace';
+    ctx.fillStyle   = zone.color;
+    ctx.fillText(zone.name, x, y + r + 13);
+    ctx.shadowBlur  = 0;
   }
   ctx.restore();
 }
@@ -15986,7 +15936,7 @@ function _getCanvasZone(clientX, clientY, canvas) {
   mx = (mx - W/2 - panX) / zoom + W/2;
   my = (my - H/2 - panY) / zoom + H/2;
   // 섬 영역 좌표 (drawIsland와 동일하게, offset 없음 — 팬이 이미 반영됨)
-  var iX = W*0.5, iY = H*0.42, iW = W*0.78, iH = H*0.52;
+  var iX = W*0.5, iY = H*0.5, iW = W*0.78, iH = H*0.52;
 
   var hit = null, minDist = Infinity;
   islandZones.forEach(function(zone) {
