@@ -264,6 +264,7 @@ h1, h2, h3, h4 {
 .inner-wide  { max-width: 1200px; margin: 0 auto; padding: 0 20px 80px; }
 .page        { display: none; }
 .page.active { display: block; }
+#page-island.active { display: flex; flex-direction: column; height: calc(100vh - 44px); }
 /* page-me uses default block layout */
 
 /* ──────────────────────────────────────────
@@ -3527,8 +3528,10 @@ select {
 ═══════════════════════════════════════════════ */
 .island-root {
   display: flex; flex-direction: column;
-  height: calc(100vh - 44px); overflow: hidden;
+  height: 100%; min-height: calc(100vh - 88px);
+  overflow: hidden;
   background: var(--background);
+  position: relative;
 }
 .island-header {
   display: flex; align-items: center; gap: 10px;
@@ -3556,11 +3559,13 @@ select {
 .island-viewport {
   flex: 1; position: relative; overflow: hidden;
   cursor: grab; user-select: none;
+  min-height: 300px;
 }
 .island-viewport:active { cursor: grabbing; }
 #islandCanvas {
-  display: block; width: 100%; height: 100%;
+  display: block;
   image-rendering: pixelated;
+  image-rendering: crisp-edges;
 }
 .island-tooltip {
   position: absolute; pointer-events: none;
@@ -3574,13 +3579,14 @@ select {
 
 /* 컨텐츠 패널 */
 .island-panel {
-  position: absolute; right: 0; top: 44px; bottom: 0;
-  width: 320px; background: rgba(10,12,18,.97);
+  position: fixed; right: 0; top: 44px; bottom: 0;
+  width: min(320px, 90vw); background: rgba(10,12,18,.97);
   border-left: 1px solid var(--border);
   transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1);
-  z-index: 50; overflow-y: auto;
+  z-index: 200; overflow-y: auto;
+  display: none;
 }
-.island-panel.open { transform: translateX(0); }
+.island-panel.open { transform: translateX(0); display: block; }
 .island-panel-inner { padding: 0 0 60px; }
 .island-panel-close {
   position: sticky; top: 0; width: 100%;
@@ -3642,10 +3648,10 @@ select {
 
 /* 편집 드로어 */
 .island-edit-drawer {
-  position: absolute; left: 0; bottom: -100%;
-  width: 100%; max-height: 60%;
+  position: fixed; left: 0; right: 0; bottom: -100%;
+  max-height: 60vh;
   background: rgba(10,12,18,.98); border-top: 1px solid var(--border);
-  padding: 14px 16px; z-index: 60;
+  padding: 14px 16px; z-index: 200;
   transition: bottom .3s cubic-bezier(.4,0,.2,1);
   overflow-y: auto;
 }
@@ -5914,9 +5920,12 @@ window.onload=()=>{
 function goTab(t){
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  document.getElementById('page-'+t)?.classList.add('active');
-  ['me','memo','inbox','task','reward','check','island','settings'].forEach((n,i)=>{
-    if(n===t)document.querySelectorAll('.tab-btn')[i].classList.add('active');
+  const pg = document.getElementById('page-'+t);
+  if(pg) pg.classList.add('active');
+  // 탭 버튼 active - onclick 속성으로 매칭
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    const oc = b.getAttribute('onclick')||'';
+    if(oc.includes("goTab('"+t+"')")) b.classList.add('active');
   });
   if(t==='me'){
     todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
@@ -5928,7 +5937,10 @@ function goTab(t){
   if(t==='inbox'){renderInbox();renderItpPanel();}
   if(t==='task'){renderTaskTab();}
   if(t==='settings'){renderRpgStatsEdit&&renderRpgStatsEdit();}
-  if(t==='island'){renderIsland&&renderIsland();}
+  if(t==='island'){
+    // display:block 된 후 크기가 잡히므로 requestAnimationFrame
+    requestAnimationFrame(function(){ renderIsland&&renderIsland(); });
+  }
 }
 
 // ── 나 탭 ────────────────────────────────────────────────
@@ -13137,15 +13149,17 @@ function renderIsland() {
   var vp = document.getElementById('islandViewport');
   if (!canvas || !vp) return;
 
-  // 캔버스 크기 설정
-  var rect = vp.getBoundingClientRect();
-  var W = rect.width || 360;
-  var H = rect.height || 400;
-  canvas.width = W;
-  canvas.height = H;
+  var W = vp.clientWidth || window.innerWidth;
+  var H = vp.clientHeight || (window.innerHeight - 84);
+  if (H < 100) H = window.innerHeight - 84;
+
+  canvas.width = Math.round(W);
+  canvas.height = Math.round(H);
+  canvas.style.width = Math.round(W) + 'px';
+  canvas.style.height = Math.round(H) + 'px';
 
   if (_islandAnim) cancelAnimationFrame(_islandAnim);
-  _islandLoop(canvas, W, H);
+  _islandLoop(canvas, canvas.width, canvas.height);
   _islandAttachEvents(canvas);
 }
 
