@@ -3557,7 +3557,13 @@ select {
 .island-tb-btn.accent { background:rgba(126,232,162,.12); border-color:rgba(126,232,162,.30); color:#7ee8a2; }
 .island-tb-btn.active { background:rgba(126,232,162,.18); border-color:#7ee8a2; color:#7ee8a2; }
 .island-tb-divider    { width:1px; height:20px; background:rgba(255,255,255,.08); margin:0 3px; }
-.island-mail-badge    { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:50%; background:#e85870; color:#fff; font-size:9px; font-weight:700; margin-left:4px; vertical-align:middle; }
+.island-mail-badge {
+  display:inline-flex; align-items:center; justify-content:center;
+  width:16px; height:16px; border-radius:50%;
+  background:#e85878; color:#fff;
+  font-size:9px; font-weight:700; font-family:var(--font-label);
+  pointer-events:none; z-index:1;
+}
 
 /* 뷰포트 */
 .island-viewport { flex:1; position:relative; overflow:hidden; cursor:grab; background:radial-gradient(ellipse at 50% 60%, #0a0520 0%, #03010c 70%); }
@@ -5802,7 +5808,7 @@ select {
         <button class="island-tb-btn" onclick="islandResetView()" title="초기화">⊙</button>
         <div class="island-tb-divider"></div>
         <button class="island-tb-btn accent" onclick="openFishingGame()">🎣 낚시</button>
-        <button class="island-tb-btn" onclick="openIslandMailbox()">📬 우편함<span class="island-mail-badge" id="islandMailBadge" style="display:none"></span></button>
+        <button class="island-tb-btn" onclick="openIslandMailbox()" style="position:relative">📬 우편함<span class="island-mail-badge" id="islandMailBadge" style="display:none;position:absolute;top:-4px;right:-4px"></span></button>
         <button class="island-tb-btn" onclick="openIslandShop()">🏪 상점</button>
         <button class="island-tb-btn" onclick="toggleIslandEdit()" id="islandEditBtn">✎ 편집</button>
       </div>
@@ -9789,12 +9795,15 @@ function tickFocus() {
   // overlay 업데이트
   updateFocusOverlay();
   updateHeaderFocus();
+  // 매 10초마다 영속 저장
+  if (focusState.elapsed % 10 === 0) _saveFocusState();
 }
 
 function stopFocusTimer() {
   clearInterval(focusState._interval);
   focusState.running = false;
   focusState.taskId = null;
+  _saveFocusState(); // running=false → localStorage에서 삭제
   closeFocusOverlay();
   renderMeTodo();
   updateHeaderFocus();
@@ -11323,6 +11332,8 @@ async function _fbSaveNow(){
         }
         return tr;
       })()),
+      // 집중 상태 (기기간 연동)
+      focusPersist:   localStorage.getItem('focus_persist') || '',
       // 방문 횟수 (island_visits_* 키들 수집)
       islandVisits:   JSON.stringify((function(){
         var v={};
@@ -11547,6 +11558,19 @@ function _applyFirebaseData(d, force){
     } catch(e){}
   }
   if(d.islandFishV1)    { try { localStorage.setItem('island_fish_v1', d.islandFishV1); } catch(e){} }
+  if(d.focusPersist)    {
+    try {
+      localStorage.setItem('focus_persist', d.focusPersist);
+      // 현재 집중 안 중이면 복구 시도 (다른 기기에서 집중 중이었던 경우)
+      if (!focusState.running && _restoreFocusState()) {
+        setTimeout(function() {
+          showFloatingTimer && showFloatingTimer();
+          _updateIslandFocusBar && _updateIslandFocusBar();
+          updateHeaderFocus && updateHeaderFocus();
+        }, 200);
+      }
+    } catch(e){}
+  }
   if(d.islandMailV1)    { try { localStorage.setItem('island_mail_v1', d.islandMailV1); } catch(e){} }
   if(d.islandShopOwned) { try { localStorage.setItem('island_shop_owned_v1', d.islandShopOwned); } catch(e){} }
   if(d.fishTickets)     { try { localStorage.setItem('fish_tickets', d.fishTickets); } catch(e){} }
@@ -16130,7 +16154,17 @@ function openLighthouse() {
 
 
 function _startFocusFromZone(zoneId, zoneName) {
-  openSanctuary(zoneId, zoneName + ' 집중', []);
+  if (focusState.running) {
+    // 이미 집중 중 - 이 장소로 zoneId만 업데이트하고 sanctuary 열기
+    _sanctuary.zoneId = zoneId;
+    _saveFocusState();
+    var ov = document.getElementById('sanctuaryOverlay');
+    if (!ov) { ov=document.createElement('div'); ov.id='sanctuaryOverlay'; ov.className='sanctuary-overlay'; document.body.appendChild(ov); }
+    hideFloatingTimer();
+    _startSanctuary(focusState.taskId, focusState.taskText, [], zoneId);
+  } else {
+    openSanctuary(zoneId, zoneName + ' 집중', []);
+  }
 }
 function openIslandZoneEnter(zoneId) {
   var zone = islandZones.find(function(z){return z.id===zoneId;});
@@ -17389,6 +17423,7 @@ function _updateEisenLabels() {
       _hiddenAt = Date.now();
       // localStorage에도 저장 (탭 닫혔다 열릴 경우)
       if (focusState.running) {
+        _saveFocusState();
         localStorage.setItem('focus_bg_ts', String(Date.now()));
         localStorage.setItem('focus_bg_elapsed', String(focusState.elapsed));
         localStorage.setItem('focus_bg_remaining', String(focusState.remaining));
@@ -17426,16 +17461,28 @@ function _updateEisenLabels() {
 
   // 앱 시작 시 백그라운드 중단 복구
   window.addEventListener('load', function() {
-    var bgTs = localStorage.getItem('focus_bg_ts');
-    if (bgTs && focusState.running) {
-      var elapsed_bg = Math.floor((Date.now() - parseInt(bgTs)) / 1000);
-      if (elapsed_bg > 0 && elapsed_bg < 7200) { // 2시간 이내만 복구
-        focusState.elapsed += elapsed_bg;
-        var rem = parseInt(localStorage.getItem('focus_bg_remaining') || '0');
-        var newRem = Math.max(0, rem - elapsed_bg);
-        focusState.remaining = newRem;
+    // 집중 상태 완전 복구 (브라우저 재시작 포함)
+    if (!focusState.running) {
+      var restored = _restoreFocusState();
+      if (restored) {
+        setTimeout(function() {
+          showFloatingTimer && showFloatingTimer();
+          _updateIslandFocusBar && _updateIslandFocusBar();
+          updateHeaderFocus && updateHeaderFocus();
+        }, 300);
       }
-      localStorage.removeItem('focus_bg_ts');
+    } else {
+      // 이미 running이면 백그라운드 경과 보정만
+      var bgTs = localStorage.getItem('focus_bg_ts');
+      if (bgTs) {
+        var elapsed_bg = Math.floor((Date.now() - parseInt(bgTs)) / 1000);
+        if (elapsed_bg > 0 && elapsed_bg < 7200) {
+          focusState.elapsed += elapsed_bg;
+          var rem = parseInt(localStorage.getItem('focus_bg_remaining') || '0');
+          focusState.remaining = Math.max(0, rem - elapsed_bg);
+        }
+        localStorage.removeItem('focus_bg_ts');
+      }
     }
   }, { once: true });
 })();
@@ -17559,10 +17606,18 @@ function _initFloatDrag(el) {
 // sanctuary가 닫혀있을 때 다시 열기
 function reopenSanctuary() {
   if (!focusState.running) return;
+  hideFloatingTimer();
+  // zoneId가 있으면 구역 선택 없이 바로 성소 재개
+  if (_sanctuary.zoneId !== undefined) {
+    var ov = document.getElementById('sanctuaryOverlay');
+    if (!ov) { ov=document.createElement('div'); ov.id='sanctuaryOverlay'; ov.className='sanctuary-overlay'; document.body.appendChild(ov); }
+    _startSanctuary(focusState.taskId, focusState.taskText, [], _sanctuary.zoneId);
+    return;
+  }
+  // fallback: task 찾아서 zone select 표시
   var t = taskItems.find(function(x){return String(x.id)===String(focusState.taskId);})
        || todoItems.find(function(x){return String(x.id)===String(focusState.taskId);});
   if (!t) return;
-  hideFloatingTimer();
   openSanctuary(t.id, t.text, t.subs||[]);
 }
 
@@ -17913,6 +17968,12 @@ function openSanctuary(taskId, taskText, subs) {
   subs = subs || [];
   var ov = document.getElementById('sanctuaryOverlay');
   if (!ov) { ov=document.createElement('div'); ov.id='sanctuaryOverlay'; ov.className='sanctuary-overlay'; document.body.appendChild(ov); }
+  // 이미 같은 task로 집중 중이면 zone select 없이 바로 재개
+  if (focusState.running && String(focusState.taskId) === String(taskId) && _sanctuary.zoneId !== undefined && _sanctuary.zoneId !== null) {
+    hideFloatingTimer();
+    _startSanctuary(taskId, taskText, subs || [], _sanctuary.zoneId);
+    return;
+  }
   ov.innerHTML = _buildZoneSelectHTML(taskText);
   ov.classList.add('open');
   _sanctuary.open = true;
@@ -17942,6 +18003,52 @@ function _buildZoneSelectHTML(taskText) {
   '</div>';
 }
 
+
+// ── 집중 상태 영속 저장/복구 ────────────────────────────
+function _saveFocusState() {
+  if (focusState.running) {
+    localStorage.setItem('focus_persist', JSON.stringify({
+      taskId:   focusState.taskId,
+      taskText: focusState.taskText,
+      mode:     focusState.mode,
+      phase:    focusState.phase,
+      elapsed:  focusState.elapsed,
+      remaining:focusState.remaining,
+      sessions: focusState.sessions,
+      ts:       Date.now(),
+      zoneId:   _sanctuary ? _sanctuary.zoneId : null
+    }));
+  } else {
+    localStorage.removeItem('focus_persist');
+  }
+}
+
+function _restoreFocusState() {
+  try {
+    var raw = localStorage.getItem('focus_persist');
+    if (!raw) return false;
+    var s = JSON.parse(raw);
+    if (!s || !s.taskId) return false;
+    var age = (Date.now() - (s.ts||0)) / 1000;
+    if (age > 14400) { localStorage.removeItem('focus_persist'); return false; } // 4시간 초과 무효
+    // 경과 시간 보정
+    var elapsed = Math.min(Math.floor(age), s.remaining);
+    var newRemaining = Math.max(0, s.remaining - elapsed);
+    focusState.taskId    = s.taskId;
+    focusState.taskText  = s.taskText || '';
+    focusState.mode      = s.mode || 'pomodoro';
+    focusState.phase     = s.phase || 'work';
+    focusState.elapsed   = (s.elapsed||0) + elapsed;
+    focusState.remaining = newRemaining;
+    focusState.sessions  = s.sessions || 0;
+    focusState.running   = true;
+    focusState._paused   = false;
+    if (s.zoneId && _sanctuary) _sanctuary.zoneId = s.zoneId;
+    clearInterval(focusState._interval);
+    focusState._interval = setInterval(tickFocus, 1000);
+    return true;
+  } catch(e) { return false; }
+}
 function _startSanctuary(taskId, taskText, subs, zoneId) {
   var ov = document.getElementById('sanctuaryOverlay'); if(!ov) return;
   _sanctuary.zoneId   = zoneId;
@@ -17955,6 +18062,7 @@ function _startSanctuary(taskId, taskText, subs, zoneId) {
   var vibe = zoneId ? SANCTUARY_ZONE_VIBES[zoneId] : null;
   ov.innerHTML = _buildSanctuaryUI(taskText, subs, vibe);
   _initSanctuaryCanvas(); _bindSanctuaryButtons(taskId,taskText,subs); _startSanctuaryAnim(); _updateSanctuaryUI();
+  _saveFocusState();
 }
 
 function _buildSanctuaryUI(taskText, subs, vibe) {
