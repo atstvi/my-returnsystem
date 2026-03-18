@@ -3282,6 +3282,18 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 .tt-save-btn { background: var(--accent); color: #fff; box-shadow: var(--shadow-raised-sm); }
 .tt-gen-btn { background: #22c55e; color: #fff; box-shadow: var(--shadow-raised-sm); }
 .tt-del-btn { background: var(--bg); color: #ef4444; box-shadow: var(--shadow-raised-sm); }
+
+/* ── 토스트 ── */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(20px);
+  background: var(--fg); color: var(--bg);
+  padding: 10px 20px; border-radius: var(--r-pill);
+  font-size: 13px; font-weight: 600;
+  opacity: 0; pointer-events: none;
+  transition: opacity .25s, transform .25s;
+  z-index: 9999; white-space: nowrap;
+}
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
 </head>
 <body>
@@ -4124,7 +4136,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 </div>
 </div>
 
-  <div id="page-timetable" class="page">
+  </div>
+<div id="page-timetable" class="page">
   <div style="padding:16px;flex:1;display:flex;flex-direction:column;gap:16px;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between">
       <h2 style="font-size:18px;font-weight:700;color:var(--fg)">🗓️ 시간표</h2>
@@ -13137,7 +13150,10 @@ function saveTimetables() {
 const TT_COLORS = ['#6C63FF','#38B2AC','#E05050','#D97706','#22c55e','#8B84FF','#f59e0b','#3b82f6'];
 const TT_DAYS = ['월','화','수','목','금','토'];
 const TT_HOURS = [];
-for (let h = 8; h <= 21; h++) { TT_HOURS.push(h + ':00'); TT_HOURS.push(h + ':30'); }
+for (let h = 8; h <= 21; h++) {
+  TT_HOURS.push(String(h).padStart(2,'0') + ':00');
+  TT_HOURS.push(String(h).padStart(2,'0') + ':30');
+}
 
 function renderTimetableTab() {
   try {
@@ -13172,6 +13188,14 @@ function renderTtList() {
 }
 
 function ttSelect(id) {
+  if (_ttActiveId === id) {
+    // 같은 시간표 클릭 → 편집창 닫기
+    _ttActiveId = null;
+    var ed = document.getElementById('ttEditor');
+    if (ed) ed.style.display = 'none';
+    renderTtList();
+    return;
+  }
   _ttActiveId = id;
   var tt = timetables.find(function(t){ return t.id === id; });
   if (tt) showTtEditor(tt);
@@ -13218,13 +13242,14 @@ function renderTtGrid(tt) {
     var cells = TT_DAYS.map(function(_, dayIdx) {
       var key = dayIdx + '_' + timeLabel;
       var slots = slotMap[key] || [];
-      var slotsHtml = slots.map(function(s, i) {
+      var slotsHtml = slots.map(function(s) {
         var color = TT_COLORS[s.colorIdx % TT_COLORS.length] || '#6C63FF';
-        return '<div class="tt-cell-slot" style="background:' + color + ';top:' + (i*14) + 'px"'
+        return '<div style="background:' + color + ';color:#fff;border-radius:4px;font-size:9px;'
+          + 'font-weight:600;padding:1px 3px;margin:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'
           + ' title="' + esc(s.title) + ' ' + s.timeStart + '-' + s.timeEnd + '">'
           + esc(s.title) + '</div>';
       }).join('');
-      return '<td style="position:relative">' + slotsHtml + '</td>';
+      return '<td style="padding:1px;vertical-align:top;min-height:20px;border:1px solid var(--border-subtle)">' + slotsHtml + '</td>';
     }).join('');
     return '<tr><td class="tt-time-label">' + timeLabel + '</td>' + cells + '</tr>';
   }).join('');
@@ -13280,7 +13305,7 @@ function ttRemoveSlot(idx) {
   renderTtSlots(tt);
 }
 
-function ttSave() {
+function ttSave(silent) {
   var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
   if (!tt) return;
   tt.name      = document.getElementById('ttNameInp').value.trim() || '이름 없음';
@@ -13288,7 +13313,7 @@ function ttSave() {
   tt.endDate   = document.getElementById('ttEndDate').value;
   saveTimetables();
   renderTtList();
-  showToast('시간표 저장됨 💾');
+  if (!silent) showToast('시간표 저장됨 💾');
 }
 
 function ttDelete() {
@@ -13307,8 +13332,8 @@ function ttGenerate() {
   var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
   if (!tt) return;
 
-  // 저장 먼저
-  ttSave();
+  // 저장 먼저 (토스트 없이)
+  ttSave(true);
 
   if (!tt.startDate || !tt.endDate) { showToast('기간을 먼저 설정해주세요'); return; }
   if (!tt.slots || !tt.slots.length) { showToast('수업을 먼저 추가해주세요'); return; }
@@ -13357,14 +13382,14 @@ function ttGenerate() {
 
   var confirmed = confirm(
     '"' + (tt.name||'시간표') + '" 기간 ' + tt.startDate + ' ~ ' + tt.endDate + '\n'
-    + toCreate.length + '개의 일정을 생성합니다.\n계속할까요?'
+    + toCreate.length + '개의 일정을 생성합니다. 계속할까요?'
   );
   if (!confirmed) return;
 
+  taskItems = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
   toCreate.forEach(function(item) { taskItems.push(item); });
   saveTaskData();
   showToast('✅ ' + toCreate.length + '개 일정 생성 완료!');
-  // 할일 탭으로 이동
   goTab('task');
 }
 </script>
