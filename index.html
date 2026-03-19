@@ -6356,7 +6356,7 @@ function goToInboxMsg(msgId) {
 function updateHeaderInbox(){
   const el=document.getElementById('meHeaderInboxList');if(!el)return;
   // 처리 필요(needsAction)인 것만 표시
-  const active=inboxItems.filter(m=>!m.done && m.needsAction).sort((a,b)=>b.id-a.id);
+  const active=inboxItems.filter(m=>!m.done && m.needsAction !== false).sort((a,b)=>b.id-a.id);
   if(active.length===0){
     el.innerHTML='<div class="me-header-inbox-empty">비어있어</div>';
     return;
@@ -9133,7 +9133,7 @@ function renderInboxMessages(scrollTop){
   el.innerHTML=items.map((m,i)=>{
     const realIdx = inboxItems.indexOf(m);
     const c = inboxCats.find(x=>x.id===m.catId) || {color:'var(--fg3)',label:'기타'};
-    const needsAction = m.needsAction && !m.done;
+    const needsAction = m.needsAction !== false && !m.done;
     const textHtml = m.text ? `<span class="bubble-text">${esc(m.text)}</span>` : '';
     const imgHtml  = m.img  ? `<img class="bubble-img" src="${m.img}" alt="">` : '';
     const catOpts  = inboxCats.map(cat=>
@@ -9153,7 +9153,7 @@ function renderInboxMessages(scrollTop){
         <div class="bubble-actions">
           <button onclick="event.stopPropagation();openInboxEdit(${realIdx})" title="편집">✎</button>
           <button onclick="event.stopPropagation();copyInboxText(${realIdx})" title="복사">⎘</button>
-          <button onclick="event.stopPropagation();toggleInboxNeedsAction(${realIdx})" title="처리 필요" style="opacity:${m.needsAction?'1':'0.35'};color:${m.needsAction?'#f59e0b':'inherit'}">⚡</button>
+          <button onclick="event.stopPropagation();toggleInboxNeedsAction(${realIdx})" title="처리 필요" style="opacity:${m.needsAction===false?'0.25':'1'};color:${m.needsAction===false?'inherit':'#f59e0b'}">⚡</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'high')" title="핵심" class="${m.priority==='high'?'active':''}">🔴</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'mid')" title="일반" class="${m.priority==='mid'?'active':''}">🟡</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'low')" title="여유">🟢</button>
@@ -9398,7 +9398,8 @@ function setInboxPrio(idxOrVal, valOrBtn){
 function toggleInboxNeedsAction(realIdx) {
   const m = inboxItems[realIdx];
   if (!m) return;
-  m.needsAction = !m.needsAction;
+  // undefined(기본=처리필요) 또는 true → false, false → true
+  m.needsAction = (m.needsAction === false) ? true : false;
   localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
   renderInboxMessages();
   renderItpPanel();
@@ -9647,7 +9648,7 @@ function renderItpPanel() {
   const el = document.getElementById('itpScroll'); if(!el) return;
 
   // 미완료 + 필터 적용
-  let items = inboxItems.filter(m => !m.done && m.needsAction);
+  let items = inboxItems.filter(m => !m.done && m.needsAction !== false);
   if(itpFilter === 'none') items = items.filter(m => !m.priority);
   else if(itpFilter !== 'all') items = items.filter(m => m.priority === itpFilter);
 
@@ -13315,40 +13316,73 @@ function renderTtSlots(tt) {
     return;
   }
   var dayNames = ['월','화','수','목','금','토'];
-  el.innerHTML = tt.slots.map(function(s, i) {
-    var color = TT_COLORS[s.colorIdx % TT_COLORS.length] || '#6C63FF';
-    var dayOpts = ['월','화','수','목','금','토'].map(function(d, di) {
-      return '<option value="' + di + '"' + (s.day === di ? ' selected' : '') + '>' + d + '</option>';
+
+  // 수업명별 그룹핑
+  var groups = {};
+  var groupOrder = [];
+  tt.slots.forEach(function(s, i) {
+    if (!groups[s.title]) {
+      groups[s.title] = { colorIdx: s.colorIdx, sessions: [] };
+      groupOrder.push(s.title);
+    }
+    groups[s.title].sessions.push({ slot: s, idx: i });
+  });
+
+  el.innerHTML = groupOrder.map(function(title) {
+    var g = groups[title];
+    var color = TT_COLORS[g.colorIdx % TT_COLORS.length] || '#6C63FF';
+
+    var sessionsHtml = g.sessions.map(function(item) {
+      var s = item.slot, i = item.idx;
+      var dayOpts = ['월','화','수','목','금','토'].map(function(d, di) {
+        return '<option value="' + di + '"' + (s.day === di ? ' selected' : '') + '>' + d + '</option>';
+      }).join('');
+
+      return '<div id="ttSlotRow-' + i + '" style="margin-left:16px;margin-bottom:4px;background:var(--bg);border-radius:10px;box-shadow:var(--shadow-raised-sm);overflow:hidden">'
+        // 세션 표시 행
+        + '<div style="display:flex;align-items:center;gap:6px;padding:6px 10px">'
+        + '<span style="font-size:11px;color:var(--fg2);flex:1">' + dayNames[s.day] + ' · ' + s.timeStart + ' ~ ' + s.timeEnd + '</span>'
+        + '<button onclick="ttToggleEdit(' + i + ')" style="padding:1px 8px;border-radius:999px;background:none;border:1px solid var(--border-subtle);font-size:10px;color:var(--accent);cursor:pointer">편집</button>'
+        + '<button onclick="ttRemoveSlot(' + i + ')" style="padding:1px 6px;border-radius:999px;background:none;border:none;font-size:13px;color:var(--fg3);cursor:pointer">×</button>'
+        + '</div>'
+        // 편집 폼
+        + '<div id="ttSlotEdit-' + i + '" style="display:none;flex-direction:column;gap:6px;padding:8px 10px;border-top:1px solid var(--border-subtle);background:rgba(108,99,255,.03)">'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+        + '<select id="ttSeDay-' + i + '" style="padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">' + dayOpts + '</select>'
+        + '<input type="time" id="ttSeStart-' + i + '" value="' + s.timeStart + '" style="padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
+        + '<span style="font-size:11px;color:var(--fg3)">~</span>'
+        + '<input type="time" id="ttSeEnd-' + i + '" value="' + s.timeEnd + '" style="padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
+        + '</div>'
+        + '<div style="display:flex;gap:6px">'
+        + '<button onclick="ttSaveSlot(' + i + ')" style="padding:4px 14px;border-radius:999px;background:var(--accent);color:#fff;border:none;font-size:11px;font-weight:600;cursor:pointer">저장</button>'
+        + '<button onclick="ttToggleEdit(' + i + ')" style="padding:4px 12px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg2);cursor:pointer">취소</button>'
+        + '</div>'
+        + '</div>'
+        + '</div>';
     }).join('');
-    return '<div id="ttSlotRow-' + i + '" style="display:flex;flex-direction:column;gap:6px;padding:8px 12px;background:var(--bg);border-radius:12px;box-shadow:var(--shadow-raised-sm)">'
-      // 표시 행
-      + '<div style="display:flex;align-items:center;gap:8px">'
-      + '<div style="width:10px;height:10px;border-radius:50%;flex-shrink:0;background:' + color + '"></div>'
-      + '<div style="flex:1;font-size:12px;color:var(--fg2)">'
-      + '<strong>' + esc(s.title) + '</strong> '
-      + '(' + dayNames[s.day] + ') ' + s.timeStart + ' ~ ' + s.timeEnd
+
+    return '<div style="margin-bottom:10px">'
+      // 수업명 헤더
+      + '<div style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 2px">'
+      + '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';flex-shrink:0"></div>'
+      + '<span style="font-size:13px;font-weight:700;color:var(--fg);flex:1">' + esc(title) + '</span>'
+      + '<button onclick="ttAddSessionFor(' + JSON.stringify(title) + ',' + g.colorIdx + ')" '
+      + 'style="padding:2px 10px;border-radius:999px;background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;font-size:10px;font-weight:600;cursor:pointer">+ 시간 추가</button>'
       + '</div>'
-      + '<button onclick="ttToggleEdit(' + i + ')" style="padding:2px 10px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--accent);cursor:pointer">편집</button>'
-      + '<button onclick="ttRemoveSlot(' + i + ')" style="padding:2px 8px;border-radius:999px;background:none;border:none;font-size:14px;color:var(--fg3);cursor:pointer">×</button>'
-      + '</div>'
-      // 편집 폼 (기본 숨김)
-      + '<div id="ttSlotEdit-' + i + '" style="display:none;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid var(--border-subtle)">'
-      + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
-      + '<input id="ttSeTitle-' + i + '" value="' + esc(s.title) + '" style="flex:1;min-width:80px;padding:6px 10px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
-      + '<select id="ttSeDay-' + i + '" style="padding:6px 8px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">' + dayOpts + '</select>'
-      + '<input type="time" id="ttSeStart-' + i + '" value="' + s.timeStart + '" style="padding:6px 10px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
-      + '<span style="font-size:11px;color:var(--fg3)">~</span>'
-      + '<input type="time" id="ttSeEnd-' + i + '" value="' + s.timeEnd + '" style="padding:6px 10px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
-      + '</div>'
-      + '<div style="display:flex;gap:6px">'
-      + '<button onclick="ttSaveSlot(' + i + ')" style="padding:5px 14px;border-radius:999px;background:var(--accent);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer">저장</button>'
-      + '<button onclick="ttToggleEdit(' + i + ')" style="padding:5px 14px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:12px;color:var(--fg2);cursor:pointer">취소</button>'
-      + '</div>'
-      + '</div>'
+      + sessionsHtml
       + '</div>';
   }).join('');
 }
 
+function ttAddSessionFor(title, colorIdx) {
+  var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
+  if (!tt) return;
+  // 수업명 입력란을 해당 수업명으로 채우고 포커스
+  document.getElementById('ttSlotTitle').value = title;
+  document.getElementById('ttSlotTitle').focus();
+  document.getElementById('ttSlotTitle').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  showToast('"' + title + '" 시간을 추가해주세요');
+}
 function ttToggleEdit(i) {
   var el = document.getElementById('ttSlotEdit-' + i);
   if (!el) return;
@@ -13358,22 +13392,18 @@ function ttToggleEdit(i) {
 function ttSaveSlot(i) {
   var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
   if (!tt || !tt.slots || !tt.slots[i]) return;
-  var title = document.getElementById('ttSeTitle-' + i).value.trim();
   var day   = parseInt(document.getElementById('ttSeDay-' + i).value);
   var start = document.getElementById('ttSeStart-' + i).value;
-  var end   = document.getElementById('ttSeEnd-' + i).value;
-  if (!title) { showToast('수업명을 입력해주세요'); return; }
-  if (!start || !end || start >= end) { showToast('시간을 확인해주세요'); return; }
-  tt.slots[i].title     = title;
+  var end2  = document.getElementById('ttSeEnd-' + i).value;
+  if (!start || !end2 || start >= end2) { showToast('시간을 확인해주세요'); return; }
   tt.slots[i].day       = day;
   tt.slots[i].timeStart = start;
-  tt.slots[i].timeEnd   = end;
+  tt.slots[i].timeEnd   = end2;
   saveTimetables();
   renderTtGrid(tt);
   renderTtSlots(tt);
-  showToast('수업 수정됨 ✅');
+  showToast('수업 시간 수정됨 ✅');
 }
-
 function ttAddSlot() {
   var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
   if (!tt) return;
@@ -13385,9 +13415,17 @@ function ttAddSlot() {
   if (!start || !end) { showToast('시간을 입력해주세요'); return; }
   if (start >= end) { showToast('종료 시간이 시작 시간보다 늦어야 합니다'); return; }
   if (!tt.slots) tt.slots = [];
-  var colorIdx = tt.slots.length % TT_COLORS.length;
+  // 같은 수업명이면 기존 colorIdx 재사용, 없으면 새 색상
+  var existing = tt.slots.find(function(s){ return s.title === title; });
+  var colorIdx = existing ? existing.colorIdx : (function(){
+    var usedColors = tt.slots.map(function(s){ return s.colorIdx; });
+    for (var ci = 0; ci < TT_COLORS.length; ci++) {
+      if (!usedColors.includes(ci)) return ci;
+    }
+    return tt.slots.length % TT_COLORS.length;
+  })();
   tt.slots.push({ title: title, day: day, timeStart: start, timeEnd: end, colorIdx: colorIdx });
-  document.getElementById('ttSlotTitle').value = '';
+  // 수업명 입력은 유지 (같은 수업 연속 추가 편의)
   saveTimetables();
   renderTtGrid(tt);
   renderTtSlots(tt);
