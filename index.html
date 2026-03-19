@@ -6356,7 +6356,7 @@ function goToInboxMsg(msgId) {
 function updateHeaderInbox(){
   const el=document.getElementById('meHeaderInboxList');if(!el)return;
   // 처리 필요(needsAction)인 것만 표시
-  const active=inboxItems.filter(m=>!m.done && m.needsAction!==false).sort((a,b)=>b.id-a.id);
+  const active=inboxItems.filter(m=>!m.done && m.needsAction).sort((a,b)=>b.id-a.id);
   if(active.length===0){
     el.innerHTML='<div class="me-header-inbox-empty">비어있어</div>';
     return;
@@ -9133,7 +9133,7 @@ function renderInboxMessages(scrollTop){
   el.innerHTML=items.map((m,i)=>{
     const realIdx = inboxItems.indexOf(m);
     const c = inboxCats.find(x=>x.id===m.catId) || {color:'var(--fg3)',label:'기타'};
-    const needsAction = m.priority==='high' && !m.done;
+    const needsAction = m.needsAction && !m.done;
     const textHtml = m.text ? `<span class="bubble-text">${esc(m.text)}</span>` : '';
     const imgHtml  = m.img  ? `<img class="bubble-img" src="${m.img}" alt="">` : '';
     const catOpts  = inboxCats.map(cat=>
@@ -9153,6 +9153,7 @@ function renderInboxMessages(scrollTop){
         <div class="bubble-actions">
           <button onclick="event.stopPropagation();openInboxEdit(${realIdx})" title="편집">✎</button>
           <button onclick="event.stopPropagation();copyInboxText(${realIdx})" title="복사">⎘</button>
+          <button onclick="event.stopPropagation();toggleInboxNeedsAction(${realIdx})" title="처리 필요" style="opacity:${m.needsAction?'1':'0.35'};color:${m.needsAction?'#f59e0b':'inherit'}">⚡</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'high')" title="핵심" class="${m.priority==='high'?'active':''}">🔴</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'mid')" title="일반" class="${m.priority==='mid'?'active':''}">🟡</button>
           <button onclick="event.stopPropagation();setInboxPrio(${realIdx},'low')" title="여유">🟢</button>
@@ -9392,6 +9393,16 @@ function setInboxPrio(idxOrVal, valOrBtn){
     btn.closest('div').querySelectorAll('.ws-opt').forEach(b=>b.classList.remove('sel'));
     btn.classList.add('sel');
   }
+}
+
+function toggleInboxNeedsAction(realIdx) {
+  const m = inboxItems[realIdx];
+  if (!m) return;
+  m.needsAction = !m.needsAction;
+  localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
+  renderInboxMessages();
+  renderItpPanel();
+  updateHeaderInbox();
 }
 
 function saveInboxItemEdit(idx){
@@ -9636,7 +9647,7 @@ function renderItpPanel() {
   const el = document.getElementById('itpScroll'); if(!el) return;
 
   // 미완료 + 필터 적용
-  let items = inboxItems.filter(m => !m.done);
+  let items = inboxItems.filter(m => !m.done && m.needsAction);
   if(itpFilter === 'none') items = items.filter(m => !m.priority);
   else if(itpFilter !== 'all') items = items.filter(m => m.priority === itpFilter);
 
@@ -13227,31 +13238,72 @@ function showTtEditor(tt) {
   renderTtSlots(tt);
 }
 
+function _timeToIdx(t) {
+  // '09:00' → TT_HOURS 인덱스
+  var parts = t.split(':');
+  var h = parseInt(parts[0]), m = parseInt(parts[1] || 0);
+  var idx = (h - 8) * 2 + (m >= 30 ? 1 : 0);
+  return Math.max(0, Math.min(idx, TT_HOURS.length - 1));
+}
+
 function renderTtGrid(tt) {
   var tbody = document.getElementById('ttGridBody');
   if (!tbody) return;
-  // 슬롯을 요일+시간별로 분류
-  var slotMap = {};
+
+  var ROW = TT_HOURS.length; // 28행 (08:00~21:30)
+  var COL = 6; // 월~토
+
+  // 각 [row][col]에 무엇을 그릴지 결정
+  // null = 빈 셀, {slot, rowspan} = 슬롯 시작, 'skip' = rowspan으로 병합된 셀
+  var grid = [];
+  for (var r = 0; r < ROW; r++) {
+    grid.push([null, null, null, null, null, null]);
+  }
+
   (tt.slots || []).forEach(function(s) {
-    var key = s.day + '_' + s.timeStart;
-    if (!slotMap[key]) slotMap[key] = [];
-    slotMap[key].push(s);
+    var startIdx = _timeToIdx(s.timeStart);
+    var endIdx   = _timeToIdx(s.timeEnd);
+    var span = Math.max(1, endIdx - startIdx);
+    var col = s.day;
+    if (col < 0 || col >= COL) return;
+    if (startIdx < 0 || startIdx >= ROW) return;
+    // 이미 슬롯이 있으면 skip
+    if (grid[startIdx][col] !== null) return;
+    grid[startIdx][col] = { slot: s, rowspan: span };
+    for (var r2 = startIdx + 1; r2 < startIdx + span && r2 < ROW; r2++) {
+      grid[r2][col] = 'skip';
+    }
   });
 
-  tbody.innerHTML = TT_HOURS.map(function(timeLabel) {
-    var cells = TT_DAYS.map(function(_, dayIdx) {
-      var key = dayIdx + '_' + timeLabel;
-      var slots = slotMap[key] || [];
-      var slotsHtml = slots.map(function(s) {
+  tbody.innerHTML = TT_HOURS.map(function(timeLabel, rowIdx) {
+    var cells = '';
+    for (var col = 0; col < COL; col++) {
+      var cell = grid[rowIdx][col];
+      if (cell === 'skip') continue; // rowspan으로 병합됨
+      if (cell === null) {
+        cells += '<td style="border:1px solid var(--border-subtle);height:22px"></td>';
+      } else {
+        var s = cell.slot;
+        var span = cell.rowspan;
         var color = TT_COLORS[s.colorIdx % TT_COLORS.length] || '#6C63FF';
-        return '<div style="background:' + color + ';color:#fff;border-radius:4px;font-size:9px;'
-          + 'font-weight:600;padding:1px 3px;margin:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"'
+        cells += '<td rowspan="' + span + '" style="'
+          + 'border:1px solid var(--border-subtle);'
+          + 'background:' + color + '18;'
+          + 'vertical-align:top;padding:2px 3px;'
+          + 'position:relative">'
+          + '<div style="'
+          + 'background:' + color + ';color:#fff;border-radius:4px;'
+          + 'font-size:9px;font-weight:700;padding:2px 4px;'
+          + 'overflow:hidden;height:100%;box-sizing:border-box;'
+          + 'min-height:' + (span * 22 - 4) + 'px"'
           + ' title="' + esc(s.title) + ' ' + s.timeStart + '-' + s.timeEnd + '">'
-          + esc(s.title) + '</div>';
-      }).join('');
-      return '<td style="padding:1px;vertical-align:top;min-height:20px;border:1px solid var(--border-subtle)">' + slotsHtml + '</td>';
-    }).join('');
-    return '<tr><td class="tt-time-label">' + timeLabel + '</td>' + cells + '</tr>';
+          + esc(s.title) + '<br>'
+          + '<span style="font-size:8px;opacity:.85">' + s.timeStart + '-' + s.timeEnd + '</span>'
+          + '</div>'
+          + '</td>';
+      }
+    }
+    return '<tr><td style="font-size:9px;color:var(--fg3);padding:2px 4px;text-align:right;border:1px solid var(--border-subtle);white-space:nowrap;height:22px">' + timeLabel + '</td>' + cells + '</tr>';
   }).join('');
 }
 
