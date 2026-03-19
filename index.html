@@ -1234,8 +1234,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
 /* 왼쪽: 달력 패널 */
 .task-cal-panel {
-  width: 280px;
-  min-width: 220px;
+  width: 420px;
+  min-width: 300px;
   flex-shrink: 0;
   background: var(--bg);
   box-shadow: var(--shadow-raised);
@@ -3644,7 +3644,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <button class="task-cal-nav-btn" onclick="taskCalMove(1)">›</button>
           <button class="task-cal-today-btn" onclick="taskCalToday()">오늘</button>
           <button class="task-cal-expand-btn" onclick="toggleCalExpand()" id="calExpandBtn" title="달력 크게 보기">⤢</button>
-          <button class="task-deadline-view-btn" id="deadlineViewBtn" onclick="toggleDeadlineView()" title="데드라인 뷰">📅</button>
+          <button id="ttSchedToggleBtn" onclick="toggleTtSchedOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg3);cursor:pointer">📅숨기기</button>
+          <button class="task-deadline-view-btn" id="deadlineViewBtn" onclick="toggleDeadlineView()" title="데드라인 뷰">🔗</button>
           <span class="task-deadline-hint" id="deadlineViewHint" style="display:none;font-size:9px;color:var(--fg3)">연결</span>
         </div>
         <!-- 카테고리 필터 칩 (nav 아래) -->
@@ -4151,6 +4152,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <input type="date" id="ttStartDate" style="padding:7px 10px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">
         <span style="font-size:11px;color:var(--fg3)">~</span>
         <input type="date" id="ttEndDate" style="padding:7px 10px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">
+        <button id="ttWeekendToggle" onclick="ttToggleWeekend()" style="padding:5px 12px;border-radius:999px;border:none;font-size:11px;font-weight:600;cursor:pointer;background:var(--bg);box-shadow:var(--shadow-raised-sm);color:var(--fg2)">토요일 숨기기</button>
       </div>
       <div style="background:rgba(108,99,255,.04);border-radius:12px;padding:14px">
         <div style="font-size:11px;font-weight:700;color:var(--fg3);margin-bottom:8px">수업 추가</div>
@@ -4167,16 +4169,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
       <div id="ttSlots" style="display:flex;flex-direction:column;gap:6px"></div>
       <div style="overflow-x:auto">
-        <table id="ttGrid" style="border-collapse:collapse;width:100%;min-width:460px">
-          <thead><tr>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle);width:46px">시간</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">월</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">화</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">수</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">목</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">금</th>
-            <th style="padding:6px 4px;font-size:11px;color:var(--fg3);border-bottom:2px solid var(--border-subtle)">토</th>
-          </tr></thead>
+        <table id="ttGrid" style="border-collapse:collapse;width:100%;table-layout:fixed">
+          <thead id="ttGridHead"></thead>
           <tbody id="ttGridBody"></tbody>
         </table>
       </div>
@@ -4211,7 +4205,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
     </div>
   </div>
-<script>var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
+<script>
+var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
 var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 
 let memos=JSON.parse(localStorage.getItem('memos_v5')||'[]');
@@ -4260,6 +4255,7 @@ let taskCalFilterIds=new Set(taskCats.map(function(c){return c.id;}));
 
 let _dragTaskId=null;
 let _deadlineViewOn=false;
+let _hideTtSched=false;
 let _tieOpen=null;
 let _tieActiveDp=null;
 let _tieDpMonth=new Date();
@@ -4503,7 +4499,8 @@ function renderTaskCal(){
     const isOther=d.getMonth()!==m;
     const isToday=key===todayKey;
     const isSel=key===taskSelDate;
-    const items=itemsByDate[key]||[];
+    const _raw=itemsByDate[key]||[];
+    const items=_hideTtSched?_raw.filter(function(t){return !(t.catId==='schedule'&&t.note&&t.note.indexOf('시간표')>=0);}):_raw;
     const hasTasks=items.length>0;
     const hasDeadline=_deadlineViewOn&&items.some(t=>_isScheduleItem&&_isScheduleItem(t));
     const col=i%7; // 0=월…5=토,6=일
@@ -13220,7 +13217,8 @@ function ttNewTable() {
     name: '',
     startDate: '',
     endDate: '',
-    slots: []
+    slots: [],
+    showSat: true
   };
   timetables.push(newTt);
   saveTimetables();
@@ -13235,7 +13233,7 @@ function showTtEditor(tt) {
   document.getElementById('ttNameInp').value = tt.name || '';
   document.getElementById('ttStartDate').value = tt.startDate || '';
   document.getElementById('ttEndDate').value = tt.endDate || '';
-  renderTtGrid(tt);
+  renderTtGrid(tt); // 버튼 텍스트도 내부에서 업데이트됨
   renderTtSlots(tt);
 }
 
@@ -13248,27 +13246,47 @@ function _timeToIdx(t) {
 }
 
 function renderTtGrid(tt) {
+  var thead = document.getElementById('ttGridHead');
   var tbody = document.getElementById('ttGridBody');
   if (!tbody) return;
 
-  var ROW = TT_HOURS.length; // 28행 (08:00~21:30)
-  var COL = 6; // 월~토
+  // 표시할 요일 결정
+  var showSat = (tt.showSat !== false);
+  var dayNames = showSat ? ['월','화','수','목','금','토'] : ['월','화','수','목','금'];
+  var COL = dayNames.length;
+  var ROW = TT_HOURS.length;
 
-  // 각 [row][col]에 무엇을 그릴지 결정
-  // null = 빈 셀, {slot, rowspan} = 슬롯 시작, 'skip' = rowspan으로 병합된 셀
+  // 버튼 텍스트 동기화
+  var btn = document.getElementById('ttWeekendToggle');
+  if (btn) btn.textContent = showSat ? '토요일 숨기기' : '토요일 보이기';
+
+  // 헤더 동적 생성
+  var thStyle = 'padding:6px 4px;font-size:11px;font-weight:700;color:var(--fg3);border-bottom:2px solid var(--border-subtle);text-align:center';
+  if (thead) {
+    thead.innerHTML = '<tr>'
+      + '<th style="' + thStyle + ';width:42px">시간</th>'
+      + dayNames.map(function(d) {
+          return '<th style="' + thStyle + '">' + d + '</th>';
+        }).join('')
+      + '</tr>';
+  }
+
+  // 그리드 데이터 구성
   var grid = [];
   for (var r = 0; r < ROW; r++) {
-    grid.push([null, null, null, null, null, null]);
+    var row = [];
+    for (var cc = 0; cc < COL; cc++) row.push(null);
+    grid.push(row);
   }
 
   (tt.slots || []).forEach(function(s) {
+    if (!showSat && s.day === 5) return; // 토요일 숨김
     var startIdx = _timeToIdx(s.timeStart);
     var endIdx   = _timeToIdx(s.timeEnd);
     var span = Math.max(1, endIdx - startIdx);
-    var col = s.day;
+    var col = s.day; // 0=월...5=토
     if (col < 0 || col >= COL) return;
     if (startIdx < 0 || startIdx >= ROW) return;
-    // 이미 슬롯이 있으면 skip
     if (grid[startIdx][col] !== null) return;
     grid[startIdx][col] = { slot: s, rowspan: span };
     for (var r2 = startIdx + 1; r2 < startIdx + span && r2 < ROW; r2++) {
@@ -13280,7 +13298,7 @@ function renderTtGrid(tt) {
     var cells = '';
     for (var col = 0; col < COL; col++) {
       var cell = grid[rowIdx][col];
-      if (cell === 'skip') continue; // rowspan으로 병합됨
+      if (cell === 'skip') continue;
       if (cell === null) {
         cells += '<td style="border:1px solid var(--border-subtle);height:22px"></td>';
       } else {
@@ -13290,12 +13308,11 @@ function renderTtGrid(tt) {
         cells += '<td rowspan="' + span + '" style="'
           + 'border:1px solid var(--border-subtle);'
           + 'background:' + color + '18;'
-          + 'vertical-align:top;padding:2px 3px;'
-          + 'position:relative">'
+          + 'vertical-align:top;padding:2px 3px">'
           + '<div style="'
           + 'background:' + color + ';color:#fff;border-radius:4px;'
           + 'font-size:9px;font-weight:700;padding:2px 4px;'
-          + 'overflow:hidden;height:100%;box-sizing:border-box;'
+          + 'overflow:hidden;box-sizing:border-box;'
           + 'min-height:' + (span * 22 - 4) + 'px"'
           + ' title="' + esc(s.title) + ' ' + s.timeStart + '-' + s.timeEnd + '">'
           + esc(s.title) + '<br>'
@@ -13307,7 +13324,6 @@ function renderTtGrid(tt) {
     return '<tr><td style="font-size:9px;color:var(--fg3);padding:2px 4px;text-align:right;border:1px solid var(--border-subtle);white-space:nowrap;height:22px">' + timeLabel + '</td>' + cells + '</tr>';
   }).join('');
 }
-
 function renderTtSlots(tt) {
   var el = document.getElementById('ttSlots');
   if (!el) return;
@@ -13563,6 +13579,29 @@ function ttGenerate() {
   showToast(msg);
   goTab('task');
 }
+
+function ttToggleWeekend() {
+  var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
+  if (!tt) return;
+  tt.showSat = (tt.showSat === false) ? true : false;
+  saveTimetables();
+  renderTtGrid(tt);
+  // 버튼 텍스트 업데이트
+  var btn = document.getElementById('ttWeekendToggle');
+  if (btn) btn.textContent = tt.showSat === false ? '토요일 보이기' : '토요일 숨기기';
+}
+function toggleTtSchedOnCal(){
+  _hideTtSched=!_hideTtSched;
+  var b=document.getElementById('ttSchedToggleBtn');
+  if(b){
+    b.textContent=_hideTtSched?'📅보이기':'📅숨기기';
+    b.style.color=_hideTtSched?'var(--accent)':'var(--fg3)';
+  }
+  renderTaskCal&&renderTaskCal();
+  renderDeadlineCanvas&&renderDeadlineCanvas();
+}
+
+
 </script>
 </body>
 </html>
