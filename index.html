@@ -4830,6 +4830,11 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
                   <input id="notionPropPriority" class="setting-inp" placeholder="예: Priority, 우선순위" style="font-size:11px">
                 </div>
                 <div>
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+                    <span style="font-size:9px;letter-spacing:1px;color:var(--foreground-muted)">우선순위 옵션명 매핑</span>
+                    <button onclick="fetchNotionPrioOptions()" style="font-size:10px;padding:2px 8px;border-radius:var(--r-pill);border:none;background:var(--accent);color:#fff;cursor:pointer">노션에서 불러오기</button>
+                  </div>
+                  <div id="notionPrioOptionsHint" style="font-size:10px;color:var(--fg3);margin-bottom:6px"></div>
                   <div style="font-size:9px;letter-spacing:1px;color:var(--foreground-muted);margin-bottom:4px">🔴 핵심(high) 옵션명</div>
                   <input id="notionPrioHigh" class="setting-inp" placeholder="예: High, 높음, 긴급" style="font-size:11px" oninput="saveNotionPrioMap()">
                 </div>
@@ -12892,8 +12897,8 @@ async function _pushToNotion(item) {
       });
       // Notion 수정 시간 기록 → 다음 동기화 시 로컬이 더 최신임을 알 수 있게
       // push 직후 로컬 시간으로 갱신 → 다음 pull 때 로컬이 항상 최신으로 인식
-      item.updatedAt = Date.now() + 2000;
-      item._notionPushedAt = item.updatedAt;
+      item._notionPushedAt = Date.now();
+      // updatedAt은 건드리지 않음 - 노션이 이후 수정하면 pull 가능하도록
       saveTaskData();
       showToast('Notion ✓');
       return;
@@ -15346,6 +15351,51 @@ function toggleEisenPrio(type) {
     btn.style.textDecoration = isOn ? 'line-through' : '';
   }
   saveEisenSettings();
+}
+
+async function fetchNotionPrioOptions() {
+  const hint = document.getElementById('notionPrioOptionsHint');
+  if (hint) hint.textContent = '불러오는 중...';
+  try {
+    const mappings = notionCfg.mappings || {};
+    const dbIds = Object.values(mappings);
+    if (!dbIds.length) { if(hint) hint.textContent = '설정에서 카테고리-DB를 먼저 연결해줘'; return; }
+    const dbId = dbIds[0];
+    const db = await notionApi('GET', '/databases/' + dbId, null);
+    const schema = db.properties || {};
+    const prioKey = notionCfg.propNames && notionCfg.propNames.priority || 'Priority';
+    const prioProp = schema[prioKey];
+    if (!prioProp || !prioProp.select) {
+      if (hint) hint.textContent = '노션에서 Priority(select) 속성을 찾을 수 없어. 속성명을 직접 입력해줘.';
+      return;
+    }
+    const options = prioProp.select.options || [];
+    const names = options.map(function(o){ return o.name; });
+    if (hint) hint.textContent = '노션 옵션: ' + names.join(', ') + ' → 아래 입력란에 복사해서 매핑해줘';
+    // 자동 매핑 시도: high/mid/low 포함된 옵션명 자동 채우기
+    const autoMap = { high: '', mid: '', low: '' };
+    names.forEach(function(n) {
+      var l = n.toLowerCase();
+      if (!autoMap.high && (l.includes('high') || l.includes('높') || l.includes('긴급') || l === '!!!')) autoMap.high = n;
+      else if (!autoMap.mid && (l.includes('med') || l.includes('mid') || l.includes('중') || l === '!!')) autoMap.mid = n;
+      else if (!autoMap.low && (l.includes('low') || l.includes('낮') || l.includes('여유') || l === '!')) autoMap.low = n;
+    });
+    // 매핑 안 된 것 순서대로 채우기
+    var remaining = names.filter(function(n){ return n !== autoMap.high && n !== autoMap.mid && n !== autoMap.low; });
+    if (!autoMap.high && remaining.length) autoMap.high = remaining.shift();
+    if (!autoMap.mid  && remaining.length) autoMap.mid  = remaining.shift();
+    if (!autoMap.low  && remaining.length) autoMap.low  = remaining.shift();
+    var h = document.getElementById('notionPrioHigh');
+    var m = document.getElementById('notionPrioMid');
+    var l = document.getElementById('notionPrioLow');
+    if (h && autoMap.high) h.value = autoMap.high;
+    if (m && autoMap.mid)  m.value = autoMap.mid;
+    if (l && autoMap.low)  l.value = autoMap.low;
+    saveNotionPrioMap();
+    showToast('우선순위 매핑 자동 완료!');
+  } catch(e) {
+    if (hint) hint.textContent = '불러오기 실패: ' + e.message;
+  }
 }
 </script>
 </body>
