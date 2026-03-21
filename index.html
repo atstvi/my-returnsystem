@@ -1234,7 +1234,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
 /* 왼쪽: 달력 패널 */
 .task-cal-panel {
-  width: 420px;
+  width: 500px;
   min-width: 300px;
   flex-shrink: 0;
   background: var(--bg);
@@ -4539,7 +4539,7 @@ function renderTaskCal(){
       const cat = taskCats.find(c => c.id === t.catId);
       const bg  = cat ? cat.color+'22' : 'rgba(255,255,255,.07)';
       const col = cat ? cat.color      : 'var(--foreground-muted)';
-      const timeTag = t.timeStart ? ` ${t.timeStart}` : '';
+      const timeTag = '';
       // 데드라인 뷰에서 일정 아이템은 📌 마커로 표시 (중복 방지)
       if (_deadlineViewOn && _isScheduleItem && _isScheduleItem(t)) {
         const days = _calcDaysLeft && _calcDaysLeft(t);
@@ -5593,18 +5593,24 @@ function deleteTaskCat(i){
   const cat=taskCats[i];
   if(cat.id==='schedule'){showToast('일정 카테고리는 삭제할 수 없어');return;}
   const cnt=taskItems.filter(t=>t.catId===cat.id).length;
-  if(!confirm(`"${cat.label}" 카테고리를 삭제할까?${cnt?` 할일 ${cnt}개는 기타로 이동돼.`:''}`))return;
-  taskItems.forEach(t=>{if(t.catId===cat.id)t.catId='etc';});
+  const others=taskCats.filter(function(c){return c.id!==cat.id;});
+  let targetId='etc';
+  if(cnt>0){
+    const numList=others.map(function(c,n){return (n+1)+'. '+c.icon+' '+c.label;}).join('\n');
+    const sel=prompt('"'+cat.label+'" 할일 '+cnt+'개를 어디로 이동?\n\n'+numList+'\n\n번호 입력 (엔터=기타)');
+    if(sel===null)return;
+    const n=parseInt(sel);
+    if(n>=1&&n<=others.length)targetId=others[n-1].id;
+  }else{
+    if(!confirm('"'+cat.label+'" 카테고리를 삭제할까?'))return;
+  }
+  taskItems.forEach(function(t){if(t.catId===cat.id)t.catId=targetId;});
   taskCats.splice(i,1);
   taskCalFilterIds.delete(cat.id);
   saveTaskData();
   document.querySelector('.nds-modal')?.remove();
   renderTaskTab();
 }
-
-// ── 인박스 드래그앤드롭 ──
-let _dragInboxIdx=null;
-
 function inboxDragStart(e, idx){
   _dragInboxIdx=idx;
   e.dataTransfer.setData('text/plain','inbox:'+idx);
@@ -10050,6 +10056,7 @@ async function _fbSaveNow(){
       profileData:    localStorage.getItem('profile_data')     || '{}',
       // Notion 설정 (기기간 공유)
       notionConfig:   localStorage.getItem('notion_config')    || '{}',
+      timetablesV1:   localStorage.getItem('timetables_v1')    || '[]',
       // 🎯 아일랜드 전체 데이터
       fishTickets:    localStorage.getItem('fish_tickets')     || '0',
       sanctuaryTotalSessions: localStorage.getItem('sanctuary_total_sessions') || '0',
@@ -10164,6 +10171,12 @@ function _applyFirebaseData(d, force){
       taskItems = items;
       localStorage.setItem('task_items_v1', JSON.stringify(items));
     } catch(e){ console.warn('taskItems parse:', e); }
+  }
+  if(d.timetablesV1 !== undefined){
+    try{
+      timetables = JSON.parse(d.timetablesV1 || '[]');
+      localStorage.setItem('timetables_v1', d.timetablesV1);
+    }catch(e){ console.warn('timetables parse:', e); }
   }
   if(d.taskCatsV1 !== undefined){
     try {
