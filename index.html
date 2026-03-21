@@ -5886,7 +5886,14 @@ function tieSetPrio(itemId, realIdx, prio) {
   t.updatedAt = Date.now();
   saveTaskData();
   if(typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl){
-    _pushToNotion(t).catch(function(e){showToast('Notion 오류: '+e.message);});
+    if(t.notionPageId){
+      // notionPageId 있으면 바로 PATCH
+      _pushToNotion(t).catch(function(e){showToast('Notion 오류: '+e.message);});
+    } else {
+      // notionPageId 없으면 _smartSync가 dirty 감지해서 처리
+      // updatedAt 갱신으로 dirty 표시 (이미 됨)
+      if(typeof _smartSync==='function') _smartSync();
+    }
   }
   const colors={high:'rgba(255,77,109,.5)',mid:'rgba(251,191,36,.5)',low:'rgba(108,99,255,.4)'};
   const panel = document.getElementById('tiep-'+itemId);
@@ -6185,11 +6192,15 @@ function submitTaskQuick(){
     date:taskSelDate, timeEnd:'', note:'', priority:'', done:false,
     createdAt:Date.now(), updatedAt:Date.now()
   });
+  const _newItem = taskItems[taskItems.length - 1];
   saveTaskData();
   document.getElementById('taskQuickAddForm')?.remove();
   renderTaskList();
   renderTaskCal();
   showToast('추가됐어!');
+  if(typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl&&notionCfg.mappings&&notionCfg.mappings[_newItem.catId]){
+    _pushToNotion(_newItem).catch(function(e){console.warn('Notion push:',e);});
+  }
 }
 
 // ── 시간 피커 ──
@@ -12576,9 +12587,13 @@ function _findDateProp(props, hint) {
 // props 객체에서 우선순위 속성 자동 탐색
 function _findPriorityProp(props, hint) {
   if (hint && props[hint]?.select?.name) return props[hint].select.name;
-  const candidates = ['Priority','priority','우선순위','중요도'];
+  const candidates = ['Priority','priority','우선순위','중요도','Urgency','urgency','중요','Priority Level'];
   for (const k of candidates) {
     if (props[k]?.select?.name) return props[k].select.name;
+  }
+  // 모든 속성에서 select 타입 중 priority 관련 이름 탐색
+  for (const k of Object.keys(props)) {
+    if (props[k]?.select?.name && k.toLowerCase().includes('prior')) return props[k].select.name;
   }
   return '';
 }
@@ -12661,6 +12676,14 @@ async function _detectNotionProps(dbId) {
       if (val.type === 'date'      && !detected.date)      detected.date      = key;
       if (val.type === 'select'    && !detected.priority)  detected.priority  = key;
       if (val.type === 'title'     && !detected.name)      detected.name      = key;
+    }
+    // select 타입 중 priority 관련 속성 자동 감지
+    for (const [key, prop] of Object.entries(schema)) {
+      if (prop.type === 'select' && !detected.priority) {
+        if (['priority','우선순위','중요도','urgency'].some(kw => key.toLowerCase().includes(kw))) {
+          detected.priority = key;
+        }
+      }
     }
     if (Object.keys(detected).length > 0) {
       notionCfg.propNames = { ...detected, ...(notionCfg.propNames || {}) };
