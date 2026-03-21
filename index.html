@@ -4235,20 +4235,23 @@ let taskCats=(function(){
     // id 중복 제거
     const seen={};
     const deduped=parsed.filter(function(cat){if(seen[cat.id])return false;seen[cat.id]=true;return true;});
-    // schedule 보장
-    if(!deduped.find(function(x){return x.id==='schedule';})){
-      deduped.unshift({id:'schedule',label:'일정',color:'#E05050',icon:'📅'});
+    // 기본 카테고리 label/icon 복구
+    const defs={schedule:{label:'일정',icon:'📅'},uni:{label:'대학',icon:'🎓'},work:{label:'작업',icon:'💻'},health:{label:'건강',icon:'💪'},life:{label:'생활',icon:'🏠'},idea:{label:'아이디어',icon:'💡'},etc:{label:'기타',icon:'📌'}};
+    deduped.forEach(function(cat){if(defs[cat.id]){cat.label=defs[cat.id].label;cat.icon=defs[cat.id].icon;}});
+    // schedule이 아닌데 label='일정'인 가짜 카테고리 제거 + taskItems 이전
+    const fakes=deduped.filter(function(cat){return cat.id!=='schedule'&&cat.label==='일정';});
+    if(fakes.length>0){
+      const its=JSON.parse(localStorage.getItem('task_items_v1')||'[]');
+      let changed=false;
+      fakes.forEach(function(cat){its.forEach(function(t){if(t.catId===cat.id){t.catId='schedule';changed=true;}});});
+      if(changed)localStorage.setItem('task_items_v1',JSON.stringify(its));
     }
-    // 기본 카테고리 label/icon 복구 (사용자가 실수로 바꿨을 경우)
-    const defaults={schedule:{label:'일정',icon:'📅'},uni:{label:'대학',icon:'🎓'},work:{label:'작업',icon:'💻'},health:{label:'건강',icon:'💪'},life:{label:'생활',icon:'🏠'},idea:{label:'아이디어',icon:'💡'},etc:{label:'기타',icon:'📌'}};
-    deduped.forEach(function(cat){
-      if(defaults[cat.id]){
-        cat.label=defaults[cat.id].label;
-        cat.icon=defaults[cat.id].icon;
-      }
-    });
-    localStorage.setItem('task_cats_v1',JSON.stringify(deduped));
-    return deduped;
+    const cleaned=deduped.filter(function(cat){return cat.id==='schedule'||cat.label!=='일정';});
+    // schedule 보장
+    if(!cleaned.find(function(x){return x.id==='schedule';}))
+      cleaned.unshift({id:'schedule',label:'일정',color:'#E05050',icon:'📅'});
+    localStorage.setItem('task_cats_v1',JSON.stringify(cleaned));
+    return cleaned;
   }catch(e){return JSON.parse(JSON.stringify(TASK_DEFAULT_CATS));}
 })();
 
@@ -7407,6 +7410,10 @@ function saveTaskCatEdit(catId){
   if(!nameEl) return;
   var cat = taskCats.find(function(c){ return c.id === catId; });
   if(!cat) return;
+  if(catId === 'schedule'){
+    showToast('일정 카테고리는 이름을 변경할 수 없어');
+    return;
+  }
   cat.label = nameEl.value.trim() || cat.label;
   if(iconEl) cat.icon  = iconEl.value.trim() || cat.icon;
   if(colorEl) cat.color = colorEl.value || cat.color;
