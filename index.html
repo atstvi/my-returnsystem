@@ -4232,11 +4232,15 @@ let taskCats=(function(){
     const s=localStorage.getItem('task_cats_v1');
     const parsed=s?JSON.parse(s):null;
     if(!Array.isArray(parsed)||parsed.length===0){return JSON.parse(JSON.stringify(TASK_DEFAULT_CATS));}
-    if(!parsed.find(function(c){return c.id==='schedule';})){
-      parsed.unshift({id:'schedule',label:'일정',color:'#E05050',icon:'📅'});
-      localStorage.setItem('task_cats_v1',JSON.stringify(parsed));
+    // 중복 id 제거
+    const seen={};
+    const deduped=parsed.filter(function(cat){if(seen[cat.id])return false;seen[cat.id]=true;return true;});
+    // schedule 보장
+    if(!deduped.find(function(x){return x.id==='schedule';})){
+      deduped.unshift({id:'schedule',label:'일정',color:'#E05050',icon:'📅'});
     }
-    return parsed;
+    localStorage.setItem('task_cats_v1',JSON.stringify(deduped));
+    return deduped;
   }catch(e){return JSON.parse(JSON.stringify(TASK_DEFAULT_CATS));}
 })();
 
@@ -5565,6 +5569,7 @@ function addTaskCat(){
   const icon=document.getElementById('newTaskCatIcon')?.value.trim()||'📌';
   const color=document.getElementById('newTaskCatColor')?.value||TASK_CAT_COLORS[0];
   if(!name){showToast('이름을 입력해줘');return;}
+  if(name==='일정'){showToast('"일정"은 기본 카테고리 이름이야');return;}
   taskCats.push({id:'tc_'+Date.now(),label:name,color,icon});
   taskCalFilterIds.add(taskCats[taskCats.length-1].id);
   saveTaskData();
@@ -5575,6 +5580,7 @@ function addTaskCat(){
 
 function deleteTaskCat(i){
   const cat=taskCats[i];
+  if(cat.id==='schedule'){showToast('일정 카테고리는 삭제할 수 없어');return;}
   const cnt=taskItems.filter(t=>t.catId===cat.id).length;
   if(!confirm(`"${cat.label}" 카테고리를 삭제할까?${cnt?` 할일 ${cnt}개는 기타로 이동돼.`:''}`))return;
   taskItems.forEach(t=>{if(t.catId===cat.id)t.catId='etc';});
