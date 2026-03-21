@@ -12803,14 +12803,30 @@ async function syncNotionCategory(catId, dbId) {
       item.notionPageId = null;
       if (pageIds[item.id]) delete pageIds[item.id];
     } else if (!item.notionPageId) {
-      // 로컬에만 있음 → Notion에 새 페이지 생성
-      const created = await notionApi('POST', '/pages', {
-        parent: { database_id: dbId },
-        properties: taskToNotionProps(item),
+      // 로컬에만 있음 → 노션에서 같은 이름 페이지 먼저 찾기 (중복 방지)
+      const matchPage = pages.find(function(p) {
+        const pName = _findNameProp(p.properties || {}, (notionCfg.propNames||{}).name);
+        return pName && pName.trim() === (item.text || '').trim();
       });
-      item.notionPageId = created.id;
-      item.updatedAt = Date.now();
-      pageIds[item.id] = created.id;
+      if (matchPage) {
+        // 이름 일치하는 노션 페이지 발견 → 연결 후 pull
+        item.notionPageId = matchPage.id;
+        pageIds[item.id] = matchPage.id;
+        const np2 = notionPageToTask(matchPage, catId);
+        if (np2.priority) item.priority = np2.priority;
+        if (np2.done !== undefined) item.done = np2.done;
+        item.updatedAt = new Date(matchPage.last_edited_time || Date.now()).getTime();
+        console.log('[Notion sync] LINKED existing page:', item.text, 'priority:', item.priority);
+      } else {
+        // 없으면 새 페이지 생성
+        const created = await notionApi('POST', '/pages', {
+          parent: { database_id: dbId },
+          properties: taskToNotionProps(item),
+        });
+        item.notionPageId = created.id;
+        item.updatedAt = Date.now();
+        pageIds[item.id] = created.id;
+      }
     }
   }
   // 노션에서 삭제된 항목 로컬에서 제거
