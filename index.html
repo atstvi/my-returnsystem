@@ -10251,7 +10251,7 @@ function sendInboxItem(){
   const catId=document.getElementById('inboxCatSelect')?.value||'misc';
   const now=new Date();
   const time=`${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-  const item={id:Date.now(),text:text||'📎 이미지',catId,time,priority:'',done:false};
+  const item={id:Date.now(),text:text||'📎 이미지',catId,time,priority:'',done:false,createdAt:Date.now(),updatedAt:Date.now()};
   if(pendingInboxImg){item.img=pendingInboxImg;pendingInboxImg=null;clearImgPreview();}
   inboxItems.unshift(item);
   saveInboxData();
@@ -11195,8 +11195,19 @@ function _applyFirebaseData(d, force){
 
   // ── 인박스 ──
   if(d.inboxV1 !== undefined){
-    try { inboxItems = JSON.parse(d.inboxV1 || '[]'); } catch(e){ inboxItems = []; }
-    localStorage.setItem('inbox_v1', d.inboxV1 || '[]');
+    try {
+      const _remoteInbox = JSON.parse(d.inboxV1 || '[]');
+      _remoteInbox.forEach(function(ri){
+        var li = inboxItems.findIndex(function(x){ return String(x.id)===String(ri.id); });
+        if(li < 0){ inboxItems.push(ri); }
+        else {
+          var lts = inboxItems[li].updatedAt||inboxItems[li].createdAt||0;
+          var rts = ri.updatedAt||ri.createdAt||0;
+          if(rts > lts) inboxItems[li] = ri;
+        }
+      });
+      localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
+    } catch(e){ try{inboxItems=JSON.parse(d.inboxV1||'[]');}catch(e2){} }
   }
   if(d.inboxCatsV1 !== undefined){
     try {
@@ -11298,6 +11309,7 @@ function _reRenderCurrentTab(){
     else if(id === 'page-inbox'){
       renderInbox && renderInbox();
       renderItpPanel && renderItpPanel();
+      updateHeaderInbox && updateHeaderInbox();
     }
     else if(id === 'page-memo'){
       renderMemos && renderMemos();
@@ -12789,11 +12801,10 @@ async function syncNotionCategory(catId, dbId) {
 
         // 날짜·시간: 노션에 값이 있고 로컬과 다를 때만 갱신
         // (단, 로컬에 값이 있는데 노션이 비어있으면 → 덮어쓰지 않음)
-        if (np.date) {
-          item.date      = np.date;
-          item.timeStart = np.timeStart || '';  // 노션에서 명시적으로 온 값
-          item.timeEnd   = np.timeEnd   || '';
-        }
+        if (np.date) item.date = np.date;
+        // 시간은 항상 갱신 (노션에서 변경 가능, date 없어도)
+        if (np.timeStart !== undefined) item.timeStart = np.timeStart || '';
+        if (np.timeEnd   !== undefined) item.timeEnd   = np.timeEnd   || '';
         item.updatedAt = notionEditedAt;
       }
       // 로컬이 더 최신이면 → 그대로 유지 (push는 수정 시점에 이미 됨)
@@ -15208,7 +15219,8 @@ function handleUrlInboxAdd() {
 
   var item = {
     id: Date.now(), text: text, catId: 'misc',
-    time: time, priority: '', done: false, needsAction: true
+    time: time, priority: '', done: false, needsAction: true,
+    createdAt: Date.now(), updatedAt: Date.now()
   };
   inboxItems.unshift(item);
   saveInboxData();
