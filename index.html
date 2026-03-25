@@ -5758,7 +5758,25 @@ function renderTaskList(){
             <span class="tie-label">날짜</span>
             <button class="tie-chip sel" id="tiedb-${t.id}" data-tie-trigger="1" style="border-color:rgba(108,99,255,.3);color:var(--accent)" onclick="event.stopPropagation();tieOpenDate('${t.id}',${realIdx},this)">${t.date||'없음'}</button>
           </div>
-          <div class="tie-row"><span class="tie-label">D-day</span><input type="date" class="tie-inp" id="tiedd-${t.id}" value="${t.deadlineDate||''}" onclick="event.stopPropagation()" oninput="event.stopPropagation();tieSetDeadlineDate('${t.id}',${realIdx},this.value)" style="max-width:130px">${t.deadlineDate?' ('+_ddayLabel(t.deadlineDate)+')':''}</div>
+          ${t.catId !== 'schedule' ? `
+          <div class="tie-row" data-tie-deadline style="align-items:flex-start">
+            <span class="tie-label" style="padding-top:6px">데드라인</span>
+            <div style="display:flex;flex-direction:column;gap:5px;flex:1">
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                ${(()=>{
+                  var dl = t.deadlineId ? taskItems.find(function(x){return String(x.id)===String(t.deadlineId);}) : null;
+                  return dl ? '<span style="font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accent)18;color:var(--accent);font-weight:600">📋 '+esc(dl.text)+(dl.date?' · '+dl.date:'')+'</span>' : '';
+                })()}
+                <button class="tie-chip" onclick="event.stopPropagation();openDlinkModal('${t.id}')" style="font-size:11px">${t.deadlineId ? '🔄 일정 변경' : '📋 일정 연결'}</button>
+                ${t.deadlineId ? `<button class="tie-chip" style="opacity:.5;font-size:11px" onclick="event.stopPropagation();tieUnlinkDeadline('${t.id}')">× 해제</button>` : ''}
+              </div>
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:11px;color:var(--fg3)">날짜:</span>
+                <input type="date" class="tie-inp" id="tiedd-${t.id}" value="${t.deadlineDate||''}" onclick="event.stopPropagation()" oninput="event.stopPropagation();tieSetDeadlineDate('${t.id}',${realIdx},this.value)" style="max-width:130px">
+                ${t.deadlineDate ? `<span style="font-size:11px;color:var(--fg3)">(${_ddayLabel(t.deadlineDate)})</span><button class="tie-chip" style="opacity:.5;font-size:11px" onclick="event.stopPropagation();tieSetDeadlineDate('${t.id}',${realIdx},'')">× 해제</button>` : ''}
+              </div>
+            </div>
+          </div>` : ''}
           <div class="tie-row">
             <span class="tie-label">시작</span>
             <button class="tie-chip" id="tiets-${t.id}" data-tie-trigger="1" onclick="event.stopPropagation();tieOpenTime('${t.id}',${realIdx},this,'start')">${t.timeStart||'없음'}</button>
@@ -5836,6 +5854,11 @@ function renderTaskList(){
     </div>`;
   }).join('')
 
+  // 편집 중인 패널 복원 (renderTaskList 호출해도 닫히지 않게)
+  if (_tieOpen) {
+    const el = document.getElementById('ti-' + _tieOpen);
+    if (el) el.classList.add('editing');
+  }
 }
 
 
@@ -6171,12 +6194,16 @@ function tieAddSub(itemId) {
       +'<input class="tie-inp" style="flex:1" id="tiesub-'+itemId+'-'+si+'" onclick="event.stopPropagation()">'
       +'<button class="tie-chip" style="padding:0 4px;opacity:.5" onclick="event.stopPropagation();tieDelSub("+itemId+","+si+")">×</button>';
     const innerDiv = row.querySelector('div');
-    const addBtn = innerDiv ? innerDiv.querySelector('button') : null;
     if (innerDiv) {
+      // + 서브임무 추가 버튼 찾기 (직접 자식만)
+      let addBtn = null;
+      for (const ch of innerDiv.children) {
+        if (ch.tagName === 'BUTTON') { addBtn = ch; break; }
+      }
       if (addBtn) innerDiv.insertBefore(div, addBtn);
       else innerDiv.appendChild(div);
     }
-    div.querySelector('input[type=text], .tie-inp')?.focus();
+    div.querySelector('.tie-inp')?.focus();
   }
 }
 
@@ -6213,7 +6240,38 @@ function tieDelSub(itemId, si) {
   if(!t||!t.subs) return;
   t.subs.splice(si,1);
   saveTaskData();
-  renderTaskList();
+  const row = document.getElementById('tierow-subs-'+itemId);
+  if (row) {
+    const innerDiv = row.querySelector('div');
+    if (innerDiv) {
+      innerDiv.innerHTML = '';
+      t.subs.forEach(function(s, i) {
+        const d = document.createElement('div');
+        d.style.cssText = 'display:flex;gap:4px;align-items:center';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !!s.done;
+        cb.style.cssText = 'width:14px;height:14px;accent-color:var(--accent);flex-shrink:0';
+        cb.setAttribute('onclick','event.stopPropagation()');
+        cb.setAttribute('onchange',"tieToggleSub('"+itemId+"',"+i+",this.checked)");
+        const inp = document.createElement('input');
+        inp.className = 'tie-inp'; inp.style.flex = '1';
+        inp.value = s.text||''; inp.id = 'tiesub-'+itemId+'-'+i;
+        inp.setAttribute('onclick','event.stopPropagation()');
+        const del = document.createElement('button');
+        del.className = 'tie-chip'; del.style.cssText = 'padding:0 4px;opacity:.5';
+        del.setAttribute('onclick',"event.stopPropagation();tieDelSub('"+itemId+"',"+i+")");
+        del.textContent = '×';
+        d.appendChild(cb); d.appendChild(inp); d.appendChild(del);
+        innerDiv.appendChild(d);
+      });
+      const addBtn = document.createElement('button');
+      addBtn.className = 'tie-chip';
+      addBtn.style.cssText = 'align-self:flex-start;margin-top:2px';
+      addBtn.setAttribute('onclick',"event.stopPropagation();tieAddSub('"+itemId+"')");
+      addBtn.textContent = '+ 서브임무 추가';
+      innerDiv.appendChild(addBtn);
+    }
+  }
 }
 
 function tieSetEnergy(itemId, val) {
@@ -8537,9 +8595,7 @@ function renderDeadlineList() {
         var ltCat = taskCats.find(function(ct){ return ct.id === lt.catId; });
         var prioColor = lt.priority === 'high' ? '#ef4444' : lt.priority === 'mid' ? '#f59e0b' : 'var(--fg3)';
         html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 14px 4px 32px;'
-          + (lt.done ? 'opacity:.45;' : '') + 'cursor:pointer"'
-          + ' onclick="openDlinkModal(\'' + lt.id + '\')'
-          + '">';
+          + (lt.done ? 'opacity:.45;' : '') + '">';
         html += '<span style="font-size:12px;color:' + (lt.done ? '#22c55e' : 'var(--fg3)') + ';flex-shrink:0">'
           + (lt.done ? '✓' : '○') + '</span>';
         html += '<span style="flex:1;font-size:12px;color:var(--fg);'
@@ -8611,14 +8667,13 @@ function _daysLeftClass(days){
   return 'normal';
 }
 
-function openDlinkModal(deadlineId) {
-  var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
-  if (!dl) return;
-  // 데드라인 가능 항목만: schedule 카테고리 OR deadlineDate 있는 항목
-  if (dl.catId !== 'schedule' && !dl.deadlineDate) return;
-  window._dlinkSelDeadlineId = deadlineId;
+function openDlinkModal(taskId) {
+  // taskId = 일반 할일 (이 할일에 연결할 일정을 선택하는 모달)
+  var task = taskItems.find(function(t){ return String(t.id) === String(taskId); });
+  if (!task) return;
+  if (task.catId === 'schedule') return;  // schedule은 데드라인 자체이므로 불필요
+  window._dlinkSelTaskId = taskId;
 
-  // 항상 새로 생성
   var old = document.getElementById('dlinkModal');
   if (old) old.remove();
 
@@ -8628,7 +8683,7 @@ function openDlinkModal(deadlineId) {
   modal.innerHTML =
     '<div class="dlink-modal-box">' +
       '<div class="dlink-modal-head">' +
-        '<span class="dlink-modal-title">🔗 데드라인 연결</span>' +
+        '<span class="dlink-modal-title">📌 데드라인 설정</span>' +
         '<span class="dlink-modal-sub" id="dlinkModalSub"></span>' +
         '<button class="dlink-modal-close" onclick="closeDlinkModal()">✕</button>' +
       '</div>' +
@@ -8638,12 +8693,12 @@ function openDlinkModal(deadlineId) {
       '</div>' +
       '<div id="dlinkTabTaskPanel">' +
         '<div style="padding:6px 12px;border-bottom:1px solid var(--border)">' +
-          '<input id="dlinkSearchInp" style="width:100%;background:none;border:none;outline:none;font-size:12px;color:var(--fg)" placeholder="할일 검색..." oninput="renderDlinkModalBody(window._dlinkSelDeadlineId)">' +
+          '<input id="dlinkSearchInp" style="width:100%;background:none;border:none;outline:none;font-size:12px;color:var(--fg)" placeholder="일정 검색..." oninput="renderDlinkModalBody(window._dlinkSelTaskId)">' +
         '</div>' +
         '<div class="dlink-modal-body" id="dlinkModalBody"></div>' +
       '</div>' +
       '<div id="dlinkTabDatePanel" style="display:none;padding:16px">' +
-        '<div style="font-size:11px;color:var(--fg3);margin-bottom:10px">일정 연결 없이 날짜를 직접 데드라인으로 설정합니다.</div>' +
+        '<div style="font-size:11px;color:var(--fg3);margin-bottom:10px">일정 없이 날짜를 직접 데드라인으로 설정합니다.</div>' +
         '<div style="display:flex;flex-direction:column;gap:8px">' +
           '<input type="date" id="dlinkDateInp" style="padding:8px 12px;border-radius:10px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:13px;color:var(--fg);width:100%;box-sizing:border-box">' +
           '<div style="display:flex;gap:8px">' +
@@ -8657,74 +8712,82 @@ function openDlinkModal(deadlineId) {
   modal.addEventListener('click', function(e){ if(e.target===modal) closeDlinkModal(); });
   document.body.appendChild(modal);
 
-  var dcat = taskCats.find(function(ct){ return ct.id === dl.catId; });
+  var tcat = taskCats.find(function(ct){ return ct.id === task.catId; });
   var sub = document.getElementById('dlinkModalSub');
-  if (sub) sub.textContent = (dcat?dcat.icon+' ':'') + dl.text + (dl.date?' · '+dl.date:'');
-  renderDlinkModalBody(deadlineId);
+  if (sub) sub.textContent = (tcat?tcat.icon+' ':'') + task.text;
+  renderDlinkModalBody(taskId);
   var _ddi = document.getElementById('dlinkDateInp');
-  if (_ddi) _ddi.value = dl.deadlineDate || '';
+  if (_ddi) _ddi.value = task.deadlineDate || '';
   var _dds = document.getElementById('dlinkDateStatus');
-  if (_dds && dl.deadlineDate) _dds.textContent = '현재: ' + dl.deadlineDate;
+  if (_dds && task.deadlineDate) _dds.textContent = '현재: ' + task.deadlineDate;
 }
-
-
 function closeDlinkModal() {
   var modal = document.getElementById('dlinkModal');
   if (modal) modal.classList.remove('open');
 }
 
-function renderDlinkModalBody(deadlineId) {
+function renderDlinkModalBody(taskId) {
+  // schedule 항목 목록을 보여줘서 이 할일에 연결할 일정을 고르게 함
   var body = document.getElementById('dlinkModalBody');
   if (!body) return;
-  var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
-  var daysFromNow = dl && dl.date
-    ? Math.round((new Date(dl.date+'T00:00:00') - new Date().setHours(0,0,0,0)) / 86400000)
-    : null;
+  var task = taskItems.find(function(t){ return String(t.id) === String(taskId); });
+  if (!task) return;
+  var today = new Date(); today.setHours(0,0,0,0);
   var q = ((document.getElementById('dlinkSearchInp')||{}).value||'').toLowerCase().trim();
-  var candidates = taskItems.filter(function(t){
-    if (t.catId === 'schedule') return false;
-    if (t.deadlineId && String(t.deadlineId) !== String(deadlineId)) return false;
+
+  // schedule 카테고리 + 시간표 제외
+  var schedules = taskItems.filter(function(t){
+    if (t.catId !== 'schedule') return false;
+    if (t.note && t.note.indexOf('시간표') >= 0) return false;
+    if (q && !(t.text && t.text.toLowerCase().includes(q))) return false;
     return true;
   });
-  if (q) candidates = candidates.filter(function(t){ return t.text && t.text.toLowerCase().includes(q); });
-  var linked   = candidates.filter(function(t){ return String(t.deadlineId) === String(deadlineId); });
-  var unlinked = candidates.filter(function(t){ return String(t.deadlineId) !== String(deadlineId); });
+
+  var linked   = schedules.filter(function(t){ return String(t.id) === String(task.deadlineId); });
+  var unlinked = schedules.filter(function(t){ return String(t.id) !== String(task.deadlineId); });
+
+  function ddayBadge(t) {
+    if (!t.date) return '';
+    var due = new Date(t.date+'T00:00'); due.setHours(0,0,0,0);
+    var diff = Math.round((due - today) / 86400000);
+    var lbl = diff < 0 ? 'D+'+Math.abs(diff) : diff === 0 ? 'D-DAY' : 'D-'+diff;
+    var col = diff < 0 ? '#94a3b8' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f59e0b' : '#22c55e';
+    return '<span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:999px;background:'+col+'22;color:'+col+'">'+lbl+'</span>';
+  }
 
   function rowHtml(t, isLinked) {
-    var cat = taskCats.find(function(ct){ return ct.id === t.catId; });
-    var catHtml = cat ? '<span style="font-size:9px;padding:1px 5px;background:'+cat.color+'22;color:'+cat.color+';margin-left:4px">'+cat.icon+' '+cat.label+'</span>' : '';
-    var badge = '';
-    if (isLinked && daysFromNow !== null) {
-      var cls = daysFromNow<0?'past':daysFromNow<=3?'urgent':daysFromNow<=7?'soon':'ok';
-      var lbl = daysFromNow<0?'D+'+Math.abs(daysFromNow):daysFromNow===0?'D-DAY':'D-'+daysFromNow;
-      badge = '<span class="task-deadline-badge '+cls+'">'+lbl+'</span>';
-    }
-    return '<div class="dlink-task-row'+(isLinked?' linked':'')+'" onclick="dlinkToggle(\''+t.id+'\',\''+deadlineId+'\')">' +
+    return '<div class="dlink-task-row'+(isLinked?' linked':'')+'" onclick="dlinkToggle(\''+taskId+'\',\''+t.id+'\')">' +
       '<div class="dlink-task-check">'+(isLinked?'✓':'')+'</div>' +
-      '<span class="dlink-task-text">'+esc(t.text)+'</span>'+catHtml+badge+'</div>';
+      '<span class="dlink-task-text">'+esc(t.text)+'</span>' +
+      (t.date?'<span style="font-size:10px;color:var(--fg3);margin-left:4px">'+t.date+'</span>':'') +
+      ddayBadge(t) +
+      '</div>';
   }
 
   var html = '';
   if (linked.length) {
-    html += '<div class="dlink-section-title">✓ 연결됨 ('+linked.length+')</div>';
+    html += '<div class="dlink-section-title">✓ 연결된 일정</div>';
     html += linked.map(function(t){ return rowHtml(t,true); }).join('');
   }
-  html += '<div class="dlink-section-title">연결할 할일 선택</div>';
-  html += unlinked.length ? unlinked.map(function(t){ return rowHtml(t,false); }).join('')
-    : '<div style="padding:12px;font-size:11px;color:var(--fg3)">'+(q?'검색 결과 없음':'연결할 할일이 없어')+'</div>';
+  html += '<div class="dlink-section-title">'+(linked.length?'다른 일정으로 변경':'연결할 일정 선택')+'</div>';
+  html += unlinked.length
+    ? unlinked.map(function(t){ return rowHtml(t,false); }).join('')
+    : '<div style="padding:12px;font-size:11px;color:var(--fg3)">'+(q?'검색 결과 없음':'등록된 일정이 없어')+'</div>';
   body.innerHTML = html;
 }
-
-function dlinkToggle(itemId, deadlineId) {
-  var t = taskItems.find(function(ti){ return String(ti.id) === String(itemId); });
+function dlinkToggle(taskId, schedId) {
+  // taskId = 일반 할일, schedId = schedule 항목 (데드라인)
+  var t = taskItems.find(function(ti){ return String(ti.id) === String(taskId); });
   if (!t) return;
-  var wasLinked = String(t.deadlineId) === String(deadlineId);
-  t.deadlineId = wasLinked ? '' : deadlineId;
+  var wasLinked = String(t.deadlineId) === String(schedId);
+  t.deadlineId = wasLinked ? '' : schedId;
   t.updatedAt = Date.now();
   saveTaskData();
-  _dlinkSyncToNotion(t, deadlineId, !wasLinked);
-  renderDlinkModalBody(deadlineId);
+  _dlinkSyncToNotion(t, schedId, !wasLinked);
+  renderDlinkModalBody(taskId);  // 모달: 이 할일 기준으로 일정 목록 다시 그림
   renderTaskCal && renderTaskCal();
+  renderDeadlineList && _deadlineListOn && renderDeadlineList();
+  _tiePatchDeadlineRow(taskId);  // tie 패널의 연결 상태만 반영 (패널 안 닫히게)
 }
 
 async function _dlinkSyncToNotion(item, deadlineId, isLink) {
@@ -15694,7 +15757,7 @@ function tieSetDeadlineDate(itemId, realIdx, val) {
   t.updatedAt = Date.now();
   saveTaskData();
   // 편집 패널 날짜 행 재렌더
-  renderTaskList && renderTaskList();
+  _tiePatchDeadlineRow(itemId);
   renderDeadlineCanvas && renderDeadlineCanvas();
 }
 
@@ -16125,6 +16188,106 @@ function meAiCancel() {
   if (inp) inp.value = '';
   if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
   _meAiParsed = null;
+}
+
+function tieUnlinkDeadline(itemId) {
+  var t = taskItems.find(function(ti){ return String(ti.id) === String(itemId); });
+  if (!t) return;
+  t.deadlineId = '';
+  t.updatedAt = Date.now();
+  saveTaskData();
+  _tiePatchDeadlineRow(itemId);
+  renderTaskCal && renderTaskCal();
+  renderDeadlineList && _deadlineListOn && renderDeadlineList();
+  showToast('일정 연결 해제됨');
+}
+
+function _tiePatchDeadlineRow(itemId) {
+  var t = taskItems.find(function(ti){ return String(ti.id) === String(itemId); });
+  if (!t || t.catId === 'schedule') return;
+  var panel = document.getElementById('tiep-' + itemId);
+  if (!panel) return;
+  var row = panel.querySelector('[data-tie-deadline]');
+  if (!row) return;
+
+  var dl = t.deadlineId ? taskItems.find(function(x){ return String(x.id) === String(t.deadlineId); }) : null;
+  var realIdx = taskItems.indexOf(t);
+
+  row.innerHTML = '';
+
+  // 라벨
+  var lbl = document.createElement('span');
+  lbl.className = 'tie-label';
+  lbl.style.paddingTop = '6px';
+  lbl.textContent = '데드라인';
+  row.appendChild(lbl);
+
+  // 컨텐츠 wrapper
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:5px;flex:1';
+  row.appendChild(wrap);
+
+  // 일정 연결 행
+  var schedRow = document.createElement('div');
+  schedRow.style.cssText = 'display:flex;align-items:center;gap:6px;flex-wrap:wrap';
+  wrap.appendChild(schedRow);
+
+  if (dl) {
+    var badge = document.createElement('span');
+    badge.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:999px;background:var(--accent)18;color:var(--accent);font-weight:600';
+    badge.textContent = '\uD83D\uDCCB ' + dl.text + (dl.date ? ' \u00B7 ' + dl.date : '');
+    schedRow.appendChild(badge);
+  }
+
+  var schedBtn = document.createElement('button');
+  schedBtn.className = 'tie-chip';
+  schedBtn.style.fontSize = '11px';
+  schedBtn.textContent = t.deadlineId ? '\uD83D\uDD04 일정 변경' : '\uD83D\uDCCB 일정 연결';
+  schedBtn.setAttribute('onclick', "event.stopPropagation();openDlinkModal('" + itemId + "')");
+  schedRow.appendChild(schedBtn);
+
+  if (t.deadlineId) {
+    var unlinkBtn = document.createElement('button');
+    unlinkBtn.className = 'tie-chip';
+    unlinkBtn.style.cssText = 'opacity:.5;font-size:11px';
+    unlinkBtn.textContent = '\u00D7 해제';
+    unlinkBtn.setAttribute('onclick', "event.stopPropagation();tieUnlinkDeadline('" + itemId + "')");
+    schedRow.appendChild(unlinkBtn);
+  }
+
+  // 날짜 직접 입력 행
+  var dateRow = document.createElement('div');
+  dateRow.style.cssText = 'display:flex;align-items:center;gap:6px';
+  wrap.appendChild(dateRow);
+
+  var dateLbl = document.createElement('span');
+  dateLbl.style.cssText = 'font-size:11px;color:var(--fg3)';
+  dateLbl.textContent = '날짜:';
+  dateRow.appendChild(dateLbl);
+
+  var dateInp = document.createElement('input');
+  dateInp.type = 'date';
+  dateInp.className = 'tie-inp';
+  dateInp.id = 'tiedd-' + itemId;
+  dateInp.value = t.deadlineDate || '';
+  dateInp.style.maxWidth = '130px';
+  dateInp.setAttribute('onclick', 'event.stopPropagation()');
+  dateInp.setAttribute('oninput', "event.stopPropagation();tieSetDeadlineDate('" + itemId + "'," + realIdx + ",this.value)");
+  dateRow.appendChild(dateInp);
+
+  if (t.deadlineDate) {
+    var ddaySpan = document.createElement('span');
+    ddaySpan.style.cssText = 'font-size:11px;color:var(--fg3)';
+    ddaySpan.textContent = '(' + _ddayLabel(t.deadlineDate) + ')';
+    dateRow.appendChild(ddaySpan);
+
+    var clearDateBtn = document.createElement('button');
+    clearDateBtn.className = 'tie-chip';
+    clearDateBtn.style.cssText = 'opacity:.5;font-size:11px';
+    clearDateBtn.textContent = '\u00D7 해제';
+    clearDateBtn.setAttribute('onclick', "event.stopPropagation();tieSetDeadlineDate('" + itemId + "'," + realIdx + ",'')");
+    dateRow.appendChild(clearDateBtn);
+  }
 }
 </script>
 </body>
