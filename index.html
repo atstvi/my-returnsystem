@@ -5556,7 +5556,11 @@ function renderTaskCal(){
         // 색상: 카테고리 색상 사용 (d-day 긴박도는 뱃지로만)
         const dlColor = cat ? cat.color : '#6C63FF';
         const dIcon = t.done ? '✓' : '📅';
-        return `<div class="task-cal-item-pill deadline-pin${t.done?' done':''}" id="cpill-${t.id}" style="background:${dlColor}18;color:${dlColor};border:1px solid ${dlColor}44" onclick="event.stopPropagation();openDlinkModal('${t.id}')">${dIcon} ${esc(t.text.length>9?t.text.slice(0,9)+'\u2026':t.text)}</div>`;
+        // 일정(schedule)은 클릭 없음, 연결된 일반 할일은 openDlinkModal로 데드라인 변경
+        const _pillClick = _isScheduleItem(t)
+          ? `event.stopPropagation()`
+          : `event.stopPropagation();openDlinkModal('${t.id}')`;
+        return `<div class="task-cal-item-pill deadline-pin${t.done?' done':''}" id="cpill-${t.id}" style="background:${dlColor}18;color:${dlColor};border:1px solid ${dlColor}44" onclick="${_pillClick}">${dIcon} ${esc(t.text.length>9?t.text.slice(0,9)+'\u2026':t.text)}</div>`;
       }
       const txt = esc((t.text.length > 10 ? t.text.slice(0,10)+'…' : t.text) + timeTag);
       return `<div class="task-cal-item-pill${t.done?' done':''}" id="cpill-${t.id}" draggable="true" style="background:${bg};color:${col}" ondragstart="event.stopPropagation();calPillDragStart(event,'${t.id}')" ondragend="event.stopPropagation()">${txt}</div>`;
@@ -8517,9 +8521,9 @@ function renderDeadlineList() {
       ? '<span style="font-size:10px;color:var(--fg3);flex-shrink:0">' + doneLinked + '/' + totalLinked + '</span>'
       : '';
 
-    // 일정 행 (상위)
+    // 일정 행 (상위) - 데드라인 자체, 클릭 없음
     html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px 6px;'
-      + 'background:rgba(108,99,255,.03);border-top:1px solid var(--border-subtle)">';
+      + 'background:rgba(108,99,255,.06);border-top:1px solid var(--border-subtle)">';
     html += ddayBadge(x.diff);
     html += '<span style="flex:1;font-size:13px;font-weight:700;color:var(--fg)">' + esc(t.text) + '</span>';
     html += progressHtml;
@@ -8533,7 +8537,9 @@ function renderDeadlineList() {
         var ltCat = taskCats.find(function(ct){ return ct.id === lt.catId; });
         var prioColor = lt.priority === 'high' ? '#ef4444' : lt.priority === 'mid' ? '#f59e0b' : 'var(--fg3)';
         html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 14px 4px 32px;'
-          + (lt.done ? 'opacity:.45;' : '') + '">';
+          + (lt.done ? 'opacity:.45;' : '') + 'cursor:pointer"'
+          + ' onclick="openDlinkModal(\'' + lt.id + '\')'
+          + '">';
         html += '<span style="font-size:12px;color:' + (lt.done ? '#22c55e' : 'var(--fg3)') + ';flex-shrink:0">'
           + (lt.done ? '✓' : '○') + '</span>';
         html += '<span style="flex:1;font-size:12px;color:var(--fg);'
@@ -8608,6 +8614,8 @@ function _daysLeftClass(days){
 function openDlinkModal(deadlineId) {
   var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
   if (!dl) return;
+  // 데드라인 가능 항목만: schedule 카테고리 OR deadlineDate 있는 항목
+  if (dl.catId !== 'schedule' && !dl.deadlineDate) return;
   window._dlinkSelDeadlineId = deadlineId;
 
   // 항상 새로 생성
