@@ -4492,8 +4492,10 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <button class="task-cal-nav-btn" onclick="taskCalMove(1)">›</button>
           <button class="task-cal-today-btn" onclick="taskCalToday()">오늘</button>
           <button class="task-cal-expand-btn" onclick="toggleCalExpand()" id="calExpandBtn" title="달력 크게 보기">⤢</button>
+          <button id="hideDoneCalBtn" onclick="toggleHideDoneOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg3);cursor:pointer">✓숨기기</button>
           <button id="ttSchedToggleBtn" onclick="toggleTtSchedOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg3);cursor:pointer">📅숨기기</button>
           <button class="task-deadline-view-btn" id="deadlineViewBtn" onclick="toggleDeadlineView()" title="데드라인 뷰">🔗</button>
+          <button class="task-deadline-view-btn" id="deadlineListBtn" onclick="toggleDeadlineList()" title="D-day 목록" style="margin-left:2px">📋</button>
           <span class="task-deadline-hint" id="deadlineViewHint" style="display:none;font-size:9px;color:var(--fg3)">연결</span>
         </div>
         <!-- 카테고리 필터 칩 (nav 아래) -->
@@ -4501,6 +4503,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
       <div class="task-cal-grid-wrap" style="position:relative">
         <div class="task-cal-grid" id="taskCalGrid"></div>
+        <div id="deadlineListPanel" style="display:none;margin-top:8px;background:var(--bg);border-radius:var(--r-card);box-shadow:var(--shadow-raised-sm);overflow:hidden;position:relative;z-index:7"></div>
         <canvas id="deadlineCanvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:6"></canvas>
         <div id="dlinkOverlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;z-index:10;pointer-events:none;background:rgba(108,99,255,.04);border:1.5px solid rgba(108,99,255,.25);"></div>
       </div>
@@ -5535,9 +5538,10 @@ function renderTaskCal(){
 
     // 할일 pill 렌더 (데드라인 뷰면 관련 항목만)
     const MAX_PILLS = 4;
+    const _calItems = _hideDoneOnCal ? items.filter(t => !t.done) : items;
     const visItems = _deadlineViewOn
-      ? items.filter(t => _isScheduleItem(t) || t.deadlineId || t.deadlineDate)
-      : items;
+      ? _calItems.filter(t => _isScheduleItem(t) || t.deadlineId || t.deadlineDate)
+      : _calItems;
     const shown = visItems.slice(0, MAX_PILLS);
     const more  = visItems.length - MAX_PILLS;
     const pills = shown.map(t => {
@@ -5712,7 +5716,7 @@ function renderTaskList(){
         <div class="task-item-main">
           <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})">${t.done?'✓':''}</div>
           <div class="task-item-body">
-            <div class="task-item-text" data-task-id="${t.id}">${esc(t.text)}${(()=>{
+            <div class="task-item-text" data-task-id="${t.id}" title="더블클릭으로 이름 편집" ondblclick="event.stopPropagation();startTaskRename('${t.id}',${realIdx},this)">${esc(t.text)}${(()=>{
               // deadlineDate 직접 연결 뱃지
               if(t.deadlineDate){
                 const _td=new Date();_td.setHours(0,0,0,0);
@@ -5832,6 +5836,42 @@ function renderTaskList(){
 
 
 // ── 카테고리 이름 인라인 편집 ──
+
+function startTaskRename(itemId, realIdx, el) {
+  if (!el) return;
+  var t = taskItems[realIdx];
+  if (!t) return;
+  var oldText = t.text;
+  // 기존 내용을 input으로 교체
+  var inp = document.createElement('input');
+  inp.value = oldText;
+  inp.className = 'task-rename-inp';
+  inp.style.cssText = 'width:100%;background:none;border:none;border-bottom:1px solid var(--accent);outline:none;font-size:inherit;color:var(--fg);font-family:inherit;padding:0';
+  el.innerHTML = '';
+  el.appendChild(inp);
+  inp.focus();
+  inp.select();
+  function commit() {
+    var newText = inp.value.trim();
+    if (newText && newText !== oldText) {
+      t.text = newText;
+      t.updatedAt = Date.now();
+      saveTaskData();
+      if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+        _pushToNotion(t).catch(function(e){});
+      }
+      showToast('이름 변경됨');
+    }
+    renderTaskList && renderTaskList();
+  }
+  inp.addEventListener('blur', commit);
+  inp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+    if (e.key === 'Escape') { inp.value = oldText; inp.blur(); }
+    e.stopPropagation();
+  });
+}
+
 function startCatRename(catId) {
   const nameEl = document.getElementById('catName-' + catId);
   if (!nameEl || nameEl.tagName === 'INPUT') return;
@@ -8384,6 +8424,146 @@ function renderDeadlineCanvas() {
     ctx.fillText(lbl3, lx3, by3 + 9);
     ctx.restore();
   });
+}
+
+
+var _deadlineListOn = false;
+
+
+var _hideDoneOnCal = false;
+
+function toggleHideDoneOnCal() {
+  _hideDoneOnCal = !_hideDoneOnCal;
+  var btn = document.getElementById('hideDoneCalBtn');
+  if (btn) {
+    btn.style.background = _hideDoneOnCal ? 'var(--accent)' : 'var(--bg)';
+    btn.style.color = _hideDoneOnCal ? '#fff' : 'var(--fg3)';
+  }
+  renderTaskCal && renderTaskCal();
+  renderDeadlineCanvas && renderDeadlineCanvas();
+}
+
+function toggleDeadlineList() {
+  _deadlineListOn = !_deadlineListOn;
+  var btn = document.getElementById('deadlineListBtn');
+  var panel = document.getElementById('deadlineListPanel');
+  if (btn) {
+    btn.style.background = _deadlineListOn ? 'var(--accent)' : '';
+    btn.style.color = _deadlineListOn ? '#fff' : '';
+    btn.style.borderRadius = '999px';
+    btn.style.padding = '4px 8px';
+  }
+  if (panel) panel.style.display = _deadlineListOn ? 'block' : 'none';
+  if (_deadlineListOn) renderDeadlineList();
+}
+
+function renderDeadlineList() {
+  var panel = document.getElementById('deadlineListPanel');
+  if (!panel) return;
+  var today = new Date(); today.setHours(0,0,0,0);
+
+  // ── 일정 항목(schedule) 수집 + D-day 계산 ──
+  var schedItems = taskItems.filter(function(t) {
+    return t.catId === 'schedule' && t.date && !t.done
+      && t.note && t.note.indexOf('시간표') < 0;
+  }).map(function(t) {
+    var due = new Date(t.date + 'T00:00'); due.setHours(0,0,0,0);
+    var diff = Math.round((due - today) / 86400000);
+    return { t: t, diff: diff };
+  });
+
+  // deadlineDate로 연결된 항목 (일정 없이 날짜만)
+  var dateLinked = taskItems.filter(function(t) {
+    return !t.done && t.deadlineDate && !t.deadlineId;
+  }).map(function(t) {
+    var due = new Date(t.deadlineDate + 'T00:00'); due.setHours(0,0,0,0);
+    var diff = Math.round((due - today) / 86400000);
+    return { t: t, diff: diff, dueDate: t.deadlineDate };
+  });
+
+  // 일정에 연결된 할일들
+  function getLinkedTasks(schedId) {
+    return taskItems.filter(function(t) {
+      return String(t.deadlineId) === String(schedId);
+    });
+  }
+
+  // 일정 D-day 오름차순 정렬
+  schedItems.sort(function(a, b) { return a.diff - b.diff; });
+  dateLinked.sort(function(a, b) { return a.diff - b.diff; });
+
+  if (!schedItems.length && !dateLinked.length) {
+    panel.innerHTML = '<div style="padding:14px;font-size:12px;color:var(--fg3);text-align:center">일정이 없어</div>';
+    return;
+  }
+
+  function ddayBadge(diff) {
+    var lbl = diff < 0 ? 'D+'+Math.abs(diff) : diff === 0 ? 'D-DAY' : 'D-'+diff;
+    var col = diff < 0 ? '#94a3b8' : diff <= 3 ? '#ef4444' : diff <= 7 ? '#f59e0b' : '#22c55e';
+    return '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;'
+      + 'background:' + col + '22;color:' + col + ';min-width:48px;text-align:center;flex-shrink:0">' + lbl + '</span>';
+  }
+
+  var html = '<div style="padding:4px 0">';
+  html += '<div style="padding:8px 14px 4px;font-size:10px;font-weight:800;color:var(--accent);letter-spacing:.08em">📋 D-DAY 목록</div>';
+
+  // ── 일정별 그룹 ──
+  schedItems.forEach(function(x) {
+    var t = x.t;
+    var linked = getLinkedTasks(t.id);
+    var doneLinked = linked.filter(function(l){ return l.done; }).length;
+    var totalLinked = linked.length;
+    var progressHtml = totalLinked > 0
+      ? '<span style="font-size:10px;color:var(--fg3);flex-shrink:0">' + doneLinked + '/' + totalLinked + '</span>'
+      : '';
+
+    // 일정 행 (상위)
+    html += '<div style="display:flex;align-items:center;gap:8px;padding:8px 14px 6px;'
+      + 'background:rgba(108,99,255,.03);border-top:1px solid var(--border-subtle)">';
+    html += ddayBadge(x.diff);
+    html += '<span style="flex:1;font-size:13px;font-weight:700;color:var(--fg)">' + esc(t.text) + '</span>';
+    html += progressHtml;
+    html += '<span style="font-size:10px;color:var(--fg3)">' + t.date + '</span>';
+    html += '</div>';
+
+    if (totalLinked === 0) {
+      html += '<div style="padding:4px 14px 6px 54px;font-size:11px;color:var(--fg3)">연결된 할일 없음</div>';
+    } else {
+      linked.forEach(function(lt) {
+        var ltCat = taskCats.find(function(ct){ return ct.id === lt.catId; });
+        var prioColor = lt.priority === 'high' ? '#ef4444' : lt.priority === 'mid' ? '#f59e0b' : 'var(--fg3)';
+        html += '<div style="display:flex;align-items:center;gap:8px;padding:4px 14px 4px 32px;'
+          + (lt.done ? 'opacity:.45;' : '') + '">';
+        html += '<span style="font-size:12px;color:' + (lt.done ? '#22c55e' : 'var(--fg3)') + ';flex-shrink:0">'
+          + (lt.done ? '✓' : '○') + '</span>';
+        html += '<span style="flex:1;font-size:12px;color:var(--fg);'
+          + (lt.done ? 'text-decoration:line-through;' : '') + '">' + esc(lt.text) + '</span>';
+        if (lt.priority) html += '<span style="font-size:9px;color:' + prioColor + ';flex-shrink:0">'
+          + (lt.priority==='high'?'🔴':lt.priority==='mid'?'🟡':'🟢') + '</span>';
+        if (ltCat) html += '<span style="font-size:10px;color:var(--fg3);flex-shrink:0">' + ltCat.icon + '</span>';
+        if (lt.date) html += '<span style="font-size:10px;color:var(--fg3);flex-shrink:0">' + lt.date + '</span>';
+        html += '</div>';
+      });
+    }
+  });
+
+  // ── 날짜 직접 연결 항목 ──
+  if (dateLinked.length) {
+    html += '<div style="padding:8px 14px 4px;font-size:10px;font-weight:800;color:var(--fg3);letter-spacing:.06em;border-top:1px solid var(--border-subtle)">📅 날짜 연결</div>';
+    dateLinked.forEach(function(x) {
+      var t = x.t;
+      var cat = taskCats.find(function(ct){ return ct.id === t.catId; });
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--border-subtle)">';
+      html += ddayBadge(x.diff);
+      html += '<span style="flex:1;font-size:12px;color:var(--fg)">' + esc(t.text) + '</span>';
+      if (cat) html += '<span style="font-size:10px;color:var(--fg3)">' + cat.icon + '</span>';
+      html += '<span style="font-size:10px;color:var(--fg3)">' + x.dueDate + '</span>';
+      html += '</div>';
+    });
+  }
+
+  html += '</div>';
+  panel.innerHTML = html;
 }
 
 function toggleDeadlineView(){
@@ -14868,6 +15048,7 @@ function ttToggleWeekend() {
   var btn = document.getElementById('ttWeekendToggle');
   if (btn) btn.textContent = tt.showSat === false ? '토요일 보이기' : '토요일 숨기기';
 }
+var _hideDoneOnCal = false;
 function toggleTtSchedOnCal(){
   _hideTtSched=!_hideTtSched;
   var b=document.getElementById('ttSchedToggleBtn');
