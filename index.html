@@ -4503,7 +4503,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
       <div class="task-cal-grid-wrap" style="position:relative">
         <div class="task-cal-grid" id="taskCalGrid"></div>
-        <div id="deadlineListPanel" style="display:none;margin-top:8px;background:var(--bg);border-radius:var(--r-card);box-shadow:var(--shadow-raised-sm);overflow:hidden;position:relative;z-index:7"></div>
+        
         <canvas id="deadlineCanvas" style="position:absolute;top:0;left:0;pointer-events:none;z-index:6"></canvas>
         <div id="dlinkOverlay" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;z-index:10;pointer-events:none;background:rgba(108,99,255,.04);border:1.5px solid rgba(108,99,255,.25);"></div>
       </div>
@@ -4521,6 +4521,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
   </div>
 </div>
+
+<!-- D-day 사이드 패널 (task 탭 전용 플로팅) -->
+<div id="deadlineListPanel" style="display:none;position:fixed;top:60px;right:0;width:260px;max-height:calc(100dvh - 80px);background:var(--bg);box-shadow:var(--shadow-raised);border-radius:var(--r-card) 0 0 var(--r-card);overflow-y:auto;z-index:200;scrollbar-width:thin;border-left:1px solid var(--border-subtle)"></div>
 
 <!-- 체크 -->
 <div id="page-check" class="page">
@@ -5454,6 +5457,7 @@ function taskDateDisp(str){ // YYYY-MM-DD → 표시
 
 // ── 메인 렌더 ──
 function renderTaskTab(){
+  _generateRepeatTasks();
   // 날짜 미선택 시 오늘 자동 선택
   if(!taskSelDate) taskSelDate = taskDateKey(new Date());
   if(!taskCalDate)  taskCalDate  = new Date();
@@ -5829,7 +5833,7 @@ function renderTaskList(){
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
             <button class="tie-save-btn" onclick="event.stopPropagation();tieSave('${t.id}',${realIdx})">✓ 저장</button>
-
+            ${t.catId === 'schedule' ? `<button class="tie-chip" onclick="event.stopPropagation();openRepeatSetup('${t.id}')" style="font-size:11px">${t.repeat ? '🔁 반복 중' : '🔁 반복 설정'}</button>` : ''}
           </div>
         </div>
       </div>`;
@@ -6867,6 +6871,10 @@ window.onload=()=>{
 
 // ── 탭 ───────────────────────────────────────────────────
 function goTab(t){
+  // D-day 패널: task 탭 아닐 때 숨기기
+  var dlPanel = document.getElementById('deadlineListPanel');
+  if (dlPanel && t !== 'task') dlPanel.style.display = 'none';
+  if (dlPanel && t === 'task' && _deadlineListOn) dlPanel.style.display = 'block';
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   const pg = document.getElementById('page-'+t);
@@ -8452,7 +8460,14 @@ function toggleDeadlineList() {
     btn.style.borderRadius = '999px';
     btn.style.padding = '4px 8px';
   }
-  if (panel) panel.style.display = _deadlineListOn ? 'block' : 'none';
+  if (panel) {
+    panel.style.display = _deadlineListOn ? 'block' : 'none';
+    // 할일 탭에서만 표시
+    var taskPage = document.getElementById('page-task');
+    if (taskPage && !taskPage.classList.contains('active')) {
+      panel.style.display = 'none';
+    }
+  }
   if (_deadlineListOn) renderDeadlineList();
 }
 
@@ -16024,10 +16039,10 @@ async function meAiSubmit() {
     var prompt = '오늘 날짜: ' + todayStr + '\n' +
       '카테고리 목록: ' + catList + '\n' +
       '현재 일정 항목:\n' + (scheduleList || '없음') + '\n\n' +
-      '다음 자연어 입력을 할일 데이터로 파싱해줘. JSON만 반환하고 다른 텍스트 없이:\n' +
+      '다음 입력에서 할일을 모두 추출해줘. 공지문/메시지에 여러 할일이 있으면 전부 추출. JSON 배열만 반환하고 다른 텍스트 없이:\n' +
       '"' + text + '"\n\n' +
-      '반환 형식 (모르는 값은 null):\n' +
-      '{\n' +
+      '반환 형식 (각 항목, 모르는 값은 null):\n' +
+      '[{\n' +
       '  "text": "할일 이름",\n' +
       '  "catId": "카테고리id (schedule/uni/work/health/life/idea/etc 중 하나)",\n' +
       '  "date": "YYYY-MM-DD 또는 null",\n' +
@@ -16035,9 +16050,10 @@ async function meAiSubmit() {
       '  "timeEnd": "HH:MM 또는 null",\n' +
       '  "priority": "high/mid/low 또는 null",\n' +
       '  "deadlineDate": "데드라인 날짜 YYYY-MM-DD 또는 null",\n' +
-      '  "deadlineId": "연결할 일정 id (위 일정 목록에서 찾아서) 또는 null",\n' +
+      '  "deadlineId": "연결할 일정 id 또는 null",\n' +
       '  "note": "메모 또는 null"\n' +
-      '}';
+      '}]\n' +
+      '단일 할일이면 배열에 1개만, 여러 할일이면 여러 개.';
 
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -16048,16 +16064,18 @@ async function meAiSubmit() {
           { role: 'system', content: '당신은 할일 파싱 도우미입니다. JSON만 반환하세요.' },
           { role: 'user', content: prompt }
         ],
-        max_tokens: 300,
+        max_tokens: 800,
         temperature: 0.1,
       })
     });
     var data = await res.json();
     var raw = data.choices[0].message.content.trim();
-    // JSON 추출
-    var jsonMatch = raw.match(/\{[\s\S]*\}/);
+    // JSON 추출 (배열 우선, 단일 객체 fallback)
+    var jsonMatch = raw.match(/\[[\s\S]*\]/) || raw.match(/\{[\s\S]*\}/);
     if (!jsonMatch) throw new Error('JSON 파싱 실패');
-    _meAiParsed = JSON.parse(jsonMatch[0]);
+    var parsed = JSON.parse(jsonMatch[0]);
+    // 단일 객체면 배열로 감싸기
+    _meAiParsed = Array.isArray(parsed) ? parsed : [parsed];
     meAiShowPreview(_meAiParsed, text);
   } catch(e) {
     if (preview) preview.innerHTML = '<div class="me-ai-loading" style="color:#ef4444">오류: ' + e.message + '</div>';
@@ -16066,78 +16084,86 @@ async function meAiSubmit() {
   }
 }
 
-function meAiShowPreview(parsed, originalText) {
+function meAiShowPreview(parsedArr, originalText) {
   var preview = document.getElementById('meAiPreview');
   if (!preview) return;
+  // parsedArr는 항상 배열
+  var items = Array.isArray(parsedArr) ? parsedArr : [parsedArr];
 
-  var cat = taskCats.find(function(c){ return c.id === (parsed.catId || 'etc'); });
-  var catLabel = cat ? cat.icon + ' ' + cat.label : parsed.catId || '기타';
+  function itemHtml(parsed, i) {
+    var cat = taskCats.find(function(c){ return c.id === (parsed.catId || 'etc'); });
+    var catLabel = cat ? cat.icon + ' ' + cat.label : parsed.catId || '기타';
+    var deadlineTask = parsed.deadlineId
+      ? taskItems.find(function(t){ return String(t.id) === String(parsed.deadlineId); })
+      : null;
+    var prio = {high:'🔴 핵심', mid:'🟡 중간', low:'🟢 여유'}[parsed.priority] || null;
 
-  // 연결 일정 이름 찾기
-  var deadlineTask = parsed.deadlineId
-    ? taskItems.find(function(t){ return String(t.id) === String(parsed.deadlineId); })
-    : null;
+    var rows = [
+      { label: '이름', value: parsed.text || originalText },
+      { label: '분류', value: catLabel },
+      parsed.date      ? { label: '날짜', value: parsed.date } : null,
+      parsed.timeStart ? { label: '시간', value: parsed.timeStart + (parsed.timeEnd ? ' ~ ' + parsed.timeEnd : '') } : null,
+      prio             ? { label: '순위', value: prio } : null,
+      deadlineTask     ? { label: '일정', value: '📋 ' + deadlineTask.text } : null,
+      parsed.deadlineDate ? { label: 'D-day', value: parsed.deadlineDate } : null,
+      parsed.note      ? { label: '메모', value: parsed.note } : null,
+    ].filter(Boolean);
 
-  var fields = [
-    { label: '이름', value: parsed.text || originalText },
-    { label: '카테고리', value: catLabel },
-    parsed.date ? { label: '날짜', value: parsed.date } : null,
-    parsed.timeStart ? { label: '시작', value: parsed.timeStart + (parsed.timeEnd ? ' ~ ' + parsed.timeEnd : '') } : null,
-    parsed.priority ? { label: '우선순위', value: {high:'🔴 핵심', mid:'🟡 일반', low:'🟢 여유'}[parsed.priority] || parsed.priority } : null,
-    parsed.deadlineDate ? { label: '데드라인', value: parsed.deadlineDate } : null,
-    deadlineTask ? { label: '일정연결', value: deadlineTask.text } : null,
-    parsed.note ? { label: '메모', value: parsed.note } : null,
-  ].filter(Boolean);
-
-  var fieldsHtml = fields.map(function(f) {
-    return '<div class="me-ai-preview-field">'
-      + '<span class="me-ai-preview-field-label">' + f.label + '</span>'
-      + '<span>' + f.value + '</span>'
+    return '<div style="background:var(--bg);border-radius:10px;padding:10px 12px;margin-bottom:6px;box-shadow:var(--shadow-raised-sm)">'
+      + (items.length > 1 ? '<div style="font-size:10px;color:var(--accent);font-weight:700;margin-bottom:6px">할일 ' + (i+1) + '</div>' : '')
+      + rows.map(function(r){
+          return '<div style="display:flex;gap:8px;font-size:12px;padding:2px 0">'
+            + '<span style="color:var(--fg3);min-width:36px;flex-shrink:0">' + r.label + '</span>'
+            + '<span style="color:var(--fg);font-weight:500">' + esc(String(r.value)) + '</span>'
+            + '</div>';
+        }).join('')
       + '</div>';
-  }).join('');
+  }
 
-  preview.style.display = 'block';
-  preview.innerHTML = '<div class="me-ai-preview">'
-    + '<div class="me-ai-preview-title">✦ AI 분석 결과 확인</div>'
-    + '<div class="me-ai-preview-fields">' + fieldsHtml + '</div>'
-    + '<div class="me-ai-preview-actions">'
-    + '<button class="me-ai-confirm-btn" onclick="meAiConfirm()">✓ 추가</button>'
+  var html = '<div style="padding:10px 12px 6px;font-size:11px;font-weight:700;color:var(--fg3)">'
+    + (items.length > 1 ? '✦ ' + items.length + '개 할일 추출됨' : '✦ AI 분석 결과') + '</div>';
+  html += items.map(function(p, i){ return itemHtml(p, i); }).join('');
+  html += '<div style="display:flex;gap:8px;padding:6px 12px 10px">'
+    + '<button class="me-ai-confirm-btn" onclick="meAiConfirm()">✓ 모두 추가</button>'
     + '<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
-    + '</div></div>';
+    + '</div>';
+  preview.style.display = 'block';
+  preview.innerHTML = html;
 }
-
 function meAiConfirm() {
   if (!_meAiParsed) return;
-  var p = _meAiParsed;
-  var newItem = {
-    id: Date.now(),
-    text: p.text || document.getElementById('meAiTaskInp').value.trim(),
-    catId: p.catId || 'etc',
-    date: p.date || '',
-    timeStart: p.timeStart || '',
-    timeEnd: p.timeEnd || '',
-    priority: p.priority || '',
-    done: false,
-    note: p.note || '',
-    deadlineDate: p.deadlineDate || '',
-    deadlineId: p.deadlineId || '',
-    subs: [],
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  };
-  taskItems.unshift(newItem);
+  var items = Array.isArray(_meAiParsed) ? _meAiParsed : [_meAiParsed];
+  var added = [];
+  items.forEach(function(p) {
+    var newItem = {
+      id: Date.now() + Math.floor(Math.random()*1000),
+      text: p.text || '',
+      catId: p.catId || 'etc',
+      date: p.date || '',
+      timeStart: p.timeStart || '',
+      timeEnd: p.timeEnd || '',
+      priority: p.priority || '',
+      done: false,
+      note: p.note || '',
+      deadlineDate: p.deadlineDate || '',
+      deadlineId: p.deadlineId || '',
+      subs: [],
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    taskItems.unshift(newItem);
+    added.push(newItem);
+  });
   saveTaskData();
-  // 노션 push
-  if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
-    _pushToNotion(newItem).catch(function(e){ console.warn('Notion:', e); });
-  }
-  // UI 초기화
+  added.forEach(function(item) {
+    if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+      _pushToNotion(item).catch(function(e){ console.warn('Notion:', e); });
+    }
+  });
   meAiCancel();
   renderTaskTab && renderTaskTab();
-  renderMeTodo && renderMeTodo();
-  showToast('✦ 할일 추가됨: ' + newItem.text);
+  showToast(added.length > 1 ? added.length + '개 할일 추가됨 ✅' : '할일 추가됨 ✅');
 }
-
 function meAiCancel() {
   var inp = document.getElementById('meAiTaskInp');
   var preview = document.getElementById('meAiPreview');
@@ -16244,6 +16270,247 @@ function _tiePatchDeadlineRow(itemId) {
     clearDateBtn.setAttribute('onclick', "event.stopPropagation();tieSetDeadlineDate('" + itemId + "'," + realIdx + ",'')");
     dateRow.appendChild(clearDateBtn);
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 반복 일정 자동 생성
+// ═══════════════════════════════════════════════════════════
+
+function _repeatDateKey(d) {
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+
+function _generateRepeatTasks() {
+  // repeat 설정이 있는 schedule 항목들 순회
+  var templates = taskItems.filter(function(t) {
+    return t.catId === 'schedule' && t.repeat && t.repeat.freq === 'weekly' && t.date;
+  });
+  if (!templates.length) return;
+
+  var today = new Date(); today.setHours(0,0,0,0);
+  var horizon = new Date(today); horizon.setDate(horizon.getDate() + (templates[0].repeat.weeks || 8) * 7);
+
+  var changed = false;
+
+  templates.forEach(function(tmpl) {
+    var r = tmpl.repeat;
+    var targetWeekday = r.weekday; // 0=일,1=월,...,6=토
+    var offsetDays = r.offsetDays || 0; // 할일 날짜 = 일정날짜 + offsetDays
+    var weeks = r.weeks || 8;
+    // 앞으로 weeks주치 생성
+    var cursor = new Date(today);
+    // 이번 주 targetWeekday로 이동
+    var diff = targetWeekday - cursor.getDay();
+    if (diff < 0) diff += 7;
+    cursor.setDate(cursor.getDate() + diff);
+
+    for (var w = 0; w < weeks; w++) {
+      var schedDate = _repeatDateKey(cursor);
+      // 이미 이 날짜에 같은 _repeatSourceId 일정이 있으면 스킵
+      var existSched = taskItems.find(function(t) {
+        return String(t._repeatSourceId) === String(tmpl.id) && t.date === schedDate && t.catId === 'schedule';
+      });
+      if (!existSched) {
+        // 일정 항목 생성
+        var newSched = {
+          id: Date.now() + Math.floor(Math.random()*9999),
+          text: tmpl.text,
+          catId: 'schedule',
+          date: schedDate,
+          timeStart: tmpl.timeStart || '',
+          timeEnd: tmpl.timeEnd || '',
+          priority: tmpl.priority || '',
+          done: false,
+          note: tmpl.note || '',
+          deadlineDate: '',
+          deadlineId: '',
+          subs: [],
+          _repeatSourceId: tmpl.id,
+          _repeatGen: true,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+        };
+        taskItems.push(newSched);
+        changed = true;
+
+        // 연결 할일 자동 생성
+        if (r.linkedText) {
+          var taskDate = new Date(cursor);
+          taskDate.setDate(taskDate.getDate() + offsetDays);
+          var taskDateKey = _repeatDateKey(taskDate);
+          var existTask = taskItems.find(function(t) {
+            return t._repeatSourceId === tmpl.id && t.date === taskDateKey && !t._repeatIsSched;
+          });
+          if (!existTask) {
+            var newTask = {
+              id: Date.now() + Math.floor(Math.random()*9999) + 1,
+              text: r.linkedText,
+              catId: r.linkedCatId || tmpl.catId,
+              date: taskDateKey,
+              timeStart: '',
+              timeEnd: '',
+              priority: r.linkedPriority || '',
+              done: false,
+              note: '',
+              deadlineDate: '',
+              deadlineId: String(newSched.id),
+              subs: [],
+              _repeatSourceId: tmpl.id,
+              _repeatGen: true,
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            taskItems.push(newTask);
+            changed = true;
+          }
+        }
+      }
+      cursor.setDate(cursor.getDate() + 7);
+    }
+  });
+
+  if (changed) saveTaskData();
+}
+
+function openRepeatSetup(itemId) {
+  // schedule 항목에 반복 설정 모달
+  var t = taskItems.find(function(x){ return String(x.id) === String(itemId); });
+  if (!t || t.catId !== 'schedule') return;
+  var r = t.repeat || {};
+
+  var old = document.getElementById('repeatModal');
+  if (old) old.remove();
+
+  var weekdays = ['일','월','화','수','목','금','토'];
+  var tDate = t.date ? new Date(t.date + 'T00:00') : new Date();
+  var detectedWeekday = tDate.getDay();
+
+  var modal = document.createElement('div');
+  modal.id = 'repeatModal';
+  modal.className = 'dlink-modal open';
+  modal.innerHTML =
+    '<div class="dlink-modal-box" style="max-width:320px">' +
+      '<div class="dlink-modal-head">' +
+        '<span class="dlink-modal-title">🔁 반복 설정</span>' +
+        '<button class="dlink-modal-close" onclick="document.getElementById(\'repeatModal\').remove()">✕</button>' +
+      '</div>' +
+      '<div style="padding:16px;display:flex;flex-direction:column;gap:12px">' +
+        '<div style="font-size:12px;color:var(--fg);font-weight:600">' + esc(t.text) + '</div>' +
+        // 요일 선택
+        '<div>' +
+          '<div style="font-size:11px;color:var(--fg3);margin-bottom:6px">반복 요일</div>' +
+          '<div style="display:flex;gap:4px">' +
+            weekdays.map(function(d, i) {
+              return '<button class="tie-chip' + ((r.weekday !== undefined ? r.weekday : detectedWeekday) === i ? ' sel' : '') + '"'
+                + ' id="rwd-'+i+'" onclick="repeatWdSel('+i+')" style="flex:1;font-size:11px">' + d + '</button>';
+            }).join('') +
+          '</div>' +
+        '</div>' +
+        // 생성 주 수
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<span style="font-size:11px;color:var(--fg3);flex-shrink:0">앞으로</span>' +
+          '<input type="number" id="repeatWeeks" value="' + (r.weeks||8) + '" min="1" max="52"'
+            + ' style="width:52px;padding:4px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)" onclick="event.stopPropagation()">' +
+          '<span style="font-size:11px;color:var(--fg3)">주치 생성</span>' +
+        '</div>' +
+        // 연결 할일
+        '<div>' +
+          '<div style="font-size:11px;color:var(--fg3);margin-bottom:6px">자동 생성할 할일 (선택)</div>' +
+          '<input id="repeatLinkedText" class="tie-inp" style="width:100%;margin-bottom:6px" placeholder="예: 화학 퀴즈 준비" value="' + esc(r.linkedText||'') + '" onclick="event.stopPropagation()">' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-size:11px;color:var(--fg3)">일정</span>' +
+            '<input type="number" id="repeatOffset" value="' + (r.offsetDays||'-2') + '" min="-30" max="0"'
+              + ' style="width:52px;padding:4px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)" onclick="event.stopPropagation()">' +
+            '<span style="font-size:11px;color:var(--fg3)">일 전 생성</span>' +
+          '</div>' +
+        '</div>' +
+        // 수정 범위 (기존 생성분)
+        (r.freq ? '<div style="font-size:11px;color:var(--fg3)">적용 범위</div>' +
+          '<div style="display:flex;gap:6px">' +
+            '<button class="tie-chip sel" id="repeatScopeBtn-future" onclick="repeatScopeSet(\'future\')">이 시점부터</button>' +
+            '<button class="tie-chip" id="repeatScopeBtn-all" onclick="repeatScopeSet(\'all\')">전체 덮어쓰기</button>' +
+          '</div>' : '') +
+        '<div style="display:flex;gap:8px;margin-top:4px">' +
+          '<button class="tie-save-btn" style="flex:1" onclick="saveRepeatSetup(\'' + itemId + '\')">✓ 저장</button>' +
+          (r.freq ? '<button class="tie-chip" style="color:#ef4444" onclick="clearRepeat(\'' + itemId + '\')">반복 해제</button>' : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+  document.body.appendChild(modal);
+  window._repeatSelWeekday = r.weekday !== undefined ? r.weekday : detectedWeekday;
+  window._repeatScope = 'future';
+}
+
+function repeatWdSel(i) {
+  window._repeatSelWeekday = i;
+  [0,1,2,3,4,5,6].forEach(function(j){
+    var b = document.getElementById('rwd-'+j);
+    if (b) b.classList.toggle('sel', j === i);
+  });
+}
+
+function repeatScopeSet(scope) {
+  window._repeatScope = scope;
+  ['future','all'].forEach(function(s){
+    var b = document.getElementById('repeatScopeBtn-' + s);
+    if (b) b.classList.toggle('sel', s === scope);
+  });
+}
+
+function saveRepeatSetup(itemId) {
+  var t = taskItems.find(function(x){ return String(x.id) === String(itemId); });
+  if (!t) return;
+  var weeks = parseInt(document.getElementById('repeatWeeks').value) || 8;
+  var linkedText = (document.getElementById('repeatLinkedText').value || '').trim();
+  var offsetDays = parseInt(document.getElementById('repeatOffset').value) || -2;
+  var scope = window._repeatScope || 'future';
+  var weekday = window._repeatSelWeekday !== undefined ? window._repeatSelWeekday : (t.date ? new Date(t.date+'T00:00').getDay() : 1);
+
+  // 기존 자동생성 항목 정리
+  var today = new Date(); today.setHours(0,0,0,0);
+  taskItems = taskItems.filter(function(x) {
+    if (!x._repeatGen || String(x._repeatSourceId) !== String(itemId)) return true;
+    if (scope === 'all') return false;
+    // future: 오늘 이후 미완료만 제거
+    if (!x.done && x.date && x.date >= _repeatDateKey(today)) return false;
+    return true;
+  });
+
+  t.repeat = {
+    freq: 'weekly',
+    weekday: weekday,
+    weeks: weeks,
+    offsetDays: offsetDays,
+    linkedText: linkedText,
+    linkedCatId: t.catId,
+    linkedPriority: '',
+  };
+  t.updatedAt = Date.now();
+  saveTaskData();
+
+  document.getElementById('repeatModal') && document.getElementById('repeatModal').remove();
+  _generateRepeatTasks();
+  renderTaskTab && renderTaskTab();
+  showToast('반복 설정 저장됨 🔁');
+}
+
+function clearRepeat(itemId) {
+  var t = taskItems.find(function(x){ return String(x.id) === String(itemId); });
+  if (!t) return;
+  // 자동생성 미완료 항목 제거
+  var today = new Date(); today.setHours(0,0,0,0);
+  taskItems = taskItems.filter(function(x) {
+    if (!x._repeatGen || String(x._repeatSourceId) !== String(itemId)) return true;
+    if (x.done) return true;  // 완료된 건 유지
+    return false;
+  });
+  delete t.repeat;
+  t.updatedAt = Date.now();
+  saveTaskData();
+  document.getElementById('repeatModal') && document.getElementById('repeatModal').remove();
+  renderTaskTab && renderTaskTab();
+  showToast('반복 해제됨');
 }
 </script>
 </body>
