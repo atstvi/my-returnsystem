@@ -4210,6 +4210,12 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   }
 }
 @media (max-width: 599px) { #deadlineListPanel { display: none !important; } }
+
+/* 우선순위+서브임무 겹침 방지 */
+.task-item-prio.high { background:#ef444418; color:#ef4444; width:auto!important; min-height:auto!important; align-self:auto!important; border-radius:999px; padding:1px 6px; font-size:9px; }
+.task-item-prio.mid  { background:#f59e0b18; color:#f59e0b; width:auto!important; min-height:auto!important; align-self:auto!important; border-radius:999px; padding:1px 6px; font-size:9px; }
+.task-item-prio.low  { background:#22c55e18; color:#22c55e; width:auto!important; min-height:auto!important; align-self:auto!important; border-radius:999px; padding:1px 6px; font-size:9px; }
+.task-item-text { flex-wrap:wrap; }
 </style>
 </head>
 <body>
@@ -5867,6 +5873,11 @@ function renderTaskList(){
           <div class="tie-row">
             <span class="tie-label">날짜</span>
             <button class="tie-chip sel" id="tiedb-${t.id}" data-tie-trigger="1" style="border-color:rgba(108,99,255,.3);color:var(--accent)" onclick="event.stopPropagation();tieOpenDate('${t.id}',${realIdx},this)">${t.date||'없음'}</button>
+            ${t.date?`<span style="color:var(--fg3);font-size:11px;padding:0 2px">~</span>
+            <button class="tie-chip${t.dateEnd?' sel':''}" id="tiede-${t.id}" data-tie-trigger="1"
+              ${t.dateEnd?'style="border-color:rgba(108,99,255,.3);color:var(--accent)"':''}
+              onclick="event.stopPropagation();tieOpenDateEnd('${t.id}',${realIdx},this)">${t.dateEnd||'종료일'}</button>
+            ${t.dateEnd?`<button class="tie-chip" style="opacity:.5;padding:0 5px" onclick="event.stopPropagation();tieSetDateEnd('${t.id}',${realIdx},'')">✕</button>`:''}`:''}
           </div>
           <div class="tie-row"><span class="tie-label">D-day</span><input type="date" class="tie-inp" id="tiedd-${t.id}" value="${t.deadlineDate||''}" onclick="event.stopPropagation()" oninput="event.stopPropagation();tieSetDeadlineDate('${t.id}',${realIdx},this.value)" style="max-width:130px">${t.deadlineDate?' ('+_ddayLabel(t.deadlineDate)+')':''}</div>
           <div class="tie-row">
@@ -5946,6 +5957,14 @@ function renderTaskList(){
     </div>`;
   }).join('')
 
+  // 편집 중인 패널 복원
+  if (_tieOpen) {
+    var _pt = _tieOpen;
+    setTimeout(function() {
+      var el = document.getElementById('ti-'+_pt);
+      if (el && !el.querySelector('.task-item-edit-panel')) el.click();
+    }, 0);
+  }
 }
 
 
@@ -6319,11 +6338,39 @@ function tieToggleSub(itemId, si, checkedVal) {
 }
 
 function tieDelSub(itemId, si) {
-  const t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  var t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
   if(!t||!t.subs) return;
   t.subs.splice(si,1);
+  t.updatedAt = Date.now();
   saveTaskData();
-  renderTaskList();
+  _tieRefreshSubList(itemId);
+  var badgeEl = document.getElementById('tsbadge-'+itemId);
+  if (badgeEl) {
+    var doneCnt = (t.subs||[]).filter(function(s){return s.done;}).length;
+    if (t.subs.length) badgeEl.textContent = doneCnt+'/'+t.subs.length;
+    else badgeEl.style.display = 'none';
+  }
+}
+
+function _tieRefreshSubList(itemId) {
+  var t = taskItems.find(function(ti){ return String(ti.id)===String(itemId); });
+  var subList = document.getElementById('tieSubList-'+itemId);
+  if (!subList || !t) return;
+  subList.innerHTML = '';
+  (t.subs||[]).forEach(function(s, i) {
+    var row = document.createElement('div');
+    row.className = 'tie-sub-item';
+    var chk = document.createElement('input');
+    chk.type = 'checkbox'; chk.checked = !!s.done;
+    chk.onclick = (function(ii){ return function(e){ e.stopPropagation(); tieToggleSub(itemId, ii); }; })(i);
+    var span = document.createElement('span');
+    span.className = 'tie-sub-text'; span.textContent = s.text||'';
+    var del = document.createElement('button');
+    del.className = 'tie-sub-del'; del.textContent = '×';
+    del.onclick = (function(ii){ return function(e){ e.stopPropagation(); tieDelSub(itemId, ii); }; })(i);
+    row.appendChild(chk); row.appendChild(span); row.appendChild(del);
+    subList.appendChild(row);
+  });
 }
 
 function tieSetEnergy(itemId, val) {
@@ -16702,6 +16749,71 @@ function _getTaskDateRange(t){
   var dates=[]; var cur=new Date(t.date+'T00:00'); var end=new Date(t.dateEnd+'T00:00');
   while(cur<=end){ dates.push(cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0')); cur.setDate(cur.getDate()+1); if(dates.length>90) break; }
   return dates;
+}
+
+function tieOpenDateEnd(itemId, realIdx, btn) {
+  var t = taskItems[realIdx];
+  if (!t || String(t.id) !== String(itemId)) {
+    t = taskItems.find(function(x){ return String(x.id)===String(itemId); });
+    realIdx = taskItems.indexOf(t);
+  }
+  if (!t) return;
+  tieClosePickers();
+  var init = t.dateEnd ? new Date(t.dateEnd+'T00:00') : (t.date ? new Date(t.date+'T00:00') : new Date());
+  _tieDpMonth = new Date(init.getFullYear(), init.getMonth(), 1);
+  var dp = document.createElement('div');
+  dp.className = 'tie-datepicker';
+  dp.setAttribute('data-tie-trigger','1');
+  dp.onclick = function(e){ e.stopPropagation(); };
+  function renderDp() {
+    var year=_tieDpMonth.getFullYear(), month=_tieDpMonth.getMonth();
+    var firstDay=new Date(year,month,1).getDay();
+    var daysInMonth=new Date(year,month+1,0).getDate();
+    var today=new Date(); today.setHours(0,0,0,0);
+    var startDate = t.date ? new Date(t.date+'T00:00') : null;
+    var html='<div class="tie-dp-head">'
+      +'<button onclick="event.stopPropagation();_tieDpMonth=new Date('+(year)+','+(month-1)+',1);this.closest(\'.tie-datepicker\').dispatchEvent(new Event(\'_rerender\'))">‹</button>'
+      +'<span>'+year+'.'+String(month+1).padStart(2,'0')+'</span>'
+      +'<button onclick="event.stopPropagation();_tieDpMonth=new Date('+(year)+','+(month+1)+',1);this.closest(\'.tie-datepicker\').dispatchEvent(new Event(\'_rerender\'))">›</button>'
+      +'</div><div class="tie-dp-grid">';
+    ['일','월','화','수','목','금','토'].forEach(function(d){ html+='<div class="tie-dp-dow">'+d+'</div>'; });
+    for(var i=0;i<firstDay;i++) html+='<div></div>';
+    for(var d=1;d<=daysInMonth;d++){
+      var dk=year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      var isEnd=t.dateEnd===dk, isToday=new Date(year,month,d).getTime()===today.getTime();
+      var isDisabled=startDate&&new Date(year,month,d)<startDate;
+      html+='<div class="tie-dp-day'+(isEnd?' sel':'')+(isToday?' today':'')+(isDisabled?' disabled':'')+'"'+(isDisabled?' style="opacity:.3;pointer-events:none"':'')+'>'
+        +'<span onclick="event.stopPropagation();tieSetDateEnd(\''+itemId+'\','+realIdx+',\''+dk+'\')">'+d+'</span></div>';
+    }
+    html+='</div>';
+    dp.innerHTML=html;
+  }
+  renderDp();
+  dp.addEventListener('_rerender', renderDp);
+  btn.parentNode.appendChild(dp);
+  _tieActiveDp = dp;
+}
+
+function tieSetDateEnd(itemId, realIdx, dateKey) {
+  var t = taskItems[realIdx];
+  if (!t || String(t.id) !== String(itemId)) {
+    t = taskItems.find(function(x){ return String(x.id)===String(itemId); });
+    realIdx = taskItems.indexOf(t);
+  }
+  if (!t) return;
+  t.dateEnd = dateKey || '';
+  t.updatedAt = Date.now();
+  saveTaskData();
+  renderTaskCal();
+  tieClosePickers();
+  var deBtn = document.getElementById('tiede-'+itemId);
+  if (deBtn) {
+    deBtn.textContent = dateKey || '종료일';
+    if (dateKey) { deBtn.classList.add('sel'); deBtn.style.borderColor='rgba(108,99,255,.3)'; deBtn.style.color='var(--accent)'; }
+    else { deBtn.classList.remove('sel'); deBtn.style.borderColor=''; deBtn.style.color=''; }
+  }
+  if (typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl) _pushToNotion(t).catch(function(){});
+  showToast(dateKey ? '종료날짜 설정됨' : '종료날짜 해제됨');
 }
 </script>
 </body>
