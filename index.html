@@ -1578,8 +1578,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   }
   .tab-btn { font-size: 10px; padding: 6px 3px; min-width: 40px; flex: 1; }
   .tab-icon { font-size: 15px; }
-  .page { padding: 12px 10px 16px; }
-  
+    
   .me-rpg-card, .me-metrics-card, .me-results-card { grid-column: span 1; }
   .me-header-inner { flex-direction: column; gap: 8px; }
   .task-page-wrap { flex-direction: column !important; }
@@ -1597,8 +1596,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 @media (min-width: 600px) and (max-width: 1199px) {
   .tab-btn { font-size: 11px; padding: 7px 5px; flex: 1; }
   .tab-icon { font-size: 16px; }
-  .page { padding: 16px 14px 20px; }
-  
+    
   .me-rpg-card { grid-column: span 2; }
   .me-metrics-card, .me-results-card { grid-column: span 2; }
   .me-header-inner { flex-direction: row; gap: 12px; }
@@ -4214,7 +4212,6 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 .task-item-text { flex-wrap:wrap; }
 
 /* ── TG/GC 꽉 채우기 ── */
-#page-me.active { padding: 14px 18px 20px !important; }
 #page-me .repeat-task-badge { display:inline-flex;align-items:center;gap:3px;font-size:9px;font-weight:700;padding:1px 6px;border-radius:999px;background:var(--accent)18;color:var(--accent);flex-shrink:0; }
 
 /* ── me-grid 마스터 정의 ── */
@@ -4254,6 +4251,22 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 @media (max-width: 768px) {
   
   #meAiInputWrap, #tgCard, #gcCard { grid-column: 1; grid-row: auto; }
+}
+
+/* ── 나탭 너비 꽉 채우기 ── */
+#page-me.active {
+  padding: 14px 16px 20px !important;
+  display: flex !important;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  width: 100%;
+}
+#page-me .me-header,
+#page-me .me-grid {
+  width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
 }
 </style>
 </head>
@@ -16629,15 +16642,31 @@ function saveRuleModal(ruleId) {
 }
 
 function deleteRule(ruleId) {
-  if (!confirm('이 규칙을 삭제할까요?')) return;
+  // 이 규칙으로 생성된 미완료 할일 개수
+  var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
+  var genTasks = taskItems.filter(function(t){ return t._ruleId===ruleId && !t.done && t.date>=todayKey; });
+  var msg = '이 규칙을 삭제할까요?';
+  if (genTasks.length > 0) {
+    msg += '\n\n이 규칙으로 생성된 할일 ' + genTasks.length + '개가 있어요.\n[확인] 규칙만 삭제\n[취소] 취소';
+  }
+  if (!confirm(msg)) return;
+  // 규칙으로 생성된 할일 일괄 삭제 여부
+  var deleteGenTasks = genTasks.length > 0
+    ? confirm('생성된 할일 ' + genTasks.length + '개도 함께 삭제할까요?\n[확인] 함께 삭제  [취소] 유지')
+    : false;
   var rules = _loadTaskRules().filter(function(r){ return r.id !== ruleId; });
   _saveTaskRules(rules);
-  var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
-  taskItems = taskItems.filter(function(t){ if (t._ruleId !== ruleId || t.done) return true; if (t.date && t.date < todayKey) return true; return false; });
+  if (deleteGenTasks) {
+    taskItems = taskItems.filter(function(t){ return !(t._ruleId===ruleId && !t.done && t.date>=todayKey); });
+  } else {
+    // 삭제 안 해도 _ruleId 연결만 끊기
+    taskItems.forEach(function(t){ if(t._ruleId===ruleId) t._ruleId = null; });
+  }
   saveTaskData();
   document.getElementById('ruleModal') && document.getElementById('ruleModal').remove();
   renderTaskTab && renderTaskTab();
-  showToast('규칙 삭제됨');
+  renderGroundControl && renderGroundControl();
+  showToast(deleteGenTasks ? '규칙 및 할일 삭제됨' : '규칙 삭제됨');
 }
 
 // ══ Ground Control ══
