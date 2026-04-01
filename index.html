@@ -17009,22 +17009,36 @@ function deleteRule(ruleId) {
 
 function _execDeleteRule(ruleId, delFuture, delAll) {
   var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
-  var rules = _loadTaskRules().filter(function(r){ return r.id !== ruleId; });
+  // String 비교로 통일
+  var rid = String(ruleId);
+  var rules = _loadTaskRules().filter(function(r){ return String(r.id) !== rid; });
   _saveTaskRules(rules);
+
   if (delAll) {
-    taskItems = taskItems.filter(function(t){ return t._ruleId !== ruleId; });
+    // 전체 삭제: _ruleId 일치하는 모든 항목
+    taskItems = taskItems.filter(function(t){ return String(t._ruleId) !== rid; });
   } else if (delFuture) {
-    taskItems = taskItems.filter(function(t){ return !(t._ruleId===ruleId && !t.done && t.date>=todayKey); });
-    taskItems.forEach(function(t){ if(t._ruleId===ruleId) t._ruleId = null; });
+    // 미래 미완료 삭제: 날짜 없는 항목(date==='')도 포함
+    taskItems = taskItems.filter(function(t){
+      if (String(t._ruleId) !== rid) return true; // 관련 없음 → 유지
+      if (t.done) return true; // 완료된 것 → 유지
+      if (!t.date || t.date >= todayKey) return false; // 오늘 이후 또는 날짜 없음 → 삭제
+      return true; // 과거 → 유지
+    });
+    // 남은 항목의 _ruleId 연결 끊기
+    taskItems.forEach(function(t){ if(String(t._ruleId)===rid) t._ruleId = null; });
   } else {
-    taskItems.forEach(function(t){ if(t._ruleId===ruleId) t._ruleId = null; });
+    // 규칙만 삭제: _ruleId 연결만 끊기
+    taskItems.forEach(function(t){ if(String(t._ruleId)===rid) t._ruleId = null; });
   }
+
   saveTaskData();
   var m1 = document.getElementById('deleteRuleModal'); if(m1) m1.remove();
   var m2 = document.getElementById('ruleModal');       if(m2) m2.remove();
   renderTaskTab && renderTaskTab();
   renderGroundControl && renderGroundControl();
-  showToast(delAll ? '규칙 및 전체 할일 삭제됨' : delFuture ? '규칙 및 미래 할일 삭제됨' : '규칙 삭제됨');
+  var cnt = delAll ? '전체' : delFuture ? '미래' : '';
+  showToast(cnt ? ('규칙 및 ' + cnt + ' 할일 삭제됨') : '규칙 삭제됨');
 }
 
 // ══ Ground Control ══
@@ -17233,7 +17247,12 @@ function renderTimeGrid(){
       timeStart:t.deadlineTime||'',timeEnd:''});
   });
   // 날짜 오름차순 정렬 (다가오는 순)
-  deadlines.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+  // 날짜 + 시간 오름차순 정렬 (같은 날은 timeStart 빠른 순)
+  deadlines.sort(function(a,b){
+    if(a.date!==b.date) return a.date<b.date?-1:1;
+    var ta=a.timeStart||'99:99', tb=b.timeStart||'99:99';
+    return ta<tb?-1:ta>tb?1:0;
+  });
   var visDeadlines=deadlines.filter(function(d){ return d.date>=startKey&&d.date<=endKey; });
   visDeadlines.forEach(function(d){
     // 이 deadlineId에 연결된 할일들 (미완료, 날짜 있는 것)
@@ -17369,12 +17388,19 @@ function renderTimeGrid(){
           ctx.setLineDash([3,2]);
           ctx.beginPath(); ctx.moveTo(lx,y+4); ctx.lineTo(lx,y+CELL_H-4); ctx.stroke();
           ctx.setLineDash([]);
-          // 할일 이름 (세로 텍스트)
-          ctx.translate(lx+5, y+CELL_H-6);
-          ctx.rotate(-Math.PI/2);
+          // 할일 이름 가로 표시 (셀 상단, 세로선 오른쪽)
+          ctx.save();
           ctx.font='600 9px sans-serif'; ctx.textAlign='left'; ctx.fillStyle=col;
-          var ltLabel=lt.text.length>7?lt.text.slice(0,6)+'…':lt.text;
-          ctx.fillText(ltLabel, 0, 0);
+          ctx.globalAlpha=0.85;
+          var ltLabel=lt.text.length>5?lt.text.slice(0,4)+'…':lt.text;
+          // 셀 너비에 맞게 잘리도록 clip
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(lx+2, y+4, CELL_W-4, CELL_H/2-2);
+          ctx.clip();
+          ctx.fillText(ltLabel, lx+4, y+14);
+          ctx.restore();
+          ctx.globalAlpha=1;
           ctx.restore();
         });
       }
