@@ -5197,6 +5197,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             <div style="font-family:var(--font-label);font-size:9px;letter-spacing:1px;color:var(--foreground-muted)" id="notionLastSync">마지막 동기화: —</div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="btn-secondary" onclick="syncAllNotion()" id="notionSyncBtn" style="font-size:10px;padding:6px 14px">↻ 전체 동기화</button>
+              <button class="btn-ghost" onclick="deduplicateNotionTasks()" style="font-size:10px;padding:6px 12px" title="같은 Notion 페이지가 중복 생성된 경우 정리">🧹 중복 정리</button>
               <button class="btn-ghost" onclick="clearNotionConfig()" style="font-size:10px;padding:6px 12px">연동 해제</button>
             </div>
             <div id="notionSyncStatus" style="margin-top:8px;font-family:var(--font-label);font-size:10px;letter-spacing:1px;color:var(--foreground-muted)"></div>
@@ -6658,14 +6659,24 @@ function toggleTaskItem(idx){
 function deleteTaskItem(idx){
   if(!confirm('삭제할까?'))return;
   const item = taskItems[idx];
-  // Notion 아카이브 (삭제 전에 처리)
-  if(item && item.notionPageId && typeof _deleteFromNotion==='function' && notionCfg && notionCfg.workerUrl) {
-    _deleteFromNotion(item).catch(function(e){ console.warn('Notion delete:', e.message); });
-  }
-  taskItems.splice(idx,1);
+  if(!item) return;
+  // 삭제 전 pageId 보존 (splice 후 item 참조가 끊기므로)
+  const _delPageId = item.notionPageId;
+  // 로컬에서 먼저 제거
+  taskItems.splice(idx, 1);
   saveTaskData();
   renderTaskList();
   renderTaskCal();
+  // Notion 아카이브 (삭제 후에 비동기 처리 - pageId 직접 사용)
+  if(_delPageId && typeof notionApi==='function' && notionCfg && notionCfg.workerUrl && notionCfg.token) {
+    notionApi('PATCH', '/pages/' + _delPageId, { archived: true })
+      .catch(function(e){ console.warn('Notion 삭제 실패:', e.message); });
+  }
+  // pageIds에서도 제거
+  if(notionCfg.pageIds && item.id) {
+    delete notionCfg.pageIds[item.id];
+    localStorage.setItem('notion_config', JSON.stringify(notionCfg));
+  }
 }
 
 // ── 빠른 추가 인라인 ──
@@ -13459,117 +13470,125 @@ async function fetchAllNotionPages(dbId) {
 
 // ── 단일 카테고리 동기화 ──
 async function syncNotionCategory(catId, dbId) {
-  // 0. 속성명 자동 감지 (처음 한 번만)
+  // 0. 속성명 자동 감지
   await _detectNotionProps(dbId);
 
-  // 1. Notion에서 전체 가져오기
+  // 1. Notion DB 전체 페이지 가져오기
   const pages = await fetchAllNotionPages(dbId);
-
-  // pageIds 매핑 (로컬 id → notion page id)
   const pageIds = notionCfg.pageIds || {};
 
-  // 2. Notion 페이지 → 로컬 item 머지
-  const notionPageMap = {}; // notionPageId → page
+  // notionPageId → page 맵
+  const notionPageMap = {};
   pages.forEach(p => { notionPageMap[p.id] = p; });
 
-  // 2a. Notion에 있는데 로컬에 없는 것 → 로컬에 추가
-  // (_notionDeleted 로컬 삭제 항목 목록 - 재생성 방지)
+  // ── 전역 중복 방지: 모든 로컬 항목의 notionPageId Set ──
+  // (catId 불문 - DB ID 변경 시에도 이미 연결된 pageId 재사용)
+  const allLocalNotionIds = new Set(
+    taskItems.filter(t => t.notionPageId && !t._notionDeleted).map(t => t.notionPageId)
+  );
+  // 로컬에서 삭제 표시된 notionPageId (재생성 금지)
   const deletedNotionIds = new Set(
     taskItems.filter(t => t._notionDeleted && t.notionPageId).map(t => t.notionPageId)
   );
-  const localNotionIds = new Set(
-    taskItems.filter(t => t.notionPageId).map(t => t.notionPageId)
-  );
+
+  // ── 2a. Notion에 있는데 로컬에 없는 것 → 로컬에 추가 ──
   for (const page of pages) {
-    if (localNotionIds.has(page.id)) continue;
-    if (deletedNotionIds.has(page.id)) continue; // 로컬에서 삭제한 것은 skip
-    if (page.archived) continue; // 아카이브된 페이지 skip
+    if (page.archived) continue;
+    if (allLocalNotionIds.has(page.id)) continue;  // 이미 연결됨 (다른 catId라도)
+    if (deletedNotionIds.has(page.id)) continue;   // 로컬 삭제 항목 재생성 금지
     const t = notionPageToTask(page, catId);
     if (!t.name) continue;
+    // 이름 기준 로컬 중복 체크 (같은 catId, notionPageId 없는 항목)
+    const nameDup = taskItems.find(x =>
+      !x.notionPageId && !x._notionDeleted &&
+      x.catId === catId &&
+      (x.text || '').trim() === t.name.trim()
+    );
+    if (nameDup) {
+      // 이름 일치 → 연결만 하고 신규 생성 안 함
+      nameDup.notionPageId = page.id;
+      nameDup.updatedAt = new Date(page.last_edited_time || Date.now()).getTime();
+      pageIds[nameDup.id] = page.id;
+      allLocalNotionIds.add(page.id);
+      continue;
+    }
     const newItem = {
       id: Math.floor(Date.now() + Math.random() * 1000),
       text: t.name, catId, done: t.done,
       date: t.date, timeStart: t.timeStart||'', timeEnd: t.timeEnd||'',
-      priority: t.priority,
-      note: '', createdAt: Date.now(),
+      priority: t.priority, note: '',
+      createdAt: Date.now(),
       updatedAt: new Date(page.last_edited_time || Date.now()).getTime(),
       notionPageId: page.id,
     };
     taskItems.push(newItem);
     pageIds[newItem.id] = page.id;
+    allLocalNotionIds.add(page.id);
   }
 
-  // 2b. 로컬에 있는 항목 → Notion 상태와 동기화
-  const localItems = taskItems.filter(t => t.catId === catId);
-  const toRemove = [];
+  // ── 2b. 로컬 항목 → Notion 상태 동기화 ──
+  const localItems = taskItems.filter(t => t.catId === catId && !t._notionDeleted);
   for (const item of localItems) {
+
     if (item.notionPageId && notionPageMap[item.notionPageId]) {
+      // ── 연결된 페이지 있음: pull or skip ──
       const notionPage = notionPageMap[item.notionPageId];
-      // Notion의 마지막 수정 시간 vs 로컬 마지막 수정 시간 비교
       const notionEditedAt = new Date(notionPage.last_edited_time || 0).getTime();
       const localUpdatedAt = item.updatedAt || item.createdAt || 0;
-
-            // 노션 last_edited_time은 1분 단위 반올림 → 60초 여유
       const pushedAt = item._notionPushedAt || 0;
       const isPushProtected = pushedAt > Date.now();
       const shouldPull = !isPushProtected &&
         notionEditedAt > pushedAt + 30000 &&
         notionEditedAt + 60000 > localUpdatedAt;
       if (shouldPull) {
-        // Notion이 더 최신 → Notion 기준으로 업데이트
         const np = notionPageToTask(notionPage, catId);
-                item.done     = np.done;
+        item.done     = np.done;
         item.priority = np.priority || item.priority;
-        // 텍스트(이름)도 노션 기준으로 갱신
-        if (np.name) item.text = np.name;
+        if (np.name)  item.text    = np.name;
         if (np.dateEnd !== undefined) item.dateEnd = np.dateEnd;
-
-        // 날짜·시간: 노션에 값이 있고 로컬과 다를 때만 갱신
-        // (단, 로컬에 값이 있는데 노션이 비어있으면 → 덮어쓰지 않음)
-        if (np.date) item.date = np.date;
-        // 시간은 항상 갱신 (노션에서 변경 가능, date 없어도)
+        if (np.date)  item.date    = np.date;
         if (np.timeStart !== undefined) item.timeStart = np.timeStart || '';
         if (np.timeEnd   !== undefined) item.timeEnd   = np.timeEnd   || '';
         item.updatedAt = notionEditedAt;
       }
-      // 로컬이 더 최신이면 → 그대로 유지 (push는 수정 시점에 이미 됨)
+
     } else if (item.notionPageId && !notionPageMap[item.notionPageId]) {
-      // notionPageId가 있는데 Notion에 없음 (아카이브/삭제)
-      // 로컬에서 즉시 삭제하지 않고 notionPageId만 제거 → 로컬 데이터 보존
-      // (사용자가 직접 삭제한 경우 로컬에서도 지우려면 수동 삭제 필요)
-      item.notionPageId = null;
-      item._notionDeleted = true;
+      // ── 연결된 페이지가 이 DB에 없음 ──
+      // DB ID 변경이나 노션 삭제로 페이지가 이 DB에 없는 경우
+      // → notionPageId 초기화만 하고 로컬 데이터 보존 (재push는 _smartSync가 처리)
       if (pageIds[item.id]) delete pageIds[item.id];
+      item.notionPageId = null;
+      // _notionDeleted 설정 안 함 → 다음 sync에서 이 DB에 재생성됨
+
     } else if (!item.notionPageId) {
-      // 로컬에만 있음 → 노션에서 같은 이름 페이지 먼저 찾기 (중복 방지)
-      const matchPage = pages.find(function(p) {
+      // ── notionPageId 없음: 이름 매칭 후 push ──
+      const matchPage = pages.find(p => {
+        if (p.archived) return false;
         const pName = _findNameProp(p.properties || {}, (notionCfg.propNames||{}).name);
         return pName && pName.trim() === (item.text || '').trim();
       });
-      if (matchPage) {
-        // 이름 일치하는 노션 페이지 발견 → 연결 후 pull
+      if (matchPage && !allLocalNotionIds.has(matchPage.id)) {
         item.notionPageId = matchPage.id;
         pageIds[item.id] = matchPage.id;
+        allLocalNotionIds.add(matchPage.id);
         const np2 = notionPageToTask(matchPage, catId);
-        if (np2.priority) item.priority = np2.priority;
         if (np2.done !== undefined) item.done = np2.done;
+        if (np2.priority) item.priority = np2.priority;
         item.updatedAt = new Date(matchPage.last_edited_time || Date.now()).getTime();
-              } else {
-        // 없으면 새 페이지 생성
-        const created = await notionApi('POST', '/pages', {
-          parent: { database_id: dbId },
-          properties: taskToNotionProps(item),
-        });
-        item.notionPageId = created.id;
-        item.updatedAt = Date.now();
-        pageIds[item.id] = created.id;
+      } else if (!matchPage) {
+        // 로컬에만 있음 → 새 페이지 생성
+        try {
+          const created = await notionApi('POST', '/pages', {
+            parent: { database_id: dbId },
+            properties: taskToNotionProps(item),
+          });
+          item.notionPageId = created.id;
+          item._notionPushedAt = Date.now() + 90000;
+          pageIds[item.id] = created.id;
+          allLocalNotionIds.add(created.id);
+        } catch(e) { console.warn('syncCat push 실패:', e.message); }
       }
     }
-  }
-  // 노션에서 삭제된 항목 로컬에서 제거
-  if (toRemove.length > 0) {
-    toRemove.forEach(id => { delete pageIds[id]; });
-    taskItems = taskItems.filter(t => !toRemove.includes(t.id));
   }
 
   notionCfg.pageIds = pageIds;
@@ -13577,6 +13596,66 @@ async function syncNotionCategory(catId, dbId) {
 }
 
 // ── 전체 동기화 ──
+
+// ── 노션 연동 중복 할일 정리 ──
+function deduplicateNotionTasks() {
+  const seenPageIds = new Map(); // notionPageId → 첫 번째 item
+  const toRemove = new Set();
+  let dupCount = 0;
+
+  taskItems.forEach(function(item) {
+    if (!item.notionPageId || item._notionDeleted) return;
+    const pid = item.notionPageId;
+    if (seenPageIds.has(pid)) {
+      // 중복 발견: updatedAt이 더 오래된 것 제거
+      const existing = seenPageIds.get(pid);
+      const existAt = existing.updatedAt || existing.createdAt || 0;
+      const curAt   = item.updatedAt     || item.createdAt     || 0;
+      if (curAt > existAt) {
+        // 현재 항목이 더 최신 → 기존 제거
+        toRemove.add(existing.id);
+        seenPageIds.set(pid, item);
+      } else {
+        toRemove.add(item.id);
+      }
+      dupCount++;
+    } else {
+      seenPageIds.set(pid, item);
+    }
+  });
+
+  // 이름+날짜 기준 중복도 체크 (notionPageId 없는 항목)
+  const seenTextDate = new Map();
+  taskItems.forEach(function(item) {
+    if (item.notionPageId || item._notionDeleted) return;
+    const key = (item.text||'').trim() + '|' + (item.catId||'') + '|' + (item.date||'');
+    if (seenTextDate.has(key)) {
+      const existing = seenTextDate.get(key);
+      const existAt = existing.updatedAt || existing.createdAt || 0;
+      const curAt   = item.updatedAt     || item.createdAt     || 0;
+      if (curAt > existAt) {
+        toRemove.add(existing.id);
+        seenTextDate.set(key, item);
+      } else {
+        toRemove.add(item.id);
+      }
+      dupCount++;
+    } else {
+      seenTextDate.set(key, item);
+    }
+  });
+
+  if (toRemove.size === 0) {
+    showToast('중복 항목 없음 ✓');
+    return 0;
+  }
+  taskItems = taskItems.filter(function(t) { return !toRemove.has(t.id); });
+  saveTaskData();
+  renderTaskList && renderTaskList();
+  renderTaskCal && renderTaskCal();
+  showToast('중복 ' + toRemove.size + '개 정리 완료');
+  return toRemove.size;
+}
 async function syncAllNotion() {
   // 배지 업데이트 헬퍼
   function _setNotionBadge(html) {
@@ -13599,6 +13678,9 @@ async function syncAllNotion() {
   if (syncBtn)  { syncBtn.disabled = true; syncBtn.textContent = '↻ 동기화 중...'; }
   _setNotionBadge('<span style="color:var(--warning)">↻ Notion 동기화 중...</span>');
 
+  // 동기화 전 중복 자동 정리 (누적 방지)
+  deduplicateNotionTasks();
+
   let synced = 0, errors = [];
   for (const [catId, dbId] of Object.entries(mappings)) {
     try {
@@ -13614,6 +13696,8 @@ async function syncAllNotion() {
     }
   }
 
+  // 동기화 후 중복 재정리
+  deduplicateNotionTasks();
   saveTaskData();
   localStorage.setItem('notion_config', JSON.stringify(notionCfg));
 
