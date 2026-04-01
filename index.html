@@ -4247,7 +4247,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
 /* 타임그리드 높이 자동 확장 */
 #tgCard { min-width: 0; overflow: visible; }
-#tgCard .me-card-head { flex-wrap: wrap; gap: 4px; }
+#tgCard .me-card-head { flex-wrap: nowrap; gap: 4px; overflow: hidden; }
+#tgCard .tg-legend { flex-shrink: 1; min-width: 0; overflow: hidden; }
 #tgCanvasWrap { height: auto !important; min-height: 80px; }
 #tgCanvas { display: block; }
 
@@ -4323,13 +4324,21 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   gap: 14px;
   width: 100%;
   min-width: 0;
-  align-items: stretch;
+  align-items: flex-start;
 }
 .tg-gc-left {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1 1 300px;
+  min-width: 280px;
   overflow: visible !important;
 }
+.tg-gc-right {
+  flex: 1 1 260px;
+  min-width: 240px;
+  overflow-y: visible;
+}
+@media (max-width: 768px) {
+  .tg-gc-wrap { flex-direction: column; }
+  .tg-gc-left, .tg-gc-right { min-width: 0; flex-basis: auto; }
 }
 </style>
 </head>
@@ -11736,12 +11745,10 @@ async function _fbSaveNow(){
     await fbDb.collection('users').doc(uid).set(payload);
     setSyncStatus('connected');
   } catch(err) {
-    setSyncStatus('error');
     console.error('Firebase 저장 오류:', err);
-    // 네트워크 오류면 3초 후 재시도 (1회)
-    if(err.code === 'unavailable' || err.message?.includes('network')) {
-      setTimeout(() => { if(fbUser && fbDb) _fbSaveNow().catch(()=>{}); }, 3000);
-    }
+    setSyncStatus('syncing'); // 저장 실패는 재시도 → 즉시 알림 X
+    // 5초 후 재시도
+    setTimeout(() => { if(fbUser && fbDb) _fbSaveNow().catch(()=>{}); }, 5000);
   }
 }
 
@@ -11757,8 +11764,9 @@ async function fbLoadAll(){
     setSyncStatus('connected');
     _startFbListener();
   } catch(err) {
-    setSyncStatus('error');
     console.error('Firebase 불러오기 오류:', err);
+    setSyncStatus('syncing');
+    setTimeout(() => { if(fbUser && fbDb) fbLoadAll().catch(()=>{}); }, 8000);
   }
 }
 
@@ -11776,17 +11784,21 @@ function _startFbListener(){
 
       // 다른 기기 저장 → 항상 적용
       _applyFirebaseData(d, false);
+      window._fbRetryCount = 0;
+      window._fbRetryDelay = 5000;
       setSyncStatus('connected');
     }, err => {
       console.warn('FB listener error:', err);
-      setSyncStatus('error');
-      // 지수 백오프 재시도 (5초 → 10초 → 20초 최대)
+      window._fbRetryCount = (window._fbRetryCount || 0) + 1;
+      // 3회 이상 연속 실패 시만 사용자에게 알림
+      if (window._fbRetryCount >= 3) {
+        setSyncStatus('error');
+      } else {
+        setSyncStatus('syncing');
+      }
       const delay = Math.min((window._fbRetryDelay || 5000), 20000);
       window._fbRetryDelay = (window._fbRetryDelay || 5000) * 2;
-      setTimeout(() => {
-        window._fbRetryDelay = 5000; // 성공 시 리셋
-        _startFbListener();
-      }, delay);
+      setTimeout(() => { _startFbListener(); }, delay);
     });
 }
 
