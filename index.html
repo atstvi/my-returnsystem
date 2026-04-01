@@ -16915,31 +16915,65 @@ function saveRuleModal(ruleId) {
 }
 
 function deleteRule(ruleId) {
-  // 이 규칙으로 생성된 미완료 할일 개수
   var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
-  var genTasks = taskItems.filter(function(t){ return t._ruleId===ruleId && !t.done && t.date>=todayKey; });
-  var msg = '이 규칙을 삭제할까요?';
-  if (genTasks.length > 0) {
-    msg += '\n\n이 규칙으로 생성된 할일 ' + genTasks.length + '개가 있어요.\n[확인] 규칙만 삭제\n[취소] 취소';
-  }
-  if (!confirm(msg)) return;
-  // 규칙으로 생성된 할일 일괄 삭제 여부
-  var deleteGenTasks = genTasks.length > 0
-    ? confirm('생성된 할일 ' + genTasks.length + '개도 함께 삭제할까요?\n[확인] 함께 삭제  [취소] 유지')
-    : false;
+  var rules = _loadTaskRules();
+  var rule = rules.find(function(r){ return r.id === ruleId; });
+  var genFuture = taskItems.filter(function(t){ return t._ruleId===ruleId && !t.done && t.date>=todayKey; });
+  var genAll    = taskItems.filter(function(t){ return t._ruleId===ruleId; });
+  var old = document.getElementById('deleteRuleModal'); if(old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'deleteRuleModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center';
+  var futureLine = genFuture.length > 0
+    ? '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--border-subtle);border-radius:var(--r-inner);margin-bottom:8px;cursor:pointer">'
+      + '<input type="checkbox" id="delRuleChkFuture" style="width:16px;height:16px;accent-color:#ef4444;cursor:pointer">'
+      + '<span style="font-size:13px;color:var(--fg)">미래 미완료 할일 <b>' + genFuture.length + '개</b> 함께 삭제</span>'
+      + '</label>'
+    : '';
+  var allLine = genAll.length > 0
+    ? '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--border-subtle);border-radius:var(--r-inner);margin-bottom:16px;cursor:pointer">'
+      + '<input type="checkbox" id="delRuleChkAll" style="width:16px;height:16px;accent-color:#ef4444;cursor:pointer">'
+      + '<span style="font-size:13px;color:var(--fg)">완료·과거 포함 전체 <b>' + genAll.length + '개</b> 삭제</span>'
+      + '</label>'
+    : '<div style="margin-bottom:16px"></div>';
+  var ruleName = rule ? esc(rule.matchText || rule.taskText || '') : '';
+  modal.innerHTML = '<div style="background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:480px;padding:20px 20px 32px;box-shadow:var(--shadow-raised)">'
+    + '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>'
+    + '<div style="font-size:14px;font-weight:700;color:var(--fg);margin-bottom:4px">규칙 삭제</div>'
+    + '<div style="font-size:12px;color:var(--fg3);margin-bottom:16px">' + ruleName + '</div>'
+    + futureLine + allLine
+    + '<div style="display:flex;gap:8px">'
+    + '<button id="delRuleCancelBtn" style="flex:1;padding:10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:13px;cursor:pointer;color:var(--fg2)">취소</button>'
+    + '<button id="delRuleConfirmBtn" style="flex:1;padding:10px;border-radius:var(--r-pill);background:#ef4444;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#fff">삭제</button>'
+    + '</div></div>';
+  document.body.appendChild(modal);
+  document.getElementById('delRuleCancelBtn').onclick = function(){ modal.remove(); };
+  document.getElementById('delRuleConfirmBtn').onclick = function(){ _execDeleteRule(ruleId); };
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+function _execDeleteRule(ruleId) {
+  var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
+  var chkF = document.getElementById('delRuleChkFuture');
+  var chkA = document.getElementById('delRuleChkAll');
+  var delFuture = chkF && chkF.checked;
+  var delAll    = chkA && chkA.checked;
   var rules = _loadTaskRules().filter(function(r){ return r.id !== ruleId; });
   _saveTaskRules(rules);
-  if (deleteGenTasks) {
+  if (delAll) {
+    taskItems = taskItems.filter(function(t){ return t._ruleId !== ruleId; });
+  } else if (delFuture) {
     taskItems = taskItems.filter(function(t){ return !(t._ruleId===ruleId && !t.done && t.date>=todayKey); });
+    taskItems.forEach(function(t){ if(t._ruleId===ruleId) t._ruleId = null; });
   } else {
-    // 삭제 안 해도 _ruleId 연결만 끊기
     taskItems.forEach(function(t){ if(t._ruleId===ruleId) t._ruleId = null; });
   }
   saveTaskData();
-  document.getElementById('ruleModal') && document.getElementById('ruleModal').remove();
+  var m1 = document.getElementById('deleteRuleModal'); if(m1) m1.remove();
+  var m2 = document.getElementById('ruleModal');       if(m2) m2.remove();
   renderTaskTab && renderTaskTab();
   renderGroundControl && renderGroundControl();
-  showToast(deleteGenTasks ? '규칙 및 할일 삭제됨' : '규칙 삭제됨');
+  showToast(delAll ? '규칙 및 전체 할일 삭제됨' : delFuture ? '규칙 및 미래 할일 삭제됨' : '규칙 삭제됨');
 }
 
 // ══ Ground Control ══
@@ -17139,8 +17173,21 @@ function renderTimeGrid(){
   var deadlines=[];
   (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date; }).forEach(function(t){ deadlines.push({date:t.date,text:t.text,type:'sched',id:t.id}); });
   (taskItems||[]).filter(function(t){ return t.deadlineDate&&!t.deadlineId&&!t.done; }).forEach(function(t){ deadlines.push({date:t.deadlineDate,text:t.text,type:'date',id:t.id}); });
+  // 날짜 오름차순 정렬 (다가오는 순)
+  deadlines.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
   var visDeadlines=deadlines.filter(function(d){ return d.date>=startKey&&d.date<=endKey; });
-  visDeadlines.forEach(function(d){ lanes.push({label:d.text.length>8?d.text.slice(0,7)+'…':d.text,type:'deadline',date:d.date,color:d.type==='sched'?'#f59e0b':'#ef4444'}); });
+  visDeadlines.forEach(function(d){
+    // 이 deadlineId에 연결된 할일들 (미완료, 날짜 있는 것)
+    var linkedTasks=(taskItems||[]).filter(function(t){
+      return !t.done && t.date && String(t.deadlineId)===String(d.id);
+    }).sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
+    lanes.push({
+      label: d.text.length>8?d.text.slice(0,7)+'…':d.text,
+      type:'deadline', date:d.date,
+      color: d.type==='sched'?'#f59e0b':'#ef4444',
+      linkedTasks: linkedTasks,
+    });
+  });
   var todayTasks=(taskItems||[]).filter(function(t){ return t.date===todayKey&&!t.done&&t.catId!=='schedule'; });
   lanes.push({label:'오늘 할일',type:'tasks',color:'#22c55e'});
   var W=LABEL_W+CELL_W*DAYS, H=CELL_H*lanes.length+28;
@@ -17195,6 +17242,28 @@ function renderTimeGrid(){
           else { var barW=isDl?Math.round((CELL_W-4)*progressRatio):(isPast3?CELL_W-4:0); if(barW>0){ ctx.fillStyle=isPast3?col+'44':col+'99'; ctx.fillRect(x3+2,y+8,barW,CELL_H-16); } }
         }
         if(isDl){ ctx.fillStyle=col; ctx.fillRect(x3+CELL_W-3,y+4,3,CELL_H-8); }
+      }
+      // 연결된 할일 세로선 + 이름 표시
+      if(lane.linkedTasks && lane.linkedTasks.length>0){
+        lane.linkedTasks.forEach(function(lt){
+          if(lt.date<startKey||lt.date>endKey) return;
+          var ltDi=Math.round((new Date(lt.date+'T00:00')-startDay)/86400000);
+          if(ltDi<0||ltDi>=DAYS) return;
+          var lx=LABEL_W+ltDi*CELL_W+Math.round(CELL_W/2);
+          // 세로선
+          ctx.save();
+          ctx.strokeStyle=col; ctx.lineWidth=1.5;
+          ctx.setLineDash([3,2]);
+          ctx.beginPath(); ctx.moveTo(lx,y+4); ctx.lineTo(lx,y+CELL_H-4); ctx.stroke();
+          ctx.setLineDash([]);
+          // 할일 이름 (세로 텍스트)
+          ctx.translate(lx+5, y+CELL_H-6);
+          ctx.rotate(-Math.PI/2);
+          ctx.font='600 9px sans-serif'; ctx.textAlign='left'; ctx.fillStyle=col;
+          var ltLabel=lt.text.length>7?lt.text.slice(0,6)+'…':lt.text;
+          ctx.fillText(ltLabel, 0, 0);
+          ctx.restore();
+        });
       }
     } else if(lane.type==='tasks'){
       var totalT=todayTasks.length, doneT=todayTasks.filter(function(t){ return t.done; }).length;
