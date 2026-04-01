@@ -16921,43 +16921,94 @@ function deleteRule(ruleId) {
   var genFuture = taskItems.filter(function(t){ return t._ruleId===ruleId && !t.done && t.date>=todayKey; });
   var genAll    = taskItems.filter(function(t){ return t._ruleId===ruleId; });
   var old = document.getElementById('deleteRuleModal'); if(old) old.remove();
+
   var modal = document.createElement('div');
   modal.id = 'deleteRuleModal';
-  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center';
-  var futureLine = genFuture.length > 0
-    ? '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--border-subtle);border-radius:var(--r-inner);margin-bottom:8px;cursor:pointer">'
-      + '<input type="checkbox" id="delRuleChkFuture" style="width:16px;height:16px;accent-color:#ef4444;cursor:pointer">'
-      + '<span style="font-size:13px;color:var(--fg)">미래 미완료 할일 <b>' + genFuture.length + '개</b> 함께 삭제</span>'
-      + '</label>'
-    : '';
-  var allLine = genAll.length > 0
-    ? '<label style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--border-subtle);border-radius:var(--r-inner);margin-bottom:16px;cursor:pointer">'
-      + '<input type="checkbox" id="delRuleChkAll" style="width:16px;height:16px;accent-color:#ef4444;cursor:pointer">'
-      + '<span style="font-size:13px;color:var(--fg)">완료·과거 포함 전체 <b>' + genAll.length + '개</b> 삭제</span>'
-      + '</label>'
-    : '<div style="margin-bottom:16px"></div>';
-  var ruleName = rule ? esc(rule.matchText || rule.taskText || '') : '';
-  modal.innerHTML = '<div style="background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:480px;padding:20px 20px 32px;box-shadow:var(--shadow-raised)">'
-    + '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px"></div>'
-    + '<div style="font-size:14px;font-weight:700;color:var(--fg);margin-bottom:4px">규칙 삭제</div>'
-    + '<div style="font-size:12px;color:var(--fg3);margin-bottom:16px">' + ruleName + '</div>'
-    + futureLine + allLine
-    + '<div style="display:flex;gap:8px">'
-    + '<button id="delRuleCancelBtn" style="flex:1;padding:10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:13px;cursor:pointer;color:var(--fg2)">취소</button>'
-    + '<button id="delRuleConfirmBtn" style="flex:1;padding:10px;border-radius:var(--r-pill);background:#ef4444;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#fff">삭제</button>'
-    + '</div></div>';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center;pointer-events:all';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:480px;padding:20px 20px 32px;box-shadow:var(--shadow-raised)';
+
+  // 핸들
+  var handle = document.createElement('div');
+  handle.style.cssText = 'width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 16px';
+  box.appendChild(handle);
+
+  // 제목
+  var title = document.createElement('div');
+  title.style.cssText = 'font-size:14px;font-weight:700;color:var(--fg);margin-bottom:4px';
+  title.textContent = '규칙 삭제';
+  box.appendChild(title);
+
+  var subtitle = document.createElement('div');
+  subtitle.style.cssText = 'font-size:12px;color:var(--fg3);margin-bottom:16px';
+  subtitle.textContent = rule ? (rule.matchText || rule.taskText || '') : '';
+  box.appendChild(subtitle);
+
+  // 체크 상태
+  var _chkFuture = false, _chkAll = false;
+
+  function makeCheckRow(label, onToggle) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--bg);border:1px solid var(--border-subtle);border-radius:var(--r-inner);margin-bottom:8px;cursor:pointer;user-select:none;-webkit-user-select:none';
+    var box2 = document.createElement('div');
+    box2.style.cssText = 'width:18px;height:18px;border-radius:4px;border:2px solid #ccc;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:all .1s';
+    var txt = document.createElement('span');
+    txt.style.cssText = 'font-size:13px;color:var(--fg)';
+    txt.innerHTML = label;
+    row.appendChild(box2);
+    row.appendChild(txt);
+    var checked = false;
+    function toggle() {
+      checked = !checked;
+      box2.style.background = checked ? '#ef4444' : '';
+      box2.style.borderColor = checked ? '#ef4444' : '#ccc';
+      box2.textContent = checked ? '✓' : '';
+      box2.style.color = '#fff';
+      box2.style.fontSize = '12px';
+      box2.style.fontWeight = '700';
+      onToggle(checked);
+    }
+    row.addEventListener('click', function(e){ e.stopPropagation(); toggle(); });
+    return row;
+  }
+
+  if (genFuture.length > 0) {
+    var rowF = makeCheckRow('미래 미완료 할일 <b>' + genFuture.length + '개</b> 함께 삭제', function(v){ _chkFuture = v; });
+    box.appendChild(rowF);
+  }
+  if (genAll.length > 0) {
+    var rowA = makeCheckRow('완료·과거 포함 전체 <b>' + genAll.length + '개</b> 삭제', function(v){ _chkAll = v; });
+    box.appendChild(rowA);
+  }
+
+  var spacer = document.createElement('div'); spacer.style.height = '8px'; box.appendChild(spacer);
+
+  // 버튼
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+
+  var cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '취소';
+  cancelBtn.style.cssText = 'flex:1;padding:10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:13px;cursor:pointer;color:var(--fg2)';
+  cancelBtn.onclick = function(){ modal.remove(); };
+
+  var confirmBtn = document.createElement('button');
+  confirmBtn.textContent = '삭제';
+  confirmBtn.style.cssText = 'flex:1;padding:10px;border-radius:var(--r-pill);background:#ef4444;border:none;font-size:13px;font-weight:700;cursor:pointer;color:#fff';
+  confirmBtn.onclick = function(){ _execDeleteRule(ruleId, _chkFuture, _chkAll); };
+
+  btnRow.appendChild(cancelBtn);
+  btnRow.appendChild(confirmBtn);
+  box.appendChild(btnRow);
+
+  modal.appendChild(box);
   document.body.appendChild(modal);
-  document.getElementById('delRuleCancelBtn').onclick = function(){ modal.remove(); };
-  document.getElementById('delRuleConfirmBtn').onclick = function(){ _execDeleteRule(ruleId); };
   modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
 }
 
-function _execDeleteRule(ruleId) {
+function _execDeleteRule(ruleId, delFuture, delAll) {
   var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
-  var chkF = document.getElementById('delRuleChkFuture');
-  var chkA = document.getElementById('delRuleChkAll');
-  var delFuture = chkF && chkF.checked;
-  var delAll    = chkA && chkA.checked;
   var rules = _loadTaskRules().filter(function(r){ return r.id !== ruleId; });
   _saveTaskRules(rules);
   if (delAll) {
@@ -17171,8 +17222,16 @@ function renderTimeGrid(){
   var lanes=[];
   lanes.push({label:'시간',type:'time',color:'#6c63ff'});
   var deadlines=[];
-  (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date; }).forEach(function(t){ deadlines.push({date:t.date,text:t.text,type:'sched',id:t.id}); });
-  (taskItems||[]).filter(function(t){ return t.deadlineDate&&!t.deadlineId&&!t.done; }).forEach(function(t){ deadlines.push({date:t.deadlineDate,text:t.text,type:'date',id:t.id}); });
+  // schedule 항목: timeStart/timeEnd 포함
+  (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date; }).forEach(function(t){
+    deadlines.push({date:t.date,text:t.text,type:'sched',id:t.id,
+      timeStart:t.timeStart||'',timeEnd:t.timeEnd||''});
+  });
+  // deadlineDate 직접 지정 항목
+  (taskItems||[]).filter(function(t){ return t.deadlineDate&&!t.deadlineId&&!t.done; }).forEach(function(t){
+    deadlines.push({date:t.deadlineDate,text:t.text,type:'date',id:t.id,
+      timeStart:t.deadlineTime||'',timeEnd:''});
+  });
   // 날짜 오름차순 정렬 (다가오는 순)
   deadlines.sort(function(a,b){ return a.date<b.date?-1:a.date>b.date?1:0; });
   var visDeadlines=deadlines.filter(function(d){ return d.date>=startKey&&d.date<=endKey; });
@@ -17186,6 +17245,8 @@ function renderTimeGrid(){
       type:'deadline', date:d.date,
       color: d.type==='sched'?'#f59e0b':'#ef4444',
       linkedTasks: linkedTasks,
+      timeStart: d.timeStart||'',
+      timeEnd:   d.timeEnd||'',
     });
   });
   var todayTasks=(taskItems||[]).filter(function(t){ return t.date===todayKey&&!t.done&&t.catId!=='schedule'; });
@@ -17230,18 +17291,70 @@ function renderTimeGrid(){
         if(dayKey2===todayKey){ var mx=x2+2+(CELL_W-4)*fillRatio; ctx.strokeStyle=col; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(mx,y+4); ctx.lineTo(mx,y+CELL_H-4); ctx.stroke(); }
       }
     } else if(lane.type==='deadline'){
-      var dlDate=lane.date, dlD=new Date(dlDate+'T00:00');
-      var totalMs=dlD-startDay, elapsed=Math.min(now-startDay,totalMs);
+      var dlDate=lane.date;
+      // 시간 정보 파싱
+      var dlTimeStart=lane.timeStart||''; // 'HH:MM'
+      var dlTimeEnd=lane.timeEnd||'';
+      // 마감 시각 계산 (timeStart 있으면 그 시간, 없으면 자정 = 하루 끝)
+      var dlEndMs = 0;
+      if(dlTimeStart){
+        var dlHM=dlTimeStart.split(':');
+        var dlH=parseInt(dlHM[0]||0),dlM=parseInt(dlHM[1]||0);
+        var dlDateObj=new Date(dlDate+'T00:00');
+        dlDateObj.setHours(dlH,dlM,0,0);
+        dlEndMs = dlDateObj.getTime();
+      } else {
+        // 시간 없으면 마감일 자정 다음날
+        var dlDateObj2=new Date(dlDate+'T00:00');
+        dlDateObj2.setDate(dlDateObj2.getDate()+1);
+        dlEndMs = dlDateObj2.getTime();
+      }
+      var totalMs=dlEndMs-startDay.getTime();
+      var elapsed=Math.min(now.getTime()-startDay.getTime(), totalMs);
       var progressRatio=totalMs>0?Math.max(0,elapsed/totalMs):1;
+
       for(var di3=0;di3<DAYS;di3++){
         var dayD3=new Date(startDay); dayD3.setDate(dayD3.getDate()+di3);
         var dayKey3=fmtKey(dayD3), x3=LABEL_W+di3*CELL_W;
         var isPast3=dayKey3<todayKey, isDl=dayKey3===dlDate;
         if(dayKey3<=dlDate){
-          if(!isDl&&!isPast3){ ctx.fillStyle=col+'15'; ctx.fillRect(x3+2,y+8,CELL_W-4,CELL_H-16); }
-          else { var barW=isDl?Math.round((CELL_W-4)*progressRatio):(isPast3?CELL_W-4:0); if(barW>0){ ctx.fillStyle=isPast3?col+'44':col+'99'; ctx.fillRect(x3+2,y+8,barW,CELL_H-16); } }
+          if(!isDl&&!isPast3){
+            // 미래 날짜: 연한 배경
+            ctx.fillStyle=col+'15'; ctx.fillRect(x3+2,y+8,CELL_W-4,CELL_H-16);
+          } else if(isDl){
+            // 마감 날짜: timeStart 있으면 그 위치까지 진행바
+            var barRatio;
+            if(dlTimeStart){
+              // 하루 전체 중 timeStart 위치 비율
+              var dlH2=parseInt(dlTimeStart.split(':')[0]||0);
+              var dlM2=parseInt(dlTimeStart.split(':')[1]||0);
+              barRatio=(dlH2*60+dlM2)/(24*60);
+            } else {
+              // 시간 없으면 전체 진행률 기준 마지막 셀 채우기
+              var dayStartMs=dayD3.getTime()-startDay.getTime();
+              var dayEndMs=dayStartMs+86400000;
+              var dayElapsed=Math.min(elapsed-dayStartMs,86400000);
+              barRatio=dayEndMs>0?Math.max(0,Math.min(1,dayElapsed/86400000)):1;
+            }
+            var barW=Math.round((CELL_W-4)*Math.min(1,barRatio));
+            if(barW>0){ ctx.fillStyle=col+'99'; ctx.fillRect(x3+2,y+8,barW,CELL_H-16); }
+          } else if(isPast3){
+            // 지난 날짜: 꽉 채움
+            ctx.fillStyle=col+'44'; ctx.fillRect(x3+2,y+8,CELL_W-4,CELL_H-16);
+          }
         }
-        if(isDl){ ctx.fillStyle=col; ctx.fillRect(x3+CELL_W-3,y+4,3,CELL_H-8); }
+        if(isDl){
+          // 마감선: timeStart 있으면 셀 안 비율 위치에, 없으면 오른쪽 끝
+          if(dlTimeStart){
+            var dlH3=parseInt(dlTimeStart.split(':')[0]||0);
+            var dlM3=parseInt(dlTimeStart.split(':')[1]||0);
+            var tRatio=(dlH3*60+dlM3)/(24*60);
+            var lineX=x3+2+Math.round((CELL_W-4)*tRatio);
+            ctx.fillStyle=col; ctx.fillRect(lineX,y+4,3,CELL_H-8);
+          } else {
+            ctx.fillStyle=col; ctx.fillRect(x3+CELL_W-3,y+4,3,CELL_H-8);
+          }
+        }
       }
       // 연결된 할일 세로선 + 이름 표시
       if(lane.linkedTasks && lane.linkedTasks.length>0){
