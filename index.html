@@ -5875,9 +5875,11 @@ function renderTaskList(){
 
   if(dateEl) dateEl.textContent=taskSelDate?taskDateDisp(taskSelDate):'날짜를 선택해줘';
 
-  const allForDay=taskItems.filter(t=>t.date===taskSelDate);
-  const done=allForDay.filter(t=>t.done).length;
-  if(sumEl) sumEl.textContent=allForDay.length?`${allForDay.length}개 · 완료 ${done}개`:'';
+  const _allForDayRaw=taskItems.filter(t=>t.date===taskSelDate);
+  const allForDay=_allForDayRaw; // 전체 (카테고리 구분용)
+  const done=_allForDayRaw.filter(t=>t.done).length;
+  const visible=_taskHideDone ? _allForDayRaw.filter(t=>!t.done).length : _allForDayRaw.length;
+  if(sumEl) sumEl.textContent=_allForDayRaw.length?`${visible}개${_taskHideDone&&done?' (완료 '+done+'개 숨김)':done?' · 완료 '+done+'개':''}`:''
 
   // 모바일에서 달력 숨겨질 때 오늘 날짜 자동 선택
   if(!taskSelDate){
@@ -5889,9 +5891,10 @@ function renderTaskList(){
     }
   }
 
-  // 카테고리별 그룹
+  // 카테고리별 그룹 (_taskHideDone 반영)
   const groups={};
   allForDay.forEach(t=>{
+    if(_taskHideDone && t.done) return; // 완료 숨기기 ON이면 완료 항목 skip
     if(!groups[t.catId])groups[t.catId]=[];
     groups[t.catId].push(t);
   });
@@ -5904,8 +5907,9 @@ function renderTaskList(){
     .map(id => ({id, label:'기타', color:'var(--fg3)', icon:'📌'}));
   const allCats = [...taskCats, ...unknownCats];
 
-  // 날일이 하나도 없으면 안내 문구
-  if(allForDay.length === 0){
+  // 날일이 하나도 없으면 안내 문구 (_taskHideDone 반영: groups 기준)
+  const _hasVisible = Object.values(groups).some(arr => arr.length > 0);
+  if(allForDay.length === 0 || (!_hasVisible && _taskHideDone)){
     listEl.innerHTML=`
       <div class="task-list-empty" style="flex:0;padding:20px 14px">
         <span style="font-size:22px;opacity:.3">✦</span>
@@ -5957,7 +5961,8 @@ function renderTaskList(){
     });
     const active=items.filter(t=>!t.done);
     const done=items.filter(t=>t.done);
-    const sorted=_taskHideDone ? [...active] : [...active,...done];
+    // groups에서 이미 _taskHideDone 처리됨 → 항상 active+done 표시
+    const sorted=[...active,...done];
 
     const itemsHtml=sorted.map(t=>{
       const realIdx=taskItems.findIndex(x=>x.id===t.id);
@@ -6644,6 +6649,8 @@ function toggleTaskItem(idx){
   var wasDone = taskItems[idx].done;
   taskItems[idx].done = !wasDone;
   taskItems[idx].updatedAt = Date.now();
+  // 로컬 완료 변경 시각 기록 (노션 pull이 덮어쓰지 않게)
+  taskItems[idx]._localDoneAt = Date.now();
   saveTaskData();
   renderTaskList();
   renderTaskCal();
@@ -11833,8 +11840,17 @@ function _applyFirebaseData(d, force){
         const remoteAt = remote.updatedAt || 0;
         const localAt  = local.updatedAt  || 0;
         if (localAt > remoteAt) return local; // 로컬이 최신: 로컬 보존
-        // 원격이 최신: 원격 기준, notionPageId는 로컬 우선
-        return { ...remote, notionPageId: remote.notionPageId || local.notionPageId || undefined };
+        // 원격이 최신: 원격 기준 병합
+        const merged = { ...remote,
+          notionPageId: remote.notionPageId || local.notionPageId || undefined,
+        };
+        // done: 로컬에서 최근 수동 변경(_localDoneAt)이 있으면 로컬 우선
+        const localDoneAt = local._localDoneAt || 0;
+        if (localDoneAt > 0 && localDoneAt > (remoteAt - 10000)) {
+          merged.done = local.done;
+          merged._localDoneAt = local._localDoneAt;
+        }
+        return merged;
       });
       // 로컬에만 있는 항목(새로 생성 후 아직 동기화 안 된 것) 추가
       const remoteIds = new Set(items.map(t => String(t.id)));
@@ -13542,7 +13558,11 @@ async function syncNotionCategory(catId, dbId) {
         notionEditedAt + 60000 > localUpdatedAt;
       if (shouldPull) {
         const np = notionPageToTask(notionPage, catId);
-        item.done     = np.done;
+        // done: _localDoneAt이 노션 편집시각보다 최신이면 로컬 우선
+        const localDoneAt = item._localDoneAt || 0;
+        if (localDoneAt < notionEditedAt - 5000) {
+          item.done = np.done; // 노션이 더 최신 → 노션 기준
+        }
         item.priority = np.priority || item.priority;
         if (np.name)  item.text    = np.name;
         if (np.dateEnd !== undefined) item.dateEnd = np.dateEnd;
@@ -13624,11 +13644,12 @@ function deduplicateNotionTasks() {
     }
   });
 
-  // 이름+날짜 기준 중복도 체크 (notionPageId 없는 항목)
+  // 이름+날짜+완료여부 기준 중복 체크 (notionPageId 없는 항목만)
+  // done 상태가 다르면 중복 아님으로 처리 (완료/미완료가 별개 항목일 수 있음)
   const seenTextDate = new Map();
   taskItems.forEach(function(item) {
     if (item.notionPageId || item._notionDeleted) return;
-    const key = (item.text||'').trim() + '|' + (item.catId||'') + '|' + (item.date||'');
+    const key = (item.text||'').trim() + '|' + (item.catId||'') + '|' + (item.date||'') + '|' + (item.done?'1':'0');
     if (seenTextDate.has(key)) {
       const existing = seenTextDate.get(key);
       const existAt = existing.updatedAt || existing.createdAt || 0;
@@ -15526,7 +15547,6 @@ function ttToggleWeekend() {
   var btn = document.getElementById('ttWeekendToggle');
   if (btn) btn.textContent = tt.showSat === false ? '토요일 보이기' : '토요일 숨기기';
 }
-var _hideDoneOnCal = false;
 function toggleTtSchedOnCal(){
   _hideTtSched=!_hideTtSched;
   var b=document.getElementById('ttSchedToggleBtn');
