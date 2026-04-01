@@ -4731,8 +4731,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <button class="task-cal-nav-btn" onclick="taskCalMove(1)">›</button>
           <button class="task-cal-today-btn" onclick="taskCalToday()">오늘</button>
           <button class="task-cal-expand-btn" onclick="toggleCalExpand()" id="calExpandBtn" title="달력 크게 보기">⤢</button>
-          <button id="hideDoneCalBtn" onclick="toggleHideDoneOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--accent);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:#fff;cursor:pointer">📅완료숨기기</button>
-          <button id="taskHideDoneBtn" onclick="toggleTaskHideDone()" style="padding:4px 8px;border-radius:999px;background:var(--accent);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:#fff;cursor:pointer">✓완료숨기기</button>
+          <button id="hideDoneCalBtn" onclick="toggleHideDoneOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--accent);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:#fff;cursor:pointer">✓숨기기</button>
           <button id="ttSchedToggleBtn" onclick="toggleTtSchedOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg3);cursor:pointer">📅숨기기</button>
           <button class="task-deadline-view-btn" id="deadlineViewBtn" onclick="toggleDeadlineView()" title="데드라인 뷰">🔗</button>
           <button class="task-deadline-view-btn" id="deadlineListBtn" onclick="toggleDeadlineList()" title="D-day 목록" style="margin-left:2px">📋</button>
@@ -5697,12 +5696,6 @@ function taskDateDisp(str){ // YYYY-MM-DD → 표시
 
 // ── 메인 렌더 ──
 function renderTaskTab(){
-  // 완료 숨기기 버튼 상태 반영
-  var _thdb = document.getElementById('taskHideDoneBtn');
-  if (_thdb) {
-    _thdb.style.background = _taskHideDone ? 'var(--accent)' : 'var(--bg)';
-    _thdb.style.color = _taskHideDone ? '#fff' : 'var(--fg3)';
-  }
   _generateRepeatTasks();
   if(!taskSelDate) taskSelDate = taskDateKey(new Date());
   if(!taskCalDate)  taskCalDate  = new Date();
@@ -6632,7 +6625,10 @@ function toggleTaskItem(idx){
   // Notion 반영
   var item = taskItems[idx];
   if(typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
-    _pushToNotion(item).catch(function(e){ showToast('Notion 오류: '+e.message); });
+    _pushToNotion(item).catch(function(e){
+      if(item) item._notionPushedAt = 0; // 실패 시 재시도 허용
+      console.warn('Notion 완료 push 실패:', e.message);
+    });
   }
 }
 function deleteTaskItem(idx){
@@ -8734,11 +8730,6 @@ var _taskHideDone = true; // 할일탭 완료 숨기기 기본 ON
 
 function toggleTaskHideDone() {
   _taskHideDone = !_taskHideDone;
-  var _thdb2 = document.getElementById('taskHideDoneBtn');
-  if (_thdb2) {
-    _thdb2.style.background = _taskHideDone ? 'var(--accent)' : 'var(--bg)';
-    _thdb2.style.color = _taskHideDone ? '#fff' : 'var(--fg3)';
-  }
   renderTaskList && renderTaskList();
 }
 
@@ -13496,7 +13487,10 @@ async function syncNotionCategory(catId, dbId) {
 
             // 노션 last_edited_time은 1분 단위 반올림 → 60초 여유
       const pushedAt = item._notionPushedAt || 0;
-      const shouldPull = notionEditedAt > pushedAt + 30000 && notionEditedAt + 60000 > localUpdatedAt;
+      const isPushProtected = pushedAt > Date.now();
+      const shouldPull = !isPushProtected &&
+        notionEditedAt > pushedAt + 30000 &&
+        notionEditedAt + 60000 > localUpdatedAt;
       if (shouldPull) {
         // Notion이 더 최신 → Notion 기준으로 업데이트
         const np = notionPageToTask(notionPage, catId);
@@ -13635,8 +13629,7 @@ async function _pushToNotion(item) {
       await notionApi('PATCH', '/pages/' + item.notionPageId, {
         properties: taskToNotionProps(item),
       });
-      // push 성공 → pushedAt = updatedAt 기록 (pull 시 로컬 우선 보장)
-      item._notionPushedAt = item.updatedAt || Date.now();
+      item._notionPushedAt = Date.now() + 90000;
       saveTaskData();
       return;
     }
@@ -13654,7 +13647,7 @@ async function _pushToNotion(item) {
       properties: taskToNotionProps(item),
     });
     item.notionPageId = created.id;
-    item._notionPushedAt = item.updatedAt || Date.now();
+    item._notionPushedAt = Date.now() + 90000;
     if (!notionCfg.pageIds) notionCfg.pageIds = {};
     notionCfg.pageIds[item.id] = created.id;
     localStorage.setItem('notion_config', JSON.stringify(notionCfg));
@@ -13695,11 +13688,11 @@ async function _smartSync() {
   _smartSyncRunning = true;
 
   // 1단계: push가 필요한 dirty 항목 (notionPageId 있고 pushedAt < updatedAt)
+  const _syncNow = Date.now();
   const dirty = taskItems.filter(t =>
-    t.notionPageId &&
-    !t._notionDeleted &&
-    !t._notionPushing &&
+    t.notionPageId && !t._notionDeleted && !t._notionPushing &&
     t.updatedAt &&
+    (t._notionPushedAt || 0) <= _syncNow && // 미래 pushedAt = 이미 push됨
     (t._notionPushedAt || 0) < t.updatedAt
   );
   for (const item of dirty) {
@@ -17022,6 +17015,10 @@ function renderTimeGrid(){
   var rangeLabel=document.getElementById('tgRangeLabel');
   var tgCard=document.getElementById('tgCard');
   if(!canvas||!wrap) return;
+  if(!wrap.clientWidth){
+    requestAnimationFrame(function(){ renderTimeGrid(); });
+    return;
+  }
   var now=new Date();
   var todayMidnight=new Date(now); todayMidnight.setHours(0,0,0,0);
   function fmtKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
