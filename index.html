@@ -5174,8 +5174,10 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             <div style="font-family:var(--font-label);font-size:9px;letter-spacing:1px;color:var(--foreground-muted)" id="notionLastSync">마지막 동기화: —</div>
             <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
               <button class="btn-secondary" onclick="syncAllNotion()" id="notionSyncBtn" style="font-size:10px;padding:6px 14px">↻ 전체 동기화</button>
-              <button class="btn-ghost" onclick="deduplicateNotionTasks()" style="font-size:10px;padding:6px 12px" title="같은 Notion 페이지가 중복 생성된 경우 정리">🧹 중복 정리</button>
+              <button class="btn-ghost" onclick="deduplicateNotionTasks()" style="font-size:10px;padding:6px 12px" title="중복 정리">🧹 중복 정리</button>
               <button class="btn-ghost" onclick="clearNotionConfig()" style="font-size:10px;padding:6px 12px">연동 해제</button>
+              <button class="btn-ghost" onclick="restoreNotionConfig()" style="font-size:10px;padding:6px 12px" title="이전 설정 복원">↩ 설정 복원</button>
+              <button class="btn-ghost" onclick="runDataDiagnosis()" style="font-size:10px;padding:6px 12px" title="데이터 진단">🔍 진단</button>
             </div>
             <div id="notionSyncStatus" style="margin-top:8px;font-family:var(--font-label);font-size:10px;letter-spacing:1px;color:var(--foreground-muted)"></div>
           </div>
@@ -11543,16 +11545,44 @@ function saveFbConfig(){
 }
 
 function clearFbConfig(){
-  if(!confirm('Firebase 연결을 해제할까? 데이터는 이 기기에 그대로 남아.'))return;
-  localStorage.removeItem('fb_config');
+  if(!confirm('Firebase 연결을 해제할까?\n설정은 숨김 처리됩니다 (언제든 복원 가능)'))return;
+  // 삭제 대신 백업
+  var backup = localStorage.getItem('fb_config');
+  if (backup) localStorage.setItem('_hidden_fb_config', backup);
+  localStorage.setItem('fb_config', '');
   fbConfigSaved=null;fbUser=null;fbAuth=null;fbDb=null;fbApp=null;
   setSyncStatus('disconnected');
-  document.getElementById('fbStatusArea').style.display='none';
-  document.getElementById('fbLoginSection').style.display='none';
-  document.getElementById('fbApiKey').value='';
-  document.getElementById('fbAuthDomain').value='';
-  document.getElementById('fbProjectId').value='';
-  showToast('연결 해제됐어');
+  var area=document.getElementById('fbStatusArea'); if(area)area.style.display='none';
+  var login=document.getElementById('fbLoginSection'); if(login)login.style.display='none';
+  // 입력창은 비우되 placeholder에 안내
+  ['fbApiKey','fbAuthDomain','fbProjectId'].forEach(function(id){
+    var el=document.getElementById(id); if(el)el.value='';
+  });
+  showToast('연결 해제됐어 (설정 보존됨 — 아래 복원 버튼으로 재연결 가능)');
+  _showFbRestoreBtn();
+}
+
+function _showFbRestoreBtn(){
+  var area=document.getElementById('fbRestoreArea');
+  if(area){ area.style.display=''; return; }
+  var sec=document.getElementById('fbLoginSection'); if(!sec)return;
+  var div=document.createElement('div');
+  div.id='fbRestoreArea';
+  div.style.cssText='margin-top:8px;';
+  div.innerHTML='<button onclick="restoreFbConfig()" style="font-size:11px;padding:4px 12px;border-radius:var(--r-pill);background:var(--accent);color:#fff;border:none;cursor:pointer">↩ 이전 Firebase 설정 복원</button>';
+  sec.appendChild(div);
+}
+
+function restoreFbConfig(){
+  var backup=localStorage.getItem('_hidden_fb_config');
+  if(!backup){showToast('저장된 Firebase 설정 없음');return;}
+  var cfg=JSON.parse(backup);
+  localStorage.setItem('fb_config',backup);
+  fbConfigSaved=cfg;
+  var keys=['fbApiKey','fbAuthDomain','fbProjectId'];
+  var vals=[cfg.apiKey,cfg.authDomain,cfg.projectId];
+  keys.forEach(function(id,i){var el=document.getElementById(id);if(el)el.value=vals[i]||'';});
+  showToast('설정 복원됨 — 저장 버튼을 눌러줘');
 }
 
 async function initFirebase(){
@@ -13160,12 +13190,24 @@ function saveNotionConfig() {
 }
 
 function clearNotionConfig() {
-  if (!confirm('Notion 연동을 해제할까? 로컬 데이터는 유지돼.')) return;
+  if (!confirm('Notion 연동을 해제할까?\n키/설정은 숨김 처리됩니다 (언제든 다시 활성화 가능)')) return;
+  // 설정을 삭제하지 않고 hidden_ 키에 백업
+  var backup = localStorage.getItem('notion_config');
+  if (backup && backup !== '{}') localStorage.setItem('_hidden_notion_config', backup);
   notionCfg = {};
-  localStorage.removeItem('notion_config');
-  updateNotionBadge();
-  initNotionSettings();
-  showToast('연동 해제됐어');
+  localStorage.setItem('notion_config', '{}');
+  updateNotionBadge && updateNotionBadge();
+  initNotionSettings && initNotionSettings();
+  showToast('연동 해제됐어 (설정 보존됨 — 설정탭에서 다시 활성화 가능)');
+}
+
+function restoreNotionConfig() {
+  var backup = localStorage.getItem('_hidden_notion_config');
+  if (!backup || backup === '{}') { showToast('저장된 Notion 설정 없음'); return; }
+  localStorage.setItem('notion_config', backup);
+  notionCfg = JSON.parse(backup);
+  initNotionSettings && initNotionSettings();
+  showToast('Notion 설정 복원됐어!');
 }
 
 // ── Notion API 호출 헬퍼 ──
@@ -13661,6 +13703,111 @@ function deduplicateNotionTasks() {
   showToast('중복 ' + toRemove.size + '개 정리 완료');
   return toRemove.size;
 }
+
+// ── 데이터 진단 및 정리 도구 ──
+function runDataDiagnosis() {
+  var issues = [];
+  var today = new Date(); today.setHours(0,0,0,0);
+  var todayKey = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+
+  var pageIdMap = {};
+  var dupNotion = [];
+  taskItems.forEach(function(t){
+    if(!t.notionPageId) return;
+    if(pageIdMap[t.notionPageId]) dupNotion.push(t);
+    else pageIdMap[t.notionPageId] = t;
+  });
+  if(dupNotion.length) issues.push('중복 Notion 연결: ' + dupNotion.length + '개');
+
+  var deletedButAlive = taskItems.filter(function(t){ return t._notionDeleted && !t.done; });
+  if(deletedButAlive.length) issues.push('삭제 표시 미완료 항목: ' + deletedButAlive.length + '개');
+
+  var rules = _loadTaskRules();
+  var ruleIds = new Set(rules.map(function(r){ return r.id; }));
+  var orphanRule = taskItems.filter(function(t){ return t._ruleId && !ruleIds.has(t._ruleId); });
+  if(orphanRule.length) issues.push('규칙 삭제됐는데 남은 할일 연결: ' + orphanRule.length + '개');
+
+  var noDate = taskItems.filter(function(t){ return !t.done && !t.date && t.catId !== 'etc'; });
+  if(noDate.length) issues.push('날짜 없는 미완료 할일: ' + noDate.length + '개');
+
+  var total = taskItems.length;
+  var done = taskItems.filter(function(t){ return t.done; }).length;
+
+  var issueHtml = issues.length
+    ? issues.map(function(s){ return '<div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">⚠ '+esc(s)+'</div>'; }).join('')
+    : '<div style="font-size:13px;color:#22c55e;padding:8px 0">✓ 발견된 문제 없음</div>';
+
+  var old = document.getElementById('diagModal'); if(old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'diagModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:520px;padding:20px 20px 32px;box-shadow:var(--shadow-raised);max-height:80vh;overflow-y:auto';
+
+  var header = '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 14px"></div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:4px">🔍 데이터 진단</div>'
+    + '<div style="font-size:11px;color:var(--fg3);margin-bottom:14px">전체 '+total+'개 · 완료 '+done+'개 · 미완료 '+(total-done)+'개</div>'
+    + issueHtml;
+  box.innerHTML = header;
+
+  function addBtn(label, color, fn) {
+    var btn = document.createElement('button');
+    btn.textContent = label;
+    btn.style.cssText = 'width:100%;padding:8px;border-radius:var(--r-pill);background:'+color+'18;border:1px solid '+color+';color:'+color+';font-size:12px;cursor:pointer;margin-top:8px;display:block';
+    btn.onclick = fn;
+    box.appendChild(btn);
+  }
+
+  if(dupNotion.length) addBtn('중복 Notion 연결 정리 ('+dupNotion.length+'개)', '#ef4444', _fixDupNotion);
+  if(orphanRule.length) addBtn('규칙 연결 정리 ('+orphanRule.length+'개)', '#f59e0b', _fixOrphanRuleTasks);
+  if(deletedButAlive.length) addBtn('삭제 표시 항목 제거 ('+deletedButAlive.length+'개)', '#ef4444', _fixDeletedItems);
+  addBtn('🧹 전체 중복 정리', 'var(--accent)', function(){ deduplicateNotionTasks(); document.getElementById('diagModal')&&document.getElementById('diagModal').remove(); });
+
+  var closeBtn = document.createElement('button');
+  closeBtn.textContent = '닫기';
+  closeBtn.style.cssText = 'width:100%;padding:8px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:12px;cursor:pointer;color:var(--fg2);margin-top:8px';
+  closeBtn.onclick = function(){ modal.remove(); };
+  box.appendChild(closeBtn);
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+function _fixDupNotion() {
+  var seen = {};
+  var removed = 0;
+  taskItems = taskItems.filter(function(t){
+    if(!t.notionPageId) return true;
+    if(seen[t.notionPageId]){ removed++; return false; }
+    seen[t.notionPageId] = true;
+    return true;
+  });
+  saveTaskData();
+  var m = document.getElementById('diagModal'); if(m) m.remove();
+  showToast('중복 Notion 연결 '+removed+'개 정리됨');
+  renderTaskTab && renderTaskTab();
+}
+
+function _fixOrphanRuleTasks() {
+  var rules = _loadTaskRules();
+  var ruleIds = new Set(rules.map(function(r){ return r.id; }));
+  taskItems.forEach(function(t){ if(t._ruleId && !ruleIds.has(t._ruleId)) t._ruleId = null; });
+  saveTaskData();
+  var m = document.getElementById('diagModal'); if(m) m.remove();
+  showToast('규칙 연결 정리됨');
+}
+
+function _fixDeletedItems() {
+  var before = taskItems.length;
+  taskItems = taskItems.filter(function(t){ return !t._notionDeleted; });
+  saveTaskData();
+  var m = document.getElementById('diagModal'); if(m) m.remove();
+  showToast((before-taskItems.length)+'개 삭제됨');
+  renderTaskTab && renderTaskTab();
+}
+
 async function syncAllNotion() {
   // 배지 업데이트 헬퍼
   function _setNotionBadge(html) {
@@ -17334,8 +17481,8 @@ function renderTimeGrid(){
   var lanes=[];
   lanes.push({label:'시간',type:'time',color:'#6c63ff'});
   var deadlines=[];
-  // schedule 항목: timeStart/timeEnd 포함
-  (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date; }).forEach(function(t){
+  // schedule 항목: timeStart/timeEnd 포함 (완료 제외)
+  (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date&&!t.done; }).forEach(function(t){
     deadlines.push({date:t.date,text:t.text,type:'sched',id:t.id,
       timeStart:t.timeStart||'',timeEnd:t.timeEnd||''});
   });
