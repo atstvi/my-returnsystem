@@ -5178,6 +5178,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
               <button class="btn-ghost" onclick="clearNotionConfig()" style="font-size:10px;padding:6px 12px">연동 해제</button>
               <button class="btn-ghost" onclick="restoreNotionConfig()" style="font-size:10px;padding:6px 12px" title="이전 설정 복원">↩ 설정 복원</button>
               <button class="btn-ghost" onclick="runDataDiagnosis()" style="font-size:10px;padding:6px 12px" title="데이터 진단">🔍 진단</button>
+              <button class="btn-ghost" onclick="fixOrphanTimetableItems()" style="font-size:10px;padding:6px 12px" title="시간표 마킹 복구">📅 시간표 복구</button>
             </div>
             <div id="notionSyncStatus" style="margin-top:8px;font-family:var(--font-label);font-size:10px;letter-spacing:1px;color:var(--foreground-muted)"></div>
           </div>
@@ -13705,6 +13706,141 @@ function deduplicateNotionTasks() {
 }
 
 // ── 데이터 진단 및 정리 도구 ──
+
+// ── 시간표 일정 note 복구 ──
+function fixOrphanTimetableItems() {
+  // 현재 timetables에서 모든 slot 정보 수집
+  // slot: { title, timeStart, timeEnd } → 해당 시간표 name
+  var slotMap = []; // {title, timeStart, ttName}
+  (timetables || []).forEach(function(tt) {
+    var name = tt.name || '';
+    (tt.slots || []).forEach(function(s) {
+      if (!s.title) return;
+      slotMap.push({
+        title:     s.title.trim(),
+        timeStart: s.timeStart || '',
+        ttName:    name,
+      });
+    });
+  });
+
+  if (!slotMap.length) {
+    showToast('등록된 시간표가 없어요');
+    return;
+  }
+
+  // schedule 항목 중 시간표 마킹 없는 것 찾기
+  var orphans = taskItems.filter(function(t) {
+    return t.catId === 'schedule' &&
+      !(t.note && t.note.indexOf('시간표') >= 0);
+  });
+
+  if (!orphans.length) {
+    showToast('복구할 시간표 일정이 없어요 ✓');
+    return;
+  }
+
+  // 매칭: title 일치 + timeStart 일치
+  var matched = 0;
+  orphans.forEach(function(t) {
+    var tText = (t.text || '').trim();
+    var tTime = t.timeStart || '';
+    var found = slotMap.find(function(s) {
+      return s.title === tText && (
+        !s.timeStart || !tTime || s.timeStart === tTime
+      );
+    });
+    if (found) {
+      t.note = '📅 시간표: ' + found.ttName;
+      t.updatedAt = Date.now();
+      matched++;
+    }
+  });
+
+  if (!matched) {
+    // timeStart 없이 title만으로 재시도
+    orphans.forEach(function(t) {
+      var tText = (t.text || '').trim();
+      var found = slotMap.find(function(s) { return s.title === tText; });
+      if (found) {
+        t.note = '📅 시간표: ' + found.ttName;
+        t.updatedAt = Date.now();
+        matched++;
+      }
+    });
+  }
+
+  // 미리보기 모달
+  var old = document.getElementById('ttFixModal'); if(old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'ttFixModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:520px;padding:20px 20px 32px;box-shadow:var(--shadow-raised);max-height:80vh;overflow-y:auto';
+
+  var unmatchedOrphans = orphans.filter(function(t){ return !(t.note && t.note.indexOf('시간표') >= 0); });
+
+  box.innerHTML = '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 14px"></div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:6px">📅 시간표 일정 복구</div>'
+    + '<div style="font-size:12px;color:var(--fg3);margin-bottom:14px">'
+    + '전체 미연결 일정 ' + orphans.length + '개 중 <b>' + matched + '개</b> 매칭됨'
+    + (unmatchedOrphans.length ? ' · ' + unmatchedOrphans.length + '개는 독립 일정으로 유지' : ' · 전부 매칭됨')
+    + '</div>';
+
+  // 매칭 결과 미리보기 (최대 10개)
+  var matchedItems = orphans.filter(function(t){ return t.note && t.note.indexOf('시간표') >= 0; });
+  if (matchedItems.length) {
+    var previewHtml = '<div style="margin-bottom:14px;max-height:200px;overflow-y:auto">';
+    matchedItems.slice(0, 10).forEach(function(t){
+      previewHtml += '<div style="padding:5px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">'
+        + '<b>' + esc(t.text) + '</b> '
+        + '<span style="color:var(--fg3)">' + (t.date||'') + ' · ' + (t.timeStart||'') + '</span>'
+        + ' → <span style="color:var(--accent)">' + esc(t.note) + '</span>'
+        + '</div>';
+    });
+    if (matchedItems.length > 10) previewHtml += '<div style="font-size:11px;color:var(--fg3);padding:4px 0">... 외 '+(matchedItems.length-10)+'개</div>';
+    previewHtml += '</div>';
+    box.innerHTML += previewHtml;
+  }
+
+  if (!matched) {
+    box.innerHTML += '<div style="font-size:12px;color:#f59e0b;padding:8px 0">매칭되는 항목이 없습니다.<br>수업 이름이 시간표 슬롯과 다를 수 있어요.</div>';
+  }
+
+  var applyBtn = document.createElement('button');
+  applyBtn.textContent = matched ? matched + '개 복구 적용' : '닫기';
+  applyBtn.style.cssText = 'width:100%;padding:10px;border-radius:var(--r-pill);background:' + (matched ? 'var(--accent)' : 'var(--bg)') + ';color:' + (matched ? '#fff' : 'var(--fg2)') + ';border:none;font-size:13px;font-weight:700;cursor:pointer;margin-top:8px';
+  applyBtn.onclick = function() {
+    if (matched) {
+      saveTaskData();
+      if (typeof fbUser !== 'undefined' && fbUser) fbSaveAll();
+      showToast('✅ ' + matched + '개 시간표 일정 복구됨');
+      renderTaskTab && renderTaskTab();
+      renderMeTab && renderMeTab();
+    }
+    modal.remove();
+  };
+
+  if (matched) {
+    var cancelBtn = document.createElement('button');
+    cancelBtn.textContent = '취소 (원래대로)';
+    cancelBtn.style.cssText = 'width:100%;padding:8px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:12px;cursor:pointer;color:var(--fg2);margin-top:6px';
+    cancelBtn.onclick = function() {
+      // 롤백: 방금 변경한 note 되돌리기
+      matchedItems.forEach(function(t){ t.note = ''; t.updatedAt = Date.now(); });
+      modal.remove();
+    };
+    box.appendChild(applyBtn);
+    box.appendChild(cancelBtn);
+  } else {
+    box.appendChild(applyBtn);
+  }
+
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
 function runDataDiagnosis() {
   var issues = [];
   var today = new Date(); today.setHours(0,0,0,0);
@@ -13763,6 +13899,7 @@ function runDataDiagnosis() {
   if(orphanRule.length) addBtn('규칙 연결 정리 ('+orphanRule.length+'개)', '#f59e0b', _fixOrphanRuleTasks);
   if(deletedButAlive.length) addBtn('삭제 표시 항목 제거 ('+deletedButAlive.length+'개)', '#ef4444', _fixDeletedItems);
   addBtn('🧹 전체 중복 정리', 'var(--accent)', function(){ deduplicateNotionTasks(); document.getElementById('diagModal')&&document.getElementById('diagModal').remove(); });
+  addBtn('📅 시간표 일정 복구', '#6c63ff', function(){ document.getElementById('diagModal')&&document.getElementById('diagModal').remove(); setTimeout(fixOrphanTimetableItems, 100); });
 
   var closeBtn = document.createElement('button');
   closeBtn.textContent = '닫기';
