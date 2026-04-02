@@ -15710,8 +15710,6 @@ function ttDelete() {
 function ttGenerate() {
   var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
   if (!tt) return;
-
-  // 저장 먼저 (토스트 없이)
   ttSave(true);
 
   if (!tt.startDate || !tt.endDate) { showToast('기간을 먼저 설정해주세요'); return; }
@@ -15720,88 +15718,188 @@ function ttGenerate() {
   var start = new Date(tt.startDate + 'T00:00');
   var end   = new Date(tt.endDate   + 'T00:00');
   if (start > end) { showToast('시작일이 종료일보다 늦습니다'); return; }
-
   var dayDiff = Math.round((end - start) / 86400000);
   if (dayDiff > 365) { showToast('기간이 너무 깁니다 (최대 1년)'); return; }
 
-  // 생성할 항목 미리 계산
+  var ttNote = '📅 시간표: ' + (tt.name || '');
+  var slotTitles = new Set((tt.slots || []).map(function(s){ return s.title; }));
+
+  // 생성 예정 항목
   var toCreate = [];
   for (var d = 0; d <= dayDiff; d++) {
     var cur = new Date(start);
     cur.setDate(start.getDate() + d);
-    // JS 요일: 0=일, 1=월...6=토 → 슬롯 day: 0=월...5=토
-    var jsDow = cur.getDay(); // 0=일
-    var slotDay = jsDow === 0 ? -1 : jsDow - 1; // 0=월~5=토, 일요일=-1
+    var jsDow = cur.getDay();
+    var slotDay = jsDow === 0 ? -1 : jsDow - 1;
     if (slotDay < 0) continue;
-
     var dateKey = cur.getFullYear() + '-'
       + String(cur.getMonth()+1).padStart(2,'0') + '-'
       + String(cur.getDate()).padStart(2,'0');
-
-    tt.slots.forEach(function(s) {
+    (tt.slots || []).forEach(function(s) {
       if (s.day !== slotDay) return;
       toCreate.push({
         id: Date.now() + Math.random(),
-        text: s.title,
-        catId: 'schedule',
-        date: dateKey,
-        timeStart: s.timeStart,
-        timeEnd: s.timeEnd,
-        priority: '',
-        done: false,
-        note: '📅 시간표: ' + (tt.name || ''),
-        subs: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now()
+        text: s.title, catId: 'schedule', date: dateKey,
+        timeStart: s.timeStart, timeEnd: s.timeEnd,
+        priority: '', done: false, note: ttNote,
+        subs: [], createdAt: Date.now(), updatedAt: Date.now()
       });
     });
   }
-
   if (!toCreate.length) { showToast('해당 기간에 생성할 일정이 없습니다'); return; }
 
-  // schedule 카테고리 없으면 추가
   if (!taskCats.find(function(cat){ return cat.id === 'schedule'; })) {
     taskCats.unshift({id:'schedule', label:'일정', color:'#E05050', icon:'📅'});
     localStorage.setItem('task_cats_v1', JSON.stringify(taskCats));
   }
 
-  // 해당 기간+시간표 이름으로 이미 생성된 일정 있는지 확인
-  var ttNote = '📅 시간표: ' + (tt.name || '');
-  var existingItems = taskItems.filter(function(item) {
+  // 기존 관련 일정 탐색 (note 기준 + 마킹 사라진 것 모두)
+  var existByNote = taskItems.filter(function(item) {
     return item.catId === 'schedule' && item.note === ttNote
       && item.date >= tt.startDate && item.date <= tt.endDate;
   });
+  var existOrphan = taskItems.filter(function(item) {
+    return item.catId === 'schedule'
+      && !(item.note && item.note.indexOf('시간표') >= 0)
+      && item.date >= tt.startDate && item.date <= tt.endDate
+      && slotTitles.has(item.text);
+  });
+  var allExisting = existByNote.concat(existOrphan.filter(function(o){
+    return !existByNote.find(function(e){ return e.id === o.id; });
+  }));
 
-  var overwrite = false;
-  if (existingItems.length > 0) {
-    var choice = confirm(
-      '이 시간표로 생성된 일정이 ' + existingItems.length + '개 있습니다.\n\n'
-      + '확인 → 기존 일정 삭제 후 새로 생성\n'
-      + '취소 → 기존 일정 유지하고 추가 생성'
-    );
-    overwrite = choice;
-  } else {
-    var confirmed = confirm(
-      '"' + (tt.name||'시간표') + '" 기간 ' + tt.startDate + ' ~ ' + tt.endDate + '\n'
-      + toCreate.length + '개의 일정을 생성합니다. 계속할까요?'
-    );
-    if (!confirmed) return;
+  _ttGenerateModal(tt, toCreate, allExisting, existByNote, existOrphan, ttNote);
+}
+
+function _ttGenerateModal(tt, toCreate, allExisting, existByNote, existOrphan, ttNote) {
+  var old = document.getElementById('ttGenModal'); if(old) old.remove();
+  var modal = document.createElement('div');
+  modal.id = 'ttGenModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(224,229,236,.65);backdrop-filter:blur(10px);z-index:4000;display:flex;align-items:flex-end;justify-content:center';
+
+  var box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg);border-radius:var(--r-card) var(--r-card) 0 0;width:100%;max-width:540px;padding:20px 20px 32px;box-shadow:var(--shadow-raised);max-height:85vh;overflow-y:auto';
+
+  var hdr = document.createElement('div');
+  hdr.innerHTML = '<div style="width:36px;height:4px;border-radius:2px;background:var(--border);margin:0 auto 14px"></div>'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:2px">📅 시간표 적용 — ' + esc(tt.name||'') + '</div>'
+    + '<div style="font-size:12px;color:var(--fg3);margin-bottom:12px">'
+    + tt.startDate + ' ~ ' + tt.endDate + ' · 생성 예정 <b>' + toCreate.length + '개</b></div>';
+  box.appendChild(hdr);
+
+  if (allExisting.length > 0) {
+    var warn = document.createElement('div');
+    warn.style.cssText = 'background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.3);border-radius:var(--r-inner);padding:10px 12px;margin-bottom:12px;font-size:12px;line-height:1.6';
+    var lines = [];
+    if (existByNote.length) lines.push('· 시간표 마킹 있는 기존 일정: <b>' + existByNote.length + '개</b>');
+    if (existOrphan.length) lines.push('· 마킹 사라진 관련 일정: <b>' + existOrphan.length + '개</b> (노션 sync 등으로 변경됨)');
+    warn.innerHTML = lines.join('<br>');
+    box.appendChild(warn);
   }
 
-  taskItems = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
-  if (overwrite) {
-    // 기존 이 시간표 일정 삭제
-    taskItems = taskItems.filter(function(item) {
-      return !(item.catId === 'schedule' && item.note === ttNote
-        && item.date >= tt.startDate && item.date <= tt.endDate);
+  var _choice = allExisting.length > 0 ? 'replace' : 'create';
+  var optDefs = allExisting.length > 0
+    ? [
+        { value:'replace',    color:'#ef4444', title:'🔄 기존 삭제 후 새로 생성 (권장)',
+          desc:'관련 일정 ' + allExisting.length + '개를 모두 삭제하고 시간표대로 새로 만듭니다. (마킹 사라진 것 포함)' },
+        { value:'addSkipDup', color:'#6c63ff', title:'➕ 없는 것만 추가',
+          desc:'이미 있는 날짜+수업은 건너뛰고 빠진 것만 추가합니다.' },
+        { value:'deleteOnly', color:'#6b7280', title:'🗑 기존 일정만 삭제 (생성 안 함)',
+          desc:'관련 일정 ' + allExisting.length + '개만 삭제합니다.' },
+      ]
+    : [
+        { value:'create', color:'#6c63ff', title:'✅ 시간표 일정 생성',
+          desc:'총 ' + toCreate.length + '개의 일정을 만듭니다.' },
+      ];
+
+  optDefs.forEach(function(opt) {
+    var row = document.createElement('div');
+    row.id = 'ttopt_' + opt.value;
+    var isSel = opt.value === _choice;
+    row.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:2px solid '+(isSel?opt.color:'var(--border-subtle)')+';border-radius:var(--r-inner);margin-bottom:8px;cursor:pointer';
+    var dot = document.createElement('div');
+    dot.style.cssText = 'width:18px;height:18px;border-radius:50%;border:2px solid '+opt.color+';flex-shrink:0;margin-top:1px;background:'+(isSel?opt.color:'transparent')+';display:flex;align-items:center;justify-content:center';
+    if (isSel) dot.innerHTML = '<div style="width:8px;height:8px;border-radius:50%;background:#fff"></div>';
+    var txt = document.createElement('div');
+    txt.innerHTML = '<div style="font-size:13px;font-weight:600;color:var(--fg)">' + opt.title + '</div>'
+      + '<div style="font-size:11px;color:var(--fg3);margin-top:2px">' + opt.desc + '</div>';
+    row.appendChild(dot); row.appendChild(txt);
+    row.addEventListener('click', function() {
+      _choice = opt.value;
+      optDefs.forEach(function(o2) {
+        var el = document.getElementById('ttopt_' + o2.value); if(!el) return;
+        var isSel2 = o2.value === _choice;
+        el.style.borderColor = isSel2 ? o2.color : 'var(--border-subtle)';
+        var d2 = el.querySelector('div');
+        d2.style.background = isSel2 ? o2.color : 'transparent';
+        d2.innerHTML = isSel2 ? '<div style="width:8px;height:8px;border-radius:50%;background:#fff"></div>' : '';
+      });
     });
+    box.appendChild(row);
+  });
+
+  var btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;gap:8px;margin-top:14px';
+  var cancelBtn = document.createElement('button');
+  cancelBtn.textContent = '취소';
+  cancelBtn.style.cssText = 'flex:1;padding:10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:13px;cursor:pointer;color:var(--fg2)';
+  cancelBtn.onclick = function(){ modal.remove(); };
+  var confirmBtn = document.createElement('button');
+  confirmBtn.textContent = '적용';
+  confirmBtn.style.cssText = 'flex:2;padding:10px;border-radius:var(--r-pill);background:var(--accent);border:none;font-size:13px;font-weight:700;cursor:pointer;color:#fff';
+  confirmBtn.onclick = function() {
+    modal.remove();
+    _ttApply(tt, toCreate, allExisting, ttNote, _choice);
+  };
+  btnRow.appendChild(cancelBtn); btnRow.appendChild(confirmBtn);
+  box.appendChild(btnRow);
+  modal.appendChild(box);
+  document.body.appendChild(modal);
+  modal.addEventListener('click', function(e){ if(e.target===modal) modal.remove(); });
+}
+
+function _ttApply(tt, toCreate, allExisting, ttNote, choice) {
+  taskItems = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
+  var slotTitles = new Set((tt.slots || []).map(function(s){ return s.title; }));
+
+  function isRelated(item) {
+    if (item.catId !== 'schedule') return false;
+    if (item.date < tt.startDate || item.date > tt.endDate) return false;
+    if (item.note === ttNote) return true;
+    if (!(item.note && item.note.indexOf('시간표') >= 0) && slotTitles.has(item.text)) return true;
+    return false;
   }
-  toCreate.forEach(function(item) { taskItems.push(item); });
-  saveTaskData();
-  var msg = overwrite
-    ? '✅ 기존 일정 교체 완료! (' + toCreate.length + '개)'
-    : '✅ ' + toCreate.length + '개 일정 생성 완료!';
-  showToast(msg);
+
+  if (choice === 'replace') {
+    taskItems = taskItems.filter(function(item){ return !isRelated(item); });
+    toCreate.forEach(function(item){ taskItems.push(item); });
+    saveTaskData();
+    showToast('✅ 기존 ' + allExisting.length + '개 삭제 → ' + toCreate.length + '개 새로 생성');
+
+  } else if (choice === 'addSkipDup') {
+    var existSet = new Set();
+    taskItems.forEach(function(item) {
+      if (item.catId === 'schedule')
+        existSet.add(item.date + '|' + item.text + '|' + (item.timeStart||''));
+    });
+    var toAdd = toCreate.filter(function(item){
+      return !existSet.has(item.date + '|' + item.text + '|' + (item.timeStart||''));
+    });
+    toAdd.forEach(function(item){ taskItems.push(item); });
+    saveTaskData();
+    showToast('✅ ' + toAdd.length + '개 추가 (' + (toCreate.length-toAdd.length) + '개 중복 skip)');
+
+  } else if (choice === 'deleteOnly') {
+    taskItems = taskItems.filter(function(item){ return !isRelated(item); });
+    saveTaskData();
+    showToast('🗑 ' + allExisting.length + '개 삭제됨');
+
+  } else {
+    toCreate.forEach(function(item){ taskItems.push(item); });
+    saveTaskData();
+    showToast('✅ ' + toCreate.length + '개 생성 완료!');
+  }
+  if (typeof fbUser !== 'undefined' && fbUser) fbSaveAll();
   goTab('task');
 }
 
