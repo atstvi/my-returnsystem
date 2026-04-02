@@ -5873,10 +5873,9 @@ function renderTaskList(){
     }
   }
 
-  // 카테고리별 그룹 (_taskHideDone 반영)
+  // 카테고리별 그룹 (완료 포함 항상 표시)
   const groups={};
   allForDay.forEach(t=>{
-    if(_taskHideDone && t.done) return; // 완료 숨기기 ON이면 완료 항목 skip
     if(!groups[t.catId])groups[t.catId]=[];
     groups[t.catId].push(t);
   });
@@ -5889,9 +5888,8 @@ function renderTaskList(){
     .map(id => ({id, label:'기타', color:'var(--fg3)', icon:'📌'}));
   const allCats = [...taskCats, ...unknownCats];
 
-  // 날일이 하나도 없으면 안내 문구 (_taskHideDone 반영: groups 기준)
-  const _hasVisible = Object.values(groups).some(arr => arr.length > 0);
-  if(allForDay.length === 0 || (!_hasVisible && _taskHideDone)){
+  // 날일이 하나도 없으면 안내 문구
+  if(allForDay.length === 0){
     listEl.innerHTML=`
       <div class="task-list-empty" style="flex:0;padding:20px 14px">
         <span style="font-size:22px;opacity:.3">✦</span>
@@ -8750,7 +8748,7 @@ var _deadlineListOn = false;
 
 
 var _hideDoneOnCal = true;
-var _taskHideDone = true; // 할일탭 완료 숨기기 기본 ON
+var _taskHideDone = false; // 목록은 항상 완료 항목 표시
 
 function toggleTaskHideDone() {
   _taskHideDone = !_taskHideDone;
@@ -8759,15 +8757,13 @@ function toggleTaskHideDone() {
 
 function toggleHideDoneOnCal() {
   _hideDoneOnCal = !_hideDoneOnCal;
-  _taskHideDone  = _hideDoneOnCal;
   var btn = document.getElementById('hideDoneCalBtn');
   if (btn) {
     btn.style.background = _hideDoneOnCal ? 'var(--accent)' : 'var(--bg)';
     btn.style.color      = _hideDoneOnCal ? '#fff' : 'var(--fg3)';
     btn.textContent      = _hideDoneOnCal ? '✓숨기기' : '✓보이기';
   }
-  renderTaskCal  && renderTaskCal();
-  renderTaskList && renderTaskList();
+  renderTaskCal && renderTaskCal();
   renderDeadlineCanvas && renderDeadlineCanvas();
 }
 
@@ -16498,43 +16494,52 @@ async function meAiSubmit() {
   if (!text) return;
   if (!API_KEY) { showToast('설정에서 Groq API 키를 먼저 입력해줘'); return; }
 
-  // 로딩
   if (btn) { btn.disabled = true; btn.textContent = '분석 중...'; }
-  if (preview) {
-    preview.style.display = 'block';
-    preview.innerHTML = '<div class="me-ai-loading"><span>✦</span> AI가 분석 중...</div>';
-  }
+  if (preview) { preview.style.display = 'block'; preview.innerHTML = '<div class="me-ai-loading"><span>✦</span> AI가 분석 중...</div>'; }
 
   try {
-    // 오늘 날짜 + 카테고리 목록 + 일정 항목 제공
     var today = new Date();
     var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
     var catList = taskCats.map(function(c){ return c.id + '(' + c.label + ')'; }).join(', ');
-    var scheduleList = taskItems
-      .filter(function(t){ return t.catId === 'schedule' && t.date && !t.done; })
-      .slice(0, 20)
-      .map(function(t){ return '"' + t.text + '" (' + t.date + ', id:' + t.id + ')'; })
-      .join('\n');
 
-    var prompt = '오늘 날짜: ' + todayStr + '\n' +
-      '카테고리 목록: ' + catList + '\n' +
-      '현재 일정 항목:\n' + (scheduleList || '없음') + '\n\n' +
-      '다음 자연어 입력을 할일 데이터로 파싱해줘. 여러 할일이 포함된 경우 각각 분리해서 배열로 반환해. JSON 배열만 반환하고 다른 텍스트 없이:\n' +
-      '"' + text + '"\n\n' +
-      '반환 형식 (모르는 값은 null, 반드시 배열로):\n' +
-      '[\n' +
-      '  {\n' +
-      '    "text": "할일 이름",\n' +
-      '    "catId": "카테고리id (schedule/uni/work/health/life/idea/etc 중 하나)",\n' +
-      '    "date": "YYYY-MM-DD 또는 null",\n' +
-      '    "timeStart": "HH:MM 또는 null",\n' +
-      '    "timeEnd": "HH:MM 또는 null",\n' +
-      '    "priority": "high/mid/low 또는 null",\n' +
-      '    "deadlineDate": "데드라인 날짜 YYYY-MM-DD 또는 null",\n' +
-      '    "deadlineId": "연결할 일정 id (위 일정 목록에서 찾아서) 또는 null",\n' +
-      '    "note": "메모 또는 null"\n' +
+    // 전체 할일 목록 (최대 60개, 주요 정보)
+    var allTasksJson = JSON.stringify(
+      taskItems.slice(0, 60).map(function(t){
+        return { id: t.id, text: t.text, catId: t.catId, date: t.date||'', done: t.done, priority: t.priority||'', deadlineDate: t.deadlineDate||'' };
+      })
+    );
+
+    var sysPrompt = '당신은 할일 앱의 AI 어시스턴트입니다. 사용자의 자연어 명령을 분석해 JSON으로만 응답하세요.\n\n' +
+      '지원 action:\n' +
+      '- add: 할일 추가 (여러 개 가능)\n' +
+      '- delete: 조건에 맞는 할일 삭제\n' +
+      '- update: 할일 수정 (날짜/우선순위/이름/카테고리)\n' +
+      '- done: 완료 처리\n' +
+      '- undone: 미완료로 되돌리기\n' +
+      '- query: 조건에 맞는 할일 조회/필터 (삭제 전 확인용)\n\n' +
+      '응답 형식 (JSON만, 다른 텍스트 없이):\n' +
+      '{\n' +
+      '  "action": "add|delete|update|done|undone|query",\n' +
+      '  "description": "수행할 작업 한 줄 요약",\n' +
+      '  "items": [...],  // add: 추가할 항목 배열\n' +
+      '  "filter": {      // delete/update/done/undone/query: 대상 조건\n' +
+      '    "ids": [id,...],           // 특정 id 지정\n' +
+      '    "textContains": "검색어",  // 이름에 포함된 텍스트\n' +
+      '    "catId": "카테고리id",\n' +
+      '    "done": true|false,\n' +
+      '    "dateFrom": "YYYY-MM-DD",\n' +
+      '    "dateTo": "YYYY-MM-DD",\n' +
+      '    "priority": "high|mid|low",\n' +
+      '    "all": true                // 전체 대상\n' +
+      '  },\n' +
+      '  "patch": {       // update 시: 변경할 필드\n' +
+      '    "date": "...", "priority": "...", "catId": "...", "text": "...", "done": true|false\n' +
       '  }\n' +
-      ']';
+      '}\n\n' +
+      'add의 items 형식:\n' +
+      '[{ "text":"이름","catId":"카테고리id","date":"YYYY-MM-DD","timeStart":"HH:MM","timeEnd":"HH:MM","priority":"high|mid|low","deadlineDate":"YYYY-MM-DD","note":"메모" }]';
+
+    var userPrompt = '오늘 날짜: ' + todayStr + '\n카테고리: ' + catList + '\n\n할일 목록:\n' + allTasksJson + '\n\n명령: ' + text;
 
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
@@ -16542,105 +16547,186 @@ async function meAiSubmit() {
       body: JSON.stringify({
         model: 'llama-3.3-70b-versatile',
         messages: [
-          { role: 'system', content: '당신은 할일 파싱 도우미입니다. JSON만 반환하세요.' },
-          { role: 'user', content: prompt }
+          { role: 'system', content: sysPrompt },
+          { role: 'user', content: userPrompt }
         ],
-        max_tokens: 300,
+        max_tokens: 800,
         temperature: 0.1,
       })
     });
     var data = await res.json();
     var raw = data.choices[0].message.content.trim();
-    // JSON 추출 - 배열 우선, 단일 객체 fallback
-    var jsonMatch = raw.match(/\[[\s\S]*\]/) || raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('JSON 파싱 실패');
+    var jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('AI 응답 파싱 실패');
     var parsed = JSON.parse(jsonMatch[0]);
-    // 단일 객체면 배열로 감싸기
-    _meAiParsed = Array.isArray(parsed) ? parsed : [parsed];
-    meAiShowPreview(_meAiParsed, text);
+    _meAiParsed = parsed;
+    meAiShowPreview(parsed, text);
   } catch(e) {
     if (preview) preview.innerHTML = '<div class="me-ai-loading" style="color:#ef4444">오류: ' + e.message + '</div>';
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '추가'; }
+    if (btn) { btn.disabled = false; btn.textContent = 'AI 추가'; }
   }
 }
 
-function meAiShowPreview(parsedArr, originalText) {
+function meAiShowPreview(parsed, originalText) {
   var preview = document.getElementById('meAiPreview');
   if (!preview) return;
+  var action = parsed.action || 'add';
+  var desc = parsed.description || '';
 
-  function renderItem(parsed, idx) {
-    var cat = taskCats.find(function(c){ return c.id === (parsed.catId || 'etc'); });
-    var catLabel = cat ? cat.icon + ' ' + cat.label : parsed.catId || '기타';
-    var deadlineTask = parsed.deadlineId
-      ? taskItems.find(function(t){ return String(t.id) === String(parsed.deadlineId); })
-      : null;
-    var fields = [
-      { label: '이름', value: parsed.text || originalText },
-      { label: '카테고리', value: catLabel },
-      parsed.date ? { label: '날짜', value: parsed.date } : null,
-      parsed.timeStart ? { label: '시작', value: parsed.timeStart + (parsed.timeEnd ? ' ~ ' + parsed.timeEnd : '') } : null,
-      parsed.priority ? { label: '우선순위', value: {high:'🔴 핵심', mid:'🟡 일반', low:'🟢 여유'}[parsed.priority] || parsed.priority } : null,
-      parsed.deadlineDate ? { label: '데드라인', value: parsed.deadlineDate } : null,
-      deadlineTask ? { label: '일정연결', value: deadlineTask.text } : null,
-      parsed.note ? { label: '메모', value: parsed.note } : null,
-    ].filter(Boolean);
-    var fieldsHtml = fields.map(function(f) {
-      return '<div class="me-ai-preview-field">'
-        + '<span class="me-ai-preview-field-label">' + f.label + '</span>'
-        + '<span>' + f.value + '</span>'
-        + '</div>';
-    }).join('');
-    var prefix = parsedArr.length > 1 ? '<div class="me-ai-preview-idx">' + (idx+1) + ' / ' + parsedArr.length + '</div>' : '';
-    return prefix + '<div class="me-ai-preview-fields">' + fieldsHtml + '</div>';
+  // action별 아이콘/색상
+  var actionMeta = {
+    add:    { icon: '✦', label: '추가', color: '#6c63ff' },
+    delete: { icon: '🗑', label: '삭제', color: '#ef4444' },
+    update: { icon: '✎', label: '수정', color: '#f59e0b' },
+    done:   { icon: '✓', label: '완료', color: '#22c55e' },
+    undone: { icon: '↩', label: '미완료', color: '#64748b' },
+    query:  { icon: '🔍', label: '조회', color: '#3b82f6' },
+  };
+  var meta = actionMeta[action] || actionMeta.add;
+
+  // 대상 할일 계산 (filter 기반)
+  var targetItems = [];
+  if (action !== 'add' && parsed.filter) {
+    var f = parsed.filter;
+    targetItems = taskItems.filter(function(t) {
+      if (f.all) return true;
+      if (f.ids && f.ids.length) return f.ids.map(String).includes(String(t.id));
+      var ok = true;
+      if (f.textContains) ok = ok && (t.text||'').toLowerCase().includes(f.textContains.toLowerCase());
+      if (f.catId)        ok = ok && t.catId === f.catId;
+      if (f.done !== undefined) ok = ok && (!!t.done === !!f.done);
+      if (f.dateFrom)     ok = ok && t.date >= f.dateFrom;
+      if (f.dateTo)       ok = ok && t.date <= f.dateTo;
+      if (f.priority)     ok = ok && t.priority === f.priority;
+      return ok;
+    });
   }
 
-  var allHtml = parsedArr.map(function(p, i){ return renderItem(p, i); }).join('<hr style="border:none;border-top:1px solid var(--border-subtle);margin:6px 0">');
+  // 미리보기 HTML 생성
+  var itemsHtml = '';
+  if (action === 'add' && parsed.items && parsed.items.length) {
+    itemsHtml = parsed.items.map(function(item) {
+      var cat = taskCats.find(function(c){ return c.id === (item.catId||'etc'); });
+      return '<div style="padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">'
+        + '<b>' + esc(item.text||'') + '</b>'
+        + (item.date ? ' · ' + item.date : '')
+        + (item.priority ? ' · ' + {high:'🔴',mid:'🟡',low:'🟢'}[item.priority] : '')
+        + (cat ? ' <span style="color:var(--fg3)">' + cat.icon + cat.label + '</span>' : '')
+        + '</div>';
+    }).join('');
+    itemsHtml = '<div style="margin:8px 0">' + itemsHtml + '</div>';
+  } else if (targetItems.length > 0) {
+    var show = targetItems.slice(0, 8);
+    itemsHtml = '<div style="margin:8px 0;max-height:160px;overflow-y:auto">'
+      + show.map(function(t){
+        return '<div style="padding:5px 0;border-bottom:1px solid var(--border-subtle);font-size:12px;display:flex;gap:6px;align-items:center">'
+          + (t.done ? '<s style="opacity:.5">' + esc(t.text) + '</s>' : '<b>' + esc(t.text) + '</b>')
+          + (t.date ? '<span style="color:var(--fg3)">' + t.date + '</span>' : '')
+          + '</div>';
+      }).join('')
+      + (targetItems.length > 8 ? '<div style="font-size:11px;color:var(--fg3);padding:4px 0">... 외 ' + (targetItems.length-8) + '개</div>' : '')
+      + '</div>';
+  }
+
+  var confirmLabel = action === 'add'
+    ? (parsed.items ? parsed.items.length + '개 추가' : '추가')
+    : action === 'delete' ? targetItems.length + '개 삭제'
+    : action === 'done'   ? targetItems.length + '개 완료'
+    : action === 'undone' ? targetItems.length + '개 미완료'
+    : action === 'update' ? targetItems.length + '개 수정'
+    : action === 'query'  ? '확인'
+    : '실행';
 
   preview.style.display = 'block';
   preview.innerHTML = '<div class="me-ai-preview">'
-    + '<div class="me-ai-preview-title">✦ AI 분석 결과 · ' + parsedArr.length + '개</div>'
-    + allHtml
+    + '<div class="me-ai-preview-title" style="color:' + meta.color + '">' + meta.icon + ' ' + meta.label + ' — ' + esc(desc) + '</div>'
+    + itemsHtml
     + '<div class="me-ai-preview-actions">'
-    + '<button class="me-ai-confirm-btn" onclick="meAiConfirm()">✓ 전체 추가</button>'
+    + (action !== 'query'
+      ? '<button class="me-ai-confirm-btn" onclick="meAiConfirm()" style="background:' + meta.color + '">' + confirmLabel + '</button>'
+      : '')
     + '<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
     + '</div></div>';
 }
 
 function meAiConfirm() {
-  if (!_meAiParsed || !_meAiParsed.length) return;
-  var addedTexts = [];
-  _meAiParsed.forEach(function(p, i) {
-    var newItem = {
-      id: Date.now() + i,
-      text: p.text || document.getElementById('meAiTaskInp').value.trim(),
-      catId: p.catId || 'etc',
-      date: p.date || '',
-      timeStart: p.timeStart || '',
-      timeEnd: p.timeEnd || '',
-      priority: p.priority || '',
-      done: false,
-      note: p.note || '',
-      deadlineDate: p.deadlineDate || '',
-      deadlineId: p.deadlineId || '',
-      subs: [],
-      createdAt: Date.now() + i,
-      updatedAt: Date.now() + i,
-    };
-    taskItems.unshift(newItem);
-    addedTexts.push(newItem.text);
-    if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
-      _pushToNotion(newItem).catch(function(e){ console.warn('Notion:', e); });
-    }
-  });
+  if (!_meAiParsed) return;
+  var parsed = _meAiParsed;
+  var action = parsed.action || 'add';
+
+  if (action === 'add') {
+    var items = parsed.items || [];
+    items.forEach(function(p, i) {
+      var newItem = {
+        id: Date.now() + i, text: p.text || '', catId: p.catId || 'etc',
+        date: p.date || '', timeStart: p.timeStart || '', timeEnd: p.timeEnd || '',
+        priority: p.priority || '', done: false, note: p.note || '',
+        deadlineDate: p.deadlineDate || '', deadlineId: p.deadlineId || '',
+        subs: [], createdAt: Date.now() + i, updatedAt: Date.now() + i,
+      };
+      taskItems.unshift(newItem);
+      if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+        _pushToNotion(newItem).catch(function(){});
+      }
+    });
+    showToast('✦ ' + items.length + '개 추가됨');
+
+  } else if (action === 'delete') {
+    var targets = _meAiGetTargets(parsed.filter);
+    taskItems = taskItems.filter(function(t){ return !targets.some(function(x){ return x.id===t.id; }); });
+    showToast('🗑 ' + targets.length + '개 삭제됨');
+
+  } else if (action === 'done' || action === 'undone') {
+    var isDone = action === 'done';
+    var targets2 = _meAiGetTargets(parsed.filter);
+    targets2.forEach(function(t){
+      t.done = isDone; t.updatedAt = Date.now(); t._localDoneAt = Date.now();
+      if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+        _pushToNotion(t).catch(function(){});
+      }
+    });
+    showToast((isDone?'✓':'↩') + ' ' + targets2.length + '개 처리됨');
+
+  } else if (action === 'update') {
+    var targets3 = _meAiGetTargets(parsed.filter);
+    var patch = parsed.patch || {};
+    targets3.forEach(function(t){
+      if (patch.text     !== undefined) t.text     = patch.text;
+      if (patch.date     !== undefined) t.date     = patch.date;
+      if (patch.catId    !== undefined) t.catId    = patch.catId;
+      if (patch.priority !== undefined) t.priority = patch.priority;
+      if (patch.done     !== undefined) { t.done   = patch.done; t._localDoneAt = Date.now(); }
+      t.updatedAt = Date.now();
+      if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
+        _pushToNotion(t).catch(function(){});
+      }
+    });
+    showToast('✎ ' + targets3.length + '개 수정됨');
+  }
+
   saveTaskData();
+  if (typeof fbUser !== 'undefined' && fbUser) fbSaveAll();
   meAiCancel();
   renderTaskTab && renderTaskTab();
   renderMeTodo && renderMeTodo();
-  var msg = addedTexts.length === 1
-    ? '✦ 할일 추가됨: ' + addedTexts[0]
-    : '✦ ' + addedTexts.length + '개 할일 추가됨';
-  showToast(msg);
+}
+
+function _meAiGetTargets(filter) {
+  if (!filter) return [];
+  var f = filter;
+  return taskItems.filter(function(t) {
+    if (f.all) return true;
+    if (f.ids && f.ids.length) return f.ids.map(String).includes(String(t.id));
+    var ok = true;
+    if (f.textContains) ok = ok && (t.text||'').toLowerCase().includes(f.textContains.toLowerCase());
+    if (f.catId)        ok = ok && t.catId === f.catId;
+    if (f.done !== undefined) ok = ok && (!!t.done === !!f.done);
+    if (f.dateFrom)     ok = ok && t.date >= f.dateFrom;
+    if (f.dateTo)       ok = ok && t.date <= f.dateTo;
+    if (f.priority)     ok = ok && t.priority === f.priority;
+    return ok;
+  });
 }
 
 function meAiCancel() {
