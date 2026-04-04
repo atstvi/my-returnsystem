@@ -1626,6 +1626,31 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 /* row 2: AI 입력 (전체 너비) */
 #meAiInputWrap  { grid-column: 1 / -1; grid-row: 2; }
 .me-ai-input-wrap { grid-column: 1 / -1; }
+
+/* 채팅 UI */
+.me-ai-chat-wrap{background:var(--bg);border-radius:var(--r-card);box-shadow:var(--shadow-raised-sm);overflow:hidden;margin-bottom:8px;}
+.me-ai-chat-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px 8px;border-bottom:1px solid var(--border-subtle);}
+.me-ai-chat-log{min-height:40px;max-height:320px;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;}
+.me-ai-chat-log:empty::before{content:'할일 뭐든 말해봐 ✦';font-size:12px;color:var(--fg3);display:block;text-align:center;padding:12px 0;}
+.me-ai-chat-msg{display:flex;flex-direction:column;gap:3px;max-width:90%;}
+.me-ai-chat-msg.user{align-self:flex-end;align-items:flex-end;}
+.me-ai-chat-msg.ai{align-self:flex-start;align-items:flex-start;}
+.me-ai-chat-bubble{padding:8px 12px;border-radius:14px;font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+.me-ai-chat-msg.user .me-ai-chat-bubble{background:var(--accent);color:#fff;border-radius:14px 14px 4px 14px;}
+.me-ai-chat-msg.ai .me-ai-chat-bubble{background:var(--bg-card,rgba(128,128,128,.06));box-shadow:var(--shadow-raised-sm);border-radius:14px 14px 14px 4px;color:var(--fg);}
+.me-ai-chat-bubble.pending{opacity:.5;}
+.me-ai-chat-affected{margin-top:4px;border:1px solid var(--border-subtle);border-radius:10px;overflow:hidden;max-height:160px;overflow-y:auto;}
+.me-ai-chat-affected-item{padding:5px 10px;border-bottom:1px solid var(--border-subtle);font-size:11px;display:flex;gap:6px;align-items:center;}
+.me-ai-chat-actions{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;}
+.me-ai-chat-btn{padding:5px 14px;border-radius:var(--r-pill);font-size:11px;font-weight:700;cursor:pointer;border:none;}
+.me-ai-chat-btn.confirm{background:var(--accent);color:#fff;}
+.me-ai-chat-btn.cancel{background:var(--bg);box-shadow:var(--shadow-raised-sm);color:var(--fg2);}
+.me-ai-chat-input-row{display:flex;align-items:flex-end;gap:8px;padding:8px 10px;border-top:1px solid var(--border-subtle);}
+.me-ai-chat-input{flex:1;background:none;border:none;outline:none;font-size:13px;color:var(--fg);resize:none;max-height:120px;overflow-y:auto;line-height:1.5;padding:3px 2px;font-family:inherit;}
+.me-ai-chat-input::placeholder{color:var(--fg3);}
+.me-ai-chat-send{width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:15px;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;}
+.me-ai-chat-send:disabled{opacity:.4;cursor:not-allowed;}
+
 /* tg-gc-wrap이 flex로 2분할 처리 */
 .me-full-width  { grid-column: 1 / -1; }
 /* 모바일: 1컬럼 */
@@ -4457,16 +4482,19 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
     </div>
 
-    <!-- AI 빠른 할일 추가 -->
-    <div class="me-ai-input-wrap me-full-width" id="meAiInputWrap" style="grid-column:1/-1;grid-row:2;">
-      <div class="me-ai-input-row">
-        <span class="me-ai-input-icon">✦</span>
-        <input id="meAiTaskInp" class="me-ai-input"
-          placeholder="자연어로 할일 추가... (예: 내일 오후 2시 물리 보고서 제출)"
-          onkeydown="if(event.key==='Enter')meAiSubmit()">
-        <button class="me-ai-input-btn" onclick="meAiSubmit()" id="meAiBtn">AI 추가</button>
+    <!-- AI 채팅 -->
+    <div class="me-ai-chat-wrap me-full-width" id="meAiInputWrap" style="grid-column:1/-1;grid-row:2;">
+      <div class="me-ai-chat-header">
+        <span style="font-size:12px;font-weight:700;color:var(--accent)">✦ AI 어시스턴트</span>
+        <button onclick="meAiClearChat()" style="font-size:10px;padding:2px 8px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;cursor:pointer;color:var(--fg3)">대화 지우기</button>
       </div>
-      <div id="meAiPreview" style="display:none"></div>
+      <div class="me-ai-chat-log" id="meAiChatLog"></div>
+      <div class="me-ai-chat-input-row">
+        <textarea id="meAiTaskInp" class="me-ai-chat-input" rows="1"
+          placeholder="할일 뭐든 말해봐... (Shift+Enter 줄바꿈)"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();meAiSubmit();}"></textarea>
+        <button class="me-ai-chat-send" onclick="meAiSubmit()" id="meAiBtn">↑</button>
+      </div>
     </div>
 
     <!-- 타임그리드 + Ground Control 2분할 래퍼 -->
@@ -16868,233 +16896,192 @@ async function gcalSync() {
 // ══════════════════════════════════════════════════════
 var _meAiParsed = null;
 
+// ── AI 채팅 ──
+var _aiChatHistory = [];
+var _aiPendingCode = null;
+
+function meAiClearChat() {
+  _aiChatHistory = []; _aiPendingCode = null;
+  var log = document.getElementById('meAiChatLog');
+  if (log) log.innerHTML = '';
+}
+
+function _aiAppendMsg(role, contentHtml, extra) {
+  var log = document.getElementById('meAiChatLog');
+  if (!log) return;
+  var wrap = document.createElement('div');
+  wrap.className = 'me-ai-chat-msg ' + role;
+  var bubble = document.createElement('div');
+  bubble.className = 'me-ai-chat-bubble' + (extra&&extra.pending?' pending':'');
+  bubble.innerHTML = contentHtml;
+  wrap.appendChild(bubble);
+  if (extra && extra.affectedItems && extra.affectedItems.length > 0) {
+    var list = document.createElement('div');
+    list.className = 'me-ai-chat-affected';
+    extra.affectedItems.slice(0,10).forEach(function(t) {
+      if (!t||typeof t!=='object') return;
+      var row = document.createElement('div');
+      row.className = 'me-ai-chat-affected-item';
+      var cat = taskCats.find(function(c){return c.id===(t.catId||'');});
+      row.innerHTML = (t.done?'<s style="opacity:.5;flex:1">'+esc(t.text||'')+'</s>':'<span style="flex:1;font-weight:600">'+esc(t.text||'')+'</span>')
+        +(t.date?'<span style="color:var(--fg3)">'+t.date+'</span>':'')
+        +(cat?'<span style="color:'+cat.color+'">'+cat.icon+'</span>':'');
+      list.appendChild(row);
+    });
+    if (extra.affectedItems.length > 10) {
+      var more = document.createElement('div');
+      more.style.cssText='padding:4px 10px;font-size:10px;color:var(--fg3)';
+      more.textContent='... 외 '+(extra.affectedItems.length-10)+'개';
+      list.appendChild(more);
+    }
+    wrap.appendChild(list);
+  }
+  if (extra && extra.actions) {
+    var actRow = document.createElement('div');
+    actRow.className = 'me-ai-chat-actions';
+    extra.actions.forEach(function(act) {
+      var btn = document.createElement('button');
+      btn.className = 'me-ai-chat-btn '+(act.type||'cancel');
+      btn.textContent = act.label;
+      btn.onclick = act.fn;
+      actRow.appendChild(btn);
+    });
+    wrap.appendChild(actRow);
+  }
+  log.appendChild(wrap);
+  log.scrollTop = log.scrollHeight;
+  return wrap;
+}
+
 async function meAiSubmit() {
   var inp = document.getElementById('meAiTaskInp');
   var btn = document.getElementById('meAiBtn');
-  var preview = document.getElementById('meAiPreview');
-  var text = (inp || {}).value.trim();
+  var text = (inp||{}).value.trim();
   if (!text) return;
   if (!API_KEY) { showToast('설정에서 Groq API 키를 먼저 입력해줘'); return; }
 
-  if (btn) { btn.disabled = true; btn.textContent = '분석 중...'; }
-  if (preview) { preview.style.display = 'block'; preview.innerHTML = '<div class="me-ai-loading"><span>✦</span> 생각 중...</div>'; }
+  _aiAppendMsg('user', esc(text).replace(/\n/g,'<br>'));
+  _aiChatHistory.push({role:'user',content:text});
+  if (inp) { inp.value=''; inp.style.height='auto'; }
+  if (btn) btn.disabled = true;
+
+  var pendingWrap = _aiAppendMsg('ai','<span style="opacity:.5">✦ 생각 중...</span>',{pending:true});
 
   try {
     var today = new Date();
-    var todayStr = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
-    var catList = taskCats.map(function(c){ return c.id+'('+c.label+')'; }).join(', ');
-
-    // 할일 목록 (미완료 먼저, 최신순, 120개)
-    var sortedItems = taskItems.slice().sort(function(a,b){
-      if(!a.done && b.done) return -1; if(a.done && !b.done) return 1;
+    var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    var sorted = taskItems.slice().sort(function(a,b){
+      if(!a.done&&b.done)return -1; if(a.done&&!b.done)return 1;
       return (b.updatedAt||0)-(a.updatedAt||0);
     });
-    var taskListStr = sortedItems.slice(0,120).map(function(t){
-      return 'id:'+t.id+' ['+( t.catId||'')+'] "'+( t.text||'')+'"'
-        +(t.date?' '+t.date:'')+(t.timeStart?' '+t.timeStart:'')
-        +(t.done?' [완료]':'')+(t.priority?' ['+t.priority+']':'')
-        +(t.note?' note:"'+(t.note||'').slice(0,30)+'"':'');
-    }).join('\n');
+    var appState = {
+      today:todayStr, dow:['일','월','화','수','목','금','토'][today.getDay()]+'요일',
+      tasks:sorted.slice(0,150).map(function(t){
+        return {id:t.id,text:t.text,catId:t.catId,date:t.date||'',timeStart:t.timeStart||'',
+          done:t.done,priority:t.priority||'',note:(t.note||'').slice(0,40)};
+      }),
+      categories:taskCats.map(function(c){return {id:c.id,label:c.label,icon:c.icon};}),
+      timetables:(typeof timetables!=='undefined'?timetables:[]).map(function(tt){
+        return {name:tt.name,startDate:tt.startDate,endDate:tt.endDate,
+          slots:(tt.slots||[]).map(function(s){
+            return {title:s.title,day:['월','화','수','목','금','토'][s.day]||s.day,timeStart:s.timeStart,timeEnd:s.timeEnd};
+          })};
+      }),
+      inbox:(typeof inboxItems!=='undefined'?inboxItems:[]).slice(0,20).map(function(m){return {id:m.id,text:m.text,done:m.done};}),
+      stats:{total:taskItems.length,done:taskItems.filter(function(t){return t.done;}).length}
+    };
 
-    // 시간표 과목명 수집
-    var ttInfo = '';
-    if (typeof timetables !== 'undefined' && timetables.length) {
-      ttInfo = '\n\n시간표 목록:\n' + timetables.map(function(tt){
-        var slots = (tt.slots||[]).map(function(s){ return s.title; });
-        var unique = slots.filter(function(v,i){ return slots.indexOf(v)===i; });
-        return '"'+( tt.name||'')+'" 과목: '+unique.join(', ')
-          +' (기간:'+( tt.startDate||'?')+'~'+(tt.endDate||'?')+')';
-      }).join('\n');
-    }
+    var sysPrompt = '당신은 이 할일 앱의 내부 AI입니다. 사용자와 자연스럽게 대화하며 할일을 관리하세요.\n\n'
+      +'## 앱 데이터\n'
+      +'taskItem: {id, text, catId, date:"YYYY-MM-DD", timeStart:"HH:MM", done, priority:"high|mid|low|", note, deadlineDate}\n'
+      +'note에 "시간표:" 포함 → 시간표 일정\n\n'
+      +'## 런타임 변수\n'
+      +'taskItems(수정가능), taskCats, timetables, inboxItems, saveTaskData(), renderTaskTab(), showToast()\n\n'
+      +'## 주요 패턴\n'
+      +'시간표 과목Set: var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add((sl.title||"").trim());});});\n'
+      +'완료: t.done=true;t._localDoneAt=Date.now();t.updatedAt=Date.now();\n'
+      +'삭제: taskItems=taskItems.filter(function(t){return !조건;});\n'
+      +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
+      +'## 응답 방식\n'
+      +'- 조회/질문: 자연어로만 답변\n'
+      +'- 실행 필요: 자연어 설명 한두 문장 + 아래 JSON 블록\n'
+      +'- 애매함: 되묻기\n\n'
+      +'실행 블록 형식:\n'
+      +'```json\n'
+      +'{"previewCode":"영향항목 배열 return하는 JS (taskItems 변경 금지)","code":"실행JS (saveTaskData+renderTaskTab+showToast 포함)"}\n'
+      +'```\n\n'
+      +'## 현재 앱 상태\n'+JSON.stringify(appState);
 
-    // 인박스 요약
-    var inboxInfo = '';
-    if (typeof inboxItems !== 'undefined' && inboxItems.length) {
-      inboxInfo = '\n\n인박스 (최근 20개):\n' + inboxItems.slice(0,20).map(function(m){
-        return 'id:'+m.id+' "'+( m.text||'')+'" ['+( m.catId||'')+']'+(m.done?' [완료]':'');
-      }).join('\n');
-    }
+    var messages = [{role:'system',content:sysPrompt}];
+    _aiChatHistory.slice(-10).forEach(function(m){messages.push({role:m.role,content:m.content});});
 
-    var sysPrompt = [
-      '당신은 할일 앱 AI 어시스턴트입니다. 사용자 명령을 이해하고 JSON만 반환하세요.',
-      '',
-      '## 변수',
-      'taskItems(할일배열), taskCats(카테고리), timetables(시간표), inboxItems(인박스)',
-      'saveTaskData(), renderTaskTab(), showToast(msg)',
-      '',
-      '## 응답 형식 (JSON 외 다른 텍스트 절대 금지)',
-      '{"description":"설명","previewCode":"영향항목 return하는 JS","code":"실행JS"}',
-      '',
-      '## 규칙',
-      '- previewCode: 변경하지 말고 영향받을 항목 배열만 return',
-      '- code: 실제변경 + saveTaskData() + renderTaskTab() + showToast() 포함',
-      '- note에 "시간표:" 포함 = 시간표 일정, 미포함 = 독립 일정',
-      '- 완료: item.done=true; item._localDoneAt=Date.now(); item.updatedAt=Date.now();',
-      '- 추가: {id:Date.now()+Math.random(),text:"",catId:"",date:"",done:false,subs:[],createdAt:Date.now(),updatedAt:Date.now()}',
-      '- 텍스트 비교는 반드시 .trim() 사용',
-      '',
-      '## 예시1: 시간표 과목명인데 시간표 일정 아닌 것 삭제',
-      '명령: "시간표 과목명인데 시간표 일정으로 설정 안된 것 삭제"',
-      'previewCode:',
-      '  var s=new Set(); timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add((sl.title||"").trim());});});',
-      '  return taskItems.filter(function(t){ return t.catId==="schedule" && s.has((t.text||"").trim()) && !(t.note&&t.note.indexOf("시간표")>=0); });',
-      'code:',
-      '  var s=new Set(); timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add((sl.title||"").trim());});});',
-      '  var n=0; taskItems=taskItems.filter(function(t){ if(t.catId==="schedule"&&s.has((t.text||"").trim())&&!(t.note&&t.note.indexOf("시간표")>=0)){n++;return false;} return true; });',
-      '  saveTaskData(); renderTaskTab(); showToast(n+"개 삭제됨");',
-      '',
-      '## 예시2: 완료된 것 전부 삭제',
-      '명령: "완료된 할일 다 삭제"',
-      'previewCode: return taskItems.filter(function(t){return t.done;});',
-      'code: var n=taskItems.filter(function(t){return t.done;}).length; taskItems=taskItems.filter(function(t){return !t.done;}); saveTaskData();renderTaskTab();showToast(n+"개 삭제됨");',
-      '',
-      '## 예시3: 특정 이름 날짜 변경',
-      '명령: "물리 숙제 날짜 4월 10일로"',
-      'previewCode: return taskItems.filter(function(t){return t.text.trim()==="물리 숙제";});',
-      'code: taskItems.forEach(function(t){if(t.text.trim()==="물리 숙제"){t.date="2026-04-10";t.updatedAt=Date.now();}}); saveTaskData();renderTaskTab();showToast("날짜 변경됨");',
-      '',
-      '## 예시4: 할일 추가',
-      '명령: "내일 오후 2시 영어 단어 암기 추가"',
-      'previewCode: return [{text:"영어 단어 암기",date:"2026-04-05",timeStart:"14:00"}];',
-      'code: taskItems.unshift({id:Date.now()+Math.random(),text:"영어 단어 암기",catId:"uni",date:"2026-04-05",timeStart:"14:00",timeEnd:"",priority:"",done:false,note:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()}); saveTaskData();renderTaskTab();showToast("추가됨");',
-    ].join('\n');
-    var userPrompt = '오늘: '+todayStr+' | 카테고리: '+catList
-      +'\n\n할일 목록:\n'+taskListStr
-      +ttInfo+inboxInfo
-      +'\n\n명령: '+text;
-
-    var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    var res = await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
-      body:JSON.stringify({
-        model:'llama-3.3-70b-versatile',
-        messages:[
-          {role:'system',content:sysPrompt},
-          {role:'user',content:userPrompt}
-        ],
-        max_tokens:1500,
-        temperature:0.0,
-      })
+      body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:messages,max_tokens:1500,temperature:0.2})
     });
     var data = await res.json();
-    var raw = data.choices[0].message.content.trim();
-    var jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('AI 응답 파싱 실패:\n'+raw.slice(0,200));
-    var parsed = JSON.parse(jsonMatch[0]);
-    if (!parsed.code) throw new Error('AI가 코드를 생성하지 못했습니다');
-    _meAiParsed = parsed;
-    _meAiRunPreview(parsed, text);
-  } catch(e) {
-    if (preview) preview.innerHTML = '<div class="me-ai-loading" style="color:#ef4444">오류: '+esc(e.message)+'</div>';
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = 'AI 추가'; }
-  }
-}
+    if(!data.choices) throw new Error(JSON.stringify(data).slice(0,200));
+    var aiText = data.choices[0].message.content.trim();
+    _aiChatHistory.push({role:'assistant',content:aiText});
 
-// previewCode 실행해서 영향받는 항목 실제로 보여줌
-function _meAiRunPreview(parsed, originalText) {
-  var preview = document.getElementById('meAiPreview');
-  if (!preview) return;
-
-  var affectedItems = [];
-  var previewErr = '';
-
-  // previewCode 실행
-  if (parsed.previewCode) {
-    try {
-      var previewFn = new Function(
-        'taskItems','taskCats','timetables','inboxItems','Date',
-        parsed.previewCode
-      );
-      var result = previewFn(
-        taskItems, taskCats,
-        typeof timetables!=='undefined'?timetables:[],
-        typeof inboxItems!=='undefined'?inboxItems:[],
-        Date
-      );
-      if (Array.isArray(result)) affectedItems = result;
-    } catch(e) {
-      previewErr = e.message;
+    var jsonMatch = aiText.match(/```json\s*([\s\S]*?)```/);
+    var parsedCode = null;
+    var displayText = aiText;
+    if (jsonMatch) {
+      try { parsedCode = JSON.parse(jsonMatch[1].trim()); displayText = aiText.replace(/```json[\s\S]*?```/,'').trim(); } catch(e){}
     }
-  }
 
-  var desc = parsed.description || '';
-  var itemsHtml = '';
+    if (pendingWrap&&pendingWrap.parentNode) pendingWrap.parentNode.removeChild(pendingWrap);
 
-  if (affectedItems.length > 0) {
-    var show = affectedItems.slice(0, 12);
-    itemsHtml = '<div style="margin:8px 0;max-height:220px;overflow-y:auto;border:1px solid var(--border-subtle);border-radius:var(--r-inner)">'
-      + show.map(function(t){
-        if (!t || typeof t !== 'object') return '';
-        var cat = taskCats.find(function(c){ return c.id===(t.catId||''); });
-        return '<div style="padding:7px 10px;border-bottom:1px solid var(--border-subtle);font-size:12px;display:flex;gap:8px;align-items:center">'
-          + (t.done?'<span style="opacity:.4;text-decoration:line-through;flex:1">'+esc(t.text||'')+'</span>':'<span style="flex:1;font-weight:600">'+esc(t.text||'')+'</span>')
-          + (t.date?'<span style="color:var(--fg3);font-size:11px">'+t.date+'</span>':'')
-          + (cat?'<span style="color:'+cat.color+';font-size:10px">'+cat.icon+cat.label+'</span>':'')
-          + (t.done?'<span style="font-size:10px;color:#22c55e">완료</span>':'')
-          + '</div>';
-      }).filter(Boolean).join('')
-      + (affectedItems.length>12?'<div style="padding:6px 10px;font-size:11px;color:var(--fg3)">... 외 '+(affectedItems.length-12)+'개</div>':'')
-      + '</div>';
-  } else if (!previewErr) {
-    itemsHtml = '<div style="font-size:12px;color:var(--fg3);padding:8px 0">해당하는 항목 없음</div>';
-  }
+    var affectedItems = [];
+    if (parsedCode&&parsedCode.previewCode) {
+      try {
+        var pFn = new Function('taskItems','taskCats','timetables','inboxItems','Date',parsedCode.previewCode);
+        var result = pFn(taskItems.slice(),taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],Date);
+        if(Array.isArray(result)) affectedItems = result;
+      } catch(e){ console.warn('previewCode err:',e); }
+    }
 
-  var countLabel = affectedItems.length > 0
-    ? '<b style="color:var(--accent)">'+affectedItems.length+'개</b>에 적용됩니다.'
-    : '영향받는 항목 없음';
+    var actions = null;
+    if (parsedCode&&parsedCode.code) {
+      var capturedCode = parsedCode.code;
+      actions = [
+        {label:'✓ 실행', type:'confirm', fn:function(){
+          _meAiExecCode(capturedCode);
+          var p=this.parentNode; if(p)p.remove();
+        }},
+        {label:'취소', type:'cancel', fn:function(){
+          var p=this.parentNode; if(p)p.remove();
+        }}
+      ];
+    }
 
-  preview.style.display = 'block';
-  preview.innerHTML = '<div class="me-ai-preview">'
-    + '<div class="me-ai-preview-title">✦ '+esc(desc)+'</div>'
-    + '<div style="font-size:12px;color:var(--fg2);margin:6px 0">'+countLabel+'</div>'
-    + itemsHtml
-    + (previewErr?'<div style="font-size:11px;color:#ef4444;margin:4px 0">미리보기 오류: '+esc(previewErr)+'</div>':'')
-    + '<details style="margin:8px 0 4px;font-size:11px;color:var(--fg3)">'
-    + '<summary style="cursor:pointer">실행 코드 보기</summary>'
-    + '<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;overflow-x:auto;font-size:10px;white-space:pre-wrap">'+esc(parsed.code)+'</pre>'
-    + '</details>'
-    + '<div class="me-ai-preview-actions">'
-    + (affectedItems.length>0||!parsed.previewCode
-      ?'<button class="me-ai-confirm-btn" onclick="meAiConfirm()">✓ 실행</button>'
-      :'<button class="me-ai-confirm-btn" onclick="meAiConfirm()" style="opacity:.5">실행 (0개)</button>')
-    + '<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
-    + '</div></div>';
-}
+    _aiAppendMsg('ai', esc(displayText).replace(/\n/g,'<br>'), {affectedItems:affectedItems,actions:actions});
 
-function meAiConfirm() {
-  if (!_meAiParsed || !_meAiParsed.code) return;
-  try {
-    var fn = new Function(
-      'taskItems','taskCats','timetables','inboxItems',
-      'saveTaskData','showToast','renderTaskTab','renderMeTodo','Date',
-      '_pushToNotion','notionCfg','fbUser','fbSaveAll',
-      _meAiParsed.code
-    );
-    fn(
-      taskItems, taskCats,
-      typeof timetables!=='undefined'?timetables:[],
-      typeof inboxItems!=='undefined'?inboxItems:[],
-      saveTaskData, showToast, renderTaskTab, renderMeTodo, Date,
-      typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},
-      typeof notionCfg!=='undefined'?notionCfg:{},
-      typeof fbUser!=='undefined'?fbUser:null,
-      typeof fbSaveAll!=='undefined'?fbSaveAll:function(){}
-    );
-    meAiCancel();
   } catch(e) {
-    showToast('실행 오류: '+e.message);
-    console.error('AI code error:', e, '\nCode:', _meAiParsed.code);
+    if(pendingWrap&&pendingWrap.parentNode) pendingWrap.parentNode.removeChild(pendingWrap);
+    _aiAppendMsg('ai','⚠ 오류: '+esc(e.message));
+    console.error('AI error:',e);
+  } finally {
+    if(btn) btn.disabled=false;
   }
 }
 
-function meAiCancel() {
-  var inp = document.getElementById('meAiTaskInp');
-  var preview = document.getElementById('meAiPreview');
-  if (inp) inp.value = '';
-  if (preview) { preview.style.display='none'; preview.innerHTML=''; }
-  _meAiParsed = null;
+function _meAiExecCode(code) {
+  try {
+    var fn = new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date','_pushToNotion','notionCfg','fbUser','fbSaveAll',code);
+    fn(taskItems,taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],saveTaskData,renderTaskTab,renderMeTodo,showToast,Date,typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},typeof notionCfg!=='undefined'?notionCfg:{},typeof fbUser!=='undefined'?fbUser:null,typeof fbSaveAll!=='undefined'?fbSaveAll:function(){});
+  } catch(e) { showToast('실행 오류: '+e.message); console.error('exec err:',e,'\n',code); }
 }
+
+document.addEventListener('DOMContentLoaded',function(){
+  var ta=document.getElementById('meAiTaskInp');
+  if(ta) ta.addEventListener('input',function(){this.style.height='auto';this.style.height=Math.min(this.scrollHeight,120)+'px';});
+});
+
+function meAiCancel(){ _aiPendingCode=null; }
+function meAiConfirm(){ if(_aiPendingCode)_meAiExecCode(_aiPendingCode); }
 
 function meInboxQuickSend() {
   var inp = document.getElementById('meInboxQuickInp');
