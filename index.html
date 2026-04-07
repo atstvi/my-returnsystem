@@ -17015,29 +17015,20 @@ async function meAiSubmit(){
       : code.indexOf('.done=true')>=0 ? 'done'
       : code.indexOf('.done=false')>=0 ? 'undone' : 'update';
 
-    // dry-run: window._drSnap/_drFake로 재할당 감지
+    // dry-run: taskItems를 임시 교체 후 실행 → diff 계산
     var affected = [];
     try {
+      var _realItems = taskItems;
       var snap = JSON.parse(JSON.stringify(taskItems));
-      // taskItems 재할당을 감지하기 위해 window 속성 활용
-      window._drFake = JSON.parse(JSON.stringify(taskItems));
-      var drCode = '(function(){'
-        + 'var taskItems=window._drFake;'
-        + 'var taskCats=window._drTaskCats;'
-        + 'var timetables=window._drTimetables;'
-        + 'var inboxItems=window._drInbox;'
-        + 'function saveTaskData(){}'
-        + 'function renderTaskTab(){}'
-        + 'function renderMeTodo(){}'
-        + 'function showToast(){}'
-        + code
-        + ';window._drFake=taskItems;'  // 재할당된 taskItems를 다시 window에 저장
-        + '})()';
-      window._drTaskCats = taskCats;
-      window._drTimetables = typeof timetables!=='undefined'?timetables:[];
-      window._drInbox = typeof inboxItems!=='undefined'?inboxItems:[];
-      eval(drCode);
-      var afterArr = window._drFake || [];
+      // taskItems를 복사본으로 임시 교체
+      taskItems = JSON.parse(JSON.stringify(taskItems));
+      // eval로 실행 (전역 taskItems 변경됨)
+      var _dr_saveData=saveTaskData, _dr_render=renderTaskTab, _dr_toast=showToast;
+      saveTaskData=function(){}; renderTaskTab=function(){}; showToast=function(){};
+      eval(code);
+      saveTaskData=_dr_saveData; renderTaskTab=_dr_render; showToast=_dr_toast;
+      var afterArr = taskItems; // 변경된 복사본
+      taskItems = _realItems;  // 원본 복원
       if (action==='delete') {
         var afterIds = new Set(afterArr.map(function(t){return t.id;}));
         affected = snap.filter(function(t){return !afterIds.has(t.id);});
@@ -17048,7 +17039,11 @@ async function meAiSubmit(){
         var snapMap = {}; snap.forEach(function(t){snapMap[t.id]=t;});
         affected = afterArr.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
       }
-    } catch(e2){ console.warn('dry-run:', e2.message); }
+    } catch(e2){
+      if (typeof _realItems!=='undefined') taskItems=_realItems;
+      if (typeof _dr_saveData!=='undefined'){saveTaskData=_dr_saveData;renderTaskTab=_dr_render;showToast=_dr_toast;}
+      console.warn('dry-run:', e2.message);
+    }
 
     // 미리보기 UI
     var isDel=action==='delete', isAdd=action==='add';
@@ -17109,16 +17104,8 @@ async function meAiSubmit(){
 function meAiConfirm(){
   if (!_meAiParsed||!_meAiParsed.code) return;
   try {
-    new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date','_pushToNotion','notionCfg','fbUser','fbSaveAll',_meAiParsed.code)(
-      taskItems,taskCats,
-      typeof timetables!=='undefined'?timetables:[],
-      typeof inboxItems!=='undefined'?inboxItems:[],
-      saveTaskData,renderTaskTab,renderMeTodo,showToast,Date,
-      typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},
-      typeof notionCfg!=='undefined'?notionCfg:{},
-      typeof fbUser!=='undefined'?fbUser:null,
-      typeof fbSaveAll!=='undefined'?fbSaveAll:function(){}
-    );
+    // eval로 실행 → 전역 taskItems 직접 변경됨
+    eval(_meAiParsed.code);
     meAiCancel();
   } catch(e) {
     showToast('실행 오류: '+e.message);
