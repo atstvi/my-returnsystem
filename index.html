@@ -5163,7 +5163,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             <div style="display:grid;gap:6px;margin-bottom:10px">
               <div>
                 <div style="font-size:9px;letter-spacing:1px;color:var(--foreground-muted);margin-bottom:4px;font-family:var(--font-label)">API KEY</div>
-                <input id="fbApiKey" class="setting-inp" type="password" placeholder="gsk_ 또는 AIza...로 시작하는 키">
+                <input id="fbApiKey" class="setting-inp" type="password" placeholder="AIza...로 시작 (Firebase 콘솔 → 프로젝트 설정)">
               </div>
               <div>
                 <div style="font-size:9px;letter-spacing:1px;color:var(--foreground-muted);margin-bottom:4px;font-family:var(--font-label)">AUTH DOMAIN</div>
@@ -5177,6 +5177,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             <div class="btn-row" style="margin-top:12px">
               <button class="btn-primary" onclick="saveFbConfig()">저장 및 연결</button>
               <button class="btn-ghost" onclick="clearFbConfig()" style="font-size:10px">연결 해제</button>
+              <button class="btn-ghost" onclick="fbDiagnose()" style="font-size:10px">🔍 진단</button>
             </div>
           </div>
 
@@ -11592,6 +11593,31 @@ function importData(e){
 // ── Firebase ──────────────────────────────────────────────
 let fbConfigSaved=JSON.parse(localStorage.getItem('fb_config')||'null');
 
+function fbDiagnose(){
+  var lines=[];
+  var cfg=localStorage.getItem('fb_config');
+  if(!cfg||cfg==='{}') lines.push('❌ Firebase 설정 없음 → API Key/Auth Domain/Project ID 입력 필요');
+  else {
+    try{var p=JSON.parse(cfg);lines.push('✅ 설정 저장됨: '+p.projectId);}catch(e){lines.push('❌ 설정 파싱 오류');}
+  }
+  if(!window.firebase) lines.push('❌ Firebase SDK 미로드');
+  else lines.push('✅ Firebase SDK 로드됨');
+  if(!fbAuth) lines.push('❌ fbAuth 없음 → 저장 및 연결 버튼 눌러야 함');
+  else lines.push('✅ fbAuth 초기화됨');
+  if(!fbUser) lines.push('❌ 로그인 안 됨 → Google 로그인 필요');
+  else lines.push('✅ 로그인됨: '+(fbUser.email||fbUser.uid));
+  if(!fbDb) lines.push('❌ Firestore 미초기화');
+  else lines.push('✅ Firestore 초기화됨');
+  lines.push('');
+  lines.push('📋 Firestore 보안 규칙 확인:');
+  lines.push('Firebase Console → Firestore → 규칙 탭에서:');
+  lines.push('allow read, write: if request.auth != null;');
+  lines.push('');
+  lines.push('📋 Authentication 확인:');
+  lines.push('Firebase Console → Authentication → Sign-in method → Google 활성화');
+  alert(lines.join('\n'));
+}
+
 function saveFbConfig(){
   const apiKey=document.getElementById('fbApiKey').value.trim();
   const authDomain=document.getElementById('fbAuthDomain').value.trim();
@@ -11965,8 +11991,10 @@ function _applyFirebaseData(d, force){
         if (!localMap[key]) {
           inboxItems.push(ri);
         } else {
-          var lts = (localMap[key].updatedAt || localMap[key].createdAt || 0);
-          var rts = (ri.updatedAt || ri.createdAt || 0);
+          var _lv=localMap[key].updatedAt||localMap[key].createdAt||0;
+          var _rv=ri.updatedAt||ri.createdAt||0;
+          var lts=(typeof _lv==='string')?new Date(_lv).getTime():_lv;
+          var rts=(typeof _rv==='string')?new Date(_rv).getTime():_rv;
           if (rts > lts) {
             var didx = inboxItems.findIndex(function(x){ return String(x.id)===key; });
             if (didx >= 0) inboxItems[didx] = ri;
@@ -11977,7 +12005,9 @@ function _applyFirebaseData(d, force){
       var _now = Date.now();
       inboxItems = inboxItems.filter(function(li) {
         if (remoteMap[String(li.id)]) return true;
-        return (_now - (li.createdAt || 0)) < 60000;
+        var _cat = li.createdAt||0;
+        var _catMs = (typeof _cat==='string') ? new Date(_cat).getTime() : _cat;
+        return (_now - _catMs) < 60000;
       });
       inboxItems.sort(function(a,b){ return (b.createdAt||b.id||0)-(a.createdAt||a.id||0); });
       localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
@@ -16923,8 +16953,130 @@ async function gcalSync() {
 
 // ══════════════════════════════════════════════════════
 // AI 자연어 할일 관리 (Groq)
+// AI는 필터 조건 JSON만 반환 → 앱이 직접 처리 (eval 없음)
 // ══════════════════════════════════════════════════════
 var _meAiParsed = null;
+
+/*
+AI 응답 형식:
+{
+  "action": "delete" | "done" | "undone" | "add" | "update",
+  "summary": "작업 설명",
+
+  // delete/done/undone/update 시 - 필터 조건 (AND 조합)
+  "filter": {
+    "text": "포함할 텍스트",           // t.text.includes(text)
+    "textExact": "정확한 이름",        // t.text.trim() === textExact
+    "catId": "schedule",               // t.catId === catId
+    "done": true/false,               // t.done === done
+    "isTimetable": true/false,        // note에 "시간표:" 포함 여부
+    "isTimetableSubject": true,       // 시간표 과목명과 일치하는 것
+    "dateFrom": "YYYY-MM-DD",
+    "dateTo": "YYYY-MM-DD",
+    "priority": "high"
+  },
+
+  // add 시
+  "items": [{ "text":"", "catId":"", "date":"", "timeStart":"", "priority":"", "note":"", "deadlineDate":"" }],
+
+  // update 시 추가
+  "patch": { "date":"", "priority":"", "catId":"", "done":true, "text":"" }
+}
+*/
+
+function _aiApplyFilter(filter) {
+  // filter 조건으로 taskItems 필터링
+  var ttTitles = null;
+  if (filter.isTimetableSubject !== undefined) {
+    ttTitles = new Set();
+    (typeof timetables!=='undefined'?timetables:[]).forEach(function(tt){
+      (tt.slots||[]).forEach(function(sl){ ttTitles.add(sl.title.trim()); });
+    });
+  }
+  return taskItems.filter(function(t) {
+    if (filter.text      !== undefined && (t.text||'').toLowerCase().indexOf(filter.text.toLowerCase()) < 0) return false;
+    if (filter.textExact !== undefined && (t.text||'').trim() !== filter.textExact.trim()) return false;
+    if (filter.catId     !== undefined && t.catId !== filter.catId) return false;
+    if (filter.done      !== undefined && !!t.done !== !!filter.done) return false;
+    if (filter.priority  !== undefined && t.priority !== filter.priority) return false;
+    if (filter.dateFrom  !== undefined && (t.date||'') < filter.dateFrom) return false;
+    if (filter.dateTo    !== undefined && (t.date||'') > filter.dateTo) return false;
+    if (filter.isTimetable !== undefined) {
+      var hasTt = !!(t.note && t.note.indexOf('시간표') >= 0);
+      if (hasTt !== !!filter.isTimetable) return false;
+    }
+    if (filter.isTimetableSubject !== undefined && ttTitles) {
+      var isSubject = ttTitles.has((t.text||'').trim());
+      if (isSubject !== !!filter.isTimetableSubject) return false;
+    }
+    return true;
+  });
+}
+
+function _aiExecute(parsed) {
+  var action = parsed.action;
+  var filter = parsed.filter || {};
+  var affected = [];
+
+  if (action === 'delete') {
+    affected = _aiApplyFilter(filter);
+    var delIds = new Set(affected.map(function(t){return t.id;}));
+    taskItems = taskItems.filter(function(t){ return !delIds.has(t.id); });
+    saveTaskData(); renderTaskTab();
+    showToast(affected.length + '개 삭제됨');
+
+  } else if (action === 'done' || action === 'undone') {
+    affected = _aiApplyFilter(filter);
+    affected.forEach(function(t){
+      t.done = (action === 'done');
+      if (action === 'done') { t._localDoneAt = Date.now(); }
+      t.updatedAt = Date.now();
+    });
+    saveTaskData(); renderTaskTab();
+    showToast(affected.length + '개 ' + (action==='done'?'완료':'미완료') + ' 처리됨');
+
+  } else if (action === 'update' && parsed.patch) {
+    affected = _aiApplyFilter(filter);
+    affected.forEach(function(t){
+      var p = parsed.patch;
+      if (p.date     !== undefined) t.date = p.date;
+      if (p.priority !== undefined) t.priority = p.priority;
+      if (p.catId    !== undefined) t.catId = p.catId;
+      if (p.text     !== undefined) t.text = p.text;
+      if (p.done     !== undefined) { t.done = p.done; if(p.done) t._localDoneAt = Date.now(); }
+      if (p.timeStart !== undefined) t.timeStart = p.timeStart;
+      if (p.timeEnd   !== undefined) t.timeEnd = p.timeEnd;
+      if (p.deadlineDate !== undefined) t.deadlineDate = p.deadlineDate;
+      t.updatedAt = Date.now();
+    });
+    saveTaskData(); renderTaskTab();
+    showToast(affected.length + '개 수정됨');
+
+  } else if (action === 'add' && parsed.items) {
+    affected = parsed.items.map(function(item){
+      return {
+        id: Date.now() + Math.random(),
+        text: item.text || '',
+        catId: item.catId || 'etc',
+        date: item.date || '',
+        timeStart: item.timeStart || '',
+        timeEnd: item.timeEnd || '',
+        priority: item.priority || '',
+        done: false,
+        note: item.note || '',
+        deadlineDate: item.deadlineDate || '',
+        deadlineId: '',
+        subs: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    });
+    affected.forEach(function(item){ taskItems.unshift(item); });
+    saveTaskData(); renderTaskTab();
+    showToast(affected.length + '개 추가됨');
+  }
+  return affected;
+}
 
 async function meAiSubmit(){
   var inp = document.getElementById('meAiTaskInp');
@@ -16932,7 +17084,7 @@ async function meAiSubmit(){
   var preview = document.getElementById('meAiPreview');
   var text = (inp||{}).value.trim();
   if (!text) return;
-  if (!API_KEY) { showToast('설정 → Groq API 키 입력 필요 (console.groq.com, 무료)'); return; }
+  if (!API_KEY) { showToast('설정 → Groq API 키 입력 (console.groq.com, 무료)'); return; }
 
   if (btn) { btn.disabled=true; btn.textContent='...'; }
   if (preview) { preview.style.display='block'; preview.innerHTML='<div class="me-ai-loading"><span>✦</span> 분석 중...</div>'; }
@@ -16942,47 +17094,49 @@ async function meAiSubmit(){
     var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
     var dow = ['일','월','화','수','목','금','토'][today.getDay()];
 
-    // 카테고리 (짧음)
     var catStr = taskCats.map(function(c){return c.id+'='+c.label;}).join(', ');
-
-    // 시간표 과목명만 (핵심 컨텍스트, 토큰 적음)
     var ttStr = (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
-      var titles = (tt.slots||[]).map(function(s){return s.title;})
-        .filter(function(v,i,a){return a.indexOf(v)===i;});
-      return tt.name+'['+tt.startDate+'~'+tt.endDate+']: '+titles.join(', ');
+      var titles = (tt.slots||[]).map(function(s){return s.title;}).filter(function(v,i,a){return a.indexOf(v)===i;});
+      return tt.name+'('+tt.startDate+'~'+tt.endDate+'): '+titles.join(', ');
     }).join('\n');
 
-    // 할일 목록 보내지 않음 → 코드가 런타임에 taskItems 직접 접근
+    // 할일 이름+id만 (토큰 최소화, AI가 텍스트 패턴 파악용)
+    var taskNames = taskItems.map(function(t){
+      var r = t.id+'|'+t.text;
+      if (t.done) r += '|완료';
+      if (t.note && t.note.indexOf('시간표')>=0) r += '|[시간표]';
+      return r;
+    }).join('\n');
 
-    var PROMPT = '할일 앱 AI. 사용자 명령을 JS 코드로 변환. JSON으로만 응답.\n\n'
-      +'# taskItem 필드\n'
-      +'id, text, catId, done(bool), date(YYYY-MM-DD), timeStart(HH:MM), timeEnd, priority(high/mid/low), note, deadlineDate\n'
-      +'note에 "시간표:" 포함 = 시간표 생성 일정 / 없으면 = 독립 일정\n\n'
-      +'# timetable 구조\n'
-      +'slots: [{title, day(0=월~5=토), timeStart, timeEnd}]\n\n'
-      +'# 런타임 변수 (코드에서 직접 사용)\n'
-      +'taskItems(배열, 직접 수정 가능), timetables, taskCats\n'
-      +'saveTaskData(), renderTaskTab(), showToast(msg)\n\n'
-      +'# 응답 형식 (JSON만, 다른 텍스트 없음)\n'
-      +'{"summary":"작업 설명","code":"JS 코드"}\n\n'
-      +'code 필수 조건: saveTaskData(); renderTaskTab(); showToast(결과메시지);\n\n'
-      +'# 패턴\n'
-      +'시간표Set 만들기:\n'
-      +'var s=new Set(); timetables.forEach(function(tt){ (tt.slots||[]).forEach(function(sl){ s.add(sl.title.trim()); }); });\n\n'
-      +'시간표 독립 일정 = catId==="schedule" && s.has(text.trim()) && !(note&&note.indexOf("시간표")>=0)\n'
-      +'삭제: taskItems=taskItems.filter(function(t){return !조건;});\n'
-      +'완료: t.done=true; t._localDoneAt=t.updatedAt=Date.now();\n'
-      +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
+    var PROMPT = '할일 앱 AI. 사용자 명령을 분석해서 JSON으로만 응답. 다른 텍스트 없음.\n\n'
+      +'# 응답 형식\n'
+      +'{"action":"delete|done|undone|add|update","summary":"설명","filter":{...},"items":[...],"patch":{...}}\n\n'
+      +'# filter 필드 (AND 조건)\n'
+      +'- text: 이름에 포함된 텍스트 (부분일치)\n'
+      +'- textExact: 정확한 이름\n'
+      +'- catId: 카테고리 id\n'
+      +'- done: true/false\n'
+      +'- isTimetable: true=시간표생성일정, false=독립일정\n'
+      +'- isTimetableSubject: true=시간표과목명과일치\n'
+      +'- dateFrom/dateTo: YYYY-MM-DD\n'
+      +'- priority: high/mid/low\n\n'
+      +'# add의 items 형식\n'
+      +'[{"text":"","catId":"","date":"YYYY-MM-DD","timeStart":"HH:MM","priority":"","deadlineDate":""}]\n\n'
+      +'# update의 patch 형식\n'
+      +'{"date":"","priority":"","catId":"","done":true,"timeStart":"","deadlineDate":""}\n\n'
       +'# 예시\n'
-      +'명령: 시간표 과목명이랑 같은데 독립 일정인 것 삭제\n'
-      +'{"summary":"시간표 과목 독립 일정 삭제","code":"var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});var n=0;taskItems=taskItems.filter(function(t){if(t.catId==\\"schedule\\"&&s.has(t.text.trim())&&!(t.note&&t.note.indexOf(\\"시간표\\")>=0)){n++;return false;}return true;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
+      +'명령: 시간표 과목명이랑 같은데 시간표 일정 아닌(독립) 것 삭제\n'
+      +'{"action":"delete","summary":"시간표 과목 독립 일정 삭제","filter":{"catId":"schedule","isTimetableSubject":true,"isTimetable":false}}\n\n'
       +'명령: 완료된 것 전부 삭제\n'
-      +'{"summary":"완료 항목 삭제","code":"var n=taskItems.filter(function(t){return t.done;}).length;taskItems=taskItems.filter(function(t){return !t.done;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
-      +'명령: 내일 오후 2시 보고서 제출 추가\n'
-      +'{"summary":"보고서 제출 추가","code":"taskItems.unshift({id:Date.now()+Math.random(),text:\\"보고서 제출\\",catId:\\"uni\\",date:\\"'+todayStr+'\\",timeStart:\\"14:00\\",timeEnd:\\"\\",priority:\\"\\",done:false,note:\\"\\",deadlineDate:\\"\\",deadlineId:\\"\\",subs:[],createdAt:Date.now(),updatedAt:Date.now()});saveTaskData();renderTaskTab();showToast(\\"추가됨\\");"}\n\n'
+      +'{"action":"delete","summary":"완료 항목 전체 삭제","filter":{"done":true}}\n\n'
+      +'명령: 일화실 이번주 거 완료처리\n'
+      +'{"action":"done","summary":"일화실 완료 처리","filter":{"text":"일화실","dateFrom":"'+todayStr+'","dateTo":"'+todayStr+'"}}\n\n'
+      +'명령: 내일 오후 2시 물리 보고서 추가\n'
+      +'{"action":"add","summary":"물리 보고서 추가","items":[{"text":"물리 보고서","catId":"uni","date":"'+todayStr+'","timeStart":"14:00"}]}\n\n'
       +'---\n'
       +'오늘: '+todayStr+'('+dow+') | 카테고리: '+catStr+'\n'
       +'시간표:\n'+(ttStr||'없음')+'\n\n'
+      +'할일 목록:\n'+taskNames+'\n\n'
       +'명령: '+text;
 
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -16991,82 +17145,56 @@ async function meAiSubmit(){
       body:JSON.stringify({
         model:'llama-3.3-70b-versatile',
         messages:[{role:'user', content:PROMPT}],
-        max_tokens:800, temperature:0.0
+        max_tokens:600, temperature:0.0
       })
     });
     var data = await res.json();
     if (!data.choices) throw new Error(JSON.stringify(data).slice(0,200));
     var raw = data.choices[0].message.content.trim();
 
-    // JSON 파싱 (마크다운 코드블록 대응)
+    // JSON 파싱
     var jm = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
     var jsonStr = jm ? jm[1].trim() : raw;
     var bm = jsonStr.match(/\{[\s\S]*\}/);
     if (!bm) throw new Error('파싱 실패: '+raw.slice(0,100));
     var parsed = JSON.parse(bm[0]);
-    if (!parsed.code) throw new Error('코드 생성 실패');
+    if (!parsed.action) throw new Error('action 없음');
     _meAiParsed = parsed;
 
-    // action 추정
-    var code = parsed.code;
-    var action =
-      (code.indexOf('taskItems=taskItems.filter')>=0||code.indexOf('taskItems = taskItems.filter')>=0) ? 'delete'
-      : (code.indexOf('.unshift(')>=0||code.indexOf('.push(')>=0) ? 'add'
-      : code.indexOf('.done=true')>=0 ? 'done'
-      : code.indexOf('.done=false')>=0 ? 'undone' : 'update';
-
-    // dry-run: taskItems를 임시 교체 후 실행 → diff 계산
-    var affected = [];
-    try {
-      var _realItems = taskItems;
-      var snap = JSON.parse(JSON.stringify(taskItems));
-      // taskItems를 복사본으로 임시 교체
-      taskItems = JSON.parse(JSON.stringify(taskItems));
-      // eval로 실행 (전역 taskItems 변경됨)
-      var _dr_saveData=saveTaskData, _dr_render=renderTaskTab, _dr_toast=showToast;
-      saveTaskData=function(){}; renderTaskTab=function(){}; showToast=function(){};
-      eval(code);
-      saveTaskData=_dr_saveData; renderTaskTab=_dr_render; showToast=_dr_toast;
-      var afterArr = taskItems; // 변경된 복사본
-      taskItems = _realItems;  // 원본 복원
-      if (action==='delete') {
-        var afterIds = new Set(afterArr.map(function(t){return t.id;}));
-        affected = snap.filter(function(t){return !afterIds.has(t.id);});
-      } else if (action==='add') {
-        var beforeIds = new Set(snap.map(function(t){return t.id;}));
-        affected = afterArr.filter(function(t){return !beforeIds.has(t.id);});
-      } else {
-        var snapMap = {}; snap.forEach(function(t){snapMap[t.id]=t;});
-        affected = afterArr.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
-      }
-    } catch(e2){
-      if (typeof _realItems!=='undefined') taskItems=_realItems;
-      if (typeof _dr_saveData!=='undefined'){saveTaskData=_dr_saveData;renderTaskTab=_dr_render;showToast=_dr_toast;}
-      console.warn('dry-run:', e2.message);
+    // 미리보기: _aiApplyFilter로 영향 항목 계산 (실제 변경 없음)
+    var previewItems = [];
+    if (parsed.action === 'add' && parsed.items) {
+      previewItems = parsed.items; // 추가될 항목들
+    } else if (parsed.filter) {
+      previewItems = _aiApplyFilter(parsed.filter);
     }
 
-    // 미리보기 UI
-    var isDel=action==='delete', isAdd=action==='add';
-    var aColor = isDel?'#ef4444':isAdd?'#22c55e':action==='done'?'#22c55e':'var(--accent)';
-    var btnLabel = isDel?'🗑 '+affected.length+'개 삭제'
-      :isAdd?'✦ '+affected.length+'개 추가'
-      :action==='done'?'✓ '+affected.length+'개 완료'
-      :action==='undone'?'↩ '+affected.length+'개 미완료'
-      :'✎ '+affected.length+'개 수정';
+    var action = parsed.action;
+    var isDel = action==='delete';
+    var isAdd = action==='add';
+    var isDone = action==='done';
+    var aColor = isDel?'#ef4444' : isAdd?'#22c55e' : isDone?'#22c55e' : action==='undone'?'#f59e0b' : 'var(--accent)';
+    var btnLabel = isDel ? '🗑 '+previewItems.length+'개 삭제'
+      : isAdd ? '✦ '+previewItems.length+'개 추가'
+      : isDone ? '✓ '+previewItems.length+'개 완료'
+      : action==='undone' ? '↩ '+previewItems.length+'개 미완료'
+      : '✎ '+previewItems.length+'개 수정';
 
+    // 항목 목록 HTML
     var listHtml = '';
-    if (affected.length > 0) {
+    if (previewItems.length > 0) {
       listHtml = '<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
         +'<div style="padding:6px 10px;font-size:11px;font-weight:700;color:'+aColor
-        +';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')
+        +';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':isDone?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')
         +';position:sticky;top:0">'
-        +(isDel?'🗑 삭제될 항목':isAdd?'✦ 추가될 항목':'✎ 변경될 항목')+' — '+affected.length+'개</div>'
+        +(isDel?'🗑 삭제될 항목':isAdd?'✦ 추가될 항목':isDone?'✓ 완료될 항목':'✎ 변경될 항목')
+        +' — '+previewItems.length+'개</div>'
         +'<div style="max-height:300px;overflow-y:auto">'
-        +affected.map(function(t){
-          if(!t||typeof t!=='object')return '';
-          var cat=taskCats.find(function(c){return c.id===(t.catId||'');});
+        +previewItems.map(function(t){
+          if (!t||typeof t!=='object') return '';
+          var cat = taskCats.find(function(c){return c.id===(t.catId||'');});
           return '<div style="padding:7px 10px;border-top:1px solid var(--border-subtle);font-size:12px;display:flex;gap:8px;align-items:center">'
-            +(isDel?'<span style="color:#ef4444;flex-shrink:0">✕</span>':isAdd?'<span style="color:#22c55e;flex-shrink:0">+</span>':'')
+            +(isDel?'<span style="color:#ef4444;flex-shrink:0">✕</span>':isAdd?'<span style="color:#22c55e;flex-shrink:0">+</span>':isDone?'<span style="color:#22c55e;flex-shrink:0">✓</span>':'')
             +(isDel?'<s style="flex:1;min-width:0;opacity:.5">'+esc(t.text||'')+'</s>':'<b style="flex:1;min-width:0">'+esc(t.text||'')+'</b>')
             +(t.date?'<span style="color:var(--fg3);font-size:11px">'+t.date+'</span>':'')
             +(t.timeStart?'<span style="color:var(--fg3);font-size:11px">'+t.timeStart+'</span>':'')
@@ -17074,16 +17202,15 @@ async function meAiSubmit(){
             +(t.priority==='high'?'<span>🔴</span>':t.priority==='mid'?'<span>🟡</span>':t.priority==='low'?'<span>🟢</span>':'')
             +'</div>';
         }).join('')+'</div></div>';
+    } else {
+      listHtml = '<div style="font-size:12px;color:var(--fg3);padding:6px 0">해당하는 항목 없음</div>';
     }
 
     preview.innerHTML = '<div class="me-ai-preview">'
       +'<div class="me-ai-preview-title" style="color:'+aColor+'">✦ '+esc(parsed.summary||'')+'</div>'
       +listHtml
-      +(affected.length===0?'<div style="font-size:12px;color:var(--fg3);padding:4px 0">실행 전 미리보기 없음</div>':'')
-      +'<details style="margin:6px 0 2px;font-size:11px;color:var(--fg3)"><summary style="cursor:pointer">코드 보기</summary>'
-      +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap;max-height:160px">'+esc(parsed.code)+'</pre></details>'
       +'<div class="me-ai-preview-actions">'
-      +(parsed.code?'<button class="me-ai-confirm-btn" style="background:'+aColor+'" onclick="meAiConfirm()">'+btnLabel+'</button>':'')
+      +(previewItems.length>0||isAdd ? '<button class="me-ai-confirm-btn" style="background:'+aColor+'" onclick="meAiConfirm()">'+btnLabel+'</button>' : '')
       +'<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
       +'</div></div>';
 
@@ -17092,7 +17219,7 @@ async function meAiSubmit(){
     if (msg.indexOf('Rate limit')>=0||msg.indexOf('TPM')>=0||msg.indexOf('too large')>=0)
       msg = '잠시 후 다시 시도해줘.';
     if (preview) preview.innerHTML='<div class="me-ai-preview">'
-      +'<div style="font-size:12px;color:#ef4444;padding:4px 0;white-space:pre-wrap">⚠ '+esc(msg)+'</div>'
+      +'<div style="font-size:12px;color:#ef4444;padding:4px 0">⚠ '+esc(msg)+'</div>'
       +'<div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div>'
       +'</div>';
     console.error('AI:', e);
@@ -17102,24 +17229,25 @@ async function meAiSubmit(){
 }
 
 function meAiConfirm(){
-  if (!_meAiParsed||!_meAiParsed.code) return;
+  if (!_meAiParsed) return;
   try {
-    // eval로 실행 → 전역 taskItems 직접 변경됨
-    eval(_meAiParsed.code);
+    _aiExecute(_meAiParsed); // 앱 내장 함수로 직접 처리
     meAiCancel();
   } catch(e) {
     showToast('실행 오류: '+e.message);
-    console.error('exec:', e, '\nCode:', _meAiParsed.code);
+    console.error('confirm err:', e);
   }
 }
 
 function meAiCancel(){
-  var inp=document.getElementById('meAiTaskInp');
-  var prev=document.getElementById('meAiPreview');
-  if(inp)inp.value='';
-  if(prev){prev.style.display='none';prev.innerHTML='';}
-  _meAiParsed=null;
+  var inp = document.getElementById('meAiTaskInp');
+  var prev = document.getElementById('meAiPreview');
+  if (inp) inp.value = '';
+  if (prev) { prev.style.display='none'; prev.innerHTML=''; }
+  _meAiParsed = null;
 }
+
+
 
 
 
