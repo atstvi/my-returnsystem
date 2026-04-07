@@ -12082,7 +12082,8 @@ function _applyFirebaseData(d, force){
   }
 
   // ── Notion 설정 (기기간 공유) ──
-  if(d.notionConfig && d.notionConfig !== '{}'){
+  // notion_disabled 플래그가 있으면 Firebase에서 복원하지 않음
+  if(d.notionConfig && d.notionConfig !== '{}' && !localStorage.getItem('notion_disabled')){
     try {
       localStorage.setItem('notion_config', d.notionConfig);
       notionCfg = JSON.parse(d.notionConfig);
@@ -13270,7 +13271,7 @@ function saveNotionConfig() {
   const autoInterval = parseInt(document.getElementById('notionAutoSyncInterval')?.value || '0');
 
   notionCfg = { ...notionCfg, workerUrl, token, mappings, propNames, autoInterval };
-  localStorage.setItem('notion_config', JSON.stringify(notionCfg));
+  localStorage.removeItem('notion_disabled'); localStorage.setItem('notion_config', JSON.stringify(notionCfg));
   updateNotionBadge();
   _updateNotionStatusPanel();
   _startNotionAutoSync(autoInterval);
@@ -13285,6 +13286,8 @@ function clearNotionConfig() {
   if (backup && backup !== '{}') localStorage.setItem('_hidden_notion_config', backup);
   notionCfg = {};
   localStorage.setItem('notion_config', '{}');
+  // 해제 플래그 저장 → Firebase 동기화 시 덮어씌우기 방지
+  localStorage.setItem('notion_disabled', '1');
   updateNotionBadge && updateNotionBadge();
   initNotionSettings && initNotionSettings();
   showToast('연동 해제됐어 (설정 보존됨 — 설정탭에서 다시 활성화 가능)');
@@ -13292,7 +13295,8 @@ function clearNotionConfig() {
 
 function restoreNotionConfig() {
   var backup = localStorage.getItem('_hidden_notion_config');
-  if (!backup || backup === '{}') { showToast('저장된 Notion 설정 없음'); return; }
+  if (!backup || backup === '{}') { localStorage.removeItem('notion_disabled');
+  showToast('저장된 Notion 설정 없음'); return; }
   localStorage.setItem('notion_config', backup);
   notionCfg = JSON.parse(backup);
   initNotionSettings && initNotionSettings();
@@ -17215,14 +17219,14 @@ async function meAiSubmit(){
       +'</div></div>';
 
   } catch(e) {
-    var msg = e.message||'오류';
-    if (msg.indexOf('Rate limit')>=0||msg.indexOf('TPM')>=0||msg.indexOf('too large')>=0)
-      msg = '잠시 후 다시 시도해줘.';
+    var msg = e.message||'알 수 없는 오류';
+    console.error('AI 오류 전체:', e);
+    // Rate limit이면 실제 메시지 보여줌
     if (preview) preview.innerHTML='<div class="me-ai-preview">'
-      +'<div style="font-size:12px;color:#ef4444;padding:4px 0">⚠ '+esc(msg)+'</div>'
+      +'<div style="font-size:12px;color:#ef4444;padding:4px 0;white-space:pre-wrap">⚠ '+esc(msg)+'</div>'
+      +'<div style="font-size:10px;color:var(--fg3);margin-top:4px">브라우저 콘솔(F12)에서 자세한 오류 확인 가능</div>'
       +'<div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div>'
       +'</div>';
-    console.error('AI:', e);
   } finally {
     if (btn) { btn.disabled=false; btn.textContent='실행'; }
   }
@@ -17978,96 +17982,262 @@ function renderTimeGrid(){
 }
 // ═══ 가로 타임블록 ═══
 var _htbDate=null;
+var HTB_HW=64;
+
 function meHtbInit(){_htbDate=null;meHtbRender();}
 function _htbKey(d){var dt=d||new Date();return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0');}
-function meHtbSetDate(dk){_htbDate=dk;var t=_htbKey(new Date());var b=document.getElementById('meHtbDateBtn');if(b)b.textContent=(!dk||dk===t)?'오늘':dk.slice(5).replace('-','/');var dp=document.getElementById('meHtbDatePicker');if(dp)dp.style.display='none';meHtbRender();}
+function _htbMins(s){var p=(s||'00:00').split(':');return parseInt(p[0]||0)*60+parseInt(p[1]||0);}
+function _htbTime(m){var h=Math.floor(m/60),mi=Math.round(m%60);if(mi>=60){h++;mi=0;}return String(h).padStart(2,'0')+':'+String(mi).padStart(2,'0');}
+
+function meHtbSetDate(dk){
+  _htbDate=dk;
+  var today=_htbKey(new Date());
+  var btn=document.getElementById('meHtbDateBtn');
+  if(btn)btn.textContent=(!dk||dk===today)?'오늘':dk.slice(5).replace('-','/');
+  var dp=document.getElementById('meHtbDatePicker');
+  if(dp)dp.style.display='none';
+  meHtbRender();
+}
 function meHtbFromTg(dk){meHtbSetDate(dk);}
-function meHtbPickDate(){var dp=document.getElementById('meHtbDatePicker');if(!dp)return;if(dp.style.display!=='none'){dp.style.display='none';return;}var sel=_htbDate?new Date(_htbDate+'T00:00'):new Date();dp._y=sel.getFullYear();dp._m=sel.getMonth();_htbBuildCal(dp,_htbKey(new Date()));dp.style.display='block';setTimeout(function(){document.addEventListener('click',function _hc(e){var dp2=document.getElementById('meHtbDatePicker');if(dp2&&!dp2.contains(e.target)&&e.target.id!=='meHtbDateBtn'){dp2.style.display='none';document.removeEventListener('click',_hc);}});},50);}
-function _htbBuildCal(dp,todayKey){var y=dp._y,m=dp._m,sel=_htbDate||todayKey,dim=new Date(y,m+1,0).getDate(),sdow=(new Date(y,m,1).getDay()+6)%7;var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><button class="htb-cp" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--fg2);padding:2px 6px">‹</button><span style="font-size:12px;font-weight:700">'+y+'년 '+(m+1)+'월</span><button class="htb-cn" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--fg2);padding:2px 6px">›</button></div><div style="display:grid;grid-template-columns:repeat(7,28px);gap:1px;text-align:center">';['월','화','수','목','금','토','일'].forEach(function(d){h+='<div style="font-size:9px;font-weight:700;color:var(--fg3);padding:2px 0">'+d+'</div>';});for(var i=0;i<sdow;i++)h+='<div></div>';for(var d2=1;d2<=dim;d2++){var dk=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d2).padStart(2,'0');var isSel=dk===sel,isT=dk===todayKey;h+='<button data-dk="'+dk+'" class="htb-cd" style="width:26px;height:22px;padding:0;font-size:11px;border:none;cursor:pointer;border-radius:4px;'+(isSel?'background:var(--accent);color:#fff;font-weight:700':isT?'color:var(--accent);font-weight:700;background:rgba(108,99,255,.1)':'background:none;color:var(--fg)')+'">'+d2+'</button>';}h+='</div><button class="htb-ct" style="width:100%;margin-top:8px;padding:5px;border-radius:var(--r-pill);background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:11px">오늘</button>';dp.innerHTML=h;dp.onclick=function(e){var b=e.target.closest?e.target.closest('button'):e.target;if(!b)return;e.stopPropagation();var cn=b.className||'';if(cn.indexOf('htb-cd')>=0)meHtbSetDate(b.getAttribute('data-dk'));else if(cn.indexOf('htb-cp')>=0){dp._m--;if(dp._m<0){dp._m=11;dp._y--;}_htbBuildCal(dp,_htbKey(new Date()));}else if(cn.indexOf('htb-cn')>=0){dp._m++;if(dp._m>11){dp._m=0;dp._y++;}_htbBuildCal(dp,_htbKey(new Date()));}else if(cn.indexOf('htb-ct')>=0)meHtbSetDate(_htbKey(new Date()));};}
-function meHtbRender(){var canvas=document.getElementById('meHtbCanvas'),scroll=document.getElementById('meHtbScroll');if(!canvas||!scroll)return;var dateKey=_htbDate||_htbKey(new Date()),now=new Date(),todayKey=_htbKey(now),isToday=dateKey===todayKey;var items=(taskItems||[]).filter(function(t){return t.date===dateKey&&t.timeStart&&!t.done;}).sort(function(a,b){return(a.timeStart||'')<(b.timeStart||'')?-1:1;});var dpr=window.devicePixelRatio||1,HW=64,LH=22,BH=64,W=HW*24,H=LH+BH;canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';scroll.style.height=H+'px';var ctx=canvas.getContext('2d');ctx.scale(dpr,dpr);ctx.clearRect(0,0,W,H);for(var h=0;h<24;h++){var x=h*HW;ctx.strokeStyle=h%6===0?'rgba(128,128,128,.2)':'rgba(128,128,128,.07)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,H);ctx.stroke();if(h%3===0){ctx.font='600 10px sans-serif';ctx.textAlign='center';ctx.fillStyle='rgba(128,128,128,.5)';ctx.fillText(h+':00',x+HW/2,14);}}if(isToday){var nm=now.getHours()*60+now.getMinutes(),nx=(nm/60)*HW;ctx.strokeStyle='#6c63ff';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(nx,0);ctx.lineTo(nx,H);ctx.stroke();ctx.fillStyle='#6c63ff';ctx.font='700 9px sans-serif';ctx.textAlign='center';ctx.fillText(now.getHours()+':'+String(now.getMinutes()).padStart(2,'0'),nx,10);}items.forEach(function(t){var sp=(t.timeStart||'00:00').split(':'),sm=parseInt(sp[0]||0)*60+parseInt(sp[1]||0),em=sm+60;if(t.timeEnd){var ep=t.timeEnd.split(':');em=parseInt(ep[0]||0)*60+parseInt(ep[1]||0);if(em<=sm)em=sm+60;}var bx=(sm/60)*HW+1,bw=Math.max(((em-sm)/60)*HW-2,12);var cat=(taskCats||[]).find(function(cc){return cc.id===t.catId;});var col=cat?cat.color:'#6c63ff';ctx.fillStyle=col+'22';ctx.beginPath();if(ctx.roundRect)ctx.roundRect(bx,LH+3,bw,BH-6,6);else ctx.rect(bx,LH+3,bw,BH-6);ctx.fill();ctx.fillStyle=col;ctx.beginPath();if(ctx.roundRect)ctx.roundRect(bx,LH+3,3,BH-6,[3,0,0,3]);else ctx.rect(bx,LH+3,3,BH-6);ctx.fill();ctx.save();ctx.beginPath();ctx.rect(bx+5,LH+4,bw-7,BH-8);ctx.clip();ctx.fillStyle=col;ctx.font='600 10px sans-serif';ctx.textAlign='left';ctx.fillText((t.text||'').slice(0,14),bx+6,LH+17);ctx.fillStyle='rgba(128,128,128,.65)';ctx.font='500 9px sans-serif';ctx.fillText(t.timeStart+(t.timeEnd?' ~ '+t.timeEnd:''),bx+6,LH+30);ctx.restore();});if(!items.length){ctx.font='500 11px sans-serif';ctx.textAlign='center';ctx.fillStyle='rgba(128,128,128,.3)';ctx.fillText('시간 설정된 할일 없음',W/2,LH+BH/2+4);}if(isToday){var nm2=now.getHours()*60+now.getMinutes();scroll.scrollLeft=Math.max(0,(nm2/60)*HW-scroll.clientWidth/2);}canvas.onclick=function(e){var rect=canvas.getBoundingClientRect(),cx=(e.clientX-rect.left)+scroll.scrollLeft,cm=(cx/HW)*60;var hit=items.find(function(t){var s2=(t.timeStart||'00:00').split(':'),sm2=parseInt(s2[0])*60+parseInt(s2[1]||0),e2=t.timeEnd?t.timeEnd.split(':'):null,em2=e2?parseInt(e2[0])*60+parseInt(e2[1]||0):sm2+60;return cm>=sm2&&cm<=em2;});if(hit){var i=taskItems.findIndex(function(x){return x.id===hit.id;});if(i>=0)openTaskItemEdit(i);}};}
 
-
-function toggleInboxNotif(enabled){
-  localStorage.setItem('inbox_notif_enabled', enabled?'1':'0');
-  if(enabled){ requestNotifAndStart&&requestNotifAndStart(); }
-  else { if(window._notifInterval){ clearInterval(window._notifInterval); window._notifInterval=null; } showToast('인박스 알림 OFF'); }
-  updateNotifBadge&&updateNotifBadge();
-}
-function _loadInboxNotifToggle(){
-  var chk=document.getElementById('inboxNotifToggle');
-  if(chk) chk.checked=localStorage.getItem('inbox_notif_enabled')!=='0';
-}
-
-function _getTaskDateRange(t){
-  if(!t.date||!t.dateEnd||t.dateEnd<=t.date) return [t.date].filter(Boolean);
-  var dates=[]; var cur=new Date(t.date+'T00:00'); var end=new Date(t.dateEnd+'T00:00');
-  while(cur<=end){ dates.push(cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0')); cur.setDate(cur.getDate()+1); if(dates.length>90) break; }
-  return dates;
+function meHtbPickDate(){
+  var dp=document.getElementById('meHtbDatePicker');
+  if(!dp)return;
+  if(dp.style.display!=='none'){dp.style.display='none';return;}
+  var today=_htbKey(new Date());
+  var sel=_htbDate?new Date(_htbDate+'T00:00'):new Date();
+  dp._y=sel.getFullYear();dp._m=sel.getMonth();
+  _htbBuildCal(dp,today);dp.style.display='block';
+  setTimeout(function(){
+    document.addEventListener('click',function _hc(e){
+      var dp2=document.getElementById('meHtbDatePicker');
+      if(dp2&&!dp2.contains(e.target)&&e.target.id!=='meHtbDateBtn'){dp2.style.display='none';document.removeEventListener('click',_hc);}
+    });
+  },50);
 }
 
-function tieOpenDateEnd(itemId, realIdx, btn) {
-  var t = taskItems[realIdx];
-  if (!t || String(t.id) !== String(itemId)) {
-    t = taskItems.find(function(x){ return String(x.id)===String(itemId); });
-    realIdx = taskItems.indexOf(t);
+function _htbBuildCal(dp,todayKey){
+  var y=dp._y,m=dp._m,sel=_htbDate||todayKey,dim=new Date(y,m+1,0).getDate(),sdow=(new Date(y,m,1).getDay()+6)%7;
+  var h='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><button class="htb-cp" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--fg2);padding:2px 6px">‹</button><span style="font-size:12px;font-weight:700">'+y+'년 '+(m+1)+'월</span><button class="htb-cn" style="background:none;border:none;cursor:pointer;font-size:16px;color:var(--fg2);padding:2px 6px">›</button></div><div style="display:grid;grid-template-columns:repeat(7,28px);gap:1px;text-align:center">';
+  ['월','화','수','목','금','토','일'].forEach(function(d){h+='<div style="font-size:9px;font-weight:700;color:var(--fg3);padding:2px 0">'+d+'</div>';});
+  for(var i=0;i<sdow;i++)h+='<div></div>';
+  for(var d2=1;d2<=dim;d2++){
+    var dk=y+'-'+String(m+1).padStart(2,'0')+'-'+String(d2).padStart(2,'0');
+    var isSel=dk===sel,isT=dk===todayKey;
+    h+='<button data-dk="'+dk+'" class="htb-cd" style="width:26px;height:22px;padding:0;font-size:11px;border:none;cursor:pointer;border-radius:4px;'+(isSel?'background:var(--accent);color:#fff;font-weight:700':isT?'color:var(--accent);font-weight:700;background:rgba(108,99,255,.1)':'background:none;color:var(--fg)')+'">'+d2+'</button>';
   }
-  if (!t) return;
-  tieClosePickers();
-  var init = t.dateEnd ? new Date(t.dateEnd+'T00:00') : (t.date ? new Date(t.date+'T00:00') : new Date());
-  _tieDpMonth = new Date(init.getFullYear(), init.getMonth(), 1);
-  var dp = document.createElement('div');
-  dp.className = 'tie-datepicker';
-  dp.setAttribute('data-tie-trigger','1');
-  dp.onclick = function(e){ e.stopPropagation(); };
-  function renderDp() {
-    var year=_tieDpMonth.getFullYear(), month=_tieDpMonth.getMonth();
-    var firstDay=new Date(year,month,1).getDay();
-    var daysInMonth=new Date(year,month+1,0).getDate();
-    var today=new Date(); today.setHours(0,0,0,0);
-    var startDate = t.date ? new Date(t.date+'T00:00') : null;
-    var html='<div class="tie-dp-head">'
-      +'<button onclick="event.stopPropagation();_tieDpMonth=new Date('+(year)+','+(month-1)+',1);this.closest(\'.tie-datepicker\').dispatchEvent(new Event(\'_rerender\'))">‹</button>'
-      +'<span>'+year+'.'+String(month+1).padStart(2,'0')+'</span>'
-      +'<button onclick="event.stopPropagation();_tieDpMonth=new Date('+(year)+','+(month+1)+',1);this.closest(\'.tie-datepicker\').dispatchEvent(new Event(\'_rerender\'))">›</button>'
-      +'</div><div class="tie-dp-grid">';
-    ['일','월','화','수','목','금','토'].forEach(function(d){ html+='<div class="tie-dp-dow">'+d+'</div>'; });
-    for(var i=0;i<firstDay;i++) html+='<div></div>';
-    for(var d=1;d<=daysInMonth;d++){
-      var dk=year+'-'+String(month+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-      var isEnd=t.dateEnd===dk, isToday=new Date(year,month,d).getTime()===today.getTime();
-      var isDisabled=startDate&&new Date(year,month,d)<startDate;
-      html+='<div class="tie-dp-day'+(isEnd?' sel':'')+(isToday?' today':'')+(isDisabled?' disabled':'')+'"'+(isDisabled?' style="opacity:.3;pointer-events:none"':'')+'>'
-        +'<span onclick="event.stopPropagation();tieSetDateEnd(\''+itemId+'\','+realIdx+',\''+dk+'\')">'+d+'</span></div>';
+  h+='</div><button class="htb-ct" style="width:100%;margin-top:8px;padding:5px;border-radius:var(--r-pill);background:var(--accent);color:#fff;border:none;cursor:pointer;font-size:11px">오늘</button>';
+  dp.innerHTML=h;
+  dp.onclick=function(e){
+    var b=e.target.closest?e.target.closest('button'):e.target;
+    if(!b)return;e.stopPropagation();
+    var cn=b.className||'';
+    if(cn.indexOf('htb-cd')>=0)meHtbSetDate(b.getAttribute('data-dk'));
+    else if(cn.indexOf('htb-cp')>=0){dp._m--;if(dp._m<0){dp._m=11;dp._y--;}_htbBuildCal(dp,_htbKey(new Date()));}
+    else if(cn.indexOf('htb-cn')>=0){dp._m++;if(dp._m>11){dp._m=0;dp._y++;}_htbBuildCal(dp,_htbKey(new Date()));}
+    else if(cn.indexOf('htb-ct')>=0)meHtbSetDate(_htbKey(new Date()));
+  };
+}
+
+function meHtbRender(){
+  var tl=document.getElementById('meHtbTimeline');
+  var scroll=document.getElementById('meHtbScroll');
+  var alldayEl=document.getElementById('meHtbAlldayItems');
+  if(!tl||!scroll||!alldayEl)return;
+
+  var dateKey=_htbDate||_htbKey(new Date());
+  var now=new Date(),todayKey=_htbKey(now),isToday=dateKey===todayKey;
+  var HW=HTB_HW, W=HW*24;
+  tl.style.width=W+'px';
+  tl.innerHTML='';
+  alldayEl.innerHTML='';
+
+  // 시간 눈금
+  for(var h=0;h<24;h++){
+    var x=h*HW;
+    var hd=document.createElement('div');
+    hd.className='me-htb-hour'+(h%3===0?' major':'');
+    hd.style.left=x+'px';
+    tl.appendChild(hd);
+    if(h%3===0){
+      var lb=document.createElement('div');
+      lb.className='me-htb-hour-label';
+      lb.style.left=x+'px';
+      lb.textContent=h+':00';
+      tl.appendChild(lb);
     }
-    html+='</div>';
-    dp.innerHTML=html;
   }
-  renderDp();
-  dp.addEventListener('_rerender', renderDp);
-  btn.parentNode.appendChild(dp);
-  _tieActiveDp = dp;
-}
 
-function tieSetDateEnd(itemId, realIdx, dateKey) {
-  var t = taskItems[realIdx];
-  if (!t || String(t.id) !== String(itemId)) {
-    t = taskItems.find(function(x){ return String(x.id)===String(itemId); });
-    realIdx = taskItems.indexOf(t);
+  // 현재 시각선
+  if(isToday){
+    var nm=now.getHours()*60+now.getMinutes();
+    var nd=document.createElement('div');
+    nd.className='me-htb-now';
+    nd.style.left=(nm/60)*HW+'px';
+    nd.setAttribute('data-time',now.getHours()+':'+String(now.getMinutes()).padStart(2,'0'));
+    tl.appendChild(nd);
   }
-  if (!t) return;
-  t.dateEnd = dateKey || '';
-  t.updatedAt = Date.now();
-  saveTaskData();
-  renderTaskCal();
-  tieClosePickers();
-  var deBtn = document.getElementById('tiede-'+itemId);
-  if (deBtn) {
-    deBtn.textContent = dateKey || '종료일';
-    if (dateKey) { deBtn.classList.add('sel'); deBtn.style.borderColor='rgba(108,99,255,.3)'; deBtn.style.color='var(--accent)'; }
-    else { deBtn.classList.remove('sel'); deBtn.style.borderColor=''; deBtn.style.color=''; }
+
+  // 할일 분류
+  var allItems=(taskItems||[]).filter(function(t){return t.date===dateKey&&!t.done;});
+  var timedItems=allItems.filter(function(t){return !!t.timeStart;}).sort(function(a,b){return(a.timeStart||'')<(b.timeStart||'')?-1:1;});
+  var alldayItems=allItems.filter(function(t){return !t.timeStart;});
+
+  // All-day 항목
+  if(alldayItems.length===0){
+    alldayEl.innerHTML='<span style="font-size:10px;color:var(--fg3);padding:3px 0">없음</span>';
+  } else {
+    alldayItems.forEach(function(t){
+      var cat=(taskCats||[]).find(function(c){return c.id===t.catId;});
+      var col=cat?cat.color:'#6c63ff';
+      var chip=document.createElement('div');
+      chip.className='me-htb-allday-chip';
+      chip.style.cssText='background:'+col+'22;color:'+col+';border:1px solid '+col+'44;';
+      chip.textContent=(t.text||'').slice(0,18);
+      chip.title=t.text+' (드래그해서 시간 지정)';
+      chip.onclick=function(){var i=taskItems.findIndex(function(x){return x.id===t.id;});if(i>=0)openTaskItemEdit(i);};
+      // allday chip → 타임라인으로 드래그해서 시간 부여
+      chip.addEventListener('mousedown',function(e){
+        if(e.button!==0)return;
+        e.preventDefault();
+        var ghost=chip.cloneNode(true);
+        ghost.style.cssText+='position:fixed;pointer-events:none;z-index:9999;opacity:.8;';
+        document.body.appendChild(ghost);
+        function onMove(e2){
+          ghost.style.left=(e2.clientX-chip.offsetWidth/2)+'px';
+          ghost.style.top=(e2.clientY-12)+'px';
+        }
+        function onUp(e2){
+          document.removeEventListener('mousemove',onMove);
+          document.removeEventListener('mouseup',onUp);
+          ghost.remove();
+          var rect=scroll.getBoundingClientRect();
+          if(e2.clientY>=rect.top&&e2.clientY<=rect.bottom){
+            var relX=e2.clientX-rect.left+scroll.scrollLeft;
+            var mins=Math.round((relX/HW)*60/15)*15;
+            mins=Math.max(0,Math.min(mins,23*60));
+            var i=taskItems.findIndex(function(x){return x.id===t.id;});
+            if(i>=0){
+              taskItems[i].timeStart=_htbTime(mins);
+              taskItems[i].timeEnd=_htbTime(mins+60);
+              taskItems[i].updatedAt=Date.now();
+              saveTaskData();meHtbRender();
+            }
+          }
+        }
+        document.addEventListener('mousemove',onMove);
+        document.addEventListener('mouseup',onUp);
+      });
+      alldayEl.appendChild(chip);
+    });
   }
-  if (typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl) _pushToNotion(t).catch(function(){});
-  showToast(dateKey ? '종료날짜 설정됨' : '종료날짜 해제됨');
+
+  // 드롭 표시선
+  var dl=document.createElement('div');
+  dl.id='htbDropLine';
+  dl.className='me-htb-drop-line';
+  tl.appendChild(dl);
+
+  // 시간 블록
+  timedItems.forEach(function(t){
+    var sm=_htbMins(t.timeStart);
+    var em=t.timeEnd?_htbMins(t.timeEnd):sm+60;
+    if(em<=sm)em=sm+60;
+    var cat=(taskCats||[]).find(function(c){return c.id===t.catId;});
+    var col=cat?cat.color:'#6c63ff';
+    var bx=(sm/60)*HW, bw=Math.max(((em-sm)/60)*HW-2,20);
+
+    var blk=document.createElement('div');
+    blk.className='me-htb-block';
+    blk.style.cssText='left:'+bx+'px;width:'+bw+'px;background:'+col+'1a;border:1px solid '+col+'44;';
+    blk.innerHTML='<div class="me-htb-block-bar" style="background:'+col+'"></div>'
+      +'<div class="me-htb-block-text" style="color:'+col+'">'+(t.text||'').slice(0,18)+'</div>'
+      +'<div class="me-htb-block-time">'+t.timeStart+(t.timeEnd?' ~ '+t.timeEnd:'')+'</div>'
+      +'<div class="me-htb-block-resize" title="드래그해서 시간 조정"></div>';
+
+    // 이동 드래그
+    blk.addEventListener('mousedown',function(e){
+      if(e.target.classList.contains('me-htb-block-resize'))return;
+      if(e.button!==0)return;
+      e.preventDefault();
+      var startX=e.clientX, origSm=sm, origEm=em, moved=false;
+      blk.classList.add('dragging');
+      function onMove(e2){
+        var dx=e2.clientX-startX;
+        if(!moved&&Math.abs(dx)>4)moved=true;
+        if(!moved)return;
+        var dMin=Math.round((dx/HW)*60/5)*5;
+        var dur=origEm-origSm;
+        var newSm=Math.max(0,Math.min(origSm+dMin,24*60-dur));
+        var newEm=newSm+dur;
+        blk.style.left=(newSm/60)*HW+'px';
+        var dl2=document.getElementById('htbDropLine');
+        if(dl2){dl2.style.left=(newSm/60)*HW+'px';dl2.style.display='block';}
+        blk._ns=newSm;blk._ne=newEm;
+      }
+      function onUp(){
+        document.removeEventListener('mousemove',onMove);
+        document.removeEventListener('mouseup',onUp);
+        blk.classList.remove('dragging');
+        var dl2=document.getElementById('htbDropLine');
+        if(dl2)dl2.style.display='none';
+        if(!moved){
+          var i=taskItems.findIndex(function(x){return x.id===t.id;});
+          if(i>=0)openTaskItemEdit(i);
+          return;
+        }
+        if(blk._ns!==undefined){
+          var i=taskItems.findIndex(function(x){return x.id===t.id;});
+          if(i>=0){
+            taskItems[i].timeStart=_htbTime(blk._ns);
+            taskItems[i].timeEnd=_htbTime(blk._ne);
+            taskItems[i].updatedAt=Date.now();
+            saveTaskData();meHtbRender();
+          }
+        }
+      }
+      document.addEventListener('mousemove',onMove);
+      document.addEventListener('mouseup',onUp);
+    });
+
+    // 리사이즈 (오른쪽 핸들)
+    blk.querySelector('.me-htb-block-resize').addEventListener('mousedown',function(e){
+      e.preventDefault();e.stopPropagation();
+      var startX=e.clientX, origEm2=em;
+      blk.classList.add('dragging');
+      var timeEl=blk.querySelector('.me-htb-block-time');
+      function onMove(e2){
+        var dMin=Math.round(((e2.clientX-startX)/HW)*60/5)*5;
+        var newEm2=Math.max(sm+15,Math.min(origEm2+dMin,24*60));
+        blk.style.width=Math.max(((newEm2-sm)/60)*HW-2,20)+'px';
+        if(timeEl)timeEl.textContent=t.timeStart+' ~ '+_htbTime(newEm2);
+        blk._ne2=newEm2;
+      }
+      function onUp(){
+        document.removeEventListener('mousemove',onMove);
+        document.removeEventListener('mouseup',onUp);
+        blk.classList.remove('dragging');
+        if(blk._ne2!==undefined&&blk._ne2!==em){
+          var i=taskItems.findIndex(function(x){return x.id===t.id;});
+          if(i>=0){
+            taskItems[i].timeEnd=_htbTime(blk._ne2);
+            taskItems[i].updatedAt=Date.now();
+            saveTaskData();meHtbRender();
+          }
+        }
+      }
+      document.addEventListener('mousemove',onMove);
+      document.addEventListener('mouseup',onUp);
+    });
+
+    tl.appendChild(blk);
+  });
+
+  // 오늘이면 현재 시각 중심으로 스크롤
+  if(isToday){
+    var nm2=now.getHours()*60+now.getMinutes();
+    scroll.scrollLeft=Math.max(0,(nm2/60)*HW-scroll.clientWidth/2);
+  }
 }
 
 // ══ 반복 할일 시스템 ══
