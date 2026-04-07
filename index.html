@@ -5536,14 +5536,7 @@ let questionSet=(function(){try{var s=JSON.parse(localStorage.getItem('question_
 let aiSettings=JSON.parse(localStorage.getItem('ai_settings')||'{}');
 let lastResult=null;
 let API_KEY=localStorage.getItem('groq_key')||'';
-var ANTHROPIC_KEY=localStorage.getItem('anthropic_key')||'';
 
-function saveAnthropicKey(){
-  var v=(document.getElementById('anthropicKeyInp')||{}).value.trim();
-  if(!v){showToast('키를 입력해줘');return;}
-  ANTHROPIC_KEY=v;localStorage.setItem('anthropic_key',v);
-  showToast('Anthropic 키 저장됨 ✓');
-}
 
 const TASK_DEFAULT_CATS=[
   {id:'schedule',label:'일정',  color:'#E05050', icon:'📅'},
@@ -9467,8 +9460,7 @@ function testTogetherKey() { showToast('Pollinations.ai: 항상 사용 가능 �
 
 // ── AI 설정 ───────────────────────────────────────────────
 function loadAiSettings(){
-  (function(){var el=document.getElementById('anthropicKeyInp');if(el)el.value=ANTHROPIC_KEY||'';})();
-const s=aiSettings;
+  const s=aiSettings;
   const aStyle=document.getElementById('setAnalysisStyle');
   const acStyle=document.getElementById('setActionStyle');
   const extra=document.getElementById('setExtraPrompt');
@@ -16930,104 +16922,139 @@ async function gcalSync() {
 }
 
 // ══════════════════════════════════════════════════════
-// AI 빠른 할일 추가
+// AI 자연어 할일 관리 (Groq)
 // ══════════════════════════════════════════════════════
 var _meAiParsed = null;
-var GEMINI_KEY = localStorage.getItem('gemini_key')||'';
-
-function saveGeminiKey(){
-  var v=(document.getElementById('geminiKeyInp')||{}).value.trim();
-  if(!v){showToast('키를 입력해줘');return;}
-  GEMINI_KEY=v; localStorage.setItem('gemini_key',v);
-  showToast('Gemini 키 저장됨 ✓ (무료)');
-}
 
 async function meAiSubmit(){
-  var inp=document.getElementById('meAiTaskInp');
-  var btn=document.getElementById('meAiBtn');
-  var preview=document.getElementById('meAiPreview');
-  var text=(inp||{}).value.trim();
-  if(!text)return;
-  var useGemini=!!(typeof GEMINI_KEY!=='undefined'&&GEMINI_KEY);
-  var useGroq=!!API_KEY;
-  if(!useGemini&&!useGroq){showToast('설정탭에서 Gemini API 키를 입력해줘 (무료, 카드없음)');return;}
-  if(btn){btn.disabled=true;btn.textContent='...';}
-  if(preview){preview.style.display='block';preview.innerHTML='<div class="me-ai-loading"><span>✦</span> 분석 중...</div>';}
-  try{
-    var today=new Date();
-    var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-    var cats=taskCats.map(function(c){return c.id+'('+c.label+')';}).join(',');
-    var ttInfo=(typeof timetables!=='undefined'?timetables:[]).map(function(tt){
-      var t2=(tt.slots||[]).map(function(s){return s.title;}).filter(function(v,i,a){return a.indexOf(v)===i;});
-      return tt.name+'['+tt.startDate+'~'+tt.endDate+']:'+t2.join(',');
-    }).join(' / ');
-    var prompt='너는 할일 앱 AI야. 명령을 JS 코드로 변환해서 JSON으로만 응답해. 다른 텍스트 절대 금지.\n'
-      +'taskItem: {id,text,catId,done,date(YYYY-MM-DD),timeStart(HH:MM),timeEnd,priority,note,deadlineDate}\n'
-      +'note에 "시간표:" 포함=시간표생성일정 / 없으면=독립일정\n'
-      +'timetable: {name,startDate,endDate,slots:[{title,day(0=월~5=토),timeStart,timeEnd}]}\n'
-      +'변수: taskItems(수정가능),timetables,taskCats,saveTaskData(),renderTaskTab(),showToast()\n'
+  var inp = document.getElementById('meAiTaskInp');
+  var btn = document.getElementById('meAiBtn');
+  var preview = document.getElementById('meAiPreview');
+  var text = (inp||{}).value.trim();
+  if (!text) return;
+  if (!API_KEY) {
+    showToast('설정 → Groq API 키를 먼저 입력해줘 (console.groq.com, 무료)');
+    return;
+  }
+  if (btn) { btn.disabled=true; btn.textContent='...'; }
+  if (preview) { preview.style.display='block'; preview.innerHTML='<div class="me-ai-loading"><span>✦</span> 분석 중...</div>'; }
+  try {
+    var today = new Date();
+    var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    var dow = ['일','월','화','수','목','금','토'][today.getDay()];
+    var catStr = taskCats.map(function(c){return c.id+'('+c.label+')';}).join(', ');
+    var ttStr = (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
+      var titles=(tt.slots||[]).map(function(s){return s.title;}).filter(function(v,i,a){return a.indexOf(v)===i;});
+      return '['+tt.name+' '+tt.startDate+'~'+tt.endDate+']: '+titles.join(', ');
+    }).join('\n');
+    // 할일 목록: id|이름|카테고리|상태|날짜|시간|우선순위|태그
+    var taskStr = taskItems.map(function(t){
+      var r = t.id+'|'+t.text+'|'+t.catId+(t.done?'|완료':'|미완료');
+      if(t.date) r+='|'+t.date;
+      if(t.timeStart) r+='|'+t.timeStart;
+      if(t.priority) r+='|'+t.priority;
+      if(t.note&&t.note.indexOf('시간표')>=0) r+='|[시간표]';
+      if(t.deadlineDate) r+='|마감:'+t.deadlineDate;
+      return r;
+    }).join('\n');
+
+    var PROMPT = '할일 앱 AI. 명령을 분석해서 JSON으로만 응답. 마크다운/설명 없이 JSON만.\n\n'
+      +'# taskItem 필드\nid | text | catId | done | date(YYYY-MM-DD) | timeStart(HH:MM) | timeEnd | priority(high/mid/low) | note | deadlineDate\n'
+      +'note에 "시간표:" 포함 = 시간표 생성 일정 / 없으면 = 독립 일정\n\n'
+      +'# 런타임 변수 (코드에서 직접 사용)\n'
+      +'taskItems(수정가능배열), timetables(slots[{title,day0=월~5=토,timeStart,timeEnd}])\n'
+      +'taskCats, saveTaskData(), renderTaskTab(), showToast(msg)\n\n'
+      +'# 응답 형식 (JSON만)\n'
+      +'{"summary":"설명","code":"JS코드(반드시 saveTaskData(); renderTaskTab(); showToast(결과); 포함)"}\n\n'
+      +'# 핵심 패턴\n'
       +'시간표Set: var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});\n'
-      +'응답: {"summary":"설명","code":"JS코드(saveTaskData();renderTaskTab();showToast(결과); 필수)"}\n\n'
-      +'예시1-시간표과목명같은독립일정삭제:\n'
-      +'{"summary":"N개삭제","code":"var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});var n=0;taskItems=taskItems.filter(function(t){if(t.catId==\"schedule\"&&s.has(t.text.trim())&&!(t.note&&t.note.indexOf(\"시간표\")>=0)){n++;return false;}return true;});saveTaskData();renderTaskTab();showToast(n+\"개 삭제됨\");"}\n\n'
-      +'예시2-완료삭제:\n'
-      +'{"summary":"N개삭제","code":"var n=taskItems.filter(function(t){return t.done;}).length;taskItems=taskItems.filter(function(t){return !t.done;});saveTaskData();renderTaskTab();showToast(n+\"개 삭제됨\");}\n\n'
-      +'오늘:'+todayStr+' 카테고리:'+cats+'\n시간표:'+(ttInfo||'없음')+'\n명령:'+text;
-    var raw;
-    if(useGemini){
-      var r1=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+GEMINI_KEY,{
-        method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.0,maxOutputTokens:800}})
-      });
-      var d1=await r1.json();
-      if(d1.error)throw new Error('Gemini: '+d1.error.message);
-      raw=((d1.candidates||[{}])[0].content||{parts:[{text:''}]}).parts[0].text.trim();
-    }else{
-      var r2=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-        method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
-        body:JSON.stringify({model:'llama-3.3-70b-versatile',messages:[{role:'user',content:prompt}],max_tokens:800,temperature:0.0})
-      });
-      var d2=await r2.json();
-      if(!d2.choices)throw new Error(JSON.stringify(d2).slice(0,200));
-      raw=d2.choices[0].message.content.trim();
-    }
-    var jm=raw.match(/\{[\s\S]*\}/);
-    if(!jm)throw new Error('파싱실패: '+raw.slice(0,100));
-    var parsed=JSON.parse(jm[0]);
-    if(!parsed.code)throw new Error('코드없음');
-    _meAiParsed=parsed;
-    var code=parsed.code;
-    var action=code.indexOf('taskItems=taskItems.filter')>=0||code.indexOf('taskItems = taskItems.filter')>=0?'delete'
-      :code.indexOf('.unshift(')>=0?'add'
-      :code.indexOf('.done=true')>=0?'done'
-      :code.indexOf('.done=false')>=0?'undone':'update';
-    var affected=[];
-    try{
-      var _snap=JSON.parse(JSON.stringify(taskItems));
-      var _fake=JSON.parse(JSON.stringify(taskItems));
+      +'시간표 독립일정: t.catId==="schedule" && s.has(t.text.trim()) && !(t.note&&t.note.indexOf("시간표")>=0)\n'
+      +'완료: t.done=true;t._localDoneAt=t.updatedAt=Date.now();\n'
+      +'삭제: taskItems=taskItems.filter(function(t){return !조건;});\n'
+      +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
+      +'# 예시\n'
+      +'명령: 시간표 과목명인데 시간표 일정 아닌(독립) 것 삭제\n'
+      +'{"summary":"시간표 과목 독립 일정 N개 삭제","code":"var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});var n=0;taskItems=taskItems.filter(function(t){if(t.catId==\\"schedule\\"&&s.has(t.text.trim())&&!(t.note&&t.note.indexOf(\\"시간표\\")>=0)){n++;return false;}return true;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
+      +'명령: 완료된 할일 전부 삭제\n'
+      +'{"summary":"완료 항목 전체 삭제","code":"var n=taskItems.filter(function(t){return t.done;}).length;taskItems=taskItems.filter(function(t){return !t.done;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
+      +'명령: 내일 오전 10시 회의 추가 (카테고리: work)\n'
+      +'{"summary":"회의 추가","code":"taskItems.unshift({id:Date.now()+Math.random(),text:\\"회의\\",catId:\\"work\\",date:\\"2026-04-08\\",timeStart:\\"10:00\\",timeEnd:\\"\\",priority:\\"\\",done:false,note:\\"\\",deadlineDate:\\"\\",deadlineId:\\"\\",subs:[],createdAt:Date.now(),updatedAt:Date.now()});saveTaskData();renderTaskTab();showToast(\\"추가됨\\");"}\n\n'
+      +'---\n'
+      +'오늘: '+todayStr+'('+dow+') | 카테고리: '+catStr+'\n'
+      +'시간표:\n'+(ttStr||'없음')+'\n\n'
+      +'할일 목록 ('+taskItems.length+'개):\n'+taskStr+'\n\n'
+      +'명령: '+text;
+
+    var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+API_KEY },
+      body: JSON.stringify({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role:'user', content:PROMPT }],
+        max_tokens: 1000,
+        temperature: 0.0
+      })
+    });
+    var data = await res.json();
+    if (!data.choices) throw new Error(JSON.stringify(data).slice(0,300));
+    var raw = data.choices[0].message.content.trim();
+
+    // JSON 추출 (코드블록, 중괄호 둘 다 처리)
+    var jsonStr = raw;
+    var jm = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (jm) jsonStr = jm[1].trim();
+    var bm = jsonStr.match(/\{[\s\S]*\}/);
+    if (!bm) throw new Error('응답 파싱 실패:\n' + raw.slice(0,150));
+    var parsed = JSON.parse(bm[0]);
+    if (!parsed.code) throw new Error('코드 생성 실패');
+    _meAiParsed = parsed;
+
+    // action 자동 추정
+    var code = parsed.code;
+    var action =
+      (code.indexOf('taskItems=taskItems.filter')>=0 || code.indexOf('taskItems = taskItems.filter')>=0) ? 'delete'
+      : (code.indexOf('.unshift(')>=0 || code.indexOf('.push(')>=0) ? 'add'
+      : (code.indexOf('.done=true')>=0) ? 'done'
+      : (code.indexOf('.done=false')>=0) ? 'undone' : 'update';
+
+    // dry-run: 복사본에 실행 → diff
+    var affected = [];
+    try {
+      var snap = JSON.parse(JSON.stringify(taskItems));
+      var fake = JSON.parse(JSON.stringify(taskItems));
       (new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date',code))(
-        _fake,taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],
-        function(){},function(){},function(){},function(){},Date);
-      if(action==='delete'){
-        var aid=new Set(_fake.map(function(t){return t.id;}));
-        affected=_snap.filter(function(t){return !aid.has(t.id);});
-      }else if(action==='add'){
-        var bid=new Set(_snap.map(function(t){return t.id;}));
-        affected=_fake.filter(function(t){return !bid.has(t.id);});
-      }else{
-        var sm={};_snap.forEach(function(t){sm[t.id]=t;});
-        affected=_fake.filter(function(t){var o=sm[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
+        fake, taskCats,
+        typeof timetables!=='undefined'?timetables:[],
+        typeof inboxItems!=='undefined'?inboxItems:[],
+        function(){},function(){},function(){},function(){},Date
+      );
+      if (action==='delete') {
+        var afterIds = new Set(fake.map(function(t){return t.id;}));
+        affected = snap.filter(function(t){return !afterIds.has(t.id);});
+      } else if (action==='add') {
+        var beforeIds = new Set(snap.map(function(t){return t.id;}));
+        affected = fake.filter(function(t){return !beforeIds.has(t.id);});
+      } else {
+        var snapMap = {};
+        snap.forEach(function(t){snapMap[t.id]=t;});
+        affected = fake.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
       }
-    }catch(e2){console.warn('dry-run:',e2.message);}
-    var isDel=action==='delete',isAdd=action==='add';
-    var aC=isDel?'#ef4444':isAdd?'#22c55e':action==='done'?'#22c55e':'var(--accent)';
-    var bL=isDel?'🗑 '+affected.length+'개 삭제':isAdd?'✦ '+affected.length+'개 추가':action==='done'?'✓ '+affected.length+'개 완료':action==='undone'?'↩ '+affected.length+'개 미완료':'✎ '+affected.length+'개 수정';
-    var lH='';
-    if(affected.length>0){
-      lH='<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
-        +'<div style="padding:6px 10px;font-size:11px;font-weight:700;color:'+aC+';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')+';position:sticky;top:0">'
+    } catch(e2) { console.warn('dry-run:', e2.message); }
+
+    var isDel=action==='delete', isAdd=action==='add';
+    var aColor = isDel?'#ef4444' : isAdd?'#22c55e' : action==='done'?'#22c55e' : 'var(--accent)';
+    var btnLabel = isDel?'🗑 '+affected.length+'개 삭제'
+      : isAdd?'✦ '+affected.length+'개 추가'
+      : action==='done'?'✓ '+affected.length+'개 완료'
+      : action==='undone'?'↩ '+affected.length+'개 미완료'
+      : '✎ '+affected.length+'개 수정';
+
+    var listHtml = '';
+    if (affected.length > 0) {
+      listHtml = '<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
+        +'<div style="padding:6px 10px;font-size:11px;font-weight:700;color:'+aColor+';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')+';position:sticky;top:0">'
         +(isDel?'🗑 삭제될 항목':isAdd?'✦ 추가될 항목':'✎ 변경될 항목')+' — '+affected.length+'개</div>'
-        +'<div style="max-height:280px;overflow-y:auto">'
+        +'<div style="max-height:300px;overflow-y:auto">'
         +affected.map(function(t){
           if(!t||typeof t!=='object')return '';
           var cat=taskCats.find(function(c){return c.id===(t.catId||'');});
@@ -17037,28 +17064,44 @@ async function meAiSubmit(){
             +(t.date?'<span style="color:var(--fg3);font-size:11px">'+t.date+'</span>':'')
             +(t.timeStart?'<span style="color:var(--fg3);font-size:11px">'+t.timeStart+'</span>':'')
             +(cat?'<span style="color:'+cat.color+';font-size:10px">'+cat.icon+cat.label+'</span>':'')
+            +(t.priority==='high'?'<span>🔴</span>':t.priority==='mid'?'<span>🟡</span>':t.priority==='low'?'<span>🟢</span>':'')
             +'</div>';
         }).join('')+'</div></div>';
     }
-    preview.innerHTML='<div class="me-ai-preview">'
-      +'<div class="me-ai-preview-title" style="color:'+aC+'">✦ '+esc(parsed.summary||'')+'</div>'
-      +lH+(affected.length===0?'<div style="font-size:12px;color:var(--fg3);padding:4px 0">실행 후 확인</div>':'')
+
+    preview.innerHTML = '<div class="me-ai-preview">'
+      +'<div class="me-ai-preview-title" style="color:'+aColor+'">✦ '+esc(parsed.summary||'')+'</div>'
+      +listHtml
+      +(affected.length===0?'<div style="font-size:12px;color:var(--fg3);padding:4px 0">실행 전 미리보기 없음</div>':'')
       +'<details style="margin:6px 0 2px;font-size:11px;color:var(--fg3)"><summary style="cursor:pointer">코드 보기</summary>'
       +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap;max-height:160px">'+esc(parsed.code||'')+'</pre></details>'
       +'<div class="me-ai-preview-actions">'
-      +(parsed.code?'<button class="me-ai-confirm-btn" style="background:'+aC+'" onclick="meAiConfirm()">'+bL+'</button>':'')
-      +'<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button></div></div>';
-  }catch(e){
-    preview.innerHTML='<div class="me-ai-loading" style="color:#ef4444">오류: '+esc(e.message)+'</div>';
-    console.error('AI:',e);
-  }finally{if(btn){btn.disabled=false;btn.textContent='실행';}}
+      +(parsed.code?'<button class="me-ai-confirm-btn" style="background:'+aColor+'" onclick="meAiConfirm()">'+btnLabel+'</button>':'')
+      +'<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
+      +'</div></div>';
+
+  } catch(e) {
+    var msg = e.message||'오류';
+    if (msg.indexOf('Rate limit')>=0||msg.indexOf('TPM')>=0||msg.indexOf('too large')>=0) {
+      msg = '할일이 너무 많아 한 번에 처리하기 어렵습니다.\n잠시 후 다시 시도해주세요.';
+    }
+    if (preview) preview.innerHTML='<div class="me-ai-preview">'
+      +'<div style="font-size:12px;color:#ef4444;padding:4px 0;white-space:pre-wrap">⚠ '+esc(msg)+'</div>'
+      +'<div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div>'
+      +'</div>';
+    console.error('AI:', e);
+  } finally {
+    if (btn) { btn.disabled=false; btn.textContent='실행'; }
+  }
 }
 
 function meAiConfirm(){
-  if(!_meAiParsed||!_meAiParsed.code)return;
-  try{
+  if (!_meAiParsed||!_meAiParsed.code) return;
+  try {
     new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date','_pushToNotion','notionCfg','fbUser','fbSaveAll',_meAiParsed.code)(
-      taskItems,taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],
+      taskItems,taskCats,
+      typeof timetables!=='undefined'?timetables:[],
+      typeof inboxItems!=='undefined'?inboxItems:[],
       saveTaskData,renderTaskTab,renderMeTodo,showToast,Date,
       typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},
       typeof notionCfg!=='undefined'?notionCfg:{},
@@ -17066,7 +17109,10 @@ function meAiConfirm(){
       typeof fbSaveAll!=='undefined'?fbSaveAll:function(){}
     );
     meAiCancel();
-  }catch(e){showToast('실행 오류: '+e.message);console.error('exec:',e);}
+  } catch(e) {
+    showToast('실행 오류: '+e.message);
+    console.error('exec:', e, '\nCode:', _meAiParsed.code);
+  }
 }
 
 function meAiCancel(){
@@ -17076,70 +17122,6 @@ function meAiCancel(){
   if(prev){prev.style.display='none';prev.innerHTML='';}
   _meAiParsed=null;
 }
-function meAiConfirm(){ if(_aiPendingCode)_meAiExecCode(_aiPendingCode); }
-
-function meInboxQuickSend() {
-  var inp = document.getElementById('meInboxQuickInp');
-  var text = (inp ? inp.value.trim() : '');
-  if (!text) return;
-  var now = new Date();
-  var time = String(now.getMonth()+1).padStart(2,'0') + '.' + String(now.getDate()).padStart(2,'0')
-    + ' ' + String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
-  var item = { id: Date.now(), text: text, catId: 'misc', time: time, priority: '', done: false, needsAction: false, createdAt: Date.now(), updatedAt: Date.now() };
-  inboxItems.unshift(item);
-  saveInboxData();
-  updateHeaderInbox();
-  if (inp) inp.value = '';
-  showToast('📥 인박스에 추가됐어');
-}
-
-function toggleDeadlineList() {
-  _deadlineListOn = !_deadlineListOn;
-  _applyDeadlineListState();
-}
-
-function _applyDeadlineListState() {
-  var btn = document.getElementById('deadlineListBtn');
-  var panel = document.getElementById('deadlineListPanel');
-  if (btn) {
-    btn.style.background = _deadlineListOn ? 'var(--accent)' : '';
-    btn.style.color = _deadlineListOn ? '#fff' : '';
-    btn.style.borderRadius = '999px';
-    btn.style.padding = '4px 8px';
-  }
-  if (!panel) return;
-  var taskPage = document.getElementById('page-task');
-  var onTaskTab = taskPage && taskPage.classList.contains('active');
-  var w = window.innerWidth;
-  if (!_deadlineListOn || !onTaskTab) {
-    panel.style.display = 'none';
-    _dlPushLayout(false);
-    return;
-  }
-  if (w <= 599) {
-    panel.style.display = 'none';
-    _dlPushLayout(false);
-  } else if (w < 1200) {
-    var inline = document.getElementById('deadlineListInline');
-    if (inline) { inline.style.display = 'block'; inline.appendChild(panel); }
-    panel.style.display = 'block';
-    _dlPushLayout(false);
-  } else {
-    if (panel.parentNode !== document.body) document.body.appendChild(panel);
-    panel.style.display = 'block';
-    _dlPushLayout(true);
-  }
-  renderDeadlineList();
-}
-
-function _dlPushLayout(push) {
-  var listPanel = document.querySelector('.task-list-panel');
-  if (listPanel) listPanel.style.marginRight = push ? '256px' : '';
-}
-
-window.addEventListener('resize', function() {
-  if (_deadlineListOn) _applyDeadlineListState && _applyDeadlineListState();
-});
 
 // ══ 할일 규칙 시스템 ══
 function _loadTaskRules() {
