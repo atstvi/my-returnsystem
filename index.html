@@ -16932,92 +16932,90 @@ async function meAiSubmit(){
   var preview = document.getElementById('meAiPreview');
   var text = (inp||{}).value.trim();
   if (!text) return;
-  if (!API_KEY) {
-    showToast('설정 → Groq API 키를 먼저 입력해줘 (console.groq.com, 무료)');
-    return;
-  }
+  if (!API_KEY) { showToast('설정 → Groq API 키 입력 필요 (console.groq.com, 무료)'); return; }
+
   if (btn) { btn.disabled=true; btn.textContent='...'; }
   if (preview) { preview.style.display='block'; preview.innerHTML='<div class="me-ai-loading"><span>✦</span> 분석 중...</div>'; }
+
   try {
     var today = new Date();
     var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
     var dow = ['일','월','화','수','목','금','토'][today.getDay()];
-    var catStr = taskCats.map(function(c){return c.id+'('+c.label+')';}).join(', ');
+
+    // 카테고리 (짧음)
+    var catStr = taskCats.map(function(c){return c.id+'='+c.label;}).join(', ');
+
+    // 시간표 과목명만 (핵심 컨텍스트, 토큰 적음)
     var ttStr = (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
-      var titles=(tt.slots||[]).map(function(s){return s.title;}).filter(function(v,i,a){return a.indexOf(v)===i;});
-      return '['+tt.name+' '+tt.startDate+'~'+tt.endDate+']: '+titles.join(', ');
-    }).join('\n');
-    // 할일 목록: id|이름|카테고리|상태|날짜|시간|우선순위|태그
-    var taskStr = taskItems.map(function(t){
-      var r = t.id+'|'+t.text+'|'+t.catId+(t.done?'|완료':'|미완료');
-      if(t.date) r+='|'+t.date;
-      if(t.timeStart) r+='|'+t.timeStart;
-      if(t.priority) r+='|'+t.priority;
-      if(t.note&&t.note.indexOf('시간표')>=0) r+='|[시간표]';
-      if(t.deadlineDate) r+='|마감:'+t.deadlineDate;
-      return r;
+      var titles = (tt.slots||[]).map(function(s){return s.title;})
+        .filter(function(v,i,a){return a.indexOf(v)===i;});
+      return tt.name+'['+tt.startDate+'~'+tt.endDate+']: '+titles.join(', ');
     }).join('\n');
 
-    var PROMPT = '할일 앱 AI. 명령을 분석해서 JSON으로만 응답. 마크다운/설명 없이 JSON만.\n\n'
-      +'# taskItem 필드\nid | text | catId | done | date(YYYY-MM-DD) | timeStart(HH:MM) | timeEnd | priority(high/mid/low) | note | deadlineDate\n'
+    // 할일 목록 보내지 않음 → 코드가 런타임에 taskItems 직접 접근
+
+    var PROMPT = '할일 앱 AI. 사용자 명령을 JS 코드로 변환. JSON으로만 응답.\n\n'
+      +'# taskItem 필드\n'
+      +'id, text, catId, done(bool), date(YYYY-MM-DD), timeStart(HH:MM), timeEnd, priority(high/mid/low), note, deadlineDate\n'
       +'note에 "시간표:" 포함 = 시간표 생성 일정 / 없으면 = 독립 일정\n\n'
+      +'# timetable 구조\n'
+      +'slots: [{title, day(0=월~5=토), timeStart, timeEnd}]\n\n'
       +'# 런타임 변수 (코드에서 직접 사용)\n'
-      +'taskItems(수정가능배열), timetables(slots[{title,day0=월~5=토,timeStart,timeEnd}])\n'
-      +'taskCats, saveTaskData(), renderTaskTab(), showToast(msg)\n\n'
-      +'# 응답 형식 (JSON만)\n'
-      +'{"summary":"설명","code":"JS코드(반드시 saveTaskData(); renderTaskTab(); showToast(결과); 포함)"}\n\n'
-      +'# 핵심 패턴\n'
-      +'시간표Set: var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});\n'
-      +'시간표 독립일정: t.catId==="schedule" && s.has(t.text.trim()) && !(t.note&&t.note.indexOf("시간표")>=0)\n'
-      +'완료: t.done=true;t._localDoneAt=t.updatedAt=Date.now();\n'
+      +'taskItems(배열, 직접 수정 가능), timetables, taskCats\n'
+      +'saveTaskData(), renderTaskTab(), showToast(msg)\n\n'
+      +'# 응답 형식 (JSON만, 다른 텍스트 없음)\n'
+      +'{"summary":"작업 설명","code":"JS 코드"}\n\n'
+      +'code 필수 조건: saveTaskData(); renderTaskTab(); showToast(결과메시지);\n\n'
+      +'# 패턴\n'
+      +'시간표Set 만들기:\n'
+      +'var s=new Set(); timetables.forEach(function(tt){ (tt.slots||[]).forEach(function(sl){ s.add(sl.title.trim()); }); });\n\n'
+      +'시간표 독립 일정 = catId==="schedule" && s.has(text.trim()) && !(note&&note.indexOf("시간표")>=0)\n'
       +'삭제: taskItems=taskItems.filter(function(t){return !조건;});\n'
+      +'완료: t.done=true; t._localDoneAt=t.updatedAt=Date.now();\n'
       +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
       +'# 예시\n'
-      +'명령: 시간표 과목명인데 시간표 일정 아닌(독립) 것 삭제\n'
-      +'{"summary":"시간표 과목 독립 일정 N개 삭제","code":"var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});var n=0;taskItems=taskItems.filter(function(t){if(t.catId==\\"schedule\\"&&s.has(t.text.trim())&&!(t.note&&t.note.indexOf(\\"시간표\\")>=0)){n++;return false;}return true;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
-      +'명령: 완료된 할일 전부 삭제\n'
-      +'{"summary":"완료 항목 전체 삭제","code":"var n=taskItems.filter(function(t){return t.done;}).length;taskItems=taskItems.filter(function(t){return !t.done;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
-      +'명령: 내일 오전 10시 회의 추가 (카테고리: work)\n'
-      +'{"summary":"회의 추가","code":"taskItems.unshift({id:Date.now()+Math.random(),text:\\"회의\\",catId:\\"work\\",date:\\"2026-04-08\\",timeStart:\\"10:00\\",timeEnd:\\"\\",priority:\\"\\",done:false,note:\\"\\",deadlineDate:\\"\\",deadlineId:\\"\\",subs:[],createdAt:Date.now(),updatedAt:Date.now()});saveTaskData();renderTaskTab();showToast(\\"추가됨\\");"}\n\n'
+      +'명령: 시간표 과목명이랑 같은데 독립 일정인 것 삭제\n'
+      +'{"summary":"시간표 과목 독립 일정 삭제","code":"var s=new Set();timetables.forEach(function(tt){(tt.slots||[]).forEach(function(sl){s.add(sl.title.trim());});});var n=0;taskItems=taskItems.filter(function(t){if(t.catId==\\"schedule\\"&&s.has(t.text.trim())&&!(t.note&&t.note.indexOf(\\"시간표\\")>=0)){n++;return false;}return true;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
+      +'명령: 완료된 것 전부 삭제\n'
+      +'{"summary":"완료 항목 삭제","code":"var n=taskItems.filter(function(t){return t.done;}).length;taskItems=taskItems.filter(function(t){return !t.done;});saveTaskData();renderTaskTab();showToast(n+\\"개 삭제됨\\");"}\n\n'
+      +'명령: 내일 오후 2시 보고서 제출 추가\n'
+      +'{"summary":"보고서 제출 추가","code":"taskItems.unshift({id:Date.now()+Math.random(),text:\\"보고서 제출\\",catId:\\"uni\\",date:\\"'+todayStr+'\\",timeStart:\\"14:00\\",timeEnd:\\"\\",priority:\\"\\",done:false,note:\\"\\",deadlineDate:\\"\\",deadlineId:\\"\\",subs:[],createdAt:Date.now(),updatedAt:Date.now()});saveTaskData();renderTaskTab();showToast(\\"추가됨\\");"}\n\n'
       +'---\n'
       +'오늘: '+todayStr+'('+dow+') | 카테고리: '+catStr+'\n'
       +'시간표:\n'+(ttStr||'없음')+'\n\n'
-      +'할일 목록 ('+taskItems.length+'개):\n'+taskStr+'\n\n'
       +'명령: '+text;
 
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type':'application/json', 'Authorization':'Bearer '+API_KEY },
-      body: JSON.stringify({
-        model: 'llama-3.3-70b-versatile',
-        messages: [{ role:'user', content:PROMPT }],
-        max_tokens: 1000,
-        temperature: 0.0
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        messages:[{role:'user', content:PROMPT}],
+        max_tokens:800, temperature:0.0
       })
     });
     var data = await res.json();
-    if (!data.choices) throw new Error(JSON.stringify(data).slice(0,300));
+    if (!data.choices) throw new Error(JSON.stringify(data).slice(0,200));
     var raw = data.choices[0].message.content.trim();
 
-    // JSON 추출 (코드블록, 중괄호 둘 다 처리)
-    var jsonStr = raw;
+    // JSON 파싱 (마크다운 코드블록 대응)
     var jm = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jm) jsonStr = jm[1].trim();
+    var jsonStr = jm ? jm[1].trim() : raw;
     var bm = jsonStr.match(/\{[\s\S]*\}/);
-    if (!bm) throw new Error('응답 파싱 실패:\n' + raw.slice(0,150));
+    if (!bm) throw new Error('파싱 실패: '+raw.slice(0,100));
     var parsed = JSON.parse(bm[0]);
     if (!parsed.code) throw new Error('코드 생성 실패');
     _meAiParsed = parsed;
 
-    // action 자동 추정
+    // action 추정
     var code = parsed.code;
     var action =
-      (code.indexOf('taskItems=taskItems.filter')>=0 || code.indexOf('taskItems = taskItems.filter')>=0) ? 'delete'
-      : (code.indexOf('.unshift(')>=0 || code.indexOf('.push(')>=0) ? 'add'
-      : (code.indexOf('.done=true')>=0) ? 'done'
-      : (code.indexOf('.done=false')>=0) ? 'undone' : 'update';
+      (code.indexOf('taskItems=taskItems.filter')>=0||code.indexOf('taskItems = taskItems.filter')>=0) ? 'delete'
+      : (code.indexOf('.unshift(')>=0||code.indexOf('.push(')>=0) ? 'add'
+      : code.indexOf('.done=true')>=0 ? 'done'
+      : code.indexOf('.done=false')>=0 ? 'undone' : 'update';
 
-    // dry-run: 복사본에 실행 → diff
+    // dry-run: 복사본 실행 → diff로 영향 항목 계산
     var affected = [];
     try {
       var snap = JSON.parse(JSON.stringify(taskItems));
@@ -17035,24 +17033,26 @@ async function meAiSubmit(){
         var beforeIds = new Set(snap.map(function(t){return t.id;}));
         affected = fake.filter(function(t){return !beforeIds.has(t.id);});
       } else {
-        var snapMap = {};
-        snap.forEach(function(t){snapMap[t.id]=t;});
+        var snapMap = {}; snap.forEach(function(t){snapMap[t.id]=t;});
         affected = fake.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
       }
-    } catch(e2) { console.warn('dry-run:', e2.message); }
+    } catch(e2){ console.warn('dry-run:', e2.message); }
 
+    // 미리보기 UI
     var isDel=action==='delete', isAdd=action==='add';
-    var aColor = isDel?'#ef4444' : isAdd?'#22c55e' : action==='done'?'#22c55e' : 'var(--accent)';
+    var aColor = isDel?'#ef4444':isAdd?'#22c55e':action==='done'?'#22c55e':'var(--accent)';
     var btnLabel = isDel?'🗑 '+affected.length+'개 삭제'
-      : isAdd?'✦ '+affected.length+'개 추가'
-      : action==='done'?'✓ '+affected.length+'개 완료'
-      : action==='undone'?'↩ '+affected.length+'개 미완료'
-      : '✎ '+affected.length+'개 수정';
+      :isAdd?'✦ '+affected.length+'개 추가'
+      :action==='done'?'✓ '+affected.length+'개 완료'
+      :action==='undone'?'↩ '+affected.length+'개 미완료'
+      :'✎ '+affected.length+'개 수정';
 
     var listHtml = '';
     if (affected.length > 0) {
       listHtml = '<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
-        +'<div style="padding:6px 10px;font-size:11px;font-weight:700;color:'+aColor+';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')+';position:sticky;top:0">'
+        +'<div style="padding:6px 10px;font-size:11px;font-weight:700;color:'+aColor
+        +';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')
+        +';position:sticky;top:0">'
         +(isDel?'🗑 삭제될 항목':isAdd?'✦ 추가될 항목':'✎ 변경될 항목')+' — '+affected.length+'개</div>'
         +'<div style="max-height:300px;overflow-y:auto">'
         +affected.map(function(t){
@@ -17074,7 +17074,7 @@ async function meAiSubmit(){
       +listHtml
       +(affected.length===0?'<div style="font-size:12px;color:var(--fg3);padding:4px 0">실행 전 미리보기 없음</div>':'')
       +'<details style="margin:6px 0 2px;font-size:11px;color:var(--fg3)"><summary style="cursor:pointer">코드 보기</summary>'
-      +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap;max-height:160px">'+esc(parsed.code||'')+'</pre></details>'
+      +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap;max-height:160px">'+esc(parsed.code)+'</pre></details>'
       +'<div class="me-ai-preview-actions">'
       +(parsed.code?'<button class="me-ai-confirm-btn" style="background:'+aColor+'" onclick="meAiConfirm()">'+btnLabel+'</button>':'')
       +'<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
@@ -17082,9 +17082,8 @@ async function meAiSubmit(){
 
   } catch(e) {
     var msg = e.message||'오류';
-    if (msg.indexOf('Rate limit')>=0||msg.indexOf('TPM')>=0||msg.indexOf('too large')>=0) {
-      msg = '할일이 너무 많아 한 번에 처리하기 어렵습니다.\n잠시 후 다시 시도해주세요.';
-    }
+    if (msg.indexOf('Rate limit')>=0||msg.indexOf('TPM')>=0||msg.indexOf('too large')>=0)
+      msg = '잠시 후 다시 시도해줘.';
     if (preview) preview.innerHTML='<div class="me-ai-preview">'
       +'<div style="font-size:12px;color:#ef4444;padding:4px 0;white-space:pre-wrap">⚠ '+esc(msg)+'</div>'
       +'<div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div>'
@@ -17122,6 +17121,8 @@ function meAiCancel(){
   if(prev){prev.style.display='none';prev.innerHTML='';}
   _meAiParsed=null;
 }
+
+
 
 // ══ 할일 규칙 시스템 ══
 function _loadTaskRules() {
