@@ -17015,26 +17015,38 @@ async function meAiSubmit(){
       : code.indexOf('.done=true')>=0 ? 'done'
       : code.indexOf('.done=false')>=0 ? 'undone' : 'update';
 
-    // dry-run: 복사본 실행 → diff로 영향 항목 계산
+    // dry-run: window._drSnap/_drFake로 재할당 감지
     var affected = [];
     try {
       var snap = JSON.parse(JSON.stringify(taskItems));
-      var fake = JSON.parse(JSON.stringify(taskItems));
-      (new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date',code))(
-        fake, taskCats,
-        typeof timetables!=='undefined'?timetables:[],
-        typeof inboxItems!=='undefined'?inboxItems:[],
-        function(){},function(){},function(){},function(){},Date
-      );
+      // taskItems 재할당을 감지하기 위해 window 속성 활용
+      window._drFake = JSON.parse(JSON.stringify(taskItems));
+      var drCode = '(function(){'
+        + 'var taskItems=window._drFake;'
+        + 'var taskCats=window._drTaskCats;'
+        + 'var timetables=window._drTimetables;'
+        + 'var inboxItems=window._drInbox;'
+        + 'function saveTaskData(){}'
+        + 'function renderTaskTab(){}'
+        + 'function renderMeTodo(){}'
+        + 'function showToast(){}'
+        + code
+        + ';window._drFake=taskItems;'  // 재할당된 taskItems를 다시 window에 저장
+        + '})()';
+      window._drTaskCats = taskCats;
+      window._drTimetables = typeof timetables!=='undefined'?timetables:[];
+      window._drInbox = typeof inboxItems!=='undefined'?inboxItems:[];
+      eval(drCode);
+      var afterArr = window._drFake || [];
       if (action==='delete') {
-        var afterIds = new Set(fake.map(function(t){return t.id;}));
+        var afterIds = new Set(afterArr.map(function(t){return t.id;}));
         affected = snap.filter(function(t){return !afterIds.has(t.id);});
       } else if (action==='add') {
         var beforeIds = new Set(snap.map(function(t){return t.id;}));
-        affected = fake.filter(function(t){return !beforeIds.has(t.id);});
+        affected = afterArr.filter(function(t){return !beforeIds.has(t.id);});
       } else {
         var snapMap = {}; snap.forEach(function(t){snapMap[t.id]=t;});
-        affected = fake.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
+        affected = afterArr.filter(function(t){var o=snapMap[t.id];return o&&JSON.stringify(o)!==JSON.stringify(t);});
       }
     } catch(e2){ console.warn('dry-run:', e2.message); }
 
