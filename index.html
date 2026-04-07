@@ -16919,48 +16919,30 @@ async function meAiSubmit(){
   try{
     var today=new Date();
     var todayStr=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-    var dow=['일','월','화','수','목','금','토'][today.getDay()]+'요일';
 
-    // ── 최소한의 컨텍스트만 전송 ──
-    // 할일: id와 이름만 (날짜/시간은 코드가 런타임에 직접 접근)
-    var taskIndex = taskItems.map(function(t){
-      var s = t.id+'|'+t.text+'|'+t.catId;
-      if(t.done) s+='|완료';
-      if(t.note&&t.note.indexOf('시간표')>=0) s+='|TT';  // TT = 시간표일정
-      return s;
-    }).join('\n');
+    // 시간표 과목명만 (작음)
+    var ttInfo=(typeof timetables!=='undefined'?timetables:[]).map(function(tt){
+      var titles=(tt.slots||[]).map(function(s){return s.title;}).filter(function(v,i,a){return a.indexOf(v)===i;});
+      return tt.name+'['+tt.startDate+'~'+tt.endDate+']:'+titles.join(',');
+    }).join(' / ');
 
-    // 시간표 과목명만
-    var ttSlots = (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
-      var titles=(tt.slots||[]).map(function(s){return s.title;})
-        .filter(function(v,i,a){return a.indexOf(v)===i;});
-      return tt.name+'['+tt.startDate+'~'+tt.endDate+']: '+titles.join(',');
-    }).join('\n');
+    // 카테고리
+    var cats=taskCats.map(function(c){return c.id+'('+c.label+')';}).join(',');
 
-    var cats=taskCats.map(function(c){return c.id+'='+c.label;}).join(',');
+    var SYS='할일앱 AI. 한국어. 사용자 명령을 JS 코드로 변환.\n\n'
++'taskItem: {id,text,catId,done,date(YYYY-MM-DD),timeStart,timeEnd,priority(high/mid/low),note,deadlineDate}\n'
++'note에 "시간표:" 포함 = 시간표 생성 일정\n'
++'timetable: {name,startDate,endDate,slots:[{title,day(0=월~5=토),timeStart,timeEnd}]}\n\n'
++'런타임 변수: taskItems(수정가능), timetables, taskCats, saveTaskData(), renderTaskTab(), showToast()\n\n'
++'패턴:\n'
++'시간표Set: var s=new Set();timetables.forEach(t=>(t.slots||[]).forEach(sl=>s.add(sl.title.trim())));\n'
++'시간표일정: t.note&&t.note.indexOf("시간표")>=0\n'
++'삭제: taskItems=taskItems.filter(t=>!조건);\n'
++'완료: t.done=true;t._localDoneAt=t.updatedAt=Date.now();\n'
++'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
++'응답: 조회→자연어만 | 조작→설명+```json{"action":"delete|add|update|done|undone","summary":"설명","previewCode":"배열return JS(taskItems절대수정금지)","code":"saveTaskData();renderTaskTab();showToast();포함"}';
 
-    var SYS = '할일앱 JS코드 생성기. 한국어 답변.\n\n'
-      +'# 할일 인덱스 형식: id|이름|catId[|완료][|TT=시간표일정]\n'
-      +'# 시간표: 이름[시작~종료]: 과목1,과목2,...\n\n'
-      +'# 런타임 변수 (코드 실행 시 실제 데이터 접근)\n'
-      +'taskItems[] 필드: id,text,catId,done,date,timeStart,timeEnd,priority,note,deadlineDate,_ruleId\n'
-      +'timetables[]: name,startDate,endDate,slots[{title,day(0=월),timeStart,timeEnd}]\n'
-      +'saveTaskData(),renderTaskTab(),showToast(msg)\n\n'
-      +'# 패턴\n'
-      +'시간표Set: var s=new Set();timetables.forEach(t=>(t.slots||[]).forEach(sl=>s.add(sl.title.trim())));\n'
-      +'시간표일정: t.note&&t.note.indexOf("시간표")>=0\n'
-      +'삭제: taskItems=taskItems.filter(t=>!조건);\n'
-      +'완료: t.done=true;t._localDoneAt=t.updatedAt=Date.now();\n'
-      +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n\n'
-      +'# 응답\n'
-      +'조회→자연어만. 조작→설명+```json 블록.\n'
-      +'```json{"action":"delete|add|update|done|undone","summary":"N개 삭제","previewCode":"배열return JS(taskItems절대수정금지)","code":"saveTaskData();renderTaskTab();showToast();포함"}\n'
-      +'previewCode: 삭제→삭제될항목return | 추가→추가될객체배열return | 수정/완료→대상return';
-
-    var USR = '오늘:'+todayStr+'('+dow+') 카테고리:'+cats+'\n'
-      +'시간표:\n'+(ttSlots||'없음')+'\n\n'
-      +'할일 목록('+taskItems.length+'개):\n'+taskIndex+'\n\n'
-      +'명령: '+text;
+    var USR='오늘:'+todayStr+' 카테고리:'+cats+'\n시간표:'+( ttInfo||'없음')+'\n명령:'+text;
 
     var res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
@@ -16972,7 +16954,7 @@ async function meAiSubmit(){
       })
     });
     var d=await res.json();
-    if(!d.choices)throw new Error(JSON.stringify(d).slice(0,200));
+    if(!d.choices)throw new Error(JSON.stringify(d).slice(0,300));
     var raw=d.choices[0].message.content.trim();
 
     var jm=raw.match(/```json\s*([\s\S]*?)```/);
@@ -16983,7 +16965,7 @@ async function meAiSubmit(){
     var parsed=JSON.parse(jm[1].trim());
     _meAiParsed=parsed;
 
-    // dry-run
+    // dry-run: previewCode 실행해서 영향 항목 표시
     var affected=[];
     if(parsed.previewCode){
       try{
@@ -16996,12 +16978,17 @@ async function meAiSubmit(){
     var action=parsed.action||'';
     var isDel=action==='delete',isAdd=action==='add';
     var aColor=isDel?'#ef4444':isAdd?'#22c55e':action==='done'?'#22c55e':'var(--accent)';
-    var btnLabel=isDel?'🗑 '+affected.length+'개 삭제':isAdd?'✦ '+affected.length+'개 추가':action==='done'?'✓ '+affected.length+'개 완료':action==='undone'?'↩ '+affected.length+'개 미완료':action==='update'?'✎ '+affected.length+'개 수정':'✓ 실행';
+    var btnLabel=isDel?'🗑 '+affected.length+'개 삭제'
+      :isAdd?'✦ '+affected.length+'개 추가'
+      :action==='done'?'✓ '+affected.length+'개 완료'
+      :action==='undone'?'↩ '+affected.length+'개 미완료'
+      :action==='update'?'✎ '+affected.length+'개 수정':'✓ 실행';
 
     var listHtml='';
     if(affected.length>0){
+      var bgColor=isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)';
       listHtml='<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
-        +'<div style="padding:5px 10px;font-size:10px;font-weight:700;color:'+aColor+';background:'+(isDel?'rgba(239,68,68,.07)':isAdd?'rgba(34,197,94,.07)':'rgba(108,99,255,.07)')+';position:sticky;top:0">'
+        +'<div style="padding:5px 10px;font-size:10px;font-weight:700;color:'+aColor+';background:'+bgColor+';position:sticky;top:0">'
         +(isDel?'삭제될 항목':isAdd?'추가될 항목':'영향받는 항목')+' — '+affected.length+'개</div>'
         +'<div style="max-height:300px;overflow-y:auto">'
         +affected.map(function(t){
