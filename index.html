@@ -16919,10 +16919,10 @@ async function meAiSubmit() {
       tasks: sorted.slice(0,80).map(function(t){
         var o={id:t.id,text:t.text,catId:t.catId,done:t.done};
         if(t.date)o.date=t.date;
-        if(t.timeStart)o.ts=t.timeStart;
-        if(t.priority)o.p=t.priority;
-        if(t.note&&t.note.indexOf('시간표')>=0)o.isTt=true;
-        if(t.deadlineDate)o.dl=t.deadlineDate;
+        if(t.timeStart)o.timeStart=t.timeStart;
+        if(t.priority)o.priority=t.priority;
+        if(t.note)o.note=t.note.slice(0,50);
+        if(t.deadlineDate)o.deadlineDate=t.deadlineDate;
         return o;
       }),
       cats: taskCats.map(function(c){return {id:c.id,label:c.label};}),
@@ -16935,17 +16935,51 @@ async function meAiSubmit() {
       done:taskItems.filter(function(t){return t.done;}).length
     };
 
-    var sysPrompt = '할일 앱 AI. 사용자 명령을 이해하고 JS 코드로 실행해. 한국어 답변.\n'
-      +'taskItem: {id,text,catId,done,date?,ts?(timeStart),p?(priority),isTt?(시간표일정),dl?(deadline)}\n'
-      +'변수(주입됨): taskItems(수정가능),taskCats,timetables(name,sd,ed,titles[]),saveTaskData(),renderTaskTab(),showToast()\n'
-      +'시간표Set: var s=new Set();timetables.forEach(t=>(t.titles||[]).forEach(v=>s.add(v.trim())));\n'
-      +'완료: t.done=true;t._localDoneAt=t.updatedAt=Date.now();\n'
-      +'삭제: taskItems=taskItems.filter(t=>!조건);\n'
-      +'추가: taskItems.unshift({id:Date.now()+Math.random(),text:"",catId:"",date:"",timeStart:"",timeEnd:"",priority:"",done:false,note:"",deadlineDate:"",deadlineId:"",subs:[],createdAt:Date.now(),updatedAt:Date.now()});\n'
-      +'응답: 짧은 설명 + ```json{"action":"delete|add|update|done|undone","summary":"설명","previewCode":"배열return JS(taskItems변경금지)","code":"saveTaskData()+renderTaskTab()+showToast()포함"}\n'
-      +'previewCode: delete→삭제대상 | add→추가객체배열 | update/done/undone→대상\n'
-      +'앱상태: '+JSON.stringify(appState);
-
+    var sysPrompt = [
+      '당신은 할일 앱의 AI입니다. 사용자 명령을 정확히 이해하고 한국어로 답변하세요.',
+      '',
+      '# taskItem 필드 (정확한 이름 사용)',
+      'id(숫자), text(이름), catId, date(YYYY-MM-DD), timeStart(HH:MM), timeEnd, done(boolean), priority(high/mid/low), note, deadlineDate(YYYY-MM-DD)',
+      'note에 "시간표:" 포함 = 시간표 일정 / 없으면 독립 일정',
+      '',
+      '# 런타임 변수',
+      'taskItems: 할일 배열 (직접 수정 가능)',
+      'timetables: 시간표 배열 (각 항목: name, sd=시작일, ed=종료일, titles=과목명[])',
+      'taskCats, saveTaskData(), renderTaskTab(), showToast(msg)',
+      '',
+      '# 필수 코드 패턴',
+      '시간표 과목 Set:',
+      '  var ttSet = new Set();',
+      '  timetables.forEach(function(tt) { (tt.titles||[]).forEach(function(v) { ttSet.add(v.trim()); }); });',
+      '시간표 일정: t.note && t.note.indexOf("시간표") >= 0',
+      '완료: t.done=true; t._localDoneAt=Date.now(); t.updatedAt=Date.now();',
+      '삭제: taskItems = taskItems.filter(function(t) { return !조건; });',
+      '추가: taskItems.unshift({ id:Date.now()+Math.random(), text:"이름", catId:"etc", date:"YYYY-MM-DD", timeStart:"", timeEnd:"", priority:"", done:false, note:"", deadlineDate:"", deadlineId:"", subs:[], createdAt:Date.now(), updatedAt:Date.now() });',
+      '',
+      '# 응답 규칙',
+      '조회/질문 → 자연어 답변만',
+      '할일 조작 → 설명 한 줄 + JSON 블록',
+      '모호한 명령 → 되묻기',
+      '',
+      '# JSON 블록 형식 (조작 시 반드시 포함)',
+      '\`\`\`json',
+      '{',
+      '  "action": "delete | add | update | done | undone",',
+      '  "summary": "N개 삭제 처럼 구체적으로",',
+      '  "previewCode": "영향받을 항목 배열을 return하는 JS. taskItems 절대 수정 금지. 예시: return taskItems.filter(function(t){ return t.text.indexOf(\"일화실\") >= 0; });",',
+      '  "code": "실제 실행 JS. 반드시 saveTaskData(); renderTaskTab(); showToast(메시지); 포함."',
+      '}',
+      '\`\`\`',
+      '',
+      '# previewCode 예시',
+      'delete: return taskItems.filter(function(t){ return t.text.indexOf("일화실") >= 0 && !t.done; });',
+      'add: return [{ text:"물리 보고서", catId:"uni", date:"2026-04-10", timeStart:"14:00" }];',
+      'done: return taskItems.filter(function(t){ return t.text === "수학 숙제"; });',
+      'update: return taskItems.filter(function(t){ return t.text.indexOf("화학") >= 0 && t.date < "2026-04-15"; });',
+      '',
+      '# 현재 앱 상태',
+      JSON.stringify(appState)
+    ].join('\n');
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
