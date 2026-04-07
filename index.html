@@ -16899,7 +16899,10 @@ async function meAiSubmit() {
   var preview = document.getElementById('meAiPreview');
   var text = (inp||{}).value.trim();
   if (!text) return;
-  if (!API_KEY) { showToast('설정에서 Groq API 키를 먼저 입력해줘'); return; }
+
+  // Groq 또는 Anthropic API 키
+  var useKey = API_KEY || (typeof ANTHROPIC_KEY !== 'undefined' ? ANTHROPIC_KEY : '');
+  if (!useKey) { showToast('설정에서 API 키를 먼저 입력해줘'); return; }
 
   if (btn) { btn.disabled=true; btn.textContent='분석 중...'; }
   if (preview) { preview.style.display='block'; preview.innerHTML='<div class="me-ai-loading"><span>✦</span> 분석 중...</div>'; }
@@ -16909,77 +16912,90 @@ async function meAiSubmit() {
     var todayStr = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
     var dow = ['일','월','화','수','목','금','토'][today.getDay()]+'요일';
 
-    // 앱 상태 (압축)
-    var sorted = taskItems.slice().sort(function(a,b){
+    // ── 전체 데이터 직렬화 (절단 없음) ──
+
+    // 1. 전체 할일 (미완료 먼저)
+    var allTasks = taskItems.slice().sort(function(a,b){
       if(!a.done&&b.done)return -1; if(a.done&&!b.done)return 1;
       return (b.updatedAt||0)-(a.updatedAt||0);
+    }).map(function(t){
+      return {
+        id:t.id, text:t.text, catId:t.catId, done:t.done,
+        date:t.date||'', timeStart:t.timeStart||'', timeEnd:t.timeEnd||'',
+        priority:t.priority||'', note:t.note||'',
+        deadlineDate:t.deadlineDate||'', _ruleId:t._ruleId||null
+      };
     });
-    var appState = {
-      today:todayStr, dow:dow,
-      tasks: sorted.slice(0,80).map(function(t){
-        var o={id:t.id,text:t.text,catId:t.catId,done:t.done};
-        if(t.date)o.date=t.date;
-        if(t.timeStart)o.timeStart=t.timeStart;
-        if(t.priority)o.priority=t.priority;
-        if(t.note)o.note=t.note.slice(0,50);
-        if(t.deadlineDate)o.deadlineDate=t.deadlineDate;
-        return o;
-      }),
-      cats: taskCats.map(function(c){return {id:c.id,label:c.label};}),
-      timetables: (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
-        var titles=(tt.slots||[]).map(function(s){return s.title;})
-          .filter(function(v,i,a){return a.indexOf(v)===i;});
-        return {name:tt.name,sd:tt.startDate,ed:tt.endDate,titles:titles};
-      }),
-      total:taskItems.length,
-      done:taskItems.filter(function(t){return t.done;}).length
-    };
 
+    // 2. 시간표 전체 (슬롯 포함)
+    var allTimetables = (typeof timetables!=='undefined'?timetables:[]).map(function(tt){
+      return {
+        name:tt.name, startDate:tt.startDate, endDate:tt.endDate,
+        slots:(tt.slots||[]).map(function(s){
+          return {
+            title:s.title,
+            day:['월','화','수','목','금','토'][s.day]||('day'+s.day),
+            timeStart:s.timeStart, timeEnd:s.timeEnd
+          };
+        })
+      };
+    });
+
+    // 3. 카테고리
+    var cats = taskCats.map(function(c){return {id:c.id,label:c.label,icon:c.icon};});
+
+    // 4. 규칙
+    var rules = [];
+    try { rules = (_loadTaskRules()||[]).map(function(r){return {id:r.id,matchText:r.matchText,taskText:r.taskText,dlMode:r.dlMode};}); } catch(e){}
+
+    // ── 시스템 프롬프트 ──
     var sysPrompt = [
-      '당신은 할일 앱의 AI입니다. 사용자 명령을 정확히 이해하고 한국어로 답변하세요.',
-      '',
-      '# taskItem 필드 (정확한 이름 사용)',
-      'id(숫자), text(이름), catId, date(YYYY-MM-DD), timeStart(HH:MM), timeEnd, done(boolean), priority(high/mid/low), note, deadlineDate(YYYY-MM-DD)',
-      'note에 "시간표:" 포함 = 시간표 일정 / 없으면 독립 일정',
-      '',
-      '# 런타임 변수',
-      'taskItems: 할일 배열 (직접 수정 가능)',
-      'timetables: 시간표 배열 (각 항목: name, sd=시작일, ed=종료일, titles=과목명[])',
-      'taskCats, saveTaskData(), renderTaskTab(), showToast(msg)',
-      '',
-      '# 필수 코드 패턴',
-      '시간표 과목 Set:',
-      '  var ttSet = new Set();',
-      '  timetables.forEach(function(tt) { (tt.titles||[]).forEach(function(v) { ttSet.add(v.trim()); }); });',
-      '시간표 일정: t.note && t.note.indexOf("시간표") >= 0',
-      '완료: t.done=true; t._localDoneAt=Date.now(); t.updatedAt=Date.now();',
-      '삭제: taskItems = taskItems.filter(function(t) { return !조건; });',
-      '추가: taskItems.unshift({ id:Date.now()+Math.random(), text:"이름", catId:"etc", date:"YYYY-MM-DD", timeStart:"", timeEnd:"", priority:"", done:false, note:"", deadlineDate:"", deadlineId:"", subs:[], createdAt:Date.now(), updatedAt:Date.now() });',
-      '',
-      '# 응답 규칙',
-      '조회/질문 → 자연어 답변만',
-      '할일 조작 → 설명 한 줄 + JSON 블록',
-      '모호한 명령 → 되묻기',
-      '',
-      '# JSON 블록 형식 (조작 시 반드시 포함)',
-      '\`\`\`json',
-      '{',
-      '  "action": "delete | add | update | done | undone",',
-      '  "summary": "N개 삭제 처럼 구체적으로",',
-      '  "previewCode": "영향받을 항목 배열을 return하는 JS. taskItems 절대 수정 금지. 예시: return taskItems.filter(function(t){ return t.text.indexOf(\"일화실\") >= 0; });",',
-      '  "code": "실제 실행 JS. 반드시 saveTaskData(); renderTaskTab(); showToast(메시지); 포함."',
-      '}',
-      '\`\`\`',
-      '',
-      '# previewCode 예시',
-      'delete: return taskItems.filter(function(t){ return t.text.indexOf("일화실") >= 0 && !t.done; });',
-      'add: return [{ text:"물리 보고서", catId:"uni", date:"2026-04-10", timeStart:"14:00" }];',
-      'done: return taskItems.filter(function(t){ return t.text === "수학 숙제"; });',
-      'update: return taskItems.filter(function(t){ return t.text.indexOf("화학") >= 0 && t.date < "2026-04-15"; });',
-      '',
-      '# 현재 앱 상태',
-      JSON.stringify(appState)
+'당신은 이 할일 앱의 AI입니다. 앱의 모든 데이터를 완전히 이해하고 사용자 명령을 정확히 처리하세요.',
+'',
+'# 데이터 구조',
+'taskItem: { id(숫자), text(이름), catId(카테고리id), done(boolean), date("YYYY-MM-DD"), timeStart("HH:MM"), timeEnd, priority("high"/"mid"/"low"/""), note, deadlineDate, _ruleId }',
+'note에 "시간표:" 포함 → 시간표에서 생성된 일정. 미포함 → 독립 일정.',
+'',
+'timetable: { name, startDate, endDate, slots:[{ title(수업명), day("월"/"화"/"수"/"목"/"금"/"토"), timeStart, timeEnd }] }',
+'',
+'# 런타임 변수 (코드에서 직접 사용)',
+'taskItems (배열, 직접 수정), taskCats, timetables, saveTaskData(), renderTaskTab(), showToast(msg)',
+'',
+'# 코드 패턴',
+'시간표 수업명 전체 Set:',
+'  var ttSet=new Set(); timetables.forEach(function(tt){ (tt.slots||[]).forEach(function(s){ ttSet.add(s.title.trim()); }); });',
+'시간표 일정 여부: t.note && t.note.indexOf("시간표")>=0',
+'완료: t.done=true; t._localDoneAt=Date.now(); t.updatedAt=Date.now();',
+'삭제: taskItems=taskItems.filter(function(t){ return !조건; });',
+'추가: taskItems.unshift({ id:Date.now()+Math.random(), text:"", catId:"", date:"", timeStart:"", timeEnd:"", priority:"", done:false, note:"", deadlineDate:"", deadlineId:"", subs:[], createdAt:Date.now(), updatedAt:Date.now() });',
+'',
+'# 응답 형식',
+'- 조회/질문: 자연어만',
+'- 할일 조작: 설명 + 아래 JSON 블록',
+'',
+'```json',
+'{',
+'  "action": "delete|add|update|done|undone",',
+'  "summary": "3개 삭제" 처럼 구체적으로,',
+'  "previewCode": "영향받을 항목 배열을 return하는 JS. taskItems 절대 수정 금지.",',
+'  "code": "실행JS. saveTaskData(); renderTaskTab(); showToast(결과메시지); 반드시 포함."',
+'}',
+'```',
+'',
+'previewCode 예시:',
+'  삭제: return taskItems.filter(function(t){ return t.text.indexOf("일화실")>=0 && !t.done; });',
+'  추가: return [{ text:"물리 보고서", catId:"uni", date:"2026-04-10" }];',
+'  완료: return taskItems.filter(function(t){ return t.text==="수학 숙제" && !t.done; });',
+'  시간표 과목인데 시간표 일정 아닌 것: (function(){ var s=new Set(); timetables.forEach(function(tt){ (tt.slots||[]).forEach(function(sl){ s.add(sl.title.trim()); }); }); return taskItems.filter(function(t){ return t.catId==="schedule" && s.has(t.text.trim()) && !(t.note&&t.note.indexOf("시간표")>=0); }); })()',
     ].join('\n');
+
+    var userMsg = '오늘: '+todayStr+' ('+dow+')\n\n'
+      +'카테고리: '+JSON.stringify(cats)+'\n\n'
+      +'시간표:\n'+JSON.stringify(allTimetables,null,2)+'\n\n'
+      +'규칙: '+JSON.stringify(rules)+'\n\n'
+      +'할일 전체 ('+allTasks.length+'개):\n'+JSON.stringify(allTasks,null,2)+'\n\n'
+      +'명령: '+text;
+
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+API_KEY},
@@ -16987,102 +17003,132 @@ async function meAiSubmit() {
         model:'llama-3.3-70b-versatile',
         messages:[
           {role:'system',content:sysPrompt},
-          {role:'user',content:text}
+          {role:'user',content:userMsg}
         ],
-        max_tokens:800, temperature:0.0
+        max_tokens:1200, temperature:0.0
       })
     });
+
     var data = await res.json();
-    if(!data.choices) throw new Error(JSON.stringify(data).slice(0,200));
+    if (!data.choices) throw new Error(JSON.stringify(data).slice(0,300));
     var raw = data.choices[0].message.content.trim();
 
     // JSON 블록 파싱
     var jsonMatch = raw.match(/```json\s*([\s\S]*?)```/);
     if (!jsonMatch) {
-      // 실행 불필요한 답변 (조회/질문)
-      if (preview) preview.innerHTML = '<div class="me-ai-preview"><div class="me-ai-preview-title">✦</div><div style="font-size:13px;color:var(--fg);padding:4px 0">'+esc(raw)+'</div><div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div></div>';
+      // 조회/질문 응답
+      if (preview) preview.innerHTML = '<div class="me-ai-preview">'
+        +'<div style="font-size:13px;color:var(--fg);padding:4px 0;white-space:pre-wrap">'+esc(raw)+'</div>'
+        +'<div class="me-ai-preview-actions"><button class="me-ai-cancel-btn" onclick="meAiCancel()">닫기</button></div>'
+        +'</div>';
       return;
     }
+
     var parsed = JSON.parse(jsonMatch[1].trim());
     _meAiParsed = parsed;
 
-    // previewCode dry-run
+    // previewCode dry-run (taskItems 복사본 전달)
     var affectedItems = [];
     if (parsed.previewCode) {
       try {
         var pFn = new Function('taskItems','taskCats','timetables','inboxItems','Date', parsed.previewCode);
-        var result = pFn(taskItems.slice(),taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],Date);
-        if(Array.isArray(result)) affectedItems = result;
-      } catch(e){ console.warn('previewCode err:',e.message); }
+        var result = pFn(
+          taskItems.slice(), taskCats,
+          typeof timetables!=='undefined'?timetables:[],
+          typeof inboxItems!=='undefined'?inboxItems:[],
+          Date
+        );
+        if (Array.isArray(result)) affectedItems = result;
+      } catch(e) { console.warn('previewCode err:',e.message,'\nCode:',parsed.previewCode); }
     }
 
     var action = parsed.action||'';
-    var summary = parsed.summary||'실행';
     var isDel = action==='delete';
     var isAdd = action==='add';
     var accentColor = isDel?'#ef4444':isAdd?'#22c55e':action==='done'?'#22c55e':'var(--accent)';
-    var confirmLabel = isDel?'🗑 '+affectedItems.length+'개 삭제' : isAdd?'✦ '+affectedItems.length+'개 추가' : action==='done'?'✓ '+affectedItems.length+'개 완료' : action==='undone'?'↩ '+affectedItems.length+'개 미완료' : action==='update'?'✎ '+affectedItems.length+'개 수정' : '✓ 실행';
+    var confirmLabel = isDel?'🗑 '+affectedItems.length+'개 삭제'
+      :isAdd?'✦ '+affectedItems.length+'개 추가'
+      :action==='done'?'✓ '+affectedItems.length+'개 완료'
+      :action==='undone'?'↩ '+affectedItems.length+'개 미완료'
+      :action==='update'?'✎ '+affectedItems.length+'개 수정'
+      :'✓ 실행';
 
-    // 미리보기 HTML
+    // 미리보기 HTML - 전체 표시 (자르지 않음)
     var itemsHtml = '';
     if (affectedItems.length > 0) {
-      var headerColor = isDel?'rgba(239,68,68,.08)':isAdd?'rgba(34,197,94,.08)':'rgba(108,99,255,.08)';
-      var headerText = isDel?'삭제될 항목':isAdd?'추가될 항목':'영향받는 항목';
-      itemsHtml = '<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0">'
-        +'<div style="padding:5px 10px;font-size:10px;font-weight:700;color:'+accentColor+';background:'+headerColor+'">'+headerText+' ('+affectedItems.length+'개)</div>'
-        +affectedItems.slice(0,10).map(function(t){
+      var hColor = isDel?'rgba(239,68,68,.08)':isAdd?'rgba(34,197,94,.08)':'rgba(108,99,255,.08)';
+      var hText = isDel?'삭제될 항목':isAdd?'추가될 항목':'영향받는 항목';
+      itemsHtml = '<div style="border:1px solid var(--border-subtle);border-radius:var(--r-inner);overflow:hidden;margin:8px 0;max-height:320px;overflow-y:auto">'
+        +'<div style="padding:5px 10px;font-size:10px;font-weight:700;color:'+accentColor+';background:'+hColor+';position:sticky;top:0">'+hText+' — 총 '+affectedItems.length+'개</div>'
+        +affectedItems.map(function(t){
+          if (!t||typeof t!=='object') return '';
           var cat=taskCats.find(function(c){return c.id===(t.catId||'');});
-          var prefix=isDel?'<span style="color:#ef4444;font-size:10px">✕ </span>':isAdd?'<span style="color:#22c55e;font-size:10px">+ </span>':'';
-          return '<div style="padding:6px 10px;border-top:1px solid var(--border-subtle);font-size:12px;display:flex;gap:8px;align-items:center">'
+          var prefix=isDel?'<span style="color:#ef4444;font-size:10px;flex-shrink:0">✕ </span>':isAdd?'<span style="color:#22c55e;font-size:10px;flex-shrink:0">+ </span>':'';
+          return '<div style="padding:6px 10px;border-top:1px solid var(--border-subtle);font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
             +prefix
-            +(isDel?'<s style="flex:1;opacity:.6">'+esc(t.text||'')+'</s>':'<b style="flex:1">'+esc(t.text||'')+'</b>')
-            +(t.date?'<span style="color:var(--fg3);font-size:11px">'+t.date+'</span>':'')
-            +(t.ts?'<span style="color:var(--fg3);font-size:11px">'+t.ts+'</span>':'')
-            +(cat?'<span style="color:'+cat.color+';font-size:10px">'+cat.icon+cat.label+'</span>':'')
-            +(t.p?'<span style="font-size:10px">'+(t.p==='high'?'🔴':t.p==='low'?'🟢':'🟡')+'</span>':'')
+            +(isDel?'<s style="flex:1;min-width:0;opacity:.6">'+esc(t.text||'')+'</s>':'<b style="flex:1;min-width:0">'+esc(t.text||'')+'</b>')
+            +(t.date?'<span style="color:var(--fg3);font-size:11px;white-space:nowrap">'+t.date+'</span>':'')
+            +(t.timeStart?'<span style="color:var(--fg3);font-size:11px">'+t.timeStart+'</span>':'')
+            +(cat?'<span style="color:'+cat.color+';font-size:10px;white-space:nowrap">'+cat.icon+cat.label+'</span>':'')
+            +(t.priority==='high'?'<span style="font-size:10px">🔴</span>':t.priority==='low'?'<span style="font-size:10px">🟢</span>':t.priority==='mid'?'<span style="font-size:10px">🟡</span>':'')
+            +(t.note&&t.note.indexOf('시간표')>=0?'<span style="font-size:9px;color:var(--fg3)">시간표</span>':'')
             +'</div>';
         }).join('')
-        +(affectedItems.length>10?'<div style="padding:4px 10px;font-size:11px;color:var(--fg3)">... 외 '+(affectedItems.length-10)+'개</div>':'')
         +'</div>';
     } else if (parsed.code) {
-      itemsHtml = '<div style="font-size:12px;color:var(--fg3);padding:4px 0">미리보기 없음 — 실행 후 확인</div>';
+      itemsHtml = '<div style="font-size:12px;color:var(--fg3);padding:6px 0;font-style:italic">미리보기 없음 (실행 후 결과 확인)</div>';
     }
 
     var descText = raw.replace(/```json[\s\S]*?```/,'').trim();
-
-    if(preview) preview.innerHTML = '<div class="me-ai-preview">'
-      +'<div class="me-ai-preview-title" style="color:'+accentColor+'">✦ '+esc(summary)+'</div>'
-      +(descText?'<div style="font-size:12px;color:var(--fg2);margin:4px 0">'+esc(descText)+'</div>':'')
+    if (preview) preview.innerHTML = '<div class="me-ai-preview">'
+      +'<div class="me-ai-preview-title" style="color:'+accentColor+'">✦ '+esc(parsed.summary||action)+'</div>'
+      +(descText?'<div style="font-size:12px;color:var(--fg2);margin:4px 0;white-space:pre-wrap">'+esc(descText)+'</div>':'')
       +itemsHtml
-      +'<details style="margin:4px 0;font-size:11px;color:var(--fg3)"><summary style="cursor:pointer">코드 보기</summary>'
-      +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap">'+esc(parsed.code||'')+'</pre></details>'
+      +'<details style="margin:6px 0 2px;font-size:11px;color:var(--fg3)"><summary style="cursor:pointer">실행 코드 보기</summary>'
+      +'<pre style="margin:4px 0;padding:8px;background:rgba(0,0,0,.04);border-radius:6px;font-size:10px;overflow-x:auto;white-space:pre-wrap;max-height:180px">'+esc(parsed.code||'')+'</pre></details>'
       +'<div class="me-ai-preview-actions">'
       +(parsed.code?'<button class="me-ai-confirm-btn" style="background:'+accentColor+'" onclick="meAiConfirm()">'+confirmLabel+'</button>':'')
       +'<button class="me-ai-cancel-btn" onclick="meAiCancel()">취소</button>'
       +'</div></div>';
 
   } catch(e) {
-    if(preview) preview.innerHTML='<div class="me-ai-loading" style="color:#ef4444">오류: '+esc(e.message)+'</div>';
+    if (preview) preview.innerHTML='<div class="me-ai-loading" style="color:#ef4444">오류: '+esc(e.message)+'</div>';
     console.error('AI err:',e);
   } finally {
-    if(btn){btn.disabled=false; btn.textContent='실행';}
+    if (btn){btn.disabled=false; btn.textContent='실행';}
   }
 }
 
 function meAiConfirm() {
-  if(!_meAiParsed||!_meAiParsed.code) return;
+  if (!_meAiParsed||!_meAiParsed.code) return;
   try {
-    var fn=new Function('taskItems','taskCats','timetables','inboxItems','saveTaskData','renderTaskTab','renderMeTodo','showToast','Date','_pushToNotion','notionCfg','fbUser','fbSaveAll',_meAiParsed.code);
-    fn(taskItems,taskCats,typeof timetables!=='undefined'?timetables:[],typeof inboxItems!=='undefined'?inboxItems:[],saveTaskData,renderTaskTab,renderMeTodo,showToast,Date,typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},typeof notionCfg!=='undefined'?notionCfg:{},typeof fbUser!=='undefined'?fbUser:null,typeof fbSaveAll!=='undefined'?fbSaveAll:function(){});
+    new Function(
+      'taskItems','taskCats','timetables','inboxItems',
+      'saveTaskData','renderTaskTab','renderMeTodo','showToast','Date',
+      '_pushToNotion','notionCfg','fbUser','fbSaveAll',
+      _meAiParsed.code
+    )(
+      taskItems, taskCats,
+      typeof timetables!=='undefined'?timetables:[],
+      typeof inboxItems!=='undefined'?inboxItems:[],
+      saveTaskData, renderTaskTab, renderMeTodo, showToast, Date,
+      typeof _pushToNotion!=='undefined'?_pushToNotion:function(){},
+      typeof notionCfg!=='undefined'?notionCfg:{},
+      typeof fbUser!=='undefined'?fbUser:null,
+      typeof fbSaveAll!=='undefined'?fbSaveAll:function(){}
+    );
     meAiCancel();
-  } catch(e){ showToast('실행 오류: '+e.message); console.error('exec:',e,'\n',_meAiParsed.code); }
+  } catch(e) {
+    showToast('실행 오류: '+e.message);
+    console.error('exec err:',e,'\nCode:',_meAiParsed.code);
+  }
 }
 
 function meAiCancel() {
   var inp=document.getElementById('meAiTaskInp');
-  var preview=document.getElementById('meAiPreview');
+  var prev=document.getElementById('meAiPreview');
   if(inp) inp.value='';
-  if(preview){preview.style.display='none';preview.innerHTML='';}
+  if(prev){prev.style.display='none';prev.innerHTML='';}
   _meAiParsed=null;
 }
 function meAiConfirm(){ if(_aiPendingCode)_meAiExecCode(_aiPendingCode); }
