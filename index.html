@@ -5567,13 +5567,13 @@ let API_KEY=localStorage.getItem('groq_key')||'';
 
 
 const TASK_DEFAULT_CATS=[
-  {id:'schedule',label:'일정',  color:'#E05050', icon:'📅'},
-  {id:'uni',    label:'대학',   color:'#6C63FF', icon:'🎓'},
-  {id:'work',   label:'작업',   color:'#38B2AC', icon:'💻'},
-  {id:'health', label:'건강',   color:'#D97706', icon:'💪'},
-  {id:'life',   label:'생활',   color:'#D97706', icon:'🏠'},
-  {id:'idea',   label:'아이디어',color:'#8B84FF', icon:'💡'},
-  {id:'etc',    label:'기타',   color:'#6B7280', icon:'📌'},
+  {id:'schedule',label:'일정',  color:'#E05050', icon:'📅', defaultPriority:''},
+  {id:'uni',    label:'대학',   color:'#6C63FF', icon:'🎓', defaultPriority:''},
+  {id:'work',   label:'작업',   color:'#38B2AC', icon:'💻', defaultPriority:''},
+  {id:'health', label:'건강',   color:'#D97706', icon:'💪', defaultPriority:''},
+  {id:'life',   label:'생활',   color:'#D97706', icon:'🏠', defaultPriority:''},
+  {id:'idea',   label:'아이디어',color:'#8B84FF', icon:'💡', defaultPriority:''},
+  {id:'etc',    label:'기타',   color:'#6B7280', icon:'📌', defaultPriority:''},
 ];
 const TASK_CAT_COLORS=['#6C63FF','#38B2AC','#8B84FF','#D97706','#E05050','#6B7280','#3D4852','#A78BFA'];
 
@@ -6989,7 +6989,7 @@ function _renderCatManager(){
       <div class="nds-field-label">새 카테고리 추가</div>
       <div style="display:flex;gap:6px;align-items:center">
         <input id="newTaskCatIcon" class="nds-inp" placeholder="🏷️" style="width:44px;text-align:center;font-size:16px">
-        <input id="newTaskCatName" class="nds-inp" placeholder="이름" style="flex:1">
+        <input id="newTaskCatName" class="nds-inp" placeholder="이름" style="flex:1"><select id="newTaskCatPriority" class="nds-inp" style="width:90px;padding:6px 8px"><option value="">우선순위</option><option value="high">🔴 높음</option><option value="mid">🟡 중간</option><option value="low">🟢 낮음</option></select>
       </div>
       <div class="cat-color-row">${colorSwatchesNew}</div>
       <input type="hidden" id="newTaskCatColor" value="${TASK_CAT_COLORS[0]}">
@@ -7051,9 +7051,10 @@ function addTaskCat(){
   const name=document.getElementById('newTaskCatName')?.value.trim();
   const icon=document.getElementById('newTaskCatIcon')?.value.trim()||'📌';
   const color=document.getElementById('newTaskCatColor')?.value||TASK_CAT_COLORS[0];
+  const defaultPriority=document.getElementById('newTaskCatPriority')?.value||'';
   if(!name){showToast('이름을 입력해줘');return;}
   if(name==='일정'){showToast('기본 카테고리 이름이야');return;}
-  taskCats.push({id:'tc_'+Date.now(),label:name,color,icon});
+  taskCats.push({id:'tc_'+Date.now(),label:name,color,icon,defaultPriority:defaultPriority});
   taskCalFilterIds.add(taskCats[taskCats.length-1].id);
   saveTaskData();
   document.querySelector('.nds-modal')?.remove();
@@ -8967,6 +8968,15 @@ function renderDeadlineList() {
   panel.innerHTML = html;
 }
 
+function toggleDeadlineList(){
+  var panel=document.getElementById('deadlineListPanel');
+  var btn=document.getElementById('deadlineListBtn');
+  if(!panel)return;
+  var isOn=panel.style.display==='block';
+  panel.style.display=isOn?'none':'block';
+  if(btn)btn.classList.toggle('on',!isOn);
+  if(!isOn)try{renderDeadlineList&&renderDeadlineList();}catch(e){}
+}
 function toggleDeadlineView(){
   _deadlineViewOn = !_deadlineViewOn;
   var btn = document.getElementById('deadlineViewBtn');
@@ -12022,7 +12032,7 @@ function _applyFirebaseData(d, force){
           var _rv=ri.updatedAt||ri.createdAt||0;
           var lts=(typeof _lv==='string')?new Date(_lv).getTime():_lv;
           var rts=(typeof _rv==='string')?new Date(_rv).getTime():_rv;
-          if (rts > lts) {
+          if (rts >= lts) {
             var didx = inboxItems.findIndex(function(x){ return String(x.id)===key; });
             if (didx >= 0) inboxItems[didx] = ri;
           }
@@ -12034,7 +12044,7 @@ function _applyFirebaseData(d, force){
         if (remoteMap[String(li.id)]) return true;
         var _cat = li.createdAt||0;
         var _catMs = (typeof _cat==='string') ? new Date(_cat).getTime() : _cat;
-        return (_now - _catMs) < 60000;
+        return (_now - _catMs) < 600000;
       });
       inboxItems.sort(function(a,b){ return (b.createdAt||b.id||0)-(a.createdAt||a.id||0); });
       localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
@@ -15063,9 +15073,10 @@ function addTaskItem() {
   var catId = taskCats.length ? taskCats[0].id : 'etc';
   var text = prompt('새 할일');
   if (!text || !text.trim()) return;
+  var _dp=(taskCats.find(function(x){return x.id===catId;})||{}).defaultPriority||'mid';
   var item = { id: Date.now(), text: text.trim(), catId: catId,
     date: taskSelDate || taskDateKey(new Date()), done: false,
-    priority: 'mid', createdAt: new Date().toISOString() };
+    priority: _dp, createdAt: new Date().toISOString() };
   taskItems.push(item);
   saveTaskData();
   renderTaskList();
@@ -15668,6 +15679,12 @@ function renderTtGrid(tt) {
     return '<tr><td style="font-size:9px;color:var(--fg3);padding:2px 4px;text-align:right;border:1px solid var(--border-subtle);white-space:nowrap;height:22px">' + timeLabel + '</td>' + cells + '</tr>';
   }).join('');
 }
+function ttChangeColor(title,colorIdx){
+  var tt=timetables.find(function(t){return t.id===_ttActiveId;});
+  if(!tt)return;
+  tt.slots.forEach(function(s){if(s.title===title)s.colorIdx=colorIdx;});
+  saveTimetables();renderTtGrid(tt);renderTtSlots(tt);
+}
 function renderTtSlots(tt) {
   var el = document.getElementById('ttSlots');
   if (!el) return;
@@ -15726,6 +15743,7 @@ function renderTtSlots(tt) {
       + '<div style="display:flex;align-items:center;gap:8px;padding:4px 0 4px 2px">'
       + '<div style="width:10px;height:10px;border-radius:50%;background:' + color + ';flex-shrink:0"></div>'
       + '<span style="font-size:13px;font-weight:700;color:var(--fg);flex:1">' + esc(title) + '</span>'
+      + '<div style="display:flex;gap:3px;align-items:center">'+(TT_COLORS.map(function(c2,ci){var sel=ci===(g.colorIdx%TT_COLORS.length);return '<button onclick="ttChangeColor('+JSON.stringify(title)+','+ci+')" style="width:13px;height:13px;border-radius:50%;background:'+c2+';border:'+(sel?'2px solid var(--bg)':'1px solid transparent')+';outline:'+(sel?'2px solid '+c2:'none')+';cursor:pointer;padding:0"></button>';}).join(''))+'</div>'
       + '<button onclick="ttAddSessionFor(this)" '
       + 'data-title="' + esc(title) + '" '
       + 'style="padding:2px 10px;border-radius:999px;background:' + color + '22;color:' + color + ';border:1px solid ' + color + '44;font-size:10px;font-weight:600;cursor:pointer">+ 시간 추가</button>'
@@ -17981,11 +17999,11 @@ function renderTimeGrid(){
           ctx.save();
           ctx.font='600 9px sans-serif'; ctx.textAlign='left'; ctx.fillStyle=col;
           ctx.globalAlpha=0.85;
-          var ltLabel=lt.text.length>5?lt.text.slice(0,4)+'…':lt.text;
+          var ltLabel=(lt.done?'✓ ':'')+lt.text;
           // 셀 너비에 맞게 잘리도록 clip
           ctx.save();
           ctx.beginPath();
-          ctx.rect(lx+2, y+4, CELL_W-4, CELL_H/2-2);
+          ctx.rect(lx+2, y+2, CELL_W*3, CELL_H-4);
           ctx.clip();
           ctx.fillText(ltLabel, lx+4, y+14);
           ctx.restore();
@@ -18219,15 +18237,30 @@ function meHtbRender(){
         var dur=origEm-origSm;
         var newSm=Math.max(0,Math.min(origSm+dMin,24*60-dur));
         var newEm=newSm+dur;
-        blk.style.left=(newSm/60)*HW+'px';
-        var dl2=document.getElementById('htbDropLine');
-        if(dl2){dl2.style.left=(newSm/60)*HW+'px';dl2.style.display='block';}
-        blk._ns=newSm;blk._ne=newEm;
+        // allday 영역 위인지 확인
+        var _ae=document.getElementById('meHtbAlldayItems');
+        var _ov=false;
+        if(_ae){var _r=_ae.getBoundingClientRect();_ov=e2.clientY>=_r.top-4&&e2.clientY<=_r.bottom+4;}
+        if(_ov){
+          blk.style.opacity='.4';
+          if(_ae)_ae.style.outline='2px dashed var(--accent)';
+          var dl2=document.getElementById('htbDropLine');
+          if(dl2)dl2.style.display='none';
+        }else{
+          blk.style.opacity='';
+          if(_ae)_ae.style.outline='';
+          blk.style.left=(newSm/60)*HW+'px';
+          var dl2=document.getElementById('htbDropLine');
+          if(dl2){dl2.style.left=(newSm/60)*HW+'px';dl2.style.display='block';}
+        }
+        blk._ns=newSm;blk._ne=newEm;blk._ov=_ov;
       }
       function onUp(){
         document.removeEventListener('mousemove',onMove);
         document.removeEventListener('mouseup',onUp);
-        blk.classList.remove('dragging');
+        blk.classList.remove('dragging');blk.style.opacity='';
+        var _ae2=document.getElementById('meHtbAlldayItems');
+        if(_ae2)_ae2.style.outline='';
         var dl2=document.getElementById('htbDropLine');
         if(dl2)dl2.style.display='none';
         if(!moved){
@@ -18235,14 +18268,18 @@ function meHtbRender(){
           if(i>=0)openTaskItemEdit(i);
           return;
         }
-        if(blk._ns!==undefined){
-          var i=taskItems.findIndex(function(x){return x.id===t.id;});
-          if(i>=0){
+        var i=taskItems.findIndex(function(x){return x.id===t.id;});
+        if(i>=0){
+          if(blk._ov){
+            // allday로 이동: 시간 제거
+            taskItems[i].timeStart='';
+            taskItems[i].timeEnd='';
+          }else if(blk._ns!==undefined){
             taskItems[i].timeStart=_htbTime(blk._ns);
             taskItems[i].timeEnd=_htbTime(blk._ne);
-            taskItems[i].updatedAt=Date.now();
-            saveTaskData();meHtbRender();
           }
+          taskItems[i].updatedAt=Date.now();
+          saveTaskData();meHtbRender();
         }
       }
       document.addEventListener('mousemove',onMove);
