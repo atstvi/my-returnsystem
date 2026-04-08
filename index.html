@@ -4342,6 +4342,26 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   border-color: var(--accent);
 }
 
+/* ── 노션 토글 ── */
+.notion-toggle-wrap{cursor:pointer;display:flex;align-items:center;}
+.notion-toggle-track{display:inline-flex;width:36px;height:20px;border-radius:10px;background:var(--border);transition:.2s;position:relative;flex-shrink:0;}
+.notion-toggle-track.on{background:#a855f7;}
+.notion-toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
+.notion-toggle-track.on .notion-toggle-thumb{transform:translateX(16px);}
+/* ── 할일 다중선택 도구 ── */
+.task-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg);border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;}
+.task-toolbar-btn{padding:4px 10px;border-radius:var(--r-pill);border:1px solid var(--border-subtle);background:var(--bg);font-size:11px;font-weight:600;color:var(--fg2);cursor:pointer;white-space:nowrap;transition:.15s;}
+.task-toolbar-btn:hover{background:var(--bg-raised);color:var(--fg);}
+.task-toolbar-btn.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+.task-sel-bar{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:var(--fg);color:#fff;border-radius:var(--r-card);padding:10px 16px;display:flex;gap:8px;align-items:center;box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:500;white-space:nowrap;opacity:0;pointer-events:none;transition:.2s;}
+.task-sel-bar.show{opacity:1;pointer-events:auto;}
+.task-sel-bar-btn{padding:5px 12px;border-radius:var(--r-pill);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:11px;font-weight:600;cursor:pointer;transition:.15s;}
+.task-sel-bar-btn:hover{background:rgba(255,255,255,.28);}
+.task-sel-bar-btn.red{background:rgba(239,68,68,.4);}
+.task-sel-bar-btn.red:hover{background:#ef4444;}
+.task-sel-count{font-size:12px;font-weight:700;margin-right:4px;}
+.task-item-cb{width:16px;height:16px;border-radius:4px;border:1.5px solid var(--border);cursor:pointer;flex-shrink:0;display:none;accent-color:var(--accent);}
+.select-mode .task-item-cb{display:block;}
 /* ── 가로 타임블록 ── */
 .me-htb-wrap{position:relative;}
 .me-htb-head{display:flex;align-items:center;gap:8px;position:relative;padding:8px 12px 7px;border-bottom:1px solid var(--border-subtle);}
@@ -4830,6 +4850,15 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <div class="task-list-summary" id="taskListSummary"></div>
         <div id="notionTaskBadge" style="font-size:10px;opacity:0.6;margin-top:2px;min-height:14px;"></div>
       </div>
+      <!-- 다중선택 도구바 -->
+      <div class="task-toolbar" id="taskToolbar">
+        <button class="task-toolbar-btn" id="taskSelModeBtn" onclick="taskToggleSelMode()">☑ 선택</button>
+        <span style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;display:inline-block"></span>
+        <button class="task-toolbar-btn" onclick="taskQuickAction('del_done')">✓완료 삭제</button>
+        <button class="task-toolbar-btn" onclick="taskQuickAction('move_past')">← 오늘로</button>
+        <button class="task-toolbar-btn" onclick="taskQuickActionPrompt('del_text')">🗑이름 삭제</button>
+        <button class="task-toolbar-btn" onclick="taskQuickAction('del_dup')">중복 제거</button>
+      </div>
       <div class="task-list-scroll" id="taskListScroll"></div>
     </div>
 
@@ -4837,6 +4866,18 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 </div>
 
 <div id="deadlineListPanel"></div>
+
+<!-- 다중선택 플로팅 액션바 -->
+<div class="task-sel-bar" id="taskSelBar">
+  <span class="task-sel-count" id="taskSelCount">0개 선택</span>
+  <button class="task-sel-bar-btn" onclick="taskSelAction('done')">✓ 완료</button>
+  <button class="task-sel-bar-btn" onclick="taskSelAction('undone')">↩ 미완료</button>
+  <button class="task-sel-bar-btn" onclick="taskSelActionDate()">📅 날짜</button>
+  <button class="task-sel-bar-btn" onclick="taskSelActionPriority()">🎯 우선순위</button>
+  <button class="task-sel-bar-btn" onclick="taskSelActionCat()">🏷 카테고리</button>
+  <button class="task-sel-bar-btn red" onclick="taskSelAction('delete')">🗑 삭제</button>
+  <button class="task-sel-bar-btn" onclick="taskToggleSelMode()">✕</button>
+</div>
 
 <!-- 체크 -->
 <div id="page-check" class="page">
@@ -5244,6 +5285,10 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <div class="set-section-icon">𝒩</div>
           <div class="set-section-title">Notion 연동 (할일 양방향 동기화)</div>
           <div class="set-section-badge off" id="notionBadge">OFF</div>
+          <label onclick="event.stopPropagation()" style="display:flex;align-items:center;cursor:pointer;margin-left:2px" title="Notion 연동 ON/OFF">
+            <input type="checkbox" id="notionToggle" onchange="setNotionEnabled(this.checked)" style="display:none">
+            <span id="notionToggleTrack" class="notion-toggle-track"><span class="notion-toggle-thumb"></span></span>
+          </label>
           <div class="set-section-arrow" id="arr-sec-notion">▼</div>
         </div>
         <div class="set-section-body" id="sec-notion">
@@ -5937,6 +5982,126 @@ function taskSelDay(key){
 }
 
 // ── 오른쪽 할일 목록 ──
+// ═══ 할일 다중선택 ═══
+var _taskSelMode = false;
+var _taskSelIds = new Set();
+
+function taskToggleSelMode() {
+  _taskSelMode = !_taskSelMode;
+  _taskSelIds.clear();
+  var btn = document.getElementById('taskSelModeBtn');
+  var listEl = document.getElementById('taskListScroll');
+  if (btn) { btn.classList.toggle('active', _taskSelMode); btn.textContent = _taskSelMode ? '✕ 해제' : '☑ 선택'; }
+  if (listEl) listEl.classList.toggle('select-mode', _taskSelMode);
+  _taskUpdateSelBar();
+  renderTaskList();
+}
+
+function taskItemToggleSel(id) {
+  if (_taskSelIds.has(id)) _taskSelIds.delete(id);
+  else _taskSelIds.add(id);
+  _taskUpdateSelBar();
+  var cb = document.getElementById('tcb-' + id);
+  if (cb) cb.checked = _taskSelIds.has(id);
+  var row = document.getElementById('ti-' + id);
+  if (row) row.style.background = _taskSelIds.has(id) ? 'rgba(108,99,255,.07)' : '';
+}
+
+function _taskUpdateSelBar() {
+  var bar = document.getElementById('taskSelBar');
+  var cnt = document.getElementById('taskSelCount');
+  if (!bar) return;
+  bar.classList.toggle('show', _taskSelMode && _taskSelIds.size > 0);
+  if (cnt) cnt.textContent = _taskSelIds.size + '개 선택';
+}
+
+function taskSelAction(action) {
+  if (!_taskSelIds.size) return;
+  var n = _taskSelIds.size;
+  if (action === 'delete') {
+    if (!confirm(n + '개 할일을 삭제할까요?')) return;
+    taskItems = taskItems.filter(function(t) { return !_taskSelIds.has(t.id); });
+  } else if (action === 'done') {
+    taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=true; t._localDoneAt=t.updatedAt=Date.now(); } });
+  } else if (action === 'undone') {
+    taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=false; t.updatedAt=Date.now(); } });
+  }
+  _taskSelIds.clear();
+  saveTaskData(); renderTaskList(); _taskUpdateSelBar();
+  showToast(action==='delete'? n+'개 삭제됨' : action==='done'? n+'개 완료됨' : n+'개 미완료됨');
+}
+
+function taskSelActionDate() {
+  if (!_taskSelIds.size) return;
+  var d = prompt('날짜 (YYYY-MM-DD):', taskSelDate||'');
+  if (!d) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) { showToast('형식: YYYY-MM-DD'); return; }
+  var n=0;
+  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.date=d.trim(); t.updatedAt=Date.now(); n++; } });
+  _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
+  showToast(n+'개 날짜 변경 → '+d.trim());
+}
+
+function taskSelActionPriority() {
+  if (!_taskSelIds.size) return;
+  var p = prompt('우선순위: high(높음) / mid(중간) / low(낮음) / 빈칸(없음)', 'mid');
+  if (p === null) return;
+  p = p.trim();
+  if (!['high','mid','low',''].includes(p)) { showToast('high / mid / low / 빈칸 중 하나'); return; }
+  var n=0;
+  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.priority=p; t.updatedAt=Date.now(); n++; } });
+  _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
+  showToast(n+'개 우선순위 변경됨');
+}
+
+function taskSelActionCat() {
+  if (!_taskSelIds.size) return;
+  var list = taskCats.map(function(cat,i) { return i+': '+cat.icon+cat.label; }).join('\n');
+  var p = prompt('카테고리 번호:\n'+list);
+  if (p===null) return;
+  var idx = parseInt(p);
+  if (isNaN(idx)||!taskCats[idx]) { showToast('올바른 번호 입력'); return; }
+  var catId=taskCats[idx].id; var n=0;
+  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.catId=catId; t.updatedAt=Date.now(); n++; } });
+  _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
+  showToast(n+'개 카테고리 → '+taskCats[idx].label);
+}
+
+// 빠른 명령
+function taskQuickAction(type) {
+  if (type === 'del_done') {
+    var targets = taskItems.filter(function(t){return t.done;});
+    if (!targets.length) { showToast('완료된 할일이 없어'); return; }
+    if (!confirm(targets.length+'개 완료 할일을 삭제할까요?')) return;
+    taskItems = taskItems.filter(function(t){return !t.done;});
+    saveTaskData(); renderTaskList(); showToast(targets.length+'개 삭제됨');
+  } else if (type === 'move_past') {
+    var today=new Date(); var tk=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
+    var n=0; taskItems.forEach(function(t){if(!t.done&&t.date&&t.date<tk){t.date=tk;t.updatedAt=Date.now();n++;}});
+    if (!n) { showToast('오늘 이전 미완료 할일 없음'); return; }
+    saveTaskData(); renderTaskList(); showToast(n+'개 → 오늘로 이동');
+  } else if (type === 'del_dup') {
+    var seen=new Set(); var prev=taskItems.length;
+    taskItems=taskItems.filter(function(t){var k=(t.date||'')+'|'+(t.text||'').trim();if(seen.has(k))return false;seen.add(k);return true;});
+    var n2=prev-taskItems.length;
+    if (!n2) { showToast('중복 항목 없음'); return; }
+    saveTaskData(); renderTaskList(); showToast(n2+'개 중복 제거됨');
+  }
+}
+
+function taskQuickActionPrompt(type) {
+  if (type === 'del_text') {
+    var kw = prompt('삭제할 할일 이름(포함 텍스트):');
+    if (!kw||!kw.trim()) return;
+    kw=kw.trim().toLowerCase();
+    var targets=taskItems.filter(function(t){return (t.text||'').toLowerCase().indexOf(kw)>=0;});
+    if (!targets.length) { showToast('"'+kw+'" 포함 할일 없음'); return; }
+    if (!confirm('"'+kw+'" 포함 '+targets.length+'개 삭제할까요?')) return;
+    taskItems=taskItems.filter(function(t){return (t.text||'').toLowerCase().indexOf(kw)<0;});
+    saveTaskData(); renderTaskList(); showToast(targets.length+'개 삭제됨');
+  }
+}
+
 function renderTaskList(){
   const dateEl=document.getElementById('taskListDate');
   const sumEl=document.getElementById('taskListSummary');
@@ -6057,8 +6222,9 @@ function renderTaskList(){
           draggable="true"
           ondragstart="taskItemDragStart(event,'${t.id}')"
           ondragend="taskItemDragEnd(event)"
-          onclick="tieToggle(event,'${t.id}')">
+          onclick="_taskSelMode?taskItemToggleSel('${t.id}'):tieToggle(event,'${t.id}')">
         <div class="task-item-main">
+          <input type="checkbox" class="task-item-cb" id="tcb-${t.id}" onclick="event.stopPropagation();taskItemToggleSel('${t.id}')">
           <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})">${t.done?'✓':''}</div>
           <div class="task-item-body">
             <div class="task-item-text" data-task-id="${t.id}" title="더블클릭으로 이름 편집" ondblclick="event.stopPropagation();startTaskRename('${t.id}',${realIdx},this)">${esc(t.text)}${(()=>{
@@ -13217,6 +13383,14 @@ function renderNotionDbMapping() {
 
 // ── 설정탭 열릴 때 호출 ──
 function initNotionSettings() {
+  // 토글 상태 동기화
+  var _isOff = !!localStorage.getItem('notion_disabled');
+  var _hasCfg = !!(notionCfg && (notionCfg.workerUrl || notionCfg.token));
+  var _isOn = !_isOff && _hasCfg;
+  var _tr = document.getElementById('notionToggleTrack');
+  var _ck = document.getElementById('notionToggle');
+  if (_tr) _tr.classList.toggle('on', _isOn);
+  if (_ck) _ck.checked = _isOn;
   const wUrlEl = document.getElementById('notionWorkerUrl');
   const tokenEl = document.getElementById('notionToken');
   if (wUrlEl) wUrlEl.value = notionCfg.workerUrl || '';
@@ -13328,18 +13502,33 @@ function saveNotionConfig() {
   syncAllNotion();
 }
 
-function clearNotionConfig() {
-  if (!confirm('Notion 연동을 해제할까?\n키/설정은 숨김 처리됩니다 (언제든 다시 활성화 가능)')) return;
-  // 설정을 삭제하지 않고 hidden_ 키에 백업
-  var backup = localStorage.getItem('notion_config');
-  if (backup && backup !== '{}') localStorage.setItem('_hidden_notion_config', backup);
-  notionCfg = {};
-  localStorage.setItem('notion_config', '{}');
-  // 해제 플래그 저장 → Firebase 동기화 시 덮어씌우기 방지
-  localStorage.setItem('notion_disabled', '1');
+function setNotionEnabled(enabled) {
+  var track = document.getElementById('notionToggleTrack');
+  var chk = document.getElementById('notionToggle');
+  if (track) track.classList.toggle('on', !!enabled);
+  if (chk) chk.checked = !!enabled;
+  if (enabled) {
+    localStorage.removeItem('notion_disabled');
+    var backup = localStorage.getItem('_hidden_notion_config');
+    if (backup && backup !== '{}') {
+      localStorage.setItem('notion_config', backup);
+      try { notionCfg = JSON.parse(backup); } catch(e) {}
+    }
+    showToast('Notion 연동 활성화됨');
+  } else {
+    var cur = localStorage.getItem('notion_config');
+    if (cur && cur !== '{}') localStorage.setItem('_hidden_notion_config', cur);
+    notionCfg = {};
+    localStorage.setItem('notion_config', '{}');
+    localStorage.setItem('notion_disabled', '1');
+    showToast('Notion 연동 비활성화됨 (설정 보존됨)');
+  }
   updateNotionBadge && updateNotionBadge();
   initNotionSettings && initNotionSettings();
-  showToast('연동 해제됐어 (설정 보존됨 — 설정탭에서 다시 활성화 가능)');
+}
+
+function clearNotionConfig() {
+  setNotionEnabled(false);
 }
 
 function restoreNotionConfig() {
