@@ -4344,10 +4344,31 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
 /* ── 가로 타임블록 ── */
 .me-htb-wrap{position:relative;}
-.me-htb-head{display:flex;align-items:center;gap:8px;position:relative;padding:8px 14px 7px;border-bottom:1px solid var(--border-subtle);}
-.me-htb-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
+.me-htb-head{display:flex;align-items:center;gap:8px;position:relative;padding:8px 12px 7px;border-bottom:1px solid var(--border-subtle);}
+.me-htb-body{display:flex;flex-direction:column;}
+.me-htb-allday{display:flex;align-items:center;border-bottom:1px solid var(--border-subtle);min-height:30px;background:var(--bg);}
+.me-htb-allday-label{flex-shrink:0;width:44px;font-size:9px;font-weight:700;color:var(--fg3);padding:0 4px;text-align:center;letter-spacing:.5px;}
+.me-htb-allday-items{flex:1;display:flex;flex-wrap:wrap;gap:3px;padding:4px 6px;min-height:30px;align-items:center;}
+.me-htb-allday-chip{padding:2px 8px;border-radius:var(--r-pill);font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;}
+.me-htb-allday-chip:hover{opacity:.75;}
+.me-htb-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;height:88px;position:relative;}
 .me-htb-scroll::-webkit-scrollbar{height:4px;}
 .me-htb-scroll::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
+.me-htb-timeline{position:relative;height:80px;min-width:1536px;}
+.me-htb-hour{position:absolute;top:0;height:100%;border-left:1px solid rgba(128,128,128,.1);pointer-events:none;}
+.me-htb-hour.major{border-left-color:rgba(128,128,128,.2);}
+.me-htb-hour-label{position:absolute;top:4px;font-size:9px;font-weight:600;color:rgba(128,128,128,.5);transform:translateX(-50%);pointer-events:none;white-space:nowrap;}
+.me-htb-now{position:absolute;top:0;height:100%;width:2px;background:#6c63ff;pointer-events:none;z-index:10;}
+.me-htb-now::before{content:attr(data-time);position:absolute;top:2px;left:3px;font-size:8px;font-weight:700;color:#6c63ff;white-space:nowrap;}
+.me-htb-drop-line{position:absolute;top:0;height:100%;width:2px;background:rgba(108,99,255,.5);pointer-events:none;z-index:15;display:none;}
+.me-htb-block{position:absolute;top:8px;bottom:8px;border-radius:6px;cursor:grab;overflow:hidden;box-sizing:border-box;}
+.me-htb-block:hover{box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:6;}
+.me-htb-block.dragging{cursor:grabbing;opacity:.8;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.2);}
+.me-htb-block-bar{position:absolute;left:0;top:0;bottom:0;width:3px;}
+.me-htb-block-text{position:absolute;left:7px;top:5px;right:10px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.me-htb-block-time{position:absolute;left:7px;bottom:4px;font-size:9px;opacity:.6;white-space:nowrap;}
+.me-htb-block-resize{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:7;}
+.me-htb-block-resize::after{content:'';position:absolute;right:2px;top:50%;transform:translateY(-50%);width:2px;height:12px;background:rgba(128,128,128,.4);border-radius:1px;}
 
 /* ── 타임그리드 + Ground Control 2분할 ── */
 .tg-gc-wrap {
@@ -4507,10 +4528,16 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <div class="me-htb-head">
           <span style="font-size:12px;font-weight:700;color:var(--fg2)">⏰ 타임블록</span>
           <button id="meHtbDateBtn" onclick="meHtbPickDate()" style="font-size:11px;padding:3px 10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;cursor:pointer;color:var(--fg2)">오늘</button>
-          <div id="meHtbDatePicker" style="display:none;position:absolute;z-index:300;background:var(--bg);box-shadow:var(--shadow-raised);border-radius:var(--r-card);padding:12px;top:38px;left:0;min-width:210px"></div>
+          <div id="meHtbDatePicker" style="display:none;position:fixed;z-index:9000;background:var(--bg);box-shadow:var(--shadow-raised);border-radius:var(--r-card);padding:12px;min-width:210px"></div>
         </div>
-        <div class="me-htb-scroll" id="meHtbScroll">
-          <canvas id="meHtbCanvas" style="display:block"></canvas>
+        <div class="me-htb-body" id="meHtbBody">
+          <div class="me-htb-allday">
+            <div class="me-htb-allday-label">ALL DAY</div>
+            <div class="me-htb-allday-items" id="meHtbAlldayItems"></div>
+          </div>
+          <div class="me-htb-scroll" id="meHtbScroll">
+            <div class="me-htb-timeline" id="meHtbTimeline"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -17105,14 +17132,23 @@ async function meAiSubmit(){
     }).join('\n');
 
     // 할일 이름+id만 (토큰 최소화, AI가 텍스트 패턴 파악용)
-    var taskNames = taskItems.map(function(t){
+    // 미완료 먼저, 최신순 정렬 후 이름+날짜+상태 전송
+    var _sorted = taskItems.slice().sort(function(a,b){
+      if(!a.done&&b.done)return -1; if(a.done&&!b.done)return 1;
+      return (b.updatedAt||0)-(a.updatedAt||0);
+    });
+    var taskNames = _sorted.map(function(t){
       var r = t.id+'|'+t.text;
-      if (t.done) r += '|완료';
-      if (t.note && t.note.indexOf('시간표')>=0) r += '|[시간표]';
+      if(t.catId) r+='|'+t.catId;
+      if(t.date) r+='|'+t.date;
+      if(t.done) r+='|완료';
+      if(t.note&&t.note.indexOf('시간표')>=0) r+='|[시간표]';
+      if(t.deadlineDate) r+='|마감:'+t.deadlineDate;
       return r;
     }).join('\n');
 
-    var PROMPT = '할일 앱 AI. 사용자 명령을 분석해서 JSON으로만 응답. 다른 텍스트 없음.\n\n'
+    var PROMPT = '할일 앱 AI. 사용자 명령을 분석해서 JSON으로만 응답. 다른 텍스트 없음.\n'
+      +'날짜 계산: 오늘='+todayStr+', 내일=다음날, 이번주 월요일부터 일요일, 다음주=+7일. dateFrom/dateTo는 YYYY-MM-DD.\n\n'
       +'# 응답 형식\n'
       +'{"action":"delete|done|undone|add|update","summary":"설명","filter":{...},"items":[...],"patch":{...}}\n\n'
       +'# filter 필드 (AND 조건)\n'
@@ -17133,8 +17169,8 @@ async function meAiSubmit(){
       +'{"action":"delete","summary":"시간표 과목 독립 일정 삭제","filter":{"catId":"schedule","isTimetableSubject":true,"isTimetable":false}}\n\n'
       +'명령: 완료된 것 전부 삭제\n'
       +'{"action":"delete","summary":"완료 항목 전체 삭제","filter":{"done":true}}\n\n'
-      +'명령: 일화실 이번주 거 완료처리\n'
-      +'{"action":"done","summary":"일화실 완료 처리","filter":{"text":"일화실","dateFrom":"'+todayStr+'","dateTo":"'+todayStr+'"}}\n\n'
+      +'명령: 일화실 이번주 거 완료처리 (이번주='+_htbKey(new Date())+' 기준 월~일)\n'
+      +'{"action":"done","summary":"일화실 이번주 완료","filter":{"text":"일화실","dateFrom":"이번주월요일","dateTo":"이번주일요일"}}\n\n'
       +'명령: 내일 오후 2시 물리 보고서 추가\n'
       +'{"action":"add","summary":"물리 보고서 추가","items":[{"text":"물리 보고서","catId":"uni","date":"'+todayStr+'","timeStart":"14:00"}]}\n\n'
       +'---\n'
@@ -18007,7 +18043,20 @@ function meHtbPickDate(){
   var today=_htbKey(new Date());
   var sel=_htbDate?new Date(_htbDate+'T00:00'):new Date();
   dp._y=sel.getFullYear();dp._m=sel.getMonth();
-  _htbBuildCal(dp,today);dp.style.display='block';
+  _htbBuildCal(dp,today);
+  // fixed 좌표 - 버튼 기준
+  var _btn=document.getElementById('meHtbDateBtn');
+  if(_btn){
+    var _r=_btn.getBoundingClientRect();
+    dp.style.left=_r.left+'px';
+    dp.style.top=(_r.bottom+4)+'px';
+    // 화면 아래 넘치면 위로
+    var _dpH=220;
+    if(_r.bottom+4+_dpH>window.innerHeight){
+      dp.style.top=Math.max(4,_r.top-_dpH-4)+'px';
+    }
+  }
+  dp.style.display='block';
   setTimeout(function(){
     document.addEventListener('click',function _hc(e){
       var dp2=document.getElementById('meHtbDatePicker');
