@@ -4863,6 +4863,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
       <!-- 다중선택 도구바 -->
       <div class="task-toolbar" id="taskToolbar">
+        <button class="task-toolbar-btn" id="taskUndoBtn" onclick="taskUndo()" title="되돌리기 (Ctrl+Z)" style="opacity:.35" disabled>↩ 되돌리기</button>
+        <button class="task-toolbar-btn" id="taskRedoBtn" onclick="taskRedo()" title="다시 실행 (Ctrl+Y)" style="opacity:.35" disabled>↪ 다시</button>
+        <span style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;display:inline-block"></span>
         <button class="task-toolbar-btn" id="taskSelModeBtn" onclick="taskToggleSelMode()">☑ 선택</button>
         <span style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;display:inline-block"></span>
         <button class="task-toolbar-btn" onclick="taskQuickAction('del_done')">✓완료 삭제</button>
@@ -5820,6 +5823,43 @@ function closeCalExpand(){
   if(ov) ov.style.display = 'none';
 }
 
+// undo/redo 스택 (최대 20단계)
+var _undoStack = [];
+var _redoStack = [];
+
+function _taskSnapshot() {
+  // 변경 전 스냅샷 저장 (saveTaskData 호출 전에 사용)
+  _undoStack.push(JSON.stringify(taskItems));
+  if (_undoStack.length > 20) _undoStack.shift();
+  _redoStack = []; // 새 변경 시 redo 초기화
+  _taskUpdateUndoBtn();
+}
+
+function taskUndo() {
+  if (!_undoStack.length) { showToast('더 이상 되돌릴 수 없어'); return; }
+  _redoStack.push(JSON.stringify(taskItems));
+  taskItems = JSON.parse(_undoStack.pop());
+  saveTaskData(); renderTaskList(); renderTaskCal();
+  _taskUpdateUndoBtn();
+  showToast('↩ 되돌렸어');
+}
+
+function taskRedo() {
+  if (!_redoStack.length) { showToast('다시 실행할 것이 없어'); return; }
+  _undoStack.push(JSON.stringify(taskItems));
+  taskItems = JSON.parse(_redoStack.pop());
+  saveTaskData(); renderTaskList(); renderTaskCal();
+  _taskUpdateUndoBtn();
+  showToast('↪ 다시 실행됨');
+}
+
+function _taskUpdateUndoBtn() {
+  var u = document.getElementById('taskUndoBtn');
+  var r = document.getElementById('taskRedoBtn');
+  if (u) { u.disabled = !_undoStack.length; u.style.opacity = _undoStack.length ? '1' : '.35'; }
+  if (r) { r.disabled = !_redoStack.length; r.style.opacity = _redoStack.length ? '1' : '.35'; }
+}
+
 function saveTaskData(){
   try{if(typeof meHtbRender==="function")setTimeout(meHtbRender,0);}catch(e){}
   try {
@@ -6092,8 +6132,9 @@ function _taskUpdateSelBar() {
 function taskSelAction(action) {
   if (!_taskSelIds.size) return;
   var n = _taskSelIds.size;
+  _taskSnapshot();
   if (action === 'delete') {
-    if (!confirm(n + '개 할일을 삭제할까요?')) return;
+    if (!confirm(n + '개 할일을 삭제할까요?')) { _undoStack.pop(); _taskUpdateUndoBtn(); return; }
     taskItems = taskItems.filter(function(t) { return !_taskSelIds.has(t.id); });
   } else if (action === 'done') {
     taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=true; t._localDoneAt=t.updatedAt=Date.now(); } });
@@ -6148,29 +6189,34 @@ function taskQuickAction(type) {
     var targets = taskItems.filter(function(t){return t.done;});
     if (!targets.length) { showToast('완료된 할일이 없어'); return; }
     if (!confirm(targets.length+'개 완료 할일을 삭제할까요?')) return;
+    _taskSnapshot();
     taskItems = taskItems.filter(function(t){return !t.done;});
     saveTaskData(); renderTaskList(); showToast(targets.length+'개 삭제됨');
   } else if (type === 'move_past') {
     var today=new Date(); var tk=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');
-    var n=0; taskItems.forEach(function(t){if(!t.done&&t.date&&t.date<tk){t.date=tk;t.updatedAt=Date.now();n++;}});
+    var n=0; var _preSnap=JSON.stringify(taskItems);
+    taskItems.forEach(function(t){if(!t.done&&t.date&&t.date<tk){t.date=tk;t.updatedAt=Date.now();n++;}});
     if (!n) { showToast('오늘 이전 미완료 할일 없음'); return; }
+    _undoStack.push(_preSnap); if(_undoStack.length>20)_undoStack.shift(); _redoStack=[]; _taskUpdateUndoBtn();
     saveTaskData(); renderTaskList(); showToast(n+'개 → 오늘로 이동');
   } else if (type === 'del_dup_all') {
     // 전체 날짜 기준 중복 제거
-    var seen=new Set(); var prev=taskItems.length;
+    var seen=new Set(); var prev=taskItems.length; var _ps3=JSON.stringify(taskItems);
     taskItems=taskItems.filter(function(t){
       var k=(t.date||'')+'|'+(t.text||'').trim();
       if(seen.has(k))return false; seen.add(k); return true;
     });
     var n2=prev-taskItems.length;
     if (!n2) { showToast('중복 항목 없음 (전체 날짜)'); return; }
+    _undoStack.push(_ps3); if(_undoStack.length>20)_undoStack.shift(); _redoStack=[]; _taskUpdateUndoBtn();
     saveTaskData(); renderTaskList(); renderTaskCal();
     showToast(n2+'개 중복 제거됨 (전체 날짜)');
   } else if (type === 'del_dup') {
-    var seen=new Set(); var prev=taskItems.length;
+    var seen=new Set(); var prev=taskItems.length; var _preSnap2=JSON.stringify(taskItems);
     taskItems=taskItems.filter(function(t){var k=(t.date||'')+'|'+(t.text||'').trim();if(seen.has(k))return false;seen.add(k);return true;});
     var n2=prev-taskItems.length;
     if (!n2) { showToast('중복 항목 없음'); return; }
+    _undoStack.push(_preSnap2); if(_undoStack.length>20)_undoStack.shift(); _redoStack=[]; _taskUpdateUndoBtn();
     saveTaskData(); renderTaskList(); showToast(n2+'개 중복 제거됨');
   }
 }
@@ -6183,6 +6229,7 @@ function taskQuickActionPrompt(type) {
     var targets=taskItems.filter(function(t){return (t.text||'').trim().toLowerCase()===kw;});
     if (!targets.length) { showToast('"'+kw+'" 포함 할일 없음'); return; }
     if (!confirm('[전체 날짜] "'+kw+'" 포함 '+targets.length+'개 삭제할까요?')) return;
+    _taskSnapshot();
     taskItems=taskItems.filter(function(t){return (t.text||'').trim().toLowerCase()!==kw;});
     saveTaskData(); renderTaskList(); renderTaskCal();
     showToast(targets.length+'개 삭제됨 (전체 날짜)');
@@ -6193,6 +6240,7 @@ function taskQuickActionPrompt(type) {
     var targets=taskItems.filter(function(t){return (t.text||'').trim().toLowerCase()===kw;});
     if (!targets.length) { showToast('"'+kw+'" 포함 할일 없음'); return; }
     if (!confirm('"'+kw+'" 포함 '+targets.length+'개 삭제할까요?')) return;
+    _taskSnapshot();
     taskItems=taskItems.filter(function(t){return (t.text||'').trim().toLowerCase()!==kw;});
     saveTaskData(); renderTaskList(); showToast(targets.length+'개 삭제됨');
   }
@@ -12501,6 +12549,13 @@ window.onload=()=>{
     _hookFocusForAvatar();
     renderMeTodo();
     try{renderGroundControl();}catch(e){}
+    // Ctrl+Z / Ctrl+Y 단축키 (할일탭)
+    document.addEventListener('keydown',function(e){
+      var isTask=document.querySelector('.page.active')?.id==='page-task';
+      if(!isTask)return;
+      if((e.ctrlKey||e.metaKey)&&!e.shiftKey&&e.key==='z'){e.preventDefault();taskUndo();}
+      if((e.ctrlKey||e.metaKey)&&(e.key==='y'||(e.shiftKey&&e.key==='z'))){e.preventDefault();taskRedo();}
+    });
     try{renderTimeGrid();}catch(e){}
     updateSettingsStatus();
     initNotionSync();
