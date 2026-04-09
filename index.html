@@ -4348,6 +4348,16 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 .notion-toggle-track.on{background:#a855f7;}
 .notion-toggle-thumb{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2);}
 .notion-toggle-track.on .notion-toggle-thumb{transform:translateX(16px);}
+/* ── 달력 다중 날짜 선택 ── */
+.task-cal-day.cal-multi-sel {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: rgba(108,99,255,.12) !important;
+}
+.task-cal-day.cal-multi-sel .task-cal-day-num { color: var(--accent); font-weight: 800; }
+.cal-date-sel-mode .task-cal-day { cursor: crosshair; }
+.cal-date-sel-mode .task-cal-day:hover { background: rgba(108,99,255,.1) !important; }
+
 /* ── 할일 다중선택 도구 ── */
 .task-toolbar{display:flex;align-items:center;gap:6px;padding:6px 10px;background:var(--bg);border-bottom:1px solid var(--border-subtle);flex-wrap:wrap;}
 .task-toolbar-btn{padding:4px 10px;border-radius:var(--r-pill);border:1px solid var(--border-subtle);background:var(--bg);font-size:11px;font-weight:600;color:var(--fg2);cursor:pointer;white-space:nowrap;transition:.15s;}
@@ -4826,6 +4836,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <button class="task-cal-nav-btn" onclick="taskCalMove(1)">›</button>
           <button class="task-cal-today-btn" onclick="taskCalToday()">오늘</button>
           <button class="task-cal-expand-btn" onclick="toggleCalExpand()" id="calExpandBtn" title="달력 크게 보기">⤢</button>
+          <button id="calDateSelBtn" onclick="taskCalToggleDateSel()" title="날짜 다중선택 모드" style="padding:3px 9px;border-radius:var(--r-pill);border:1px solid var(--border-subtle);background:var(--bg);font-size:10px;font-weight:600;color:var(--fg2);cursor:pointer;white-space:nowrap">📅 날짜선택</button>
           <button id="hideDoneCalBtn" onclick="toggleHideDoneOnCal()" style="padding:4px 8px;border-radius:999px;background:var(--accent);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:#fff;cursor:pointer">✓숨기기</button>
           <button class="task-deadline-view-btn" id="deadlineViewBtn" onclick="toggleDeadlineView()" title="데드라인 뷰">🔗</button>
           <button class="task-deadline-view-btn" id="deadlineListBtn" onclick="toggleDeadlineList()" title="D-day 목록" style="margin-left:2px">📋</button>
@@ -4858,6 +4869,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <button class="task-toolbar-btn" onclick="taskQuickAction('move_past')">← 오늘로</button>
         <button class="task-toolbar-btn" onclick="taskQuickActionPrompt('del_text')">🗑이름 삭제</button>
         <button class="task-toolbar-btn" onclick="taskQuickAction('del_dup')">중복 제거</button>
+        <span style="width:1px;height:16px;background:var(--border-subtle);flex-shrink:0;display:inline-block"></span>
+        <button class="task-toolbar-btn" onclick="taskQuickAction('del_dup_all')" title="전체 날짜 중복 제거">🌐중복(전체)</button>
+        <button class="task-toolbar-btn" onclick="taskQuickActionPrompt('del_text_all')" title="특정 이름 전체 날짜 삭제">🌐이름(전체)</button>
       </div>
       <div class="task-list-scroll" id="taskListScroll"></div>
     </div>
@@ -5916,6 +5930,7 @@ function renderTaskCal(){
     const isOther=d.getMonth()!==m;
     const isToday=key===todayKey;
     const isSel=key===taskSelDate;
+    const isCalMultiSel=_calSelDates.has(key);
     const _raw=itemsByDate[key]||[];
     const items=_hideTtSched?_raw.filter(function(t){return !(t.catId==='schedule'&&t.note&&t.note.indexOf('시간표')>=0);}):_raw;
     const hasTasks=items.length>0;
@@ -5950,9 +5965,9 @@ function renderTaskCal(){
     }).join('');
     const moreHtml = more > 0 ? `<div class="task-cal-more">+${more}개</div>` : '';
 
-    html+=`<div class="task-cal-day${isOther?' other-month':''}${isToday?' today':''}${isSel?' selected':''}${hasTasks?' has-tasks':''}${isSat?' sat-col':''}${isSun?' sun-col':''}${hasDeadline?' is-deadline':''}"
+    html+=`<div class="task-cal-day${isOther?' other-month':''}${isToday?' today':''}${isSel?' selected':''}${isCalMultiSel?' cal-multi-sel':''}${hasTasks?' has-tasks':''}${isSat?' sat-col':''}${isSun?' sun-col':''}${hasDeadline?' is-deadline':''}"
       data-date="${key}"
-      onclick="taskSelDay('${key}')"
+      onclick="taskCalDateClick('${key}',event)"
       ondragover="event.preventDefault();this.classList.add('drag-over')"
       ondragleave="this.classList.remove('drag-over')"
       ondrop="taskItemDropOnCal(event,'${key}',this)">
@@ -5975,6 +5990,62 @@ function taskCalToday(){
   renderTaskCal();
   renderTaskList();
 }
+
+// ═══ 달력 다중 날짜 선택 ═══
+var _calDateSelMode = false;
+var _calSelDates = new Set(); // 선택된 날짜키 Set
+
+function taskCalToggleDateSel() {
+  _calDateSelMode = !_calDateSelMode;
+  _calSelDates.clear();
+  _taskSelIds.clear();
+  var btn = document.getElementById('calDateSelBtn');
+  var grid = document.getElementById('taskCalGrid');
+  if (btn) {
+    btn.classList.toggle('active', _calDateSelMode);
+    btn.style.background = _calDateSelMode ? 'var(--accent)' : '';
+    btn.style.color = _calDateSelMode ? '#fff' : '';
+    btn.style.borderColor = _calDateSelMode ? 'var(--accent)' : '';
+  }
+  if (grid) grid.classList.toggle('cal-date-sel-mode', _calDateSelMode);
+  _calUpdateSelBar();
+  renderTaskCal();
+}
+
+function taskCalDateClick(key, event) {
+  if (!_calDateSelMode) {
+    // 일반 모드: 기존 날짜 선택
+    taskSelDay(key);
+    return;
+  }
+  event && event.stopPropagation();
+  // 다중 선택 모드: 날짜 토글
+  if (_calSelDates.has(key)) {
+    _calSelDates.delete(key);
+    // 해당 날짜 할일 선택 해제
+    (taskItems.filter(function(t){return t.date===key;}))
+      .forEach(function(t){_taskSelIds.delete(t.id);});
+  } else {
+    _calSelDates.add(key);
+    // 해당 날짜 할일 모두 선택에 추가
+    (taskItems.filter(function(t){return t.date===key;}))
+      .forEach(function(t){_taskSelIds.add(t.id);});
+  }
+  _calUpdateSelBar();
+  renderTaskCal();
+}
+
+function _calUpdateSelBar() {
+  var bar = document.getElementById('taskSelBar');
+  var cnt = document.getElementById('taskSelCount');
+  if (!bar) return;
+  var show = (_calDateSelMode && _calSelDates.size > 0) || (_taskSelMode && _taskSelIds.size > 0);
+  bar.classList.toggle('show', show);
+  var dateInfo = _calDateSelMode && _calSelDates.size > 0
+    ? ' (' + _calSelDates.size + '일)' : '';
+  if (cnt) cnt.textContent = _taskSelIds.size + '개 선택' + dateInfo;
+}
+
 function taskSelDay(key){
   taskSelDate=key;
   renderTaskCal();
@@ -6011,8 +6082,11 @@ function _taskUpdateSelBar() {
   var bar = document.getElementById('taskSelBar');
   var cnt = document.getElementById('taskSelCount');
   if (!bar) return;
-  bar.classList.toggle('show', _taskSelMode && _taskSelIds.size > 0);
-  if (cnt) cnt.textContent = _taskSelIds.size + '개 선택';
+  var show = (_taskSelMode && _taskSelIds.size > 0) || (_calDateSelMode && _taskSelIds.size > 0);
+  bar.classList.toggle('show', show);
+  var dateInfo = (_calDateSelMode && _calSelDates && _calSelDates.size > 0)
+    ? ' (' + _calSelDates.size + '일)' : '';
+  if (cnt) cnt.textContent = _taskSelIds.size + '개 선택' + dateInfo;
 }
 
 function taskSelAction(action) {
@@ -6027,7 +6101,8 @@ function taskSelAction(action) {
     taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=false; t.updatedAt=Date.now(); } });
   }
   _taskSelIds.clear();
-  saveTaskData(); renderTaskList(); _taskUpdateSelBar();
+  if (_calDateSelMode) _calSelDates.clear();
+  saveTaskData(); renderTaskList(); renderTaskCal(); _taskUpdateSelBar();
   showToast(action==='delete'? n+'개 삭제됨' : action==='done'? n+'개 완료됨' : n+'개 미완료됨');
 }
 
@@ -6080,6 +6155,17 @@ function taskQuickAction(type) {
     var n=0; taskItems.forEach(function(t){if(!t.done&&t.date&&t.date<tk){t.date=tk;t.updatedAt=Date.now();n++;}});
     if (!n) { showToast('오늘 이전 미완료 할일 없음'); return; }
     saveTaskData(); renderTaskList(); showToast(n+'개 → 오늘로 이동');
+  } else if (type === 'del_dup_all') {
+    // 전체 날짜 기준 중복 제거
+    var seen=new Set(); var prev=taskItems.length;
+    taskItems=taskItems.filter(function(t){
+      var k=(t.date||'')+'|'+(t.text||'').trim();
+      if(seen.has(k))return false; seen.add(k); return true;
+    });
+    var n2=prev-taskItems.length;
+    if (!n2) { showToast('중복 항목 없음 (전체 날짜)'); return; }
+    saveTaskData(); renderTaskList(); renderTaskCal();
+    showToast(n2+'개 중복 제거됨 (전체 날짜)');
   } else if (type === 'del_dup') {
     var seen=new Set(); var prev=taskItems.length;
     taskItems=taskItems.filter(function(t){var k=(t.date||'')+'|'+(t.text||'').trim();if(seen.has(k))return false;seen.add(k);return true;});
@@ -6090,7 +6176,17 @@ function taskQuickAction(type) {
 }
 
 function taskQuickActionPrompt(type) {
-  if (type === 'del_text') {
+  if (type === 'del_text_all') {
+    var kw = prompt('전체 날짜에서 삭제할 할일 이름(포함 텍스트):');
+    if (!kw||!kw.trim()) return;
+    kw=kw.trim().toLowerCase();
+    var targets=taskItems.filter(function(t){return (t.text||'').toLowerCase().indexOf(kw)>=0;});
+    if (!targets.length) { showToast('"'+kw+'" 포함 할일 없음'); return; }
+    if (!confirm('[전체 날짜] "'+kw+'" 포함 '+targets.length+'개 삭제할까요?')) return;
+    taskItems=taskItems.filter(function(t){return (t.text||'').toLowerCase().indexOf(kw)<0;});
+    saveTaskData(); renderTaskList(); renderTaskCal();
+    showToast(targets.length+'개 삭제됨 (전체 날짜)');
+  } else if (type === 'del_text') {
     var kw = prompt('삭제할 할일 이름(포함 텍스트):');
     if (!kw||!kw.trim()) return;
     kw=kw.trim().toLowerCase();
@@ -9031,6 +9127,16 @@ function toggleHideDoneOnCal() {
 }
 
 // toggleDeadlineList → _applyDeadlineListState 참조
+
+function _applyDeadlineListState() {
+  var panel = document.getElementById('deadlineListPanel');
+  if (!panel) return;
+  // 현재 탭이 task탭이 아니면 패널 숨김
+  var activePage = document.querySelector('.page.active');
+  var isTaskTab = activePage && activePage.id === 'page-task';
+  if (!isTaskTab) { panel.style.display = 'none'; return; }
+  // task탭이면 현재 on/off 상태 유지
+}
 
 function renderDeadlineList() {
   var panel = document.getElementById('deadlineListPanel');
