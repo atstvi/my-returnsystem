@@ -17579,19 +17579,16 @@ async function meAiSubmit(){
       return tt.name+'('+tt.startDate+'~'+tt.endDate+'): '+titles.join(', ');
     }).join('\n');
 
-    // 할일 이름+id만 (토큰 최소화, AI가 텍스트 패턴 파악용)
-    // 미완료 먼저, 최신순 정렬 후 이름+날짜+상태 전송
+    // 할일 목록: 미완료 우선, 최근 30개만 전송 (토큰 절약)
     var _sorted = taskItems.slice().sort(function(a,b){
       if(!a.done&&b.done)return -1; if(a.done&&!b.done)return 1;
       return (b.updatedAt||0)-(a.updatedAt||0);
-    });
+    }).slice(0,30);
     var taskNames = _sorted.map(function(t){
       var r = t.id+'|'+t.text;
       if(t.catId) r+='|'+t.catId;
       if(t.date) r+='|'+t.date;
       if(t.done) r+='|완료';
-      if(t.note&&t.note.indexOf('시간표')>=0) r+='|[시간표]';
-      if(t.deadlineDate) r+='|마감:'+t.deadlineDate;
       return r;
     }).join('\n');
 
@@ -17606,38 +17603,17 @@ async function meAiSubmit(){
     var _mon2=new Date(_mon); _mon2.setDate(_mon.getDate()+7);
     var _sun2=new Date(_sun); _sun2.setDate(_sun.getDate()+7);
     var nmonStr=_fmtD(_mon2), nsunStr=_fmtD(_sun2);
-    var PROMPT = '할일 앱 AI. 사용자 명령을 분석해서 JSON으로만 응답. 다른 텍스트 없음.\n'
-      +'날짜: 오늘='+todayStr+', 내일='+tomorrowStr+', 이번주(월~일)='+monStr+'~'+sunStr+', 다음주='+nmonStr+'~'+nsunStr+'. 모두 YYYY-MM-DD.\n\n'
-      +'# 응답 형식\n'
-      +'{"action":"delete|done|undone|add|update","summary":"설명","filter":{...},"items":[...],"patch":{...}}\n\n'
-      +'# filter 필드 (AND 조건)\n'
-      +'- text: 이름에 포함된 텍스트 (부분일치)\n'
-      +'- textExact: 정확한 이름\n'
-      +'- catId: 카테고리 id\n'
-      +'- done: true/false\n'
-      +'- isTimetable: true=시간표생성일정, false=독립일정\n'
-      +'- isTimetableSubject: true=시간표과목명과일치\n'
-      +'- dateFrom/dateTo: YYYY-MM-DD\n'
-      +'- priority: high/mid/low\n\n'
-      +'# add의 items 형식\n'
-      +'[{"text":"","catId":"","date":"YYYY-MM-DD","timeStart":"HH:MM","priority":"","deadlineDate":""}]\n\n'
-      +'# update의 patch 형식\n'
-      +'{"date":"","priority":"","catId":"","done":true,"timeStart":"","deadlineDate":""}\n\n'
-      +'# 예시\n'
-      +'명령: 시간표 과목명이랑 같은데 시간표 일정 아닌(독립) 것 삭제\n'
-      +'{"action":"delete","summary":"시간표 과목 독립 일정 삭제","filter":{"catId":"schedule","isTimetableSubject":true,"isTimetable":false}}\n\n'
-      +'명령: 완료된 것 전부 삭제\n'
-      +'{"action":"delete","summary":"완료 항목 전체 삭제","filter":{"done":true}}\n\n'
-      +'명령: 일화실 이번주 거 완료처리\n'
-      +'{"action":"done","summary":"일화실 이번주 완료","filter":{"text":"일화실","dateFrom":"'+monStr+'","dateTo":"'+sunStr+'"}}\n\n'
-      +'명령: 내일 오후 2시 물리 보고서 추가\n'
-      +'{"action":"add","summary":"물리 보고서 추가","items":[{"text":"물리 보고서","catId":"uni","date":"'+tomorrowStr+'","timeStart":"14:00"}]}\n\n'
-      +'명령: 다음주 목요일 발표 준비 추가\n'
-      +'{"action":"add","summary":"발표 준비 추가","items":[{"text":"발표 준비","catId":"uni","date":"'+nmonStr+'","priority":"high"}]}\n\n'
+    var PROMPT = '할일앱AI. JSON만 응답.\n'
+      +'날짜: 오늘='+todayStr+' 내일='+tomorrowStr+' 이번주='+monStr+'~'+sunStr+' 다음주='+nmonStr+'~'+nsunStr+'\n'
+      +'형식: {"action":"add|delete|done|undone|update","summary":"설명","filter":{...},"items":[...],"patch":{...}}\n'
+      +'filter: text(부분일치) textExact catId done dateFrom dateTo priority(high/mid/low)\n'
+      +'items(add): [{text,catId,date,timeStart,timeEnd,priority,deadlineDate}]\n'
+      +'patch(update): {date,priority,catId,done,timeStart,timeEnd}\n'
+      +'예) 내일 14:00 보고서 추가→{"action":"add","summary":"보고서","items":[{"text":"보고서","date":"'+tomorrowStr+'","timeStart":"14:00"}]}\n'
       +'---\n'
-      +'오늘: '+todayStr+'('+dow+') | 카테고리: '+catStr+'\n'
-      +'시간표:\n'+(ttStr||'없음')+'\n\n'
-      +'할일 목록:\n'+taskNames+'\n\n'
+      +'오늘:'+todayStr+'('+dow+') 카테고리:'+catStr+'\n'
+      +'시간표:'+( (ttStr||'없음').replace(/\n/g,' ') )+'\n'
+      +'할일(최근30):\n'+taskNames+'\n'
       +'명령: '+text;
 
     var res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
