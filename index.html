@@ -5919,6 +5919,7 @@ function toggleTaskCalFilter(id, btn){
   else taskCalFilterIds.add(id);
   renderTaskCalFilter();
   renderTaskCal();
+  renderTaskList();
 }
 
 // ── 달력 렌더 ──
@@ -6064,12 +6065,12 @@ function taskCalDateClick(key, event) {
     _calSelDates.delete(key);
     // 해당 날짜 할일 선택 해제
     (taskItems.filter(function(t){return t.date===key;}))
-      .forEach(function(t){_taskSelIds.delete(t.id);});
+      .forEach(function(t){_taskSelIds.delete(String(t.id));});
   } else {
     _calSelDates.add(key);
     // 해당 날짜 할일 모두 선택에 추가
     (taskItems.filter(function(t){return t.date===key;}))
-      .forEach(function(t){_taskSelIds.add(t.id);});
+      .forEach(function(t){_taskSelIds.add(String(t.id));});
   }
   _calUpdateSelBar();
   renderTaskCal();
@@ -6109,6 +6110,7 @@ function taskToggleSelMode() {
 }
 
 function taskItemToggleSel(id) {
+  id=String(id);
   if (_taskSelIds.has(id)) _taskSelIds.delete(id);
   else _taskSelIds.add(id);
   _taskUpdateSelBar();
@@ -6135,11 +6137,11 @@ function taskSelAction(action) {
   _taskSnapshot();
   if (action === 'delete') {
     if (!confirm(n + '개 할일을 삭제할까요?')) { _undoStack.pop(); _taskUpdateUndoBtn(); return; }
-    taskItems = taskItems.filter(function(t) { return !_taskSelIds.has(t.id); });
+    taskItems = taskItems.filter(function(t) { return !_taskSelIds.has(String(t.id)); });
   } else if (action === 'done') {
-    taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=true; t._localDoneAt=t.updatedAt=Date.now(); } });
+    taskItems.forEach(function(t) { if (_taskSelIds.has(String(t.id))) { t.done=true; t._localDoneAt=t.updatedAt=Date.now(); } });
   } else if (action === 'undone') {
-    taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.done=false; t.updatedAt=Date.now(); } });
+    taskItems.forEach(function(t) { if (_taskSelIds.has(String(t.id))) { t.done=false; t.updatedAt=Date.now(); } });
   }
   _taskSelIds.clear();
   if (_calDateSelMode) _calSelDates.clear();
@@ -6153,7 +6155,7 @@ function taskSelActionDate() {
   if (!d) return;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.trim())) { showToast('형식: YYYY-MM-DD'); return; }
   var n=0;
-  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.date=d.trim(); t.updatedAt=Date.now(); n++; } });
+  taskItems.forEach(function(t) { if (_taskSelIds.has(String(t.id))) { t.date=d.trim(); t.updatedAt=Date.now(); n++; } });
   _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
   showToast(n+'개 날짜 변경 → '+d.trim());
 }
@@ -6165,7 +6167,7 @@ function taskSelActionPriority() {
   p = p.trim();
   if (!['high','mid','low',''].includes(p)) { showToast('high / mid / low / 빈칸 중 하나'); return; }
   var n=0;
-  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.priority=p; t.updatedAt=Date.now(); n++; } });
+  taskItems.forEach(function(t) { if (_taskSelIds.has(String(t.id))) { t.priority=p; t.updatedAt=Date.now(); n++; } });
   _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
   showToast(n+'개 우선순위 변경됨');
 }
@@ -6178,7 +6180,7 @@ function taskSelActionCat() {
   var idx = parseInt(p);
   if (isNaN(idx)||!taskCats[idx]) { showToast('올바른 번호 입력'); return; }
   var catId=taskCats[idx].id; var n=0;
-  taskItems.forEach(function(t) { if (_taskSelIds.has(t.id)) { t.catId=catId; t.updatedAt=Date.now(); n++; } });
+  taskItems.forEach(function(t) { if (_taskSelIds.has(String(t.id))) { t.catId=catId; t.updatedAt=Date.now(); n++; } });
   _taskSelIds.clear(); saveTaskData(); renderTaskList(); _taskUpdateSelBar();
   showToast(n+'개 카테고리 → '+taskCats[idx].label);
 }
@@ -6525,9 +6527,6 @@ function startTaskRename(itemId, realIdx, el) {
       t.text = newText;
       t.updatedAt = Date.now();
       saveTaskData();
-      if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
-        _pushToNotion(t).catch(function(e){});
-      }
       showToast('이름 변경됨');
     }
     renderTaskList && renderTaskList();
@@ -6669,10 +6668,6 @@ function tieSetDate(itemId, realIdx, dateKey) {
   renderTaskCal();
   renderTaskList();
   tieClosePickers();
-  // Notion 반영
-  if (typeof _pushToNotion === 'function' && notionCfg && notionCfg.workerUrl) {
-    _pushToNotion(t).catch(function(e){ console.warn('Notion date sync:', e.message); });
-  }
   showToast(dateKey ? dateKey + '으로 변경!' : '날짜 삭제됨');
 }
 
@@ -6999,11 +6994,6 @@ function rescueCatTasks(catId) {
   });
   saveTaskData();
   // Notion 반영
-  if(typeof _pushToNotion==='function' && notionCfg && notionCfg.workerUrl) {
-    overdue.forEach(t => {
-      _pushToNotion(t).catch(function(e){ console.warn('Notion rescue:', e.message); });
-    });
-  }
   renderTaskCal();
   taskSelDate = todayKey;
   renderTaskCal();
@@ -7117,9 +7107,6 @@ function submitTaskQuick(){
   renderTaskList();
   renderTaskCal();
   showToast('추가됐어!');
-  if(typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl&&notionCfg.mappings&&notionCfg.mappings[_newItem.catId]){
-    _pushToNotion(_newItem).catch(function(e){console.warn('Notion push:',e);});
-  }
 }
 
 // ── 시간 피커 ──
@@ -7237,7 +7224,9 @@ function openTaskItemEdit(idx){
 
 function saveTaskItemEdit(idx){
   const t=taskItems[idx];if(!t)return;
-  t.text=document.getElementById('taskEditText')?.value.trim()||t.text;
+  const _nt=document.getElementById('taskEditText')?.value.trim();
+  if(!_nt){showToast('할일 이름을 입력해줘');return;}
+  t.text=_nt;
   t.note=document.getElementById('taskEditNote')?.value.trim()||'';
   t.date=document.getElementById('taskEditDate')?.value||t.date;
   t.timeStart=document.getElementById('taskEditTimeStart')?.value||'';
@@ -7250,12 +7239,6 @@ function saveTaskItemEdit(idx){
   renderTaskList();
   renderTaskCal();
   showToast('수정됐어!');
-  // Notion 반영
-  if(typeof _pushToNotion === 'function'){
-    _pushToNotion(t)
-      .then(()=>{ showToast('Notion 반영 완료 ✓'); })
-      .catch((e)=>{ showToast('Notion 반영 실패: ' + (e.message||'오류')); });
-  }
 }
 
 // ── 카테고리 관리 (색/이모지/순서/이름 편집) ──
@@ -9462,10 +9445,7 @@ async function _dlinkSyncToNotion(item, deadlineId, isLink) {
   var dl = taskItems.find(function(t){ return String(t.id) === String(deadlineId); });
   if (!dl) return;
   try {
-    if (!dl.notionPageId) await _pushToNotion(dl);
-    if (!item.notionPageId) await _pushToNotion(item);
-    if (!dl.notionPageId || !item.notionPageId) return;
-    var relProp = (notionCfg.propNames && notionCfg.propNames.relation) || '일정';
+      var relProp = (notionCfg.propNames && notionCfg.propNames.relation) || '일정';
     var page;
     try { page = await notionApi('GET', '/pages/'+item.notionPageId); } catch(e) {}
     var existRel = (page && page.properties && page.properties[relProp] && page.properties[relProp].relation || []).map(function(r){ return r.id; });
@@ -11181,7 +11161,7 @@ let inboxActiveCat='misc';
 function saveInboxData(){
   localStorage.setItem('inbox_v1',JSON.stringify(inboxItems));
   localStorage.setItem('inbox_cats_v1',JSON.stringify(inboxCats));
-  if(fbUser)fbSaveAll();
+  if(fbUser && fbDb) _fbSaveNow();
 }
 
 function renderInbox(){
@@ -12255,7 +12235,7 @@ function _startFbListener(){
       const d = snap.data();
 
       // 내 기기에서 저장한 것이면 무시 (1.5초 debounce 안에 들어온 자기 echo)
-      if(d.deviceId === _DEVICE_ID && Date.now() - _fbLastSaveMs < 3000) return;
+      if(d.deviceId === _DEVICE_ID && Date.now() - _fbLastSaveMs < 2000) return;
 
       // 다른 기기 저장 → 항상 적용
       _applyFirebaseData(d, false);
@@ -17060,7 +17040,6 @@ function tieSetDeadlineTime(itemId, realIdx, val) {
   t.deadlineTime = val || '';
   t.updatedAt = Date.now();
   saveTaskData();
-  if (typeof _pushToNotion==='function' && notionCfg && notionCfg.workerUrl) _pushToNotion(t).catch(function(){});
 }
 
 function tieSetDeadlineDate(itemId, realIdx, val) {
@@ -18178,7 +18157,6 @@ function gcLinkConfirm(schedId){
     timeStart:'',timeEnd:'',priority:'',done:false,note:'',deadlineDate:'',deadlineId:String(schedId),
     subs:[],createdAt:Date.now(),updatedAt:Date.now() };
   taskItems.unshift(newTask); saveTaskData();
-  if(typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl) _pushToNotion(newTask).catch(function(){});
   var modal=document.getElementById('gcLinkModal'); if(modal) modal.remove();
   renderGroundControl(); showToast('할일 연결됨 ✅');
 }
@@ -18782,7 +18760,6 @@ function _generateRepeatItems() {
     taskItems.push(task);
     r.lastGen = todayKey;
     changed = true;
-    if (typeof _pushToNotion==='function'&&notionCfg&&notionCfg.workerUrl) _pushToNotion(task).catch(function(){});
   });
   if (changed) { _saveRepeatItems(repeats); saveTaskData(); }
 }
