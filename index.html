@@ -5580,6 +5580,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         </div>
       </div>
       <div id="ttSlots" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button onclick="ttDeleteScheduleItems()" style="margin-top:10px;width:100%;padding:7px;border-radius:var(--r-pill);border:1px solid rgba(239,68,68,.3);background:none;color:#ef4444;font-size:11px;font-weight:600;cursor:pointer">
+        🗑 이 시간표 일정 할일 전체 삭제
+      </button>
       <div style="overflow-x:auto">
         <table id="ttGrid" style="border-collapse:collapse;width:100%;table-layout:fixed">
           <thead id="ttGridHead"></thead>
@@ -15924,6 +15927,24 @@ function ttNewTable() {
   showTtEditor(newTt);
 }
 
+function ttDeleteScheduleItems() {
+  var tt = timetables.find(function(t){ return t.id === _ttActiveId; });
+  if (!tt) return;
+  var ttTitles = new Set((tt.slots||[]).map(function(s){ return s.title.trim(); }));
+  // 시간표로 생성된 일정 (catId=schedule, note에 '시간표' 포함)
+  var targets = taskItems.filter(function(t){
+    return t.catId==='schedule' && t.note && t.note.indexOf('시간표')>=0
+      && ttTitles.has((t.text||'').trim());
+  });
+  if (!targets.length) { showToast('삭제할 시간표 일정이 없어'); return; }
+  if (!confirm(targets.length+'개의 시간표 일정 할일을 삭제할까요?\n(직접 추가한 일반 할일은 유지됩니다)')) return;
+  _taskSnapshot();
+  var delIds = new Set(targets.map(function(t){ return t.id; }));
+  taskItems = taskItems.filter(function(t){ return !delIds.has(t.id); });
+  saveTaskData(); renderTaskTab && renderTaskTab();
+  showToast(targets.length+'개 삭제됨');
+}
+
 function showTtEditor(tt) {
   var editor = document.getElementById('ttEditor');
   editor.style.display = 'flex';
@@ -17451,10 +17472,10 @@ function _aiExecute(parsed) {
     showToast(affected.length + '개 수정됨');
 
   } else if (action === 'add' && parsed.items) {
-    affected = parsed.items.map(function(item){
+    affected = parsed.items.filter(function(item){return (item.text||'').trim();}).map(function(item){
       return {
         id: Date.now() + Math.random(),
-        text: item.text || '',
+        text: item.text.trim(),
         catId: item.catId || 'etc',
         date: item.date || '',
         timeStart: item.timeStart || '',
@@ -17514,8 +17535,19 @@ async function meAiSubmit(){
       return r;
     }).join('\n');
 
+    // 날짜 계산 헬퍼
+    var _td=new Date(today); _td.setDate(_td.getDate()+1);
+    var tomorrowStr=_td.getFullYear()+'-'+String(_td.getMonth()+1).padStart(2,'0')+'-'+String(_td.getDate()).padStart(2,'0');
+    var _dow2=today.getDay(), _monOff=(_dow2===0?-6:1-_dow2);
+    var _mon=new Date(today); _mon.setDate(today.getDate()+_monOff);
+    var _sun=new Date(_mon); _sun.setDate(_mon.getDate()+6);
+    function _fmtD(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+    var monStr=_fmtD(_mon), sunStr=_fmtD(_sun);
+    var _mon2=new Date(_mon); _mon2.setDate(_mon.getDate()+7);
+    var _sun2=new Date(_sun); _sun2.setDate(_sun.getDate()+7);
+    var nmonStr=_fmtD(_mon2), nsunStr=_fmtD(_sun2);
     var PROMPT = '할일 앱 AI. 사용자 명령을 분석해서 JSON으로만 응답. 다른 텍스트 없음.\n'
-      +'날짜 계산: 오늘='+todayStr+', 내일=다음날, 이번주 월요일부터 일요일, 다음주=+7일. dateFrom/dateTo는 YYYY-MM-DD.\n\n'
+      +'날짜: 오늘='+todayStr+', 내일='+tomorrowStr+', 이번주(월~일)='+monStr+'~'+sunStr+', 다음주='+nmonStr+'~'+nsunStr+'. 모두 YYYY-MM-DD.\n\n'
       +'# 응답 형식\n'
       +'{"action":"delete|done|undone|add|update","summary":"설명","filter":{...},"items":[...],"patch":{...}}\n\n'
       +'# filter 필드 (AND 조건)\n'
@@ -17536,10 +17568,12 @@ async function meAiSubmit(){
       +'{"action":"delete","summary":"시간표 과목 독립 일정 삭제","filter":{"catId":"schedule","isTimetableSubject":true,"isTimetable":false}}\n\n'
       +'명령: 완료된 것 전부 삭제\n'
       +'{"action":"delete","summary":"완료 항목 전체 삭제","filter":{"done":true}}\n\n'
-      +'명령: 일화실 이번주 거 완료처리 (이번주='+_htbKey(new Date())+' 기준 월~일)\n'
-      +'{"action":"done","summary":"일화실 이번주 완료","filter":{"text":"일화실","dateFrom":"이번주월요일","dateTo":"이번주일요일"}}\n\n'
+      +'명령: 일화실 이번주 거 완료처리\n'
+      +'{"action":"done","summary":"일화실 이번주 완료","filter":{"text":"일화실","dateFrom":"'+monStr+'","dateTo":"'+sunStr+'"}}\n\n'
       +'명령: 내일 오후 2시 물리 보고서 추가\n'
-      +'{"action":"add","summary":"물리 보고서 추가","items":[{"text":"물리 보고서","catId":"uni","date":"'+todayStr+'","timeStart":"14:00"}]}\n\n'
+      +'{"action":"add","summary":"물리 보고서 추가","items":[{"text":"물리 보고서","catId":"uni","date":"'+tomorrowStr+'","timeStart":"14:00"}]}\n\n'
+      +'명령: 다음주 목요일 발표 준비 추가\n'
+      +'{"action":"add","summary":"발표 준비 추가","items":[{"text":"발표 준비","catId":"uni","date":"'+nmonStr+'","priority":"high"}]}\n\n'
       +'---\n'
       +'오늘: '+todayStr+'('+dow+') | 카테고리: '+catStr+'\n'
       +'시간표:\n'+(ttStr||'없음')+'\n\n'
@@ -17788,6 +17822,12 @@ function openRuleModal(ruleId, prefillMatchText) {
     + '<div style="display:flex;align-items:center;gap:8px">'
     + '<input type="number" id="ruleOffset" value="' + (rule ? Math.abs(rule.offsetDays||2) : 2) + '" min="0" max="30" style="width:56px;padding:6px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)" onclick="event.stopPropagation()">'
     + '<span style="font-size:12px;color:var(--fg3)">일 전</span></div></div>'
+    + (ruleId ? '<div style="margin-top:6px">'
+    + '<div style="font-size:11px;color:var(--fg3);margin-bottom:3px">편집 적용 범위</div>'
+    + '<select id="ruleEditScope" style="width:100%;padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:11px;color:var(--fg)">'
+    + '<option value="future">앞으로 남은 할일만 (완료·과거 유지)</option>'
+    + '<option value="all">전체 재생성 (완료 포함 삭제 후 재생성)</option>'
+    + '</select></div>' : '')
     + '<div style="display:flex;gap:8px;margin-top:4px">'
     + '<button class="tie-save-btn" style="flex:1" onclick="saveRuleModal(' + (ruleId ? '\'' + ruleId + '\'' : 'null') + ')">✓ 저장</button>'
     + (ruleId ? '<button class="tie-chip" style="color:#ef4444;font-size:11px" onclick="deleteRule(\'' + ruleId + '\')">삭제</button>' : '') + '</div>'
@@ -17864,6 +17904,7 @@ function saveRuleModal(ruleId) {
   }
   _saveTaskRules(rules);
   saveTaskData();
+  if(typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb) _fbSaveNow();
   document.getElementById('ruleModal') && document.getElementById('ruleModal').remove();
   _generateRepeatTasks();
   renderTaskTab && renderTaskTab();
@@ -18744,24 +18785,48 @@ function _generateRepeatItems() {
   var today = new Date(); today.setHours(0,0,0,0);
   var todayKey = _dateKey(today);
   var changed = false;
+
   repeats.forEach(function(r) {
-    var exists = taskItems.find(function(t){ return t._repeatId===r.id && t.date===todayKey; });
-    if (exists || r.lastGen===todayKey) return;
-    // 기간 체크
-    if (r.startDate && todayKey < r.startDate) return;
-    if (r.endDate && todayKey > r.endDate) return;
-    var should = r.freq==='daily' || (r.freq==='weekly' && today.getDay()===(r.weekday||0))
-               || (r.freq==='monthly' && today.getDate()===(r.dayOfMonth||1));
-    if (!should) return;
-    var task = { id: Date.now()+Math.floor(Math.random()*99999), text:r.text, catId:r.catId||'etc',
-      date:todayKey, timeStart:'', timeEnd:'', priority:r.priority||'',
-      done:false, note:'', deadlineDate:'', deadlineId:'', subs:[],
-      _repeatId:r.id, _repeatGen:true, createdAt:Date.now(), updatedAt:Date.now() };
-    taskItems.push(task);
-    r.lastGen = todayKey;
-    changed = true;
+    // 생성 범위: startDate ~ endDate (없으면 오늘 ~ 1년 후)
+    var startD = new Date(today);
+    if (r.startDate && r.startDate > todayKey) {
+      startD = new Date(r.startDate + 'T00:00');
+    }
+    var endD;
+    if (r.endDate) {
+      endD = new Date(r.endDate + 'T00:00');
+    } else {
+      endD = new Date(today); endD.setFullYear(endD.getFullYear() + 1);
+    }
+    // 이미 생성된 날짜 Set
+    var genDates = new Set(
+      taskItems.filter(function(t){ return t._repeatId===r.id; })
+               .map(function(t){ return t.date; })
+    );
+    var d = new Date(startD);
+    var safety = 0;
+    while (d <= endD && safety++ < 500) {
+      var dk = _dateKey(d);
+      var should = r.freq==='daily'
+        || (r.freq==='weekly'  && d.getDay()===(r.weekday||0))
+        || (r.freq==='monthly' && d.getDate()===(r.dayOfMonth||1));
+      if (should && !genDates.has(dk)) {
+        taskItems.push({
+          id: Date.now()+Math.floor(Math.random()*99999)+safety,
+          text: r.text, catId: r.catId||'etc', date: dk,
+          timeStart: r.timeStart||'', timeEnd: '',
+          priority: r.priority||'',
+          done: false, note: '', deadlineDate: '', deadlineId: '', subs:[],
+          _repeatId: r.id, _repeatGen: true,
+          createdAt: Date.now(), updatedAt: Date.now()
+        });
+        genDates.add(dk);
+        changed = true;
+      }
+      d.setDate(d.getDate() + 1);
+    }
   });
-  if (changed) { _saveRepeatItems(repeats); saveTaskData(); }
+  if (changed) { saveTaskData(); }
 }
 
 function openRepeatItemModal(repeatId) {
@@ -18804,6 +18869,7 @@ function openRepeatItemModal(repeatId) {
     +'<label style=\"display:flex;align-items:center;gap:4px;font-size:11px;color:var(--fg2)\">종료'
     +'<input type=\"date\" id=\"riEndDate\" class=\"tie-inp\" value=\"'+(r&&r.endDate||'')+'\" onclick=\"event.stopPropagation()\" style=\"padding:4px 8px;font-size:11px;margin-left:4px\"></label>'
     +'</div><div style=\"font-size:10px;color:var(--fg3);margin-top:3px\">비워두면 무기한 반복</div></div>'
+    +(repeatId?'<div style="margin-top:8px"><div style="font-size:11px;color:var(--fg3);margin-bottom:3px">편집 적용 범위</div><select id="riEditScope" style="width:100%;padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:11px;color:var(--fg)"><option value=\'future\'>앞으로 남은 할일만</option><option value=\'all\'>전체 재생성</option></select></div>':'')
     +'<button class="tie-save-btn" onclick="saveRepeatItem(\''+(repeatId||'')+'\')">✓ 저장</button>'
     +(repeatId?'<button class="tie-chip" style="color:#ef4444;font-size:11px;margin-top:4px" onclick="deleteRepeatItem(\''+repeatId+'\')">삭제</button>':'')
     +'</div></div>';
@@ -18849,6 +18915,7 @@ function saveRepeatItem(repeatId) {
     saveTaskData();
   } else { repeats.push(entry); }
   _saveRepeatItems(repeats);
+  if(typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb) _fbSaveNow();
   document.getElementById('repeatItemModal')&&document.getElementById('repeatItemModal').remove();
   _generateRepeatItems();
   renderTaskTab&&renderTaskTab();
