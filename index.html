@@ -6251,6 +6251,55 @@ function taskQuickActionPrompt(type) {
   }
 }
 
+
+// ═══ 할일 첨부 파일 ═══
+function _renderAttachList(t,tIdx){
+  var a=(t&&t.attachments)?t.attachments:[];
+  if(!a.length)return '<span style="font-size:11px;color:var(--fg3)">첨부 없음</span>';
+  return a.map(function(f,ai){
+    var img=f.type&&f.type.startsWith('image/');
+    return '<div style="border-radius:8px;overflow:hidden;border:1px solid var(--border-subtle);margin-bottom:4px">'
+      +(img?'<img src="'+f.data+'" style="max-width:100%;max-height:180px;display:block;object-fit:contain">':'<div style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--bg-raised)"><span style="font-size:20px">📄</span><span style="font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span></div>')
+      +'<div style="display:flex;align-items:center;gap:6px;padding:4px 8px;border-top:1px solid var(--border-subtle)">'
+      +'<span style="font-size:10px;color:var(--fg3);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(f.name)+'</span>'
+      +'<a href="'+f.data+'" download="'+esc(f.name)+'" style="font-size:10px;color:var(--accent)">⬇저장</a>'
+      +'<button onclick="taskAttachRemove('+tIdx+','+ai+')" style="background:none;border:none;color:#ef4444;font-size:14px;cursor:pointer;padding:0 2px">✕</button>'
+      +'</div></div>';
+  }).join('');
+}
+function taskAttachAdd(tIdx,inputEl){
+  var t=taskItems[tIdx];if(!t)return;
+  if(!t.attachments)t.attachments=[];
+  var files=Array.from(inputEl.files);if(!files.length)return;
+  var MAX=5*1024*1024;var done=0;var total=files.length;
+  files.forEach(function(f){
+    if(f.size>MAX){showToast('"'+f.name+'" 5MB 초과');done++;return;}
+    var r=new FileReader();
+    r.onload=function(e){
+      t.attachments.push({name:f.name,type:f.type,data:e.target.result,addedAt:Date.now()});
+      done++;
+      if(done>=total){
+        saveTaskData();
+        var al=document.getElementById('taskAttachList');
+        if(al)al.innerHTML=_renderAttachList(t,tIdx);
+        showToast(total+'개 첨부됨');
+      }
+    };
+    r.readAsDataURL(f);
+  });
+  inputEl.value='';
+}
+function taskAttachRemove(tIdx,ai){
+  var t=taskItems[tIdx];if(!t||!t.attachments)return;
+  var name=(t.attachments[ai]||{}).name||'';
+  if(!confirm('"'+name+'" 첨부를 삭제할까요?'))return;
+  t.attachments.splice(ai,1);
+  saveTaskData();
+  var al=document.getElementById('taskAttachList');
+  if(al)al.innerHTML=_renderAttachList(t,tIdx);
+  showToast('첨부 삭제됨');
+}
+
 function renderTaskList(){
   const dateEl=document.getElementById('taskListDate');
   const sumEl=document.getElementById('taskListSummary');
@@ -7185,8 +7234,17 @@ function openTaskItemEdit(idx){
       <textarea id="taskEditText" class="nds-ta" rows="2">${esc(t.text)}</textarea>
     </div>
     <div class="nds-field">
-      <div class="nds-field-label">메모 (선택)</div>
-      <input id="taskEditNote" class="nds-inp" value="${esc(t.note||'')}">
+      <div class="nds-field-label">메모</div>
+      <textarea id="taskEditNote" class="nds-ta" rows="3" style="resize:vertical">${esc(t.note||'')}</textarea>
+    </div>
+    <div class="nds-field">
+      <div class="nds-field-label" style="display:flex;align-items:center;justify-content:space-between">
+        <span>📎 첨부</span>
+        <label style="cursor:pointer;padding:2px 10px;border-radius:999px;background:var(--bg-raised);font-size:11px;font-weight:600;color:var(--accent)">+ 추가
+          <input type="file" id="taskAttachInput" multiple accept="image/*,.pdf,.txt,.doc,.docx" style="display:none" onchange="taskAttachAdd(${idx},this)">
+        </label>
+      </div>
+      <div id="taskAttachList" style="display:flex;flex-direction:column;gap:4px;margin-top:4px;min-height:20px"></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div class="nds-field">
@@ -7222,6 +7280,8 @@ function openTaskItemEdit(idx){
   setTimeout(()=>{
     const ta=document.getElementById('taskEditText');
     if(ta){ta.value=t.text;ta.focus();}
+    const al=document.getElementById('taskAttachList');
+    if(al&&typeof _renderAttachList==='function') al.innerHTML=_renderAttachList(t,idx);
   },50);
 }
 
@@ -7230,7 +7290,7 @@ function saveTaskItemEdit(idx){
   const _nt=document.getElementById('taskEditText')?.value.trim();
   if(!_nt){showToast('할일 이름을 입력해줘');return;}
   t.text=_nt;
-  t.note=document.getElementById('taskEditNote')?.value.trim()||'';
+  t.note=(document.getElementById('taskEditNote')?.value)||'';
   t.date=document.getElementById('taskEditDate')?.value||t.date;
   t.timeStart=document.getElementById('taskEditTimeStart')?.value||'';
   t.timeEnd=document.getElementById('taskEditTimeEnd')?.value||'';
@@ -17880,37 +17940,60 @@ function _renderRuleList() {
 }
 
 function saveRuleModal(ruleId) {
-  var matchText = (document.getElementById('ruleMatchText').value||'').trim();
-  var taskText  = (document.getElementById('ruleTaskText').value||'').trim();
-  var catId     = document.getElementById('ruleTaskCat').value||'etc';
-  var prio      = document.getElementById('ruleTaskPrio').value||'';
-  var offset    = -(Math.abs(parseInt(document.getElementById('ruleOffset').value)||0));
-  var dlMode = (document.getElementById('ruleDlModeVal')||{}).value || 'schedule';
-  var matchText2 = dlMode==='schedule' ? ((document.getElementById('ruleMatchText')||{}).value||'').trim() : '';
-  var dlWeekday = dlMode==='weekly' ? parseInt((document.getElementById('ruleWdayVal')||{}).value||'1') : undefined;
-  var dlTime = dlMode==='weekly' ? ((document.getElementById('ruleWdayTime')||{}).value||'') : '';
-  var effectiveMatch = dlMode==='schedule' ? matchText2 : ('__weekly__');
-  if ((dlMode==='schedule' && !matchText2) || !taskText) { showToast('필수 항목을 입력해줘'); return; }
+  try {
+  // 안전하게 element 읽기
+  function val(id) { var el=document.getElementById(id); return el?(el.value||'').trim():''; }
+  var taskText  = val('ruleTaskText');
+  var catId     = val('ruleTaskCat') || 'etc';
+  var prio      = val('ruleTaskPrio');
+  var offsetRaw = document.getElementById('ruleOffset');
+  var offset    = -(Math.abs(parseInt((offsetRaw?offsetRaw.value:'')||'0')));
+  var dlMode    = val('ruleDlModeVal') || 'schedule';
+  var matchText2 = dlMode==='schedule' ? val('ruleMatchText') : '';
+  var dlWeekday  = dlMode==='weekly' ? parseInt(val('ruleWdayVal')||'1') : undefined;
+  var dlTime     = dlMode==='weekly' ? val('ruleWdayTime') : '';
+  var effectiveMatch = dlMode==='schedule' ? matchText2 : '__weekly__';
+
+  if (dlMode==='schedule' && !matchText2) { showToast('일정 이름을 입력해줘'); return; }
+  if (!taskText) { showToast('생성할 할일 이름을 입력해줘'); return; }
+
+  // ruleId가 문자열 'null'인 경우 처리
+  if (ruleId === 'null' || ruleId === '') ruleId = null;
+
   var rules = _loadTaskRules();
   if (ruleId) {
     var idx = rules.findIndex(function(r){ return r.id === ruleId; });
     if (idx >= 0) {
-      var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
-      taskItems = taskItems.filter(function(t){ if (t._ruleId !== ruleId || t.done) return true; if (t.date && t.date < todayKey) return true; return false; });
-      rules[idx] = { id: ruleId, matchText: effectiveMatch, taskText, taskCatId: catId, taskPriority: prio, offsetDays: offset, dlMode, dlWeekday, dlTime };
+      var today = new Date(); today.setHours(0,0,0,0);
+      var todayKey = _dateKey(today);
+      var scope = val('ruleEditScope') || 'future';
+      taskItems = taskItems.filter(function(t) {
+        if (t._ruleId !== ruleId) return true;
+        if (scope === 'future') return t.done || (t.date && t.date < todayKey);
+        return false;
+      });
+      rules[idx] = { id: ruleId, matchText: effectiveMatch, taskText: taskText, taskCatId: catId, taskPriority: prio, offsetDays: offset, dlMode: dlMode, dlWeekday: dlWeekday, dlTime: dlTime };
+    } else {
+      // findIndex 실패 시 새로 push
+      rules.push({ id: ruleId, matchText: effectiveMatch, taskText: taskText, taskCatId: catId, taskPriority: prio, offsetDays: offset, dlMode: dlMode, dlWeekday: dlWeekday, dlTime: dlTime });
     }
   } else {
-    rules.push({ id: 'rule_' + Date.now(), matchText: effectiveMatch, taskText, taskCatId: catId, taskPriority: prio, offsetDays: offset, dlMode, dlWeekday, dlTime });
+    rules.push({ id: 'rule_' + Date.now(), matchText: effectiveMatch, taskText: taskText, taskCatId: catId, taskPriority: prio, offsetDays: offset, dlMode: dlMode, dlWeekday: dlWeekday, dlTime: dlTime });
   }
   _saveTaskRules(rules);
   saveTaskData();
-  if(typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb) _fbSaveNow();
-  document.getElementById('ruleModal') && document.getElementById('ruleModal').remove();
+  if (typeof fbUser!=='undefined' && fbUser && typeof fbDb!=='undefined' && fbDb) _fbSaveNow();
+  var modal = document.getElementById('ruleModal');
+  if (modal) modal.remove();
   _generateRepeatTasks();
   renderTaskTab && renderTaskTab();
-  showToast('규칙 저장됨 ✅');
+  renderGroundControl && renderGroundControl();
+  showToast('규칙 저장됨 ✅ (' + rules.length + '개)');
+  } catch(e) {
+    console.error('saveRuleModal 오류:', e);
+    showToast('저장 오류: ' + e.message);
+  }
 }
-
 function deleteRule(ruleId) {
   var today = new Date(); today.setHours(0,0,0,0); var todayKey = _dateKey(today);
   var rules = _loadTaskRules();
