@@ -5872,7 +5872,8 @@ function saveTaskData(){
     console.error('saveTaskData 실패:', e);
     showToast('저장 오류: 저장 공간이 부족할 수 있어');
   }
-  if(fbUser) try { fbSaveAll(); } catch(e) {}
+  // Firebase 수신 처리 중에는 저장 차단 (수신 데이터가 덮어써지는 것 방지)
+  if(fbUser && !_applyingFbData) try { fbSaveAll(); } catch(e) {}
 }
 
 function taskDateKey(d){ // Date → YYYY-MM-DD
@@ -6586,7 +6587,7 @@ function startTaskRename(itemId, realIdx, el) {
   var inp = document.createElement('input');
   inp.value = oldText;
   inp.className = 'task-rename-inp';
-  inp.style.cssText = 'width:100%;background:none;border:none;border-bottom:1px solid var(--accent);outline:none;font-size:inherit;color:var(--fg);font-family:inherit;padding:0';
+  inp.style.cssText = 'width:100%;background:rgba(108,99,255,.08);border:none;border-bottom:2px solid var(--accent);outline:none;font-size:inherit;font-weight:inherit;color:var(--fg);font-family:inherit;padding:2px 4px;border-radius:4px 4px 0 0;';
   el.innerHTML = '';
   el.appendChild(inp);
   inp.focus();
@@ -12331,7 +12332,7 @@ function _startFbListener(){
       const d = snap.data();
 
       // 내 기기에서 저장한 것이면 무시 (1.5초 debounce 안에 들어온 자기 echo)
-      if(d.deviceId === _DEVICE_ID && Date.now() - _fbLastSaveMs < 2000) return;
+      if(d.deviceId === _DEVICE_ID && Date.now() - _fbLastSaveMs < 5000) return;
 
       // 다른 기기 저장 → 항상 적용
       _applyFirebaseData(d, false);
@@ -12358,7 +12359,7 @@ function _applyFirebaseData(d, force){
 
   // 루프 방지: 적용 중에는 fbSaveAll 차단 (짧게)
   _applyingFbData = true;
-  setTimeout(() => { _applyingFbData = false; }, 500);
+  setTimeout(() => { _applyingFbData = false; }, 3000);
 
   // ── 할일탭 ──
   if(d.taskItemsV1 !== undefined){
@@ -12376,6 +12377,7 @@ function _applyFirebaseData(d, force){
       items = items.map(remote => {
         const local = localMap[String(remote.id)];
         if (!local) return remote; // 새 항목: 원격 그대로
+        if (force) return remote;  // 첫 로드: 원격 완전 우선
         const remoteAt = remote.updatedAt || 0;
         const localAt  = local.updatedAt  || 0;
         if (localAt > remoteAt) return local; // 로컬이 최신: 로컬 보존
@@ -18157,6 +18159,31 @@ function gcToggle() {
   if (chev) chev.textContent = _gcOpen ? '▾' : '▸';
 }
 
+
+// ═══ GC 규칙 메모 및 일괄 삭제 ═══
+var _gcRuleNotes = (function(){ try{ return JSON.parse(localStorage.getItem('gc_rule_notes')||'{}'); }catch(e){return {};} })();
+function _saveGcRuleNotes(){ localStorage.setItem('gc_rule_notes', JSON.stringify(_gcRuleNotes)); }
+
+function gcRuleNoteEdit(ruleId) {
+  var current = _gcRuleNotes[ruleId] || '';
+  var note = prompt('이 규칙에 대한 메모:', current);
+  if (note === null) return;
+  _gcRuleNotes[ruleId] = note;
+  _saveGcRuleNotes();
+  renderGroundControl && renderGroundControl();
+}
+
+function gcDeleteRules(ids) {
+  if (!ids || !ids.length) return;
+  if (!confirm(ids.length + '개 규칙을 삭제할까요?')) return;
+  var rules = _loadTaskRules().filter(function(r){ return ids.indexOf(r.id) < 0; });
+  _saveTaskRules(rules);
+  taskItems = taskItems.filter(function(t){ return !t._ruleId || ids.indexOf(t._ruleId) < 0; });
+  saveTaskData();
+  renderGroundControl && renderGroundControl();
+  showToast(ids.length + '개 규칙 삭제됨');
+}
+
 function renderGroundControl() {
   var body = document.getElementById('gcBody');
   var badgeWrap = document.getElementById('gcBadgeWrap');
@@ -18246,11 +18273,24 @@ function renderGroundControl() {
   // 섹션4: 활성 규칙
   html+='<div class="gc-section"><div class="gc-section-title">🔁 활성 할일 규칙</div>';
   if(!rules.length){ html+='<div class="gc-row gc-row-ok" style="font-size:11px">등록된 규칙 없음 — 일정 편집에서 🔁로 추가</div>'; }
-  else { rules.forEach(function(r){
+  else {
+    html+='<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">'
+      +'<button onclick="(function(){var cbs=document.querySelectorAll(\'._gcRuleCb\');var ids=Array.from(cbs).filter(function(c){return c.checked;}).map(function(c){return c.dataset.id;});gcDeleteRules(ids);})()" style="padding:2px 10px;border-radius:var(--r-pill);border:1px solid rgba(239,68,68,.3);background:none;color:#ef4444;font-size:11px;cursor:pointer">선택 삭제</button>'
+      +'</div>';
+    rules.forEach(function(r){
     var pending=(taskItems||[]).filter(function(t){ return t._ruleId===r.id&&!t.done; }).length;
-    html+='<div class="gc-rule-item"><span style="font-size:11px;flex:1"><b>'+safeEsc(r.matchText)+'</b> → '+safeEsc(r.taskText)+' <span style="color:var(--fg3)">('+Math.abs(r.offsetDays||0)+'일 전)</span></span>'
+    var note=(_gcRuleNotes&&_gcRuleNotes[r.id])||'';
+    var modeLabel=r.dlMode==='weekly'?'매주 '+(['일','월','화','수','목','금','토'][r.dlWeekday||1]):'일정연결';
+    html+='<div class="gc-rule-item" style="flex-direction:column;align-items:stretch;gap:4px">'
+      +'<div style="display:flex;align-items:center;gap:6px">'
+      +'<input type="checkbox" class="_gcRuleCb" data-id="'+r.id+'" style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0">'
+      +'<span style="font-size:11px;flex:1"><b>'+safeEsc(r.taskText)+'</b> <span style="color:var(--fg3);font-size:10px">('+modeLabel+' / '+Math.abs(r.offsetDays||0)+'일 전)</span></span>'
       +'<span class="gc-badge gc-badge-blue">'+pending+'개 대기</span>'
-      +'<button class="gc-action" onclick="openRuleModal(\''+r.id+'\')">편집</button></div>';
+      +'<button class="gc-action" onclick="gcRuleNoteEdit(\''+r.id+'\')">📝</button>'
+      +'<button class="gc-action" onclick="openRuleModal(\''+r.id+'\')">편집</button>'
+      +'</div>'
+      +(note?'<div style="font-size:11px;color:var(--fg2);padding:4px 8px;background:rgba(108,99,255,.06);border-radius:6px;margin-left:20px">📌 '+safeEsc(note)+'</div>':'')
+      +'</div>';
   }); }
   html+='<button style="margin-top:6px;font-size:11px;padding:3px 10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;color:var(--fg3);cursor:pointer" onclick="openRuleModal(null,\'\')">+ 새 규칙 추가</button>';
   html+='</div>';
