@@ -622,7 +622,7 @@ textarea.nm-inp { min-height: 80px; resize: vertical; line-height: 1.6; }
   transition: var(--t-snap);
 }
 .task-item:hover { background: rgba(163,177,198,0.08); }
-.task-item-check {
+.task-rename-btn{opacity:0;color:var(--accent);font-size:11px;cursor:pointer;user-select:none;transition:.15s;padding:0 2px;}.task-item:hover .task-rename-btn{opacity:.7;}.task-rename-btn:hover{opacity:1!important;}.task-item-check {
   width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0; margin-top: 1px;
   box-shadow: var(--shadow-inset-sm); background: var(--bg);
   display: flex; align-items: center; justify-content: center;
@@ -4393,9 +4393,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 .me-htb-drop-line{position:absolute;top:0;height:100%;width:2px;background:rgba(108,99,255,.5);pointer-events:none;z-index:15;display:none;}
 .me-htb-block{position:absolute;top:8px;bottom:8px;border-radius:6px;cursor:grab;overflow:hidden;box-sizing:border-box;}
 .me-htb-block:hover{box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:6;}
-.me-htb-block.dragging{cursor:grabbing;opacity:.8;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.2);}
+.me-htb-block.dragging{cursor:grabbing;opacity:.8;z-index:20;box-shadow:0 4px 16px rgba(0,0,0,.2);}.htb-done{opacity:.5;}.htb-done .me-htb-block-bar{filter:saturate(0.2);}
 .me-htb-block-bar{position:absolute;left:0;top:0;bottom:0;width:3px;}
-.me-htb-block-text{position:absolute;left:7px;top:5px;right:10px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.me-htb-block-text{position:absolute;left:7px;top:5px;right:10px;font-size:10px;font-weight:600;white-space:nowrap;overflow:visible;text-overflow:clip;pointer-events:none;z-index:3;}.me-htb-block:hover .me-htb-block-text{background:rgba(255,255,255,.9);border-radius:3px;padding:0 2px;}
 .me-htb-block-time{position:absolute;left:7px;bottom:4px;font-size:9px;opacity:.6;white-space:nowrap;}
 .me-htb-block-resize{position:absolute;right:0;top:0;bottom:0;width:8px;cursor:ew-resize;z-index:7;}
 .me-htb-block-resize::after{content:'';position:absolute;right:2px;top:50%;transform:translateY(-50%);width:2px;height:12px;background:rgba(128,128,128,.4);border-radius:1px;}
@@ -6433,7 +6433,7 @@ function renderTaskList(){
           <input type="checkbox" class="task-item-cb" id="tcb-${t.id}" onclick="event.stopPropagation();taskItemToggleSel('${t.id}')">
           <div class="task-item-check" onclick="event.stopPropagation();toggleTaskItem(${realIdx})">${t.done?'✓':''}</div>
           <div class="task-item-body">
-            <div class="task-item-text" data-task-id="${t.id}" title="더블클릭으로 이름 편집" ondblclick="event.stopPropagation();startTaskRename('${t.id}',${realIdx},this)">${esc(t.text)}${(()=>{
+            <div class="task-item-text" data-task-id="${t.id}" title="더블클릭으로 이름 편집" ondblclick="event.stopPropagation();startTaskRename('${t.id}',${realIdx},this)">${esc(t.text)}<span class="task-rename-btn" onclick="event.stopPropagation();startTaskRename('${t.id}',${realIdx},this.closest('.task-item-text'))" title="이름 수정"> ✎</span>${(()=>{
               // deadlineDate 직접 연결 뱃지
               if(t.deadlineDate){
                 const _td=new Date();_td.setHours(0,0,0,0);
@@ -16056,6 +16056,15 @@ function ttDeleteScheduleItems() {
   showToast(targets.length+'개 삭제됨');
 }
 
+function meHtbToggleDone(id) {
+  var idx=taskItems.findIndex(function(t){return String(t.id)===String(id);});
+  if(idx<0)return;
+  _taskSnapshot();
+  taskItems[idx].done=!taskItems[idx].done;
+  taskItems[idx].updatedAt=Date.now();
+  saveTaskData();meHtbRender();
+}
+
 function showTtEditor(tt) {
   var editor = document.getElementById('ttEditor');
   editor.style.display = 'flex';
@@ -18754,8 +18763,11 @@ function meHtbRender(){
     var blk=document.createElement('div');
     blk.className='me-htb-block';
     blk.style.cssText='left:'+bx+'px;width:'+bw+'px;background:'+col+'1a;border:1px solid '+col+'44;';
-    blk.innerHTML='<div class="me-htb-block-bar" style="background:'+col+'"></div>'
-      +'<div class="me-htb-block-text" style="color:'+col+'">'+(t.text||'').slice(0,18)+'</div>'
+    var _bd=t.done;
+      if(_bd) blk.classList.add('htb-done'); else blk.classList.remove('htb-done');
+      blk.innerHTML='<div class="me-htb-block-bar" style="background:'+col+'"></div>'
+      +'<button class="htb-check-btn" onclick="event.stopPropagation();meHtbToggleDone(\''+t.id+'\')" title="완료" style="position:absolute;top:4px;left:5px;width:13px;height:13px;border-radius:50%;border:1.5px solid '+col+';background:'+(_bd?col:'transparent')+';color:#fff;font-size:8px;cursor:pointer;padding:0;display:flex;align-items:center;justify-content:center;z-index:8">'+(_bd?'✓':'')+'</button>'
+      +'<div class="me-htb-block-text" style="left:22px;color:'+col+';'+(_bd?'text-decoration:line-through;opacity:.4;':'')+'" title="'+esc(t.text||'')+'">'+esc(t.text||'')+'</div>'
       +'<div class="me-htb-block-time">'+t.timeStart+(t.timeEnd?' ~ '+t.timeEnd:'')+'</div>'
       +'<button class="me-htb-block-del" title="삭제" style="position:absolute;top:3px;right:12px;background:rgba(239,68,68,.15);border:none;border-radius:4px;color:#ef4444;font-size:10px;padding:1px 5px;cursor:pointer;line-height:1.4;display:none">✕</button>'
       +'<div class="me-htb-block-resize" title="드래그해서 시간 조정"></div>';
