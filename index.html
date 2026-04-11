@@ -6591,7 +6591,9 @@ function startTaskRename(itemId, realIdx, el) {
   el.appendChild(inp);
   inp.focus();
   inp.select();
-  function commit() {
+  var _committed = false;
+  function doCommit() {
+    if (_committed) return; _committed = true;
     var newText = inp.value.trim();
     if (newText && newText !== oldText) {
       t.text = newText;
@@ -6601,12 +6603,18 @@ function startTaskRename(itemId, realIdx, el) {
     }
     renderTaskList && renderTaskList();
   }
-  inp.addEventListener('blur', commit);
+  // blur 대신 focusout 사용 (더 안정적)
+  inp.addEventListener('focusout', function(e) {
+    // 다른 요소로 포커스가 가면 저장
+    setTimeout(doCommit, 100);
+  });
   inp.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-    if (e.key === 'Escape') { inp.value = oldText; inp.blur(); }
+    if (e.key === 'Enter') { e.preventDefault(); _committed=false; doCommit(); }
+    if (e.key === 'Escape') { _committed=true; inp.value = oldText; renderTaskList && renderTaskList(); }
     e.stopPropagation();
   });
+  // commit 함수 재정의 (기존 코드 호환)
+  commit = doCommit;
 }
 
 function startCatRename(catId) {
@@ -11244,7 +11252,7 @@ const INBOX_DEFAULT_CATS=[
 
 let inboxItems=JSON.parse(localStorage.getItem('inbox_v1')||'[]');
 let inboxCats=JSON.parse(localStorage.getItem('inbox_cats_v1')||JSON.stringify(INBOX_DEFAULT_CATS));
-let inboxActiveCat='misc';
+let inboxActiveCat='all';
 
 function saveInboxData(){
   localStorage.setItem('inbox_v1',JSON.stringify(inboxItems));
@@ -11395,7 +11403,7 @@ function sendInboxItem(){
   const ta=document.getElementById('inboxInputTa');
   const text=(ta?.value.trim())||'';
   if(!text&&!pendingInboxImg){return;}
-  const _activeCat = (inboxActiveCat && inboxActiveCat !== 'all') ? inboxActiveCat : (document.getElementById('inboxCatSelect')?.value || 'misc');
+  const _activeCat = (inboxActiveCat && inboxActiveCat !== 'all') ? inboxActiveCat : (document.getElementById('inboxCatSelect')?.value || '');
   const catId = _activeCat;
   const now=new Date();
   const time=`${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -12386,6 +12394,15 @@ function _applyFirebaseData(d, force){
       // 로컬에만 있는 항목(새로 생성 후 아직 동기화 안 된 것) 추가
       const remoteIds = new Set(items.map(t => String(t.id)));
       taskItems.forEach(t => { if(t.id && !remoteIds.has(String(t.id))) items.push(t); });
+      // 중복 제거: 같은 id는 updatedAt 최신만 보존
+      const deduped = {};
+      items.forEach(t => {
+        const key = String(t.id);
+        if (!deduped[key] || (t.updatedAt||0) > (deduped[key].updatedAt||0)) {
+          deduped[key] = t;
+        }
+      });
+      items = Object.values(deduped);
       taskItems = items;
       localStorage.setItem('task_items_v1', JSON.stringify(items));
     } catch(e){ console.warn('taskItems parse:', e); }
@@ -12439,8 +12456,15 @@ function _applyFirebaseData(d, force){
         if (remoteMap[String(li.id)]) return true;
         var _cat = li.createdAt||0;
         var _catMs = (typeof _cat==='string') ? new Date(_cat).getTime() : _cat;
-        return (_now - _catMs) < 600000;
+        return (_now - _catMs) < 30000; // 30초 이내 신규만 보존
       });
+      // 중복 제거
+      var _inboxDedup = {};
+      inboxItems.forEach(function(it){
+        var k=String(it.id);
+        if(!_inboxDedup[k]||(it.updatedAt||0)>(_inboxDedup[k].updatedAt||0)) _inboxDedup[k]=it;
+      });
+      inboxItems = Object.values(_inboxDedup);
       inboxItems.sort(function(a,b){
         var bv=b.createdAt||b.id||0,av=a.createdAt||a.id||0;
         var bm=(typeof bv==='string')?new Date(bv).getTime():(+bv||0);
