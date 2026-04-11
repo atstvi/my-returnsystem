@@ -12272,6 +12272,8 @@ async function _fbSaveNow(){
       // 할일 규칙 / 반복 할일 (기기간 공유)
       taskRulesV1:    localStorage.getItem('task_rules_v1')    || '[]',
       repeatItemsV1:  localStorage.getItem('repeat_items_v1') || '[]',
+      gcRuleNotes:    localStorage.getItem('gc_rule_notes')   || '{}',
+      gcMemos:        localStorage.getItem('gc_memos')         || '[]',
       // 🎯 아일랜드 전체 데이터
       fishTickets:    localStorage.getItem('fish_tickets')     || '0',
       sanctuaryTotalSessions: localStorage.getItem('sanctuary_total_sessions') || '0',
@@ -12574,6 +12576,30 @@ function _applyFirebaseData(d, force){
       localStorage.setItem('repeat_items_v1', JSON.stringify(Object.values(rpMerged)));
     } catch(e){}
   }
+  if(d.gcRuleNotes !== undefined){
+    try{
+      var _remN=JSON.parse(d.gcRuleNotes||'{}');
+      var _locN=JSON.parse(localStorage.getItem('gc_rule_notes')||'{}');
+      var _mN=Object.assign({},[_locN,_remN].reduce(function(a,b){return Object.assign(a,b);}));
+      localStorage.setItem('gc_rule_notes',JSON.stringify(_mN));
+      if(typeof _gcRuleNotes!=='undefined')_gcRuleNotes=_mN;
+    }catch(e){}
+  }
+  if(d.gcMemos !== undefined){
+    try{
+      var _remM=JSON.parse(d.gcMemos||'[]');
+      var _locM=JSON.parse(localStorage.getItem('gc_memos')||'[]');
+      var _mMap={};
+      _locM.forEach(function(m){_mMap[m.id]=m;});
+      _remM.forEach(function(m){if(!_mMap[m.id]||(m.updatedAt||m.createdAt||0)>(_mMap[m.id].updatedAt||_mMap[m.id].createdAt||0))_mMap[m.id]=m;});
+      var _mList=Object.values(_mMap);
+      localStorage.setItem('gc_memos',JSON.stringify(_mList));
+      if(typeof _gcMemos!=='undefined')_gcMemos=_mList;
+    }catch(e){}
+  }
+  if(d.fishTickets!==undefined)localStorage.setItem('fish_tickets',d.fishTickets||'0');
+  if(d.sanctuaryTotalSessions!==undefined)localStorage.setItem('sanctuary_total_sessions',d.sanctuaryTotalSessions||'0');
+  if(d.sanctuaryVitality!==undefined)localStorage.setItem('sanctuary_vitality',d.sanctuaryVitality||'0');
 
   // ── 전체 재렌더 ──
   _reRenderCurrentTab();
@@ -18193,6 +18219,27 @@ function gcDeleteRules(ids) {
   showToast(ids.length + '개 규칙 삭제됨');
 }
 
+// ═══ GC 독립 메모 ═══
+var _gcMemos=(function(){try{return JSON.parse(localStorage.getItem('gc_memos')||'[]');}catch(e){return [];}})();
+function _saveGcMemos(){localStorage.setItem('gc_memos',JSON.stringify(_gcMemos));if(typeof fbUser!=='undefined'&&fbUser)fbSaveAll();}
+function gcMemoAdd(){
+  var t=prompt('메모 내용:');if(!t||!t.trim())return;
+  _gcMemos.push({id:'gm_'+Date.now(),text:t.trim(),createdAt:Date.now()});
+  _saveGcMemos();renderGroundControl&&renderGroundControl();
+}
+function gcMemoEdit(id){
+  var i=_gcMemos.findIndex(function(m){return m.id===id;});if(i<0)return;
+  var t=prompt('메모 수정:',_gcMemos[i].text);if(t===null)return;
+  if(!t.trim()){gcMemoDelete(id);return;}
+  _gcMemos[i].text=t.trim();_gcMemos[i].updatedAt=Date.now();
+  _saveGcMemos();renderGroundControl&&renderGroundControl();
+}
+function gcMemoDelete(id){
+  if(!confirm('메모를 삭제할까요?'))return;
+  _gcMemos=_gcMemos.filter(function(m){return m.id!==id;});
+  _saveGcMemos();renderGroundControl&&renderGroundControl();
+}
+
 function renderGroundControl() {
   var body = document.getElementById('gcBody');
   var badgeWrap = document.getElementById('gcBadgeWrap');
@@ -18304,6 +18351,28 @@ function renderGroundControl() {
   html+='<button style="margin-top:6px;font-size:11px;padding:3px 10px;border-radius:var(--r-pill);background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;color:var(--fg3);cursor:pointer" onclick="openRuleModal(null,\'\')">+ 새 규칙 추가</button>';
   html+='</div>';
 
+  // ── GC 독립 메모 섹션 ──
+  html+='<div class="gc-section">';
+  html+='<div class="gc-section-title" style="display:flex;align-items:center;justify-content:space-between">'
+    +'📝 할일 메모'
+    +'<button onclick="gcMemoAdd()" style="font-size:10px;padding:2px 8px;border-radius:var(--r-pill);'
+    +'background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;color:var(--accent);cursor:pointer;font-weight:600">+ 추가</button>'
+    +'</div>';
+  if(!_gcMemos||!_gcMemos.length){
+    html+='<div class="gc-row gc-row-ok" style="font-size:11px">메모 없음</div>';
+  } else {
+    _gcMemos.slice().reverse().forEach(function(m){
+      html+='<div class="gc-rule-item" style="flex-direction:column;align-items:stretch;gap:3px">'
+        +'<div style="display:flex;align-items:flex-start;gap:6px">'
+        +'<span style="font-size:12px;flex:1;white-space:pre-wrap;word-break:break-all">'+safeEsc(m.text)+'</span>'
+        +'<button class="gc-action" onclick="gcMemoEdit(\''+m.id+'\')" style="flex-shrink:0">✎</button>'
+        +'<button class="gc-action" style="color:#ef4444;flex-shrink:0" onclick="gcMemoDelete(\''+m.id+'\')" >✕</button>'
+        +'</div>'
+        +(m.createdAt?'<div style="font-size:10px;color:var(--fg3)">'+new Date(m.createdAt).toLocaleDateString('ko-KR')+'</div>':'');
+      html+='</div>';
+    });
+  }
+  html+='</div>';
 
   // 섹션5: 반복 할일
   var _rl = typeof _loadRepeatItems==='function' ? _loadRepeatItems() : [];
