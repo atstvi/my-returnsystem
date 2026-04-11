@@ -5008,6 +5008,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             <div style="display:flex;gap:8px;align-items:center">
               <button class="btn-primary" onclick="requestNotifAndStart()" id="notifEnableBtn">🔔 알림 허용하기</button>
               <button class="btn-secondary" onclick="sendPendingInboxNotifications()" style="font-size:12px">지금 알림 보내기</button>
+              <button id="notifToggleBtn" onclick="toggleInboxNotif()" style="padding:6px 14px;border-radius:999px;border:1px solid var(--border-subtle);background:var(--bg);font-size:12px;cursor:pointer;font-weight:600">🔕 알림 끄기</button>
             </div>
             <div style="font-size:11px;color:var(--fg3)" id="notifStatus"></div>
             <div style="padding:12px;background:rgba(108,99,255,.05);border-radius:10px">
@@ -12225,12 +12226,14 @@ var _applyingFbData = false; // 여전히 필요 (루프 방지용, 짧게만)
 
 function fbSaveAll(){
   if(!fbUser || !fbDb) return;
+  if(_applyingFbData) return; // 수신 처리 중 저장 차단
   if(_fbSaveTimer) clearTimeout(_fbSaveTimer);
-  _fbSaveTimer = setTimeout(_fbSaveNow, 1500);
+  _fbSaveTimer = setTimeout(_fbSaveNow, 2000);
 }
 
 async function _fbSaveNow(){
   if(!fbUser || !fbDb) return;
+  if(_applyingFbData){ _fbSaveTimer=setTimeout(_fbSaveNow,2000); return; }
   _fbSaveTimer = null;
   setSyncStatus('syncing');
   try {
@@ -12396,8 +12399,11 @@ function _applyFirebaseData(d, force){
         return merged;
       });
       // 로컬에만 있는 항목(새로 생성 후 아직 동기화 안 된 것) 추가
-      const remoteIds = new Set(items.map(t => String(t.id)));
-      taskItems.forEach(t => { if(t.id && !remoteIds.has(String(t.id))) items.push(t); });
+      // force=true(첫 로드)이면 원격이 진리 → 로컬 항목 추가하지 않음
+      if (!force) {
+        const remoteIds = new Set(items.map(t => String(t.id)));
+        taskItems.forEach(t => { if(t.id && !remoteIds.has(String(t.id))) items.push(t); });
+      }
       // 중복 제거: 같은 id는 updatedAt 최신만 보존
       const deduped = {};
       items.forEach(t => {
@@ -17040,7 +17046,28 @@ function loadNotifInterval() {
   return parseInt(saved);
 }
 
+function toggleInboxNotif(){
+  var btn=document.getElementById('notifToggleBtn');
+  var isOff=localStorage.getItem('notif_disabled')==='1';
+  if(isOff){
+    localStorage.removeItem('notif_disabled');
+    startNotificationLoop();
+    if(btn){btn.textContent='🔕 알림 끄기';btn.style.color='';}
+    showToast('인박스 알림 켜짐 🔔');
+  } else {
+    localStorage.setItem('notif_disabled','1');
+    if(typeof _notifInterval!=='undefined'&&_notifInterval){clearInterval(_notifInterval);_notifInterval=null;}
+    if(btn){btn.textContent='🔔 알림 켜기';btn.style.color='var(--accent)';}
+    showToast('인박스 알림 꺼짐 🔕');
+  }
+}
+
 function startNotificationLoop() {
+  if(localStorage.getItem('notif_disabled')==='1'){
+    var btn=document.getElementById('notifToggleBtn');
+    if(btn){btn.textContent='🔔 알림 켜기';btn.style.color='var(--accent)';}
+    return;
+  }
   if (!('Notification' in window)) {
     var statusEl = document.getElementById('notifStatus');
     if (statusEl) statusEl.textContent = '이 브라우저는 알림을 지원하지 않아요.';
