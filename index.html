@@ -1414,7 +1414,6 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   transition: transform .2s ease;
 }
 .task-sec.collapsed .task-sec-toggle { transform: rotate(-90deg); }
-.task-sec.collapsed .task-sec-items { display: flex; flex-direction: column; }
 .task-sec.collapsed .task-sec-items { display: none; }
 .task-sec-items { padding-bottom: 4px; }
 
@@ -5994,6 +5993,9 @@ function renderTaskStats(){
   var wk=taskItems.filter(function(t){return t.date&&t.date>=weekAgo&&t.date<=today;});
   var wkd=wk.filter(function(t){return t.done;});
   var col=pct===0?'var(--fg3)':pct<50?'#f59e0b':pct<100?'#3b82f6':'#22c55e';
+  // 할일 없으면 statsBar 숨김
+  if(!td.length && !wk.length){ el.innerHTML=''; el.style.display='none'; return; }
+  el.style.display='';
   el.innerHTML='<div style="display:flex;align-items:center;gap:10px;padding:5px 12px;font-size:11px;color:var(--fg3)">'
     +'<span>오늘 <b style="color:'+col+'">'+tdd.length+'/'+td.length+'</b> ('+pct+'%)</span>'
     +'<div style="flex:1;height:4px;border-radius:2px;background:var(--border-subtle)">'
@@ -6038,7 +6040,7 @@ function toggleTaskCalFilter(id, btn){
   else taskCalFilterIds.add(id);
   renderTaskCalFilter();
   renderTaskCal();
-  renderTaskList();
+  // 달력 필터는 달력에만 적용 - 할일 목록은 항상 전체 표시
 }
 
 // ── 달력 렌더 ──
@@ -6513,8 +6515,8 @@ function renderTaskList(){
   listEl.innerHTML=allCats.map(cat=>{
     // 할일 없는 카테고리 → 헤더만
     if(!groups[cat.id]){
-      return `<div class="task-sec${_secCollapsed[cat.id]?' collapsed':''}" id="taskSec-${cat.id}">
-        <div class="task-sec-head" style="border-left-color:${cat.color}" onclick="toggleTaskSec('${cat.id}')">
+      return `<div class="task-sec" id="taskSec-${cat.id}">
+        <div class="task-sec-head" style="border-left-color:${cat.color}" >
           <span class="task-sec-icon">${cat.icon}</span>
           <span class="task-sec-name" id="catName-${cat.id}" style="color:${cat.color}">${esc(cat.label)}</span>
           <button class="task-sec-rename-btn" title="이름 편집"
@@ -6684,8 +6686,8 @@ function renderTaskList(){
     }).join('');
 
     // 빠른 추가 폼 (data-catid로 식별)
-    return `<div class="task-sec${_secCollapsed[cat.id]?' collapsed':''}" id="taskSec-${cat.id}">
-      <div class="task-sec-head" style="border-left-color:${cat.color}" onclick="toggleTaskSec('${cat.id}')">
+    return `<div class="task-sec" id="taskSec-${cat.id}">
+      <div class="task-sec-head" style="border-left-color:${cat.color}" >
         <span class="task-sec-icon">${cat.icon}</span>
         <span class="task-sec-name" id="catName-${cat.id}" style="color:${cat.color}">${esc(cat.label)}</span>
         <button class="task-sec-rename-btn" title="이름 편집"
@@ -7226,13 +7228,7 @@ function rescueCatTasks(catId) {
 }
 
 function toggleTaskSec(catId){
-  const el = document.getElementById('taskSec-'+catId);
-  if(!el) return;
-  el.classList.toggle('collapsed');
-  // collapsed 상태 저장
-  const collapsed = JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
-  collapsed[catId] = el.classList.contains('collapsed');
-  localStorage.setItem('task_sec_collapsed', JSON.stringify(collapsed));
+  // collapse 기능 제거 - 할일이 보이지 않아 놓칠 수 있어서
 }
 
 // ── 할일 토글 ──
@@ -9787,10 +9783,13 @@ function switchSetTab(group) {
   document.querySelectorAll('.set-tab-btn').forEach(function(b){
     b.classList.toggle('active', b.dataset.group===group);
   });
-  document.querySelectorAll('.set-section[data-group]').forEach(function(s){
-    s.style.display = (s.dataset.group===group) ? '' : 'none';
+  // set-section 숨김 처리 (settings-grid 자체는 건드리지 않음)
+  document.querySelectorAll('#page-settings .set-section').forEach(function(s){
+    var g=s.getAttribute('data-group');
+    if(!g){s.style.display='';return;} // data-group 없으면 항상 표시
+    s.style.display=(g===group)?'':'none';
   });
-  localStorage.setItem('settings_tab', group);
+  localStorage.setItem('settings_tab',group);
 }
 function initSetTab() {
   var saved = localStorage.getItem('settings_tab') || 'sync';
@@ -19435,6 +19434,7 @@ function deleteRepeatItem(repeatId) {
   renderGroundControl&&renderGroundControl();
   showToast('반복 할일 삭제됨');
 }
+
 </script>
 </body>
 </html>
