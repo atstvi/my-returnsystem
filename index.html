@@ -5195,8 +5195,9 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <div class="setting-hint" style="margin-top:10px">비밀번호는 이 기기 브라우저에 저장돼. 잊어버리면 아래 방법으로 초기화할 수 있어.<br><br>
         </div>
       </div>
+      </div>
 
-      <!-- Firebase 동기화 -->
+<!-- Firebase 동기화 -->
       <!-- Google Calendar 동기화 -->
       <div class="set-section" data-group="sync">
         <div class="set-section-head" onclick="toggleSection('sec-gcal-body')">
@@ -5593,11 +5594,8 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         </div>
       </div>
 
-    
-  
-</div>
-</div>
-</div>
+    </div>
+
 
   </div>
 <div id="page-timetable" class="page">
@@ -5916,8 +5914,11 @@ function _taskUpdateUndoBtn() {
 function saveTaskData(){
   try{if(typeof meHtbRender==="function")setTimeout(meHtbRender,0);}catch(e){}
   try {
-    localStorage.setItem('task_cats_v1',  JSON.stringify(taskCats));
-    localStorage.setItem('task_items_v1', JSON.stringify(taskItems));
+    localStorage.setItem('task_cats_v1', JSON.stringify(taskCats.filter(function(c){return c&&c.id;})));
+    // id 없는 항목 방어 필터
+    localStorage.setItem('task_items_v1', JSON.stringify(
+      taskItems.filter(function(t){ return t && t.id; })
+    ));
   } catch(e) {
     console.error('saveTaskData 실패:', e);
     showToast('저장 오류: 저장 공간이 부족할 수 있어');
@@ -7264,8 +7265,13 @@ function deleteTaskItem(idx){
   // 삭제 전 pageId 보존 (splice 후 item 참조가 끊기므로)
   const _delPageId = item.notionPageId;
   // 로컬에서 먼저 제거
+  // 반복 할일이면 해당 날짜 삭제 기록 (재생성 방지)
+  if(item._repeatId && item.date) _markRepeatDeleted(item._repeatId, item.date);
+  // _deleted 마커를 잠깐 추가해서 동기화에 삭제 전파
+  item._deleted = true; item.updatedAt = Date.now();
+  saveTaskData(); // Firebase에 _deleted 마커 전파
   taskItems.splice(idx, 1);
-  saveTaskData();
+  saveTaskData(); // 로컬에서 완전 제거
   renderTaskList();
   renderTaskCal();
   // Notion 아카이브 (삭제 후에 비동기 처리 - pageId 직접 사용)
@@ -12444,6 +12450,7 @@ async function _fbSaveNow(){
     const payload = {
       deviceId: _DEVICE_ID,
       savedAt: Date.now(),
+      _deletedRepeatDates: _deletedRepeatDates,
       // 핵심 할일 데이터
       taskItemsV1:    localStorage.getItem('task_items_v1')    || '[]',
       taskCatsV1:     localStorage.getItem('task_cats_v1')     || '[]',
@@ -12614,9 +12621,21 @@ function _applyFirebaseData(d, force){
           deduped[key] = t;
         }
       });
-      items = Object.values(deduped);
+      // _deleted 마커 처리: 원격과 병합 후 실제 삭제
+      items = Object.values(deduped).filter(function(t){ return !t._deleted; });
       taskItems = items;
       localStorage.setItem('task_items_v1', JSON.stringify(items));
+      // 수동 삭제 기록 원격과 병합
+      if(d._deletedRepeatDates){
+        Object.keys(d._deletedRepeatDates).forEach(function(rid){
+          if(!_deletedRepeatDates[rid]) _deletedRepeatDates[rid]=[];
+          (d._deletedRepeatDates[rid]||[]).forEach(function(dk){
+            if(!_deletedRepeatDates[rid].includes(dk))
+              _deletedRepeatDates[rid].push(dk);
+          });
+        });
+        _saveDeletedRepeatDates();
+      }
     } catch(e){ console.warn('taskItems parse:', e); }
   }
   if(d.timetablesV1 !== undefined){
@@ -12683,7 +12702,7 @@ function _applyFirebaseData(d, force){
         var am=(typeof av==='string')?new Date(av).getTime():(+av||0);
         return bm-am;
       });
-      localStorage.setItem('inbox_v1', JSON.stringify(inboxItems));
+      localStorage.setItem('inbox_v1', JSON.stringify(inboxItems.filter(function(m){return m&&m.id;})));
     } catch(e){ console.warn('inboxV1 apply:', e); try{inboxItems=JSON.parse(d.inboxV1||'[]');}catch(e2){} }
   }
   if(d.inboxCatsV1 !== undefined){
@@ -19319,6 +19338,22 @@ function _getCatDefaultPriority(catId) {
   return (cat && cat.defaultPriority) ? cat.defaultPriority : '';
 }
 
+
+// 수동 삭제된 반복 할일 날짜 추적 (재생성 방지)
+var _deletedRepeatDates = (function(){
+  try{ return JSON.parse(localStorage.getItem('_deletedRepeatDates')||'{}'); }catch(e){ return {}; }
+})();
+function _saveDeletedRepeatDates(){
+  try{ localStorage.setItem('_deletedRepeatDates', JSON.stringify(_deletedRepeatDates)); }catch(e){}
+}
+function _markRepeatDeleted(repeatId, dateKey){
+  if(!repeatId||!dateKey) return;
+  if(!_deletedRepeatDates[repeatId]) _deletedRepeatDates[repeatId]=[];
+  if(!_deletedRepeatDates[repeatId].includes(dateKey))
+    _deletedRepeatDates[repeatId].push(dateKey);
+  _saveDeletedRepeatDates();
+}
+
 function _generateRepeatItems() {
   var repeats = _loadRepeatItems();
   if (!repeats.length) return;
@@ -19343,6 +19378,9 @@ function _generateRepeatItems() {
       taskItems.filter(function(t){ return t._repeatId===r.id; })
                .map(function(t){ return t.date; })
     );
+    // 수동 삭제된 날짜도 genDates에 포함 (재생성 방지)
+    var _delSet = _deletedRepeatDates[r.id]||[];
+    _delSet.forEach(function(dk){ genDates.add(dk); });
     var d = new Date(startD);
     var safety = 0;
     while (d <= endD && safety++ < 500) {
