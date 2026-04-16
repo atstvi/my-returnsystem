@@ -2,6 +2,9 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>나의 돌아오는 시스템</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -5229,6 +5232,27 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
                 <button class="btn-secondary" onclick="gcalSync()" id="gcalSyncBtn" style="display:none">↻ 지금 동기화</button>
                 <button class="btn-secondary" onclick="gcalSaveConfig()">저장</button>
               </div>
+              <!-- 알림 설정 -->
+              <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+                <div class="setting-lbl" style="margin:0">⏰ 시작 전 알림</div>
+                <select id="gcalReminderMin" class="setting-inp" style="width:110px" onchange="gcalSaveConfig()">
+                  <option value="0">알림 없음</option>
+                  <option value="5">5분 전</option>
+                  <option value="10">10분 전</option>
+                  <option value="15">15분 전</option>
+                  <option value="30">30분 전</option>
+                  <option value="60">1시간 전</option>
+                </select>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer">
+                  <input type="checkbox" id="gcalAutoSync" onchange="gcalSaveConfig()" style="width:14px;height:14px">
+                  <span>할일탭 열 때 자동 동기화</span>
+                </label>
+              </div>
+              <div style="font-size:11px;color:var(--fg3);margin-top:8px;line-height:1.6">
+                📅 <b>일정 카테고리</b> → 기존 캘린더 (양방향)<br>
+                ✅ <b>나머지 카테고리</b> (시간 설정된 할일) → <i>할일 (Return System)</i> 캘린더 자동 생성<br>
+                ← GCal에서 이름·시간·메모 변경, 이벤트 삭제 시 앱에도 반영
+              </div>
               <div style="font-size:11px;color:var(--fg3);margin-top:8px" id="gcalStatus"></div>
             </div>
           </div>
@@ -5646,30 +5670,13 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:8px;border-top:1px solid var(--border-subtle)">
         <button onclick="ttSave()" style="padding:9px 20px;border-radius:999px;background:var(--accent);color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">💾 저장</button>
-        <button onclick="ttGenerate()" style="padding:9px 20px;border-radius:999px;background:#22c55e;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">⚡ 일정 자동 생성</button>
-        <button onclick="ttDelete()" style="padding:9px 20px;border-radius:999px;background:var(--bg);color:#ef4444;border:none;font-size:13px;font-weight:600;cursor:pointer;box-shadow:var(--shadow-raised-sm)">🗑 삭제</button>
+        <button onclick="ttGenerate()" style="padding:9px 20px;border-radius:999px;background:#22c55e;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">⚡ 할일 생성</button>
       </div>
+      <div id="ttGrid" style="overflow-x:auto"></div>
+      <div id="ttSlots" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
     </div>
   </div>
 </div>
-
-</div>
-</div>
-
-<div class="cal-expand-overlay" id="calExpandOverlay" style="display:none" onclick="if(event.target===this)toggleCalExpand()">
-    <div class="cal-expand-box">
-      <div class="cal-expand-head">
-        <button class="task-cal-nav-btn" onclick="calExpandMove(-1)">‹</button>
-        <span class="cal-expand-month" id="calExpandMonth"></span>
-        <button class="task-cal-nav-btn" onclick="calExpandMove(1)">›</button>
-        <button class="task-cal-today-btn" onclick="calExpandToday()">오늘</button>
-        <button onclick="toggleCalExpand()" style="background:none;border:1px solid var(--border);color:var(--foreground-muted);padding:2px 10px;cursor:pointer;font-family:var(--font-label);font-size:9px;letter-spacing:1px">✕ 닫기</button>
-      </div>
-      <div class="cal-expand-body">
-        <div class="cal-expand-grid" id="calExpandGrid"></div>
-      </div>
-    </div>
-  </div>
 <script>var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
 var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 
@@ -5913,6 +5920,32 @@ function _taskUpdateUndoBtn() {
   if (r) { r.disabled = !_redoStack.length; r.style.opacity = _redoStack.length ? '1' : '.35'; }
 }
 
+var _gcalPushTimer=null;
+function _gcalPushDeferred(){
+  if(!_gcalToken||!_gcalCfg) return;
+  clearTimeout(_gcalPushTimer);
+  _gcalPushTimer=setTimeout(function(){
+    try{gcalPushChanged();}catch(e){console.warn('gcalPush:',e.message);}
+  },3000);
+}
+async function gcalPushChanged(){
+  if(!_gcalToken) return;
+  if(!_gcalCfg.eventIds) _gcalCfg.eventIds={};
+  if(!_gcalCfg.taskEventIds) _gcalCfg.taskEventIds={};
+  var taskCalId=_gcalCfg.taskCalendarId||'primary';
+  var toSync=taskItems.filter(function(t){return t.timeStart&&t.date&&!t._subId;});
+  for(var _k=0;_k<toSync.length;_k++){
+    var _t=toSync[_k]; var _ev=_taskToGcalEvent(_t); if(!_ev) continue;
+    try{
+      var _calId=_t.catId==='schedule'?(_gcalCfg.calendarId||'primary'):taskCalId;
+      var _ids=_t.catId==='schedule'?_gcalCfg.eventIds:_gcalCfg.taskEventIds;
+      var _eid=_ids[String(_t.id)];
+      if(_eid){await gcalApiCal('PATCH','/'+_eid,_ev,_calId);}
+      else{var _r=await gcalApiCal('POST','',_ev,_calId);if(_r.id)_ids[String(_t.id)]=_r.id;}
+    }catch(e2){/* silent */}
+  }
+  localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+}
 function saveTaskData(){
   try{if(typeof meHtbRender==="function")setTimeout(meHtbRender,0);}catch(e){}
   try {
@@ -5927,6 +5960,7 @@ function saveTaskData(){
   }
   // Firebase 수신 처리 중에는 저장 차단 (수신 데이터가 덮어써지는 것 방지)
   if(fbUser && !_applyingFbData) try { fbSaveAll(); } catch(e) {}
+  _gcalPushDeferred();
 }
 
 function taskDateKey(d){ // Date → YYYY-MM-DD
@@ -7783,7 +7817,11 @@ function goTab(t){
   if(t==='memo'){renderMemos();renderResultList();renderMetricsPanel();try{renderMePhil();}catch(e){};try{renderMePhilSlider();}catch(e){}}
   if(t==='reward')renderRewards();
   if(t==='inbox'){renderInbox();renderItpPanel();}
-  if(t==='task'){renderTaskTab();}
+  if(t==='task'){
+    renderTaskTab();
+    // 자동 동기화 옵션
+    if(_gcalToken && _gcalCfg.autoSync) setTimeout(gcalSync, 800);
+  }
   if(t==='settings'){renderRpgStatsEdit&&renderRpgStatsEdit();try{renderSubsList();}catch(e){};try{initSubTaskCatSelect();}catch(e){};try{updateNotifBadge();}catch(e){};try{loadEisenSettings();}catch(e){};try{_loadInboxNotifToggle();}catch(e){};try{loadNotionPrioMap();}catch(e){};try{gcalLoadConfig();}catch(e){}}
   if(t==='timetable'){renderTimetableTab();}
   // D-day 패널: page.active 부여 후 재평가 (task탭 아니면 숨김)
@@ -17593,6 +17631,8 @@ var _gcalTokenExp = 0;
 function gcalSaveConfig() {
   _gcalCfg.calendarId = (document.getElementById('gcalCalendarId') ||{}).value.trim() || 'primary';
   _gcalCfg.clientId   = (document.getElementById('gcalClientId')   ||{}).value.trim() || _gcalCfg.clientId || '';
+  _gcalCfg.reminderMin = parseInt((document.getElementById('gcalReminderMin')||{}).value || '0');
+  _gcalCfg.autoSync   = !!(document.getElementById('gcalAutoSync')||{}).checked;
   localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
   showToast('Google Calendar 설정 저장됨');
   gcalUpdateBadge();
@@ -17601,6 +17641,10 @@ function gcalSaveConfig() {
 function gcalLoadConfig() {
   var ci = document.getElementById('gcalCalendarId');
   var cl = document.getElementById('gcalClientId');
+  var rm = document.getElementById('gcalReminderMin');
+  var as = document.getElementById('gcalAutoSync');
+  if(rm) rm.value = String(_gcalCfg.reminderMin || '0');
+  if(as) as.checked = !!_gcalCfg.autoSync;
   if(ci) ci.value = _gcalCfg.calendarId || '';
   if(cl) cl.value = _gcalCfg.clientId   || '';
   gcalUpdateBadge();
@@ -17723,50 +17767,171 @@ function _taskToGcalEvent(item) {
 
   if (item.done) event.status = 'cancelled';
 
+  // 알림 설정 (설정된 분 전)
+  var reminderMin = parseInt(_gcalCfg.reminderMin || '0');
+  if (reminderMin > 0 && item.timeStart) {
+    event.reminders = {
+      useDefault: false,
+      overrides: [{ method: 'popup', minutes: reminderMin }]
+    };
+  } else {
+    event.reminders = { useDefault: true };
+  }
+
   return event;
+}
+
+// GCal API - calendarId 오버라이드 가능
+async function gcalApiCal(method, path, body, calId) {
+  if (!_gcalToken) throw new Error('Google 인증이 필요해');
+  if (Date.now() > _gcalTokenExp - 60000) throw new Error('토큰 만료. 다시 로그인해줘');
+  var cId = encodeURIComponent(calId || _gcalCfg.calendarId || 'primary');
+  var base = 'https://www.googleapis.com/calendar/v3/calendars/' + cId + '/events';
+  var url = path ? base + path : base;
+  return fetch(url, {
+    method: method,
+    headers: {
+      'Authorization': 'Bearer ' + _gcalToken,
+      'Content-Type': 'application/json'
+    },
+    body: body ? JSON.stringify(body) : undefined
+  }).then(function(r) { return r.json(); });
+}
+
+// 할일 전용 캘린더 생성 또는 기존 것 사용
+async function gcalEnsureTaskCalendar() {
+  if (_gcalCfg.taskCalendarId) return _gcalCfg.taskCalendarId;
+  try {
+    // 캘린더 목록에서 '할일 (Return System)' 찾기
+    var r = await fetch('https://www.googleapis.com/calendar/v3/users/me/calendarList', {
+      headers: { 'Authorization': 'Bearer ' + _gcalToken }
+    });
+    var data = await r.json();
+    var existing = (data.items || []).find(function(c) { return c.summary === '할일 (Return System)'; });
+    if (existing) {
+      _gcalCfg.taskCalendarId = existing.id;
+    } else {
+      var newCal = await fetch('https://www.googleapis.com/calendar/v3/calendars', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + _gcalToken, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary: '할일 (Return System)' })
+      }).then(function(r2) { return r2.json(); });
+      _gcalCfg.taskCalendarId = newCal.id;
+    }
+    localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
+    return _gcalCfg.taskCalendarId;
+  } catch(e) {
+    console.warn('캘린더 생성 실패:', e);
+    return 'primary';
+  }
 }
 
 async function gcalSync() {
   var statusEl = document.getElementById('gcalStatus');
   if(statusEl) statusEl.textContent = '동기화 중...';
   if(!_gcalToken) { showToast('먼저 Google 로그인을 해줘'); return; }
-
-  // 일정 카테고리 중 시간표 항목 제외 (단방향: 웹 → 구글)
-  var scheduleItems = taskItems.filter(function(t) {
-    if(t.catId !== 'schedule') return false;
-    if(t.note && t.note.indexOf('시간표') >= 0) return false;
-    if(t._subId) return false; // 구독 자동생성 항목 제외
-    return true;
-  });
-
-  var created = 0, updated = 0, errors = 0;
   if(!_gcalCfg.eventIds) _gcalCfg.eventIds = {};
+  if(!_gcalCfg.taskEventIds) _gcalCfg.taskEventIds = {};
 
-  for(var i = 0; i < scheduleItems.length; i++) {
-    var item = scheduleItems[i];
-    var ev = _taskToGcalEvent(item);
-    if(!ev) continue;
-    try {
-      var existingId = _gcalCfg.eventIds[String(item.id)];
-      if(existingId) {
-        await gcalApi('PATCH', '/' + existingId, ev);
-        updated++;
-      } else {
-        var created_ev = await gcalApi('POST', '', ev);
-        _gcalCfg.eventIds[String(item.id)] = created_ev.id;
-        item._gcalEventId = created_ev.id;
-        created++;
-      }
-    } catch(e) {
-      console.warn('GCal sync error:', item.text, e.message);
-      errors++;
+  var created=0, updated=0, deleted=0, pulled=0, errors=0;
+
+  try {
+    // ── A. 일정 카테고리 → primary 캘린더 (기존 단방향 유지 + 양방향 추가) ──
+    var scheduleItems = taskItems.filter(function(t) {
+      return t.catId === 'schedule' && !t._subId && !(t.note && t.note.indexOf('시간표') >= 0);
+    });
+    for (var i = 0; i < scheduleItems.length; i++) {
+      var item = scheduleItems[i];
+      var ev = _taskToGcalEvent(item);
+      if (!ev) continue;
+      try {
+        var eid = _gcalCfg.eventIds[String(item.id)];
+        if (eid) {
+          await gcalApiCal('PATCH', '/'+eid, ev, _gcalCfg.calendarId||'primary');
+          updated++;
+        } else {
+          var r2 = await gcalApiCal('POST', '', ev, _gcalCfg.calendarId||'primary');
+          if (r2.id) { _gcalCfg.eventIds[String(item.id)] = r2.id; item._gcalEventId = r2.id; created++; }
+        }
+      } catch(e2) { errors++; console.warn('schedule sync:', item.text, e2.message); }
     }
-  }
+
+    // ── B. 나머지 카테고리 (timeStart 있는 것) → 할일 전용 캘린더 ──
+    var taskCalId = await gcalEnsureTaskCalendar();
+    var timedTasks = taskItems.filter(function(t) {
+      return t.catId !== 'schedule' && t.timeStart && t.date && !t._subId;
+    });
+    for (var j = 0; j < timedTasks.length; j++) {
+      var ti = timedTasks[j];
+      var tev = _taskToGcalEvent(ti);
+      if (!tev) continue;
+      try {
+        var tid = _gcalCfg.taskEventIds[String(ti.id)];
+        if (tid) {
+          await gcalApiCal('PATCH', '/'+tid, tev, taskCalId);
+          updated++;
+        } else {
+          var tr = await gcalApiCal('POST', '', tev, taskCalId);
+          if (tr.id) { _gcalCfg.taskEventIds[String(ti.id)] = tr.id; ti._gcalEventId = tr.id; created++; }
+        }
+      } catch(e3) { errors++; console.warn('task sync:', ti.text, e3.message); }
+    }
+
+    // ── C. GCal → 앱 (양방향): 삭제/수정 수신 ──
+    // primary 캘린더에서 [return-system] 태그된 이벤트 가져오기
+    var syncToken = _gcalCfg.syncToken || null;
+    var listUrl = 'https://www.googleapis.com/calendar/v3/calendars/'
+      + encodeURIComponent(_gcalCfg.calendarId||'primary')
+      + '/events?privateExtendedProperty=returnSystemId&singleEvents=true'
+      + (syncToken ? '&syncToken='+syncToken : '&timeMin='+encodeURIComponent(new Date(Date.now()-30*24*3600*1000).toISOString()));
+    var listR = await fetch(listUrl, { headers:{'Authorization':'Bearer '+_gcalToken} });
+    var listData = await listR.json();
+    if (listData.nextSyncToken) { _gcalCfg.syncToken = listData.nextSyncToken; }
+    (listData.items || []).forEach(function(gev) {
+      var rsId = gev.extendedProperties && gev.extendedProperties.private && gev.extendedProperties.private.returnSystemId;
+      if (!rsId) return;
+      var localTask = taskItems.find(function(t) { return String(t.id) === String(rsId); });
+      if (!localTask) return;
+      var gcalUpdated = new Date(gev.updated).getTime();
+      var localUpdated = localTask.updatedAt || 0;
+      if (gcalUpdated <= localUpdated) return; // 로컬이 최신이면 무시
+      // GCal 변경사항 반영
+      if (gev.status === 'cancelled') {
+        // GCal에서 삭제됨 → 앱에서도 완료 처리
+        localTask.done = true; localTask.updatedAt = gcalUpdated; deleted++;
+      } else {
+        if (gev.summary && gev.summary !== localTask.text) { localTask.text = gev.summary; }
+        if (gev.description !== undefined) {
+          var desc = gev.description || '';
+          var cleanDesc = desc.replace(/\n?\[return-system\]/g, '').trim();
+          if (cleanDesc !== localTask.note) { localTask.note = cleanDesc; }
+        }
+        if (gev.start) {
+          var newDate = (gev.start.dateTime || gev.start.date || '').slice(0,10);
+          var newTime = gev.start.dateTime ? gev.start.dateTime.slice(11,16) : '';
+          var newTimeEnd = gev.end && gev.end.dateTime ? gev.end.dateTime.slice(11,16) : '';
+          if (newDate) localTask.date = newDate;
+          if (newTime) localTask.timeStart = newTime;
+          if (newTimeEnd) localTask.timeEnd = newTimeEnd;
+        }
+        localTask.updatedAt = gcalUpdated;
+        pulled++;
+      }
+    });
+
+  } catch(e) { errors++; console.error('gcalSync error:', e); }
 
   localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
   saveTaskData();
-  var msg = '구글 캘린더 동기화 완료: 생성 ' + created + ', 수정 ' + updated;
-  if(errors) msg += ', 오류 ' + errors;
+  try { renderTaskTab && renderTaskTab(); } catch(e) {}
+  var msg = '캘린더 동기화 완료';
+  var parts = [];
+  if(created) parts.push('생성 '+created);
+  if(updated) parts.push('수정 '+updated);
+  if(pulled) parts.push('GCal→앱 '+pulled);
+  if(deleted) parts.push('취소→완료 '+deleted);
+  if(errors) parts.push('오류 '+errors);
+  if(parts.length) msg += ': ' + parts.join(', ');
   showToast(msg);
   if(statusEl) statusEl.textContent = '✓ ' + msg;
 }
@@ -19561,6 +19726,19 @@ function saveRepeatItem(repeatId) {
   renderGroundControl&&renderGroundControl();
   showToast('반복 할일 저장됨 ✅');
 }
+
+function deleteRepeatItem(repeatId) {
+  if (!confirm('반복 할일을 삭제할까요?')) return;
+  _saveRepeatItems(_loadRepeatItems().filter(function(x){ return x.id!==repeatId; }));
+  var today=new Date();today.setHours(0,0,0,0);var tk=_dateKey(today);
+  taskItems=taskItems.filter(function(t){ return !(t._repeatId===repeatId&&!t.done&&t.date>=tk); });
+  saveTaskData();
+  document.getElementById('repeatItemModal')&&document.getElementById('repeatItemModal').remove();
+  renderTaskTab&&renderTaskTab();
+  renderGroundControl&&renderGroundControl();
+  showToast('반복 할일 삭제됨');
+}
+
 
 function deleteRepeatItem(repeatId) {
   if (!confirm('반복 할일을 삭제할까요?')) return;
