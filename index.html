@@ -5216,8 +5216,13 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
             </div>
 
             <div>
-              <div style="font-size:10px;color:var(--fg3);margin-bottom:4px">캘린더 ID (기본값: primary)</div>
+              <div style="font-size:10px;color:var(--fg3);margin-bottom:4px">              <div style="font-size:10px;color:var(--fg3);margin-bottom:4px">📅 일정 카테고리 캘린더 ID</div>
               <input id="gcalCalendarId" class="setting-inp" placeholder="primary 또는 xxx@group.calendar.google.com">
+            </div>
+
+            <div style="margin-top:10px">
+              <div style="font-size:10px;color:var(--fg3);margin-bottom:4px">✅ 할일 카테고리 캘린더 ID <span style="font-size:9px;opacity:.7">(비워두면 자동 생성)</span></div>
+              <input id="gcalTaskCalendarId" class="setting-inp" placeholder="xxx@group.calendar.google.com 또는 비워두기">
             </div>
 
             <div style="padding:10px 12px;background:rgba(66,133,244,.06);border-radius:10px;border-left:3px solid #4285f4">
@@ -17629,10 +17634,11 @@ var _gcalToken = null;
 var _gcalTokenExp = 0;
 
 function gcalSaveConfig() {
-  _gcalCfg.calendarId = (document.getElementById('gcalCalendarId') ||{}).value.trim() || 'primary';
-  _gcalCfg.clientId   = (document.getElementById('gcalClientId')   ||{}).value.trim() || _gcalCfg.clientId || '';
-  _gcalCfg.reminderMin = parseInt((document.getElementById('gcalReminderMin')||{}).value || '0');
-  _gcalCfg.autoSync   = !!(document.getElementById('gcalAutoSync')||{}).checked;
+  _gcalCfg.calendarId     = (document.getElementById('gcalCalendarId')     ||{}).value.trim() || 'primary';
+  _gcalCfg.taskCalendarId = (document.getElementById('gcalTaskCalendarId') ||{}).value.trim() || _gcalCfg.taskCalendarId || '';
+  _gcalCfg.clientId       = (document.getElementById('gcalClientId')       ||{}).value.trim() || _gcalCfg.clientId || '';
+  _gcalCfg.reminderMin    = parseInt((document.getElementById('gcalReminderMin')||{}).value || '0');
+  _gcalCfg.autoSync       = !!(document.getElementById('gcalAutoSync')||{}).checked;
   localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
   showToast('Google Calendar 설정 저장됨');
   gcalUpdateBadge();
@@ -17641,8 +17647,10 @@ function gcalSaveConfig() {
 function gcalLoadConfig() {
   var ci = document.getElementById('gcalCalendarId');
   var cl = document.getElementById('gcalClientId');
+  var tcal = document.getElementById('gcalTaskCalendarId');
   var rm = document.getElementById('gcalReminderMin');
   var as = document.getElementById('gcalAutoSync');
+  if(tcal) tcal.value = _gcalCfg.taskCalendarId || '';
   if(rm) rm.value = String(_gcalCfg.reminderMin || '0');
   if(as) as.checked = !!_gcalCfg.autoSync;
   if(ci) ci.value = _gcalCfg.calendarId || '';
@@ -17800,6 +17808,9 @@ async function gcalApiCal(method, path, body, calId) {
 
 // 할일 전용 캘린더 생성 또는 기존 것 사용
 async function gcalEnsureTaskCalendar() {
+  // 직접 입력한 ID가 있으면 자동 생성하지 않고 바로 사용
+  var manualId = (document.getElementById('gcalTaskCalendarId')||{}).value.trim();
+  if (manualId) { _gcalCfg.taskCalendarId = manualId; localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); return manualId; }
   if (_gcalCfg.taskCalendarId) return _gcalCfg.taskCalendarId;
   try {
     // 캘린더 목록에서 '할일 (Return System)' 찾기
