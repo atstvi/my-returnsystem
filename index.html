@@ -5947,7 +5947,7 @@ async function gcalPushChanged(){
       var _eid=_ids[String(_t.id)];
       if(_eid){await gcalApiCal('PATCH','/'+_eid,_ev,_calId);}
       else{var _r=await gcalApiCal('POST','',_ev,_calId);if(_r.id)_ids[String(_t.id)]=_r.id;}
-    }catch(e2){/* silent */}
+    }catch(e2){ console.warn('gcalPush item:', _t&&_t.text, e2.message); }
   }
   localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
 }
@@ -7803,7 +7803,11 @@ function goTab(t){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   const pg = document.getElementById('page-'+t);
   if(pg) pg.classList.add('active');
-  if(t==='settings'){ setTimeout(initSetTab,60); setTimeout(htbRangeInit,120); }
+  if(t==='settings'){
+    setTimeout(initSetTab,60);
+    setTimeout(htbRangeInit,120);
+    setTimeout(function(){ gcalUpdateBadge&&gcalUpdateBadge(); gcalLoadConfig&&gcalLoadConfig(); },200);
+  }
   // 탭 버튼 active - onclick 속성으로 매칭
   document.querySelectorAll('.tab-btn').forEach(b=>{
     const oc = b.getAttribute('onclick')||'';
@@ -12368,6 +12372,10 @@ async function initFirebase(){
     // 이미 앱이 있으면 재사용
     try{fbApp=firebase.app();}catch{fbApp=firebase.initializeApp(cfg);}
     fbAuth=firebase.auth();
+    // 브라우저 새로고침 후에도 로그인 상태 유지
+    fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function(e){
+      console.warn('setPersistence 실패:', e.message);
+    });
     fbDb=firebase.firestore();
     // Offline persistence: 오프라인에서도 읽기/쓰기, 재연결 시 자동 sync
     fbDb.enablePersistence({synchronizeTabs:true}).catch(function(err){
@@ -17632,6 +17640,22 @@ var _gcalCfg = (function(){
 })();
 var _gcalToken = null;
 var _gcalTokenExp = 0;
+// 저장된 GCal 토큰 복원
+(function(){
+  try {
+    var saved = JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');
+    if(saved._savedToken && saved._savedTokenExp && saved._savedTokenExp > Date.now() + 60000){
+      _gcalToken = saved._savedToken;
+      _gcalTokenExp = saved._savedTokenExp;
+      console.log('GCal 토큰 복원됨, 남은 시간:', Math.round((saved._savedTokenExp-Date.now())/60000)+'분');
+    } else if(saved._savedToken) {
+      // 만료됐으면 정리
+      delete saved._savedToken;
+      delete saved._savedTokenExp;
+      localStorage.setItem('gcal_cfg_v1', JSON.stringify(saved));
+    }
+  } catch(e){}
+})();
 
 function gcalSaveConfig() {
   _gcalCfg.calendarId     = (document.getElementById('gcalCalendarId')     ||{}).value.trim() || 'primary';
@@ -17645,6 +17669,12 @@ function gcalSaveConfig() {
 }
 
 function gcalLoadConfig() {
+  gcalUpdateBadge();
+  var statusEl=document.getElementById('gcalStatus');
+  if(statusEl&&_gcalToken){
+    var mins=Math.round((_gcalTokenExp-Date.now())/60000);
+    statusEl.textContent=mins>0?'✓ 인증됨 ('+mins+'분 후 만료)':'⚠ 토큰 만료 - 재로그인 필요';
+  }
   var ci = document.getElementById('gcalCalendarId');
   var cl = document.getElementById('gcalClientId');
   var tcal = document.getElementById('gcalTaskCalendarId');
@@ -17665,9 +17695,14 @@ function gcalLoadConfig() {
 function gcalUpdateBadge() {
   var badge = document.getElementById('gcalBadge');
   if(!badge) return;
-  if(_gcalToken) {
-    badge.textContent = '연결됨';
-    badge.className = 'set-section-badge';
+  if(_gcalToken && _gcalTokenExp > Date.now()) {
+    var mins = Math.round((_gcalTokenExp - Date.now())/60000);
+    badge.textContent = mins > 60 ? '연결됨' : '연결됨 ('+mins+'분)';
+    badge.className = 'set-section-badge ok';
+  } else if(_gcalToken) {
+    badge.textContent = '만료됨';
+    badge.className = 'set-section-badge warn';
+    _gcalToken = null; // 만료된 토큰 초기화
   } else {
     badge.textContent = 'OFF';
     badge.className = 'set-section-badge off';
@@ -17679,7 +17714,8 @@ function gcalAuth() {
   if(!clientId) { showToast('Client ID를 입력해줘'); return; }
   gcalSaveConfig();
 
-  var scope = 'https://www.googleapis.com/auth/calendar.events';
+  // calendar: 캘린더 목록/생성, calendar.events: 이벤트 읽기/쓰기
+  var scope = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events';
   var redirectUri = window.location.origin + window.location.pathname;
   var state = 'gcal_oauth_' + Date.now();
   sessionStorage.setItem('gcal_oauth_state', state);
@@ -17705,6 +17741,9 @@ function gcalAuth() {
         var expiresIn = parseInt(params.get('expires_in') || '3600');
         _gcalTokenExp = Date.now() + expiresIn * 1000;
         _gcalCfg.lastAuthAt = Date.now();
+        // 토큰을 localStorage에 저장 (새로고침 후 복원)
+        _gcalCfg._savedToken = _gcalToken;
+        _gcalCfg._savedTokenExp = _gcalTokenExp;
         localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
         showToast('Google Calendar 인증 완료 ✅');
         gcalUpdateBadge();
@@ -17753,7 +17792,7 @@ function _taskToGcalEvent(item) {
 
   var event = {
     summary: item.text,
-    description: (item.note || '') + (item._gcalNote ? '\n[return-system]' : '\n[return-system]'),
+    description: (item.note ? item.note + '\n' : '') + '[return-system:'+String(item.id)+']',
     extendedProperties: { private: { returnSystemId: String(item.id) } },
   };
 
@@ -17808,9 +17847,12 @@ async function gcalApiCal(method, path, body, calId) {
 
 // 할일 전용 캘린더 생성 또는 기존 것 사용
 async function gcalEnsureTaskCalendar() {
-  // 직접 입력한 ID가 있으면 자동 생성하지 않고 바로 사용
+  // 설정에서 직접 입력한 ID 확인 (열려있을 때)
   var manualId = (document.getElementById('gcalTaskCalendarId')||{}).value.trim();
-  if (manualId) { _gcalCfg.taskCalendarId = manualId; localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); return manualId; }
+  if (manualId && manualId !== _gcalCfg.taskCalendarId) {
+    _gcalCfg.taskCalendarId = manualId;
+    localStorage.setItem('gcal_cfg_v1', JSON.stringify(_gcalCfg));
+  }
   if (_gcalCfg.taskCalendarId) return _gcalCfg.taskCalendarId;
   try {
     // 캘린더 목록에서 '할일 (Return System)' 찾기
@@ -17914,7 +17956,7 @@ async function gcalSync() {
         if (gev.summary && gev.summary !== localTask.text) { localTask.text = gev.summary; }
         if (gev.description !== undefined) {
           var desc = gev.description || '';
-          var cleanDesc = desc.replace(/\n?\[return-system\]/g, '').trim();
+          var cleanDesc = desc.replace(/\n?\[return-system:[^\]]*\]/g,'').replace(/\n?\[return-system\]/g,'').trim();
           if (cleanDesc !== localTask.note) { localTask.note = cleanDesc; }
         }
         if (gev.start) {
