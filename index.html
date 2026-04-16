@@ -5598,6 +5598,13 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
 
 
   </div>
+
+
+
+<div class="toast" id="toast"></div>
+
+<div id="syncBar" style="display:none"></div>
+</div>
 <div id="page-timetable" class="page">
   <div style="padding:16px;flex:1;display:flex;flex-direction:column;gap:16px;overflow-y:auto">
     <div style="display:flex;align-items:center;justify-content:space-between">
@@ -5646,11 +5653,6 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
   </div>
 </div>
 
-
-<div class="toast" id="toast"></div>
-
-<div id="syncBar" style="display:none"></div>
-</div>
 </div>
 </div>
 
@@ -11574,7 +11576,7 @@ function setInboxCat(catId){
   renderInboxMessages();
   // 입력창 카테고리 동기화 (all 제외)
   const sel=document.getElementById('inboxCatSelect');
-  if(sel){ sel.value = (catId === 'all') ? '' : catId; }
+  if(sel){ sel.value = (catId === 'all' || !catId) ? '' : catId; }
 }
 
 function inboxCatNavKey(e) {
@@ -11603,7 +11605,7 @@ function sendInboxItem(){
   const ta=document.getElementById('inboxInputTa');
   const text=(ta?.value.trim())||'';
   if(!text&&!pendingInboxImg){return;}
-  const _activeCat = (inboxActiveCat && inboxActiveCat !== 'all') ? inboxActiveCat : (document.getElementById('inboxCatSelect')?.value || '');
+  const _activeCat = (inboxActiveCat && inboxActiveCat !== 'all') ? inboxActiveCat : (document.getElementById('inboxCatSelect')?.value||'').replace(/^all$/,'');
   const catId = _activeCat;
   const now=new Date();
   const time=`${String(now.getMonth()+1).padStart(2,'0')}.${String(now.getDate()).padStart(2,'0')} ${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
@@ -12791,6 +12793,8 @@ function _applyFirebaseData(d, force){
       locRules.forEach(function(r){ rMerged[r.id] = r; });
       remRules.forEach(function(r){ if(!(r.id in rMerged)||(r.updatedAt||0)>(rMerged[r.id].updatedAt||0)) rMerged[r.id]=r; });
       localStorage.setItem('task_rules_v1', JSON.stringify(Object.values(rMerged)));
+      try{_generateRepeatTasks&&_generateRepeatTasks();}catch(e){}
+      try{renderTaskTab&&renderTaskTab();}catch(e){}
     } catch(e){}
   }
   if(d.repeatItemsV1 !== undefined){
@@ -18007,11 +18011,34 @@ async function meAiSubmit(){
         +(isDel?'🗑 삭제될 항목':isAdd?'✦ 추가될 항목':isDone?'✓ 완료될 항목':'✎ 변경될 항목')
         +' — '+previewItems.length+'개</div>'
         +'<div style="max-height:300px;overflow-y:auto">'
-        +previewItems.map(function(t){
+        +previewItems.map(function(t,ti){
           if (!t||typeof t!=='object') return '';
           var cat = taskCats.find(function(c){return c.id===(t.catId||'');});
+          if (isAdd) {
+            // add 항목: 편집 가능한 인라인 폼
+            var prio=t.priority||'';
+            return '<div data-ai-idx="'+ti+'" style="padding:8px 10px;border-top:1px solid var(--border-subtle);font-size:12px">'
+              +'<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'
+              +'<span style="color:#22c55e;flex-shrink:0">+</span>'
+              +'<b style="flex:1;min-width:120px">'+esc(t.text||'')+'</b>'
+              +(cat?'<span style="color:'+cat.color+';font-size:10px;flex-shrink:0">'+cat.icon+cat.label+'</span>':'')
+              +'</div>'
+              +'<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:5px;align-items:center">'
+              +'<label style="font-size:10px;color:var(--fg3)">날짜 <input type="date" class="ai-edit-inp" data-field="date" data-idx="'+ti+'" value="'+( t.date||'')+'" style="font-size:11px;padding:2px 4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg)" oninput="_aiEditField(this)"></label>'
+              +'<label style="font-size:10px;color:var(--fg3)">시작 <input type="time" class="ai-edit-inp" data-field="timeStart" data-idx="'+ti+'" value="'+( t.timeStart||'')+'" style="font-size:11px;padding:2px 4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg)" oninput="_aiEditField(this)"></label>'
+              +'<label style="font-size:10px;color:var(--fg3)">종료 <input type="time" class="ai-edit-inp" data-field="timeEnd" data-idx="'+ti+'" value="'+( t.timeEnd||'')+'" style="font-size:11px;padding:2px 4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg)" oninput="_aiEditField(this)"></label>'
+              +'<label style="font-size:10px;color:var(--fg3)">마감 <input type="date" class="ai-edit-inp" data-field="deadlineDate" data-idx="'+ti+'" value="'+( t.deadlineDate||'')+'" style="font-size:11px;padding:2px 4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg)" oninput="_aiEditField(this)"></label>'
+              +'<select class="ai-edit-inp" data-field="priority" data-idx="'+ti+'" style="font-size:11px;padding:2px 4px;border:1px solid var(--border-subtle);border-radius:4px;background:var(--bg)" onchange="_aiEditField(this)">'
+              +'<option value="" '+(!prio?'selected':'')+'>우선순위</option>'
+              +'<option value="high" '+( prio==='high'?'selected':'')+'>🔴높음</option>'
+              +'<option value="mid" '+( prio==='mid'?'selected':'')+'>🟡중간</option>'
+              +'<option value="low" '+( prio==='low'?'selected':'')+'>🟢낮음</option>'
+              +'</select>'
+              +(t.note?'<span style="font-size:10px;color:var(--fg3)">📝 '+esc(t.note)+'</span>':'')
+              +'</div></div>';
+          }
           return '<div style="padding:7px 10px;border-top:1px solid var(--border-subtle);font-size:12px;display:flex;gap:8px;align-items:center">'
-            +(isDel?'<span style="color:#ef4444;flex-shrink:0">✕</span>':isAdd?'<span style="color:#22c55e;flex-shrink:0">+</span>':isDone?'<span style="color:#22c55e;flex-shrink:0">✓</span>':'')
+            +(isDel?'<span style="color:#ef4444;flex-shrink:0">✕</span>':isDone?'<span style="color:#22c55e;flex-shrink:0">✓</span>':'')
             +(isDel?'<s style="flex:1;min-width:0;opacity:.5">'+esc(t.text||'')+'</s>':'<b style="flex:1;min-width:0">'+esc(t.text||'')+'</b>')
             +(t.date?'<span style="color:var(--fg3);font-size:11px">'+t.date+'</span>':'')
             +(t.timeStart?'<span style="color:var(--fg3);font-size:11px">'+t.timeStart+'</span>':'')
@@ -18045,6 +18072,15 @@ async function meAiSubmit(){
   }
 }
 
+
+// AI 미리보기에서 항목 편집
+function _aiEditField(el){
+  var idx=parseInt(el.getAttribute('data-idx'));
+  var field=el.getAttribute('data-field');
+  if(_meAiParsed && _meAiParsed.items && _meAiParsed.items[idx]!==undefined){
+    _meAiParsed.items[idx][field]=el.value;
+  }
+}
 function meAiConfirm(){
   if (!_meAiParsed) return;
   try {
