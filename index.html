@@ -5187,11 +5187,11 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <div class="set-section-body" id="sec-pw">
           <div class="setting-lbl">새 비밀번호</div>
           <div class="input-wrap">
-            <input id="newPwInp" class="setting-inp" type="password" placeholder="새 비밀번호 입력">
+            <input id="newPwInp" class="setting-inp" type="password" autocomplete="new-password" placeholder="새 비밀번호 입력">
           </div>
           <div class="setting-lbl" style="margin-top:12px">새 비밀번호 확인</div>
           <div class="input-wrap">
-            <input id="newPwInp2" class="setting-inp" type="password" placeholder="한 번 더 입력">
+            <input id="newPwInp2" class="setting-inp" type="password" autocomplete="new-password" placeholder="한 번 더 입력">
           </div>
           <div class="btn-row" style="margin-top:12px">
           </div>
@@ -5514,6 +5514,10 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
           <div class="set-section-arrow" id="arr-sec-data">▼</div>
         </div>
         <div class="set-section-body" id="sec-data">
+          <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+            <button class="btn-primary" onclick="openBackupManager()">📦 백업 관리</button>
+            <button class="btn-secondary" onclick="_createBackup('수동');showToast('백업 저장됨 ✅')">💾 지금 백업</button>
+          </div>
           <p class="setting-hint" style="margin-bottom:14px">기록을 파일로 내보내거나, 다른 기기에서 가져올 수 있어. Firebase 없이 수동 백업할 때 유용해.</p>
           <div class="export-import-row">
             <button class="btn-primary" onclick="exportData()">📥 내보내기 (JSON)</button>
@@ -5678,11 +5682,7 @@ input[type="color"]    { border: none; background: none; cursor: pointer; }
         <button onclick="ttGenerate()" style="padding:9px 20px;border-radius:999px;background:#22c55e;color:#fff;border:none;font-size:13px;font-weight:600;cursor:pointer">⚡ 할일 생성</button>
       </div>
       <div id="ttGrid" style="overflow-x:auto"></div>
-      <div id="ttSlots" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"></div>
-    </div>
-  </div>
-</div>
-<script>var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
+      <div id="ttSlots" style="display:flex;flex-direction:column;gap:8px;ma<script>var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
 var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 
 let memos=JSON.parse(localStorage.getItem('memos_v5')||'[]');
@@ -5749,6 +5749,73 @@ let _tieActiveDp=null;
 let _tieDpMonth=new Date();
 let _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
 
+
+// ═══ 백업 시스템 ═══
+var _BACKUP_KEYS=['task_items_v1','task_cats_v1','task_rules_v1','repeat_items_v1','inbox_v1','memos_v5','timetables_v1','gc_rule_notes','gc_memos','_deletedRepeatDates'];
+var MAX_BACKUPS=10;
+function _createBackup(reason){
+  try{
+    var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+    var id=Date.now();
+    var snap={id:id,time:new Date().toLocaleString('ko-KR'),reason:reason||'수동',keys:[]};
+    _BACKUP_KEYS.forEach(function(k){
+      var v=localStorage.getItem(k);
+      if(v){localStorage.setItem('_bk_'+id+'_'+k,v);snap.keys.push(k);}
+    });
+    snaps.unshift(snap);
+    while(snaps.length>MAX_BACKUPS){
+      var old=snaps.pop();
+      old.keys.forEach(function(k){localStorage.removeItem('_bk_'+old.id+'_'+k);});
+    }
+    localStorage.setItem('_backups_meta',JSON.stringify(snaps));
+    return id;
+  }catch(e){console.warn('백업 실패:',e.message);return null;}
+}
+function _restoreBackup(backupId){
+  try{
+    var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+    var snap=snaps.find(function(s){return s.id===backupId;});
+    if(!snap){showToast('백업을 찾을 수 없어');return false;}
+    _createBackup('복원 직전 자동저장');
+    snap.keys.forEach(function(k){
+      var v=localStorage.getItem('_bk_'+backupId+'_'+k);
+      if(v!==null)localStorage.setItem(k,v);
+    });
+    try{taskItems=JSON.parse(localStorage.getItem('task_items_v1')||'[]');}catch(e){}
+    try{inboxItems=JSON.parse(localStorage.getItem('inbox_v1')||'[]');}catch(e){}
+    try{renderTaskTab&&renderTaskTab();}catch(e){}
+    try{renderInbox&&renderInbox();}catch(e){}
+    showToast('✅ 복원 완료 ('+snap.time+')');
+    return true;
+  }catch(e){showToast('복원 실패: '+e.message);return false;}
+}
+function openBackupManager(){
+  var bks=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+  var html='<div class="nds-modal" onclick="if(event.target===this)this.remove()" style="z-index:9999">'
+    +'<div class="nds-modal-box" style="max-width:460px;max-height:80vh;overflow-y:auto">'
+    +'<div style="font-size:16px;font-weight:700;margin-bottom:12px">📦 데이터 백업</div>'
+    +'<div style="display:flex;gap:8px;margin-bottom:14px">'
+    +'<button class="nds-btn-primary" onclick="_createBackup(\'수동\');this.closest(\'.nds-modal\').remove();openBackupManager()">+ 지금 백업</button>'
+    +'</div>';
+  if(!bks.length){html+='<div style="color:var(--fg3);font-size:13px">백업 없음</div>';}
+  else{
+    html+='<div style="font-size:12px;color:var(--fg3);margin-bottom:8px">최근 '+bks.length+'개</div>';
+    html+=bks.map(function(b){
+      return '<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border-subtle)">'
+        +'<div style="flex:1;min-width:0">'
+        +'<div style="font-size:12px;font-weight:600">'+b.time+'</div>'
+        +'<div style="font-size:11px;color:var(--fg3)">'+b.reason+' · '+b.keys.length+'개 항목</div>'
+        +'</div>'
+        +'<button class="btn-secondary" style="font-size:11px;padding:4px 10px" '
+        +'onclick="if(confirm(\'이 백업으로 복원할까요?\')){'
+        +'_restoreBackup('+b.id+');this.closest(\'.nds-modal\').remove();}">복원</button>'
+        +'</div>';
+    }).join('');
+  }
+  html+='<div style="margin-top:14px;text-align:right"><button class="btn-ghost" onclick="this.closest(\'.nds-modal\').remove()">닫기</button></div>'
+    +'</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
 let notionCfg=JSON.parse(localStorage.getItem('notion_config')||'{}');
 
 
@@ -5937,7 +6004,7 @@ async function gcalPushChanged(){
   if(!_gcalToken) return;
   if(!_gcalCfg.eventIds) _gcalCfg.eventIds={};
   if(!_gcalCfg.taskEventIds) _gcalCfg.taskEventIds={};
-  var taskCalId=_gcalCfg.taskCalendarId||'primary';
+  var taskCalId=_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary';
   var toSync=taskItems.filter(function(t){return t.timeStart&&t.date&&!t._subId;});
   for(var _k=0;_k<toSync.length;_k++){
     var _t=toSync[_k]; var _ev=_taskToGcalEvent(_t); if(!_ev) continue;
@@ -11512,6 +11579,15 @@ function renderInboxCatTabs(){
   });
   html+=`<button class="inbox-cat-tab" onclick="openInboxCatManager()" style="opacity:.6">+ 카테고리</button>`;
   el.innerHTML=html;
+  // 입력창 카테고리 select 동기화
+  var sel=document.getElementById('inboxCatSelect');
+  if(sel){
+    sel.innerHTML='<option value="">미분류</option>'
+      +inboxCats.filter(function(c){return c.id!=='misc';}).map(function(c){
+        return '<option value="'+c.id+'">'+c.label+'</option>';
+      }).join('');
+    sel.value=(inboxActiveCat==='all'||inboxActiveCat==='misc')?'':inboxActiveCat;
+  }
 }
 
 function renderInboxCatSelect(){
@@ -12625,6 +12701,7 @@ function _applyFirebaseData(d, force){
   if(!d) return;
 
   // 루프 방지: 적용 중에는 fbSaveAll 차단 (짧게)
+  if(!force) try{_createBackup('Firebase 동기화 수신');}catch(e){}
   _applyingFbData = true;
   setTimeout(() => { _applyingFbData = false; }, 3000);
 
@@ -12856,6 +12933,8 @@ function _applyFirebaseData(d, force){
       locRep.forEach(function(r){ rpMerged[r.id] = r; });
       remRep.forEach(function(r){ if(!(r.id in rpMerged)||(r.updatedAt||0)>(rpMerged[r.id].updatedAt||0)) rpMerged[r.id]=r; });
       localStorage.setItem('repeat_items_v1', JSON.stringify(Object.values(rpMerged)));
+      try{_generateRepeatTasks&&_generateRepeatTasks();}catch(e){}
+      try{renderTaskTab&&renderTaskTab();}catch(e){}
     } catch(e){}
   }
   if(d.gcRuleNotes !== undefined){
@@ -14839,6 +14918,7 @@ function _fixDeletedItems() {
 }
 
 async function syncAllNotion() {
+  try{_createBackup('Notion 동기화');}catch(e){}
   // 배지 업데이트 헬퍼
   function _setNotionBadge(html) {
     const el = document.getElementById('notionTaskBadge');
@@ -15010,10 +15090,7 @@ function _hookNotionForTaskTab() {
   const origGoTab = goTab;
   goTab = function(t) {
     origGoTab(t);
-    if (t === 'task' && notionCfg && notionCfg.workerUrl && notionCfg.token) {
-      // push-first sync: 로컬 미push 항목 먼저 올리고, 그 다음 pull
-      _smartSync().catch(() => {});
-    }
+    // Notion 자동 pull 차단 - 탭 전환 시 무분별한 항목 추가 방지
     if (t === 'settings') initNotionSettings();
   };
 }
@@ -17700,9 +17777,12 @@ function gcalUpdateBadge() {
     badge.textContent = mins > 60 ? '연결됨' : '연결됨 ('+mins+'분)';
     badge.className = 'set-section-badge ok';
   } else if(_gcalToken) {
-    badge.textContent = '만료됨';
+    badge.textContent = '만료됨 (재로그인)';
     badge.className = 'set-section-badge warn';
-    _gcalToken = null; // 만료된 토큰 초기화
+    _gcalToken = null;
+    try{ var _tc=JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');
+      delete _tc._savedToken; delete _tc._savedTokenExp;
+      localStorage.setItem('gcal_cfg_v1',JSON.stringify(_tc)); }catch(e){}
   } else {
     badge.textContent = 'OFF';
     badge.className = 'set-section-badge off';
@@ -17910,9 +17990,15 @@ async function gcalSync() {
     }
 
     // ── B. 나머지 카테고리 (timeStart 있는 것) → 할일 전용 캘린더 ──
-    var taskCalId = await gcalEnsureTaskCalendar();
+    var taskCalId;
+    try { taskCalId = await gcalEnsureTaskCalendar(); } catch(e) {
+      console.warn('할일 캘린더 확인 실패, primary 사용:', e.message);
+      taskCalId = 'primary';
+    }
     var timedTasks = taskItems.filter(function(t) {
-      return t.catId !== 'schedule' && t.timeStart && t.date && !t._subId;
+      // 시간 있는 할일 모두 (완료 포함 - GCal에 cancelled 상태로 반영)
+      return t.catId !== 'schedule' && t.timeStart && t.date && !t._subId
+        && !t._deleted;
     });
     for (var j = 0; j < timedTasks.length; j++) {
       var ti = timedTasks[j];
@@ -19804,6 +19890,7 @@ function deleteRepeatItem(repeatId) {
   renderGroundControl&&renderGroundControl();
   showToast('반복 할일 삭제됨');
 }
+
 
 
 </script>
