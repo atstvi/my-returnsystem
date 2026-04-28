@@ -7090,6 +7090,133 @@ html { overscroll-behavior: none; }
   </div>
 </div>
 <script>var fbApp=null,fbAuth=null,fbDb=null,fbUser=null;
+
+// ═══════════════════════════════════════════════════════════════
+// 이미지 압축 유틸 (배너/스티커/프로필 공용)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 이미지를 캔버스로 리사이즈+JPEG 압축
+ * @param {File} file
+ * @param {number} maxWidth - 최대 가로폭 (기본 1280px)
+ * @param {number} maxHeight - 최대 세로폭 (기본 1280px)
+ * @param {number} quality - 0~1 (기본 0.82)
+ * @returns {Promise<string>} - data:image/jpeg;base64,...
+ */
+window.compressImage = function(file, maxWidth, maxHeight, quality) {
+  maxWidth = maxWidth || 1280;
+  maxHeight = maxHeight || 1280;
+  quality = quality != null ? quality : 0.82;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('이미지 파일이 아니에요'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        // 비율 유지 리사이즈
+        if (w > maxWidth || h > maxHeight) {
+          var rW = maxWidth / w;
+          var rH = maxHeight / h;
+          var r = Math.min(rW, rH);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        // 흰 배경 (PNG 투명 → JPEG 변환 시 검정 방지)
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          var dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        } catch(e) { reject(e); }
+      };
+      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
+    reader.readAsDataURL(file);
+  });
+};
+
+/**
+ * 스티커용 (작은 이미지, 투명 유지)
+ */
+window.compressSticker = function(file, maxSize) {
+  maxSize = maxSize || 480;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('이미지 파일이 아니에요')); return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (w > maxSize || h > maxSize) {
+          var r = maxSize / Math.max(w, h);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          // 투명 보존 PNG (스티커는 보통 작아서 OK)
+          var dataUrl = canvas.toDataURL('image/png');
+          // 너무 크면 JPEG로 fallback
+          if (dataUrl.length > 200000) {
+            ctx.fillStyle = '#fff';
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillRect(0, 0, w, h);
+            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          }
+          resolve(dataUrl);
+        } catch(e) { reject(e); }
+      };
+      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
+    reader.readAsDataURL(file);
+  });
+};
+
+
+
+// ═══════════════════════════════════════════════════════════════
+// _hbState / _gsState / _currentTheme null 가드 (Firebase로 인한 덮어쓰기 방지)
+// ═══════════════════════════════════════════════════════════════
+(function(){
+  // 주기적으로 핵심 state 가드 - null이면 복구
+  function _ensureState() {
+    if (typeof _hbState === 'undefined' || _hbState === null) {
+      try {
+        var saved = localStorage.getItem('home_banner_v1');
+        window._hbState = saved ? JSON.parse(saved) : {};
+      } catch(e){ window._hbState = {}; }
+      if (!window._hbState) window._hbState = {};
+      if (!window._hbState.stickers) window._hbState.stickers = [];
+    }
+    if (typeof _gsState === 'undefined' || _gsState === null) {
+      try {
+        var savedGs = localStorage.getItem('global_stickers_v1');
+        window._gsState = savedGs ? JSON.parse(savedGs) : {};
+      } catch(e){ window._gsState = {}; }
+      if (!window._gsState) window._gsState = {};
+    }
+    if (typeof _currentTheme === 'undefined' || _currentTheme === null) {
+      try {
+        var savedTh = localStorage.getItem('theme_v1');
+        window._currentTheme = savedTh ? JSON.parse(savedTh) : {};
+      } catch(e){ window._currentTheme = {}; }
+      if (!window._currentTheme) window._currentTheme = {};
+
 var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 
 let memos=JSON.parse(localStorage.getItem('memos_v5')||'[]');
@@ -7190,22 +7317,46 @@ let _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
 var _BACKUP_KEYS=['task_items_v1','task_cats_v1','task_rules_v1','repeat_items_v1','inbox_v1','memos_v5','timetables_v1','gc_rule_notes','gc_memos','_deletedRepeatDates'];
 var MAX_BACKUPS=10;
 function _createBackup(reason){
-  try{
-    var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
-    var id=Date.now();
-    var snap={id:id,time:new Date().toLocaleString('ko-KR'),reason:reason||'수동',keys:[]};
-    _BACKUP_KEYS.forEach(function(k){
-      var v=localStorage.getItem(k);
-      if(v){localStorage.setItem('_bk_'+id+'_'+k,v);snap.keys.push(k);}
-    });
-    snaps.unshift(snap);
-    while(snaps.length>MAX_BACKUPS){
-      var old=snaps.pop();
-      old.keys.forEach(function(k){localStorage.removeItem('_bk_'+old.id+'_'+k);});
+  function _trySaveBackup(retries){
+    try{
+      var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+      var id=Date.now();
+      var snap={id:id,time:new Date().toLocaleString('ko-KR'),reason:reason||'수동',keys:[]};
+      _BACKUP_KEYS.forEach(function(k){
+        var v=localStorage.getItem(k);
+        if(v){localStorage.setItem('_bk_'+id+'_'+k,v);snap.keys.push(k);}
+      });
+      snaps.unshift(snap);
+      while(snaps.length>MAX_BACKUPS){
+        var old=snaps.pop();
+        old.keys.forEach(function(k){localStorage.removeItem('_bk_'+old.id+'_'+k);});
+      }
+      localStorage.setItem('_backups_meta',JSON.stringify(snaps));
+      return id;
+    }catch(e){
+      console.warn('[backup] 실패:', e.name, e.message);
+      // QuotaExceeded → 옛 백업 삭제 후 재시도
+      if ((e.name === 'QuotaExceededError' || e.code === 22) && retries < 3) {
+        try {
+          var snaps2 = JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+          // 가장 오래된 백업 절반 제거
+          var toRemove = Math.max(1, Math.floor(snaps2.length / 2));
+          while (toRemove-- > 0 && snaps2.length > 0) {
+            var rm = snaps2.pop();
+            if (rm && rm.keys) rm.keys.forEach(function(k){
+              try { localStorage.removeItem('_bk_'+rm.id+'_'+k); } catch(_){}
+            });
+          }
+          localStorage.setItem('_backups_meta', JSON.stringify(snaps2));
+          return _trySaveBackup(retries + 1);
+        } catch(_e) {
+          console.error('[backup] cleanup also failed');
+        }
+      }
+      return null;
     }
-    localStorage.setItem('_backups_meta',JSON.stringify(snaps));
-    return id;
-  }catch(e){console.warn('백업 실패:',e.message);return null;}
+  }
+  return _trySaveBackup(0);
 }
 function _restoreBackup(backupId){
   try{
@@ -13813,30 +13964,34 @@ async function _fbSaveNow(){
     var _payloadStr = JSON.stringify(payload);
     var _payloadKB = Math.round(_payloadStr.length / 1024);
     if (_payloadStr.length > 900000) {
-      // 큰 이미지 분리: profileData, homeBannerV1, globalStickersV1
-      console.warn('[fb] payload too large:', _payloadKB+'KB - 이미지 분리 시도');
+      // 큰 이미지 키 제거 (다른 기기 동기화 안 됨, 로컬에만 유지)
+      console.warn('[fb] payload too large:', _payloadKB+'KB - 큰 이미지 동기화 제외');
       var _bigKeys = ['profileData', 'homeBannerV1', 'globalStickersV1'];
-      var _images = {};
       _bigKeys.forEach(function(k){
-        if (payload[k] && payload[k].length > 50000) {
-          _images[k] = payload[k];
-          delete payload[k]; // 메인 도큐먼트에서 완전 제거 (null 저장하면 다른 기기 데이터 덮어씀)
+        if (payload[k] && payload[k].length > 100000) {
+          // 큰 이미지는 동기화 안 함 (메인 도큐먼트에서 완전 제거)
+          delete payload[k];
         }
       });
-      // 이미지를 별도 sub-collection에 저장
-      try {
-        var _imgRef = fbDb.collection('users').doc(uid).collection('media').doc('images');
-        await _imgRef.set(_images, { merge: true });
-        console.log('[fb] 이미지 별도 저장 OK');
-      } catch(_e2) {
-        console.error('[fb] 이미지 저장 실패:', _e2);
-      }
       _payloadStr = JSON.stringify(payload);
       _payloadKB = Math.round(_payloadStr.length / 1024);
     }
     if (_payloadStr.length > 1000000) {
-      console.error('[fb] payload still too large after split:', _payloadKB+'KB');
+      console.error('[fb] payload still too large:', _payloadKB+'KB');
       showToast('⚠ 데이터가 너무 커서 클라우드 저장 일부 실패');
+      // 일단 핵심 데이터만 시도
+      var _coreOnly = {
+        taskItemsV1: payload.taskItemsV1,
+        taskCatsV1: payload.taskCatsV1,
+        inboxV1: payload.inboxV1,
+        memos: payload.memos,
+        updatedAt: payload.updatedAt,
+        updatedAt_ms: payload.updatedAt_ms,
+        updatedBy: payload.updatedBy,
+        deviceId: payload.deviceId
+      };
+      try { await fbDb.collection('users').doc(uid).set(_coreOnly, { merge: true }); }
+      catch(_e3) { console.error('[fb] core only save fail:', _e3); }
       setSyncStatus('error');
       return;
     }
@@ -13857,21 +14012,7 @@ async function fbLoadAll(){
     const uid = fbUser.uid;
     const snap = await fbDb.collection('users').doc(uid).get();
     let mainData = snap.exists ? snap.data() : null;
-    // 별도 저장된 이미지 가져오기 (profileData, homeBannerV1, globalStickersV1)
-    try {
-      const imgSnap = await fbDb.collection('users').doc(uid).collection('media').doc('images').get();
-      if (imgSnap.exists) {
-        const imgs = imgSnap.data() || {};
-        if (mainData) {
-          // 메인 도큐먼트의 해당 키가 null이면 이미지 도큐먼트 데이터로 대체
-          ['profileData', 'homeBannerV1', 'globalStickersV1'].forEach(function(k){
-            if ((mainData[k] === null || mainData[k] === undefined || mainData[k] === '{}') && imgs[k]) {
-              mainData[k] = imgs[k];
-            }
-          });
-        }
-      }
-    } catch(_e){ console.warn('[fb] 이미지 도큐먼트 fetch 실패:', _e.message); }
+    // 이미지 데이터는 메인 도큐먼트에 (작은 경우만 동기화됨)
     if (mainData) {
       _applyFirebaseData(mainData, true);
     }
@@ -21562,6 +21703,10 @@ var _hbSelectedSticker = null;
 var _hbDragInfo = null;
 
 function _hbSave() {
+  if (!_hbState || typeof _hbState !== 'object') {
+    console.warn('[hb] _hbState invalid, skip save');
+    return;
+  }
   var ok = false;
   try {
     localStorage.setItem('home_banner_v1', JSON.stringify(_hbState));
@@ -21609,6 +21754,9 @@ function _hbSave() {
 }
 
 function hbRender() {
+  if (typeof _ensureBannerState === 'function') _ensureBannerState();
+  if (!_hbState || typeof _hbState !== 'object') window._hbState = { stickers: [] };
+
   var banner = document.getElementById('homeBanner');
   var imgWrap = document.getElementById('homeBannerImgWrap');
   var stickerWrap = document.getElementById('homeBannerStickers');
@@ -21713,6 +21861,8 @@ function hbHandleImageUpload(e) {
     console.warn('[hb] compressImage not available, fallback');
     var reader = new FileReader();
     reader.onload = function(ev) {
+      if (typeof _ensureBannerState === 'function') _ensureBannerState();
+      if (!_hbState || typeof _hbState !== 'object') window._hbState = { stickers: [] };
       _hbState.imgUrl = ev.target.result;
       if (_hbState.imgPosX == null) _hbState.imgPosX = 50;
       if (_hbState.imgPosY == null) _hbState.imgPosY = 50;
@@ -21726,6 +21876,8 @@ function hbHandleImageUpload(e) {
   }
   window.compressImage(file, 1600, 1200, 0.82).then(function(dataUrl) {
     console.log('[hb] compressed:', Math.round(dataUrl.length/1024)+'KB');
+    if (typeof _ensureBannerState === 'function') _ensureBannerState();
+    if (!_hbState || typeof _hbState !== 'object') window._hbState = { stickers: [] };
     _hbState.imgUrl = dataUrl;
     if (_hbState.imgPosX == null) _hbState.imgPosX = 50;
     if (_hbState.imgPosY == null) _hbState.imgPosY = 50;
@@ -21743,6 +21895,8 @@ function hbHandleImageUpload(e) {
 function hbHandleStickerUpload(e) {
   var files = Array.from(e.target.files);
   if (!files.length) return;
+  if (typeof _ensureBannerState === 'function') _ensureBannerState();
+  if (!_hbState || typeof _hbState !== 'object') window._hbState = { stickers: [] };
   if (!_hbState.stickers) _hbState.stickers = [];
   showToast(files.length + '개 스티커 처리 중...');
   var loaded = 0;
@@ -22373,6 +22527,7 @@ function applyTheme(hex) {
   document.documentElement.style.setProperty('--accent-hover', accentHover);
   document.documentElement.style.setProperty('--accent-light', accentLight);
 
+  if (!_currentTheme || typeof _currentTheme !== 'object') _currentTheme = {};
   _currentTheme.accent = hex;
   try{ localStorage.setItem('theme_v1', JSON.stringify(_currentTheme)); }catch(e){}
   if(typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
@@ -22765,6 +22920,11 @@ function _hobItemsForDate(dateKey) {
 }
 
 function renderHobbyCalendar() {
+  if (!_hobMonth || !(_hobMonth instanceof Date)) {
+    var d = new Date();
+    _hobMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+
   var grid = document.getElementById('hobCalGrid');
   if (!grid) return;
   grid.innerHTML = '';
@@ -22933,12 +23093,20 @@ function renderHobbyDateDetail() {
 }
 
 function renderHobby() {
-  // 데이터 항상 최신 로드 (다른 탭에서 수정 시)
-  _hobCats = _hobLoadCats();
-  _hobItems = _hobLoadItems();
-  renderHobbyCatList();
-  renderHobbyCalendar();
-  renderHobbyDateDetail();
+  try {
+    // 데이터 항상 최신 로드 (다른 탭에서 수정 시)
+    _hobCats = _hobLoadCats() || [];
+    _hobItems = _hobLoadItems() || [];
+    if (!_hobMonth || !(_hobMonth instanceof Date)) {
+      var _d = new Date();
+      _hobMonth = new Date(_d.getFullYear(), _d.getMonth(), 1);
+    }
+    if (document.getElementById('hobCatList')) renderHobbyCatList();
+    if (document.getElementById('hobCalGrid')) renderHobbyCalendar();
+    if (document.getElementById('hobDateTitle')) renderHobbyDateDetail();
+  } catch(e) {
+    console.warn('[hob] render fail:', e);
+  }
 }
 
 // goTab hook (이전에 추가됨, 중복 방지)
@@ -23322,101 +23490,13 @@ function _tieRerenderPrepRow(itemId) {
 }
 
 
-// ═══════════════════════════════════════════════════════════════
-// 이미지 압축 유틸 (배너/스티커/프로필 공용)
-// ═══════════════════════════════════════════════════════════════
-
-/**
- * 이미지를 캔버스로 리사이즈+JPEG 압축
- * @param {File} file
- * @param {number} maxWidth - 최대 가로폭 (기본 1280px)
- * @param {number} maxHeight - 최대 세로폭 (기본 1280px)
- * @param {number} quality - 0~1 (기본 0.82)
- * @returns {Promise<string>} - data:image/jpeg;base64,...
- */
-window.compressImage = function(file, maxWidth, maxHeight, quality) {
-  maxWidth = maxWidth || 1280;
-  maxHeight = maxHeight || 1280;
-  quality = quality != null ? quality : 0.82;
-  return new Promise(function(resolve, reject) {
-    if (!file || !file.type || !file.type.startsWith('image/')) {
-      reject(new Error('이미지 파일이 아니에요'));
-      return;
     }
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      var img = new Image();
-      img.onload = function() {
-        var w = img.naturalWidth, h = img.naturalHeight;
-        // 비율 유지 리사이즈
-        if (w > maxWidth || h > maxHeight) {
-          var rW = maxWidth / w;
-          var rH = maxHeight / h;
-          var r = Math.min(rW, rH);
-          w = Math.round(w * r); h = Math.round(h * r);
-        }
-        var canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        var ctx = canvas.getContext('2d');
-        // 흰 배경 (PNG 투명 → JPEG 변환 시 검정 방지)
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
-        try {
-          var dataUrl = canvas.toDataURL('image/jpeg', quality);
-          resolve(dataUrl);
-        } catch(e) { reject(e); }
-      };
-      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
-      img.src = ev.target.result;
-    };
-    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
-    reader.readAsDataURL(file);
-  });
-};
-
-/**
- * 스티커용 (작은 이미지, 투명 유지)
- */
-window.compressSticker = function(file, maxSize) {
-  maxSize = maxSize || 480;
-  return new Promise(function(resolve, reject) {
-    if (!file || !file.type || !file.type.startsWith('image/')) {
-      reject(new Error('이미지 파일이 아니에요')); return;
-    }
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      var img = new Image();
-      img.onload = function() {
-        var w = img.naturalWidth, h = img.naturalHeight;
-        if (w > maxSize || h > maxSize) {
-          var r = maxSize / Math.max(w, h);
-          w = Math.round(w * r); h = Math.round(h * r);
-        }
-        var canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, w, h);
-        try {
-          // 투명 보존 PNG (스티커는 보통 작아서 OK)
-          var dataUrl = canvas.toDataURL('image/png');
-          // 너무 크면 JPEG로 fallback
-          if (dataUrl.length > 200000) {
-            ctx.fillStyle = '#fff';
-            ctx.globalCompositeOperation = 'destination-over';
-            ctx.fillRect(0, 0, w, h);
-            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
-          }
-          resolve(dataUrl);
-        } catch(e) { reject(e); }
-      };
-      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
-      img.src = ev.target.result;
-    };
-    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
-    reader.readAsDataURL(file);
-  });
-};
+  }
+  // 페이지 로드 시 + 주기적 (Firebase 동기화 후 검증)
+  setTimeout(_ensureState, 100);
+  setInterval(_ensureState, 5000);
+  window._ensureBannerState = _ensureState;
+})();
 
 </script>
 </body>
