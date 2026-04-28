@@ -4562,6 +4562,9 @@ input.setting-inp:focus, textarea.setting-inp:focus {
   pointer-events: none;
 }
 .home-banner[data-mode="edit"] .home-banner-stickers {
+  pointer-events: none;
+}
+.home-banner[data-mode="edit"] .home-banner-sticker {
   pointer-events: auto;
 }
 
@@ -5731,6 +5734,15 @@ html { overscroll-behavior: none; }
   .hob-cal-item { padding: 2px 4px; font-size: 9px; gap: 3px; }
   .hob-cal-item-text { font-size: 9px; }
   .hob-cal-item-time { font-size: 8px; }
+}
+
+/* 편집 모드 배너 이미지 - 드래그 가능 명확화 */
+.home-banner[data-mode="edit"] .home-banner-img-wrap {
+  cursor: grab;
+}
+.home-banner[data-mode="edit"] .home-banner-img-wrap.dragging,
+.home-banner[data-mode="edit"] .home-banner-img-wrap:active {
+  cursor: grabbing;
 }
 </style>
 </head>
@@ -9511,26 +9523,22 @@ function saveProfileData(){
 function onAvatarUpload(e){
   const file=e.target.files[0];
   if(!file){ console.warn('[avatar] no file'); return; }
-  if(file.size > 4*1024*1024){
-    showToast('이미지가 너무 커 (4MB 이하)');
-    e.target.value='';
-    return;
-  }
-  if(!file.type.startsWith('image/')){
+  if(!file.type || !file.type.startsWith('image/')){
     showToast('이미지 파일만 업로드 가능');
-    e.target.value='';
-    return;
+    e.target.value=''; return;
   }
-  const reader=new FileReader();
-  reader.onload=ev=>{
+  showToast('이미지 처리 중...');
+  // 프로필 사진은 작은 사이즈 + 정사각 (앱 곳곳에서 작게 표시)
+  window.compressImage(file, 320, 320, 0.85).then(function(dataUrl){
     try{
-      profileData.avatar=ev.target.result;
+      profileData.avatar = dataUrl;
       const ok = window.safeLocalSet
         ? window.safeLocalSet('profile_data', JSON.stringify(profileData))
         : (localStorage.setItem('profile_data', JSON.stringify(profileData)), true);
       if(!ok){ showToast('저장 실패 (용량 초과 가능)'); return; }
-      _showAvatarImage(ev.target.result);
-      showToast('프로필 사진 변경됨');
+      _showAvatarImage(dataUrl);
+      var sizeKB = Math.round(dataUrl.length / 1024);
+      showToast('프로필 변경됨 (' + sizeKB + 'KB)');
       if(typeof fbUser!=='undefined'&&fbUser){
         try{ fbSaveAll(); }catch(err){ console.error('[avatar] fbSaveAll:', err); }
       }
@@ -9538,13 +9546,11 @@ function onAvatarUpload(e){
       console.error('[avatar] save failed:', err);
       showToast('변경 실패: ' + err.message);
     }
-  };
-  reader.onerror=()=>{
-    console.error('[avatar] file read error');
-    showToast('파일 읽기 실패');
-  };
-  reader.readAsDataURL(file);
-  e.target.value=''; // 같은 파일 다시 선택 가능하도록
+  }).catch(function(err){
+    console.error('[avatar] compress:', err);
+    showToast('이미지 처리 실패');
+  });
+  e.target.value='';
 }
 function _showAvatarImage(src){
   const pixImg=document.getElementById('pixelAvatarImg');
@@ -13814,7 +13820,7 @@ async function _fbSaveNow(){
       _bigKeys.forEach(function(k){
         if (payload[k] && payload[k].length > 50000) {
           _images[k] = payload[k];
-          payload[k] = null; // 메인 도큐먼트에서 제거
+          delete payload[k]; // 메인 도큐먼트에서 완전 제거 (null 저장하면 다른 기기 데이터 덮어씀)
         }
       });
       // 이미지를 별도 sub-collection에 저장
@@ -13993,19 +13999,26 @@ function _applyFirebaseData(d, force){
     try{timetables=JSON.parse(d.timetablesV1||'[]');localStorage.setItem('timetables_v1',d.timetablesV1);}catch(e){}
   }
   // 새 기능 데이터 적용 (배너/스티커/테마/취미/준비물)
-  if(d.homeBannerV1 !== undefined){
+  if(d.homeBannerV1 !== undefined && d.homeBannerV1 !== null && d.homeBannerV1 !== '{}'){
     try{
-      localStorage.setItem('home_banner_v1', d.homeBannerV1);
-      _hbState = JSON.parse(d.homeBannerV1 || '{}');
-      if(!_hbState.stickers) _hbState.stickers = [];
-      if(typeof hbRender === 'function') hbRender();
+      var parsed = JSON.parse(d.homeBannerV1 || '{}');
+      if (parsed && (parsed.imgUrl || (parsed.stickers && parsed.stickers.length))) {
+        localStorage.setItem('home_banner_v1', d.homeBannerV1);
+        _hbState = parsed;
+        if(!_hbState.stickers) _hbState.stickers = [];
+        if(typeof hbRender === 'function') hbRender();
+      }
     }catch(e){ console.warn('homeBanner apply:', e); }
   }
-  if(d.globalStickersV1 !== undefined){
+  if(d.globalStickersV1 !== undefined && d.globalStickersV1 !== null && d.globalStickersV1 !== '{}'){
     try{
-      localStorage.setItem('global_stickers_v1', d.globalStickersV1);
-      _gsState = JSON.parse(d.globalStickersV1 || '{}');
-      if(typeof gsRenderAll === 'function') gsRenderAll();
+      var parsedGs = JSON.parse(d.globalStickersV1 || '{}');
+      // 비어있지 않을 때만 적용
+      if (parsedGs && Object.keys(parsedGs).length > 0) {
+        localStorage.setItem('global_stickers_v1', d.globalStickersV1);
+        _gsState = parsedGs;
+        if(typeof gsRenderAll === 'function') gsRenderAll();
+      }
     }catch(e){ console.warn('globalStickers apply:', e); }
   }
   if(d.themeV1 !== undefined){
@@ -14158,12 +14171,20 @@ function _applyFirebaseData(d, force){
   }
 
   // ── 프로필 ──
-  if(d.profileData !== undefined){
+  if(d.profileData !== undefined && d.profileData !== null && d.profileData !== '{}'){
     try {
-      profileData = JSON.parse(d.profileData || '{}');
-      localStorage.setItem('profile_data', d.profileData || '{}');
-      const ni = document.getElementById('meNameInp');
-      if(ni && profileData.name) ni.value = profileData.name;
+      var parsedProfile = JSON.parse(d.profileData || '{}');
+      // 비어있지 않을 때만 적용 (이미지 분리 저장으로 인한 빈 값 무시)
+      if (parsedProfile && (parsedProfile.name || parsedProfile.avatar || parsedProfile.bio)) {
+        profileData = parsedProfile;
+        localStorage.setItem('profile_data', d.profileData);
+        const ni = document.getElementById('meNameInp');
+        if(ni && profileData.name) ni.value = profileData.name;
+        // 아바타 화면 갱신
+        if (profileData.avatar && typeof _showAvatarImage === 'function') {
+          _showAvatarImage(profileData.avatar);
+        }
+      }
     } catch(e){}
   }
 
@@ -21655,39 +21676,41 @@ function hbHandleImageUpload(e) {
 function hbHandleStickerUpload(e) {
   var files = Array.from(e.target.files);
   if (!files.length) return;
+  if (!_hbState.stickers) _hbState.stickers = [];
+  showToast(files.length + '개 스티커 처리 중...');
+  var loaded = 0;
   files.forEach(function(file, idx) {
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('"' + file.name + '" 너무 큼 (2MB 이하)');
-      return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      showToast('"' + file.name + '" 이미지 아님'); return;
     }
-    var reader = new FileReader();
-    reader.onload = function(ev) {
-      // 이미지 비율 알아내기 위해 Image 객체 사용
+    window.compressSticker(file, 480).then(function(dataUrl) {
+      // aspect 계산
       var img = new Image();
       img.onload = function() {
         var aspect = img.width / img.height;
         _hbState.stickers.push({
           id: 'st_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
-          src: ev.target.result,
-          x: 30 + idx * 5,    // %
-          y: 30 + idx * 5,    // %
-          w: 18,              // % of banner width
+          src: dataUrl,
+          x: 30 + (idx * 5) % 40,
+          y: 30 + (idx * 5) % 40,
+          w: 18,
           aspect: aspect.toFixed(3),
           rotate: 0
         });
-        _hbSave();
-        hbRender();
-        // 편집 모드 자동 켜기
-        if (document.getElementById('homeBanner').dataset.mode !== 'edit') {
-          hbToggleEditMode();
+        loaded++;
+        if (loaded === files.length) {
+          _hbSave();
+          hbRender();
+          showToast(loaded + '개 스티커 추가됨');
         }
       };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
+      img.src = dataUrl;
+    }).catch(function(err) {
+      console.error('[hb] sticker compress:', err);
+      showToast('"' + file.name + '" 처리 실패');
+    });
   });
   e.target.value = '';
-  showToast(files.length + '개 스티커 추가됨');
 }
 
 function hbToggleEditMode() {
@@ -22001,22 +22024,19 @@ function gsHandleStickerUpload(e) {
   if (!pageId) { showToast('활성 페이지가 없어요'); return; }
   if (!_gsState[pageId]) _gsState[pageId] = [];
 
+  showToast(files.length + '개 스티커 처리 중...');
   var loaded = 0;
   files.forEach(function(file, idx) {
-    if (file.size > 2 * 1024 * 1024) {
-      showToast('"' + file.name + '" 너무 큼 (2MB 이하)');
-      return;
-    }
-    var reader = new FileReader();
-    reader.onload = function(ev) {
+    if (!file.type || !file.type.startsWith('image/')) return;
+    window.compressSticker(file, 480).then(function(dataUrl) {
       var img = new Image();
       img.onload = function() {
         var aspect = img.width / img.height;
         _gsState[pageId].push({
           id: 'gs_' + Date.now() + '_' + Math.floor(Math.random() * 9999),
-          src: ev.target.result,
-          x: 20 + (idx * 4) % 30,    // %
-          y: 20 + (idx * 4) % 40,    // %
+          src: dataUrl,
+          x: 20 + (idx * 4) % 30,
+          y: 20 + (idx * 4) % 40,
           w: 12,
           aspect: aspect.toFixed(3),
           rotate: 0
@@ -22028,9 +22048,11 @@ function gsHandleStickerUpload(e) {
           showToast(loaded + '개 스티커 추가됨');
         }
       };
-      img.src = ev.target.result;
-    };
-    reader.readAsDataURL(file);
+      img.src = dataUrl;
+    }).catch(function(err) {
+      console.error('[gs] sticker compress:', err);
+      showToast('"' + file.name + '" 처리 실패');
+    });
   });
   e.target.value = '';
 }
@@ -23231,6 +23253,104 @@ function _tieRerenderPrepRow(itemId) {
   var firstInp = wrap.querySelector('.tie-inp');
   if(firstInp && !firstInp.value) firstInp.focus();
 }
+
+
+// ═══════════════════════════════════════════════════════════════
+// 이미지 압축 유틸 (배너/스티커/프로필 공용)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * 이미지를 캔버스로 리사이즈+JPEG 압축
+ * @param {File} file
+ * @param {number} maxWidth - 최대 가로폭 (기본 1280px)
+ * @param {number} maxHeight - 최대 세로폭 (기본 1280px)
+ * @param {number} quality - 0~1 (기본 0.82)
+ * @returns {Promise<string>} - data:image/jpeg;base64,...
+ */
+window.compressImage = function(file, maxWidth, maxHeight, quality) {
+  maxWidth = maxWidth || 1280;
+  maxHeight = maxHeight || 1280;
+  quality = quality != null ? quality : 0.82;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('이미지 파일이 아니에요'));
+      return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        // 비율 유지 리사이즈
+        if (w > maxWidth || h > maxHeight) {
+          var rW = maxWidth / w;
+          var rH = maxHeight / h;
+          var r = Math.min(rW, rH);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        // 흰 배경 (PNG 투명 → JPEG 변환 시 검정 방지)
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          var dataUrl = canvas.toDataURL('image/jpeg', quality);
+          resolve(dataUrl);
+        } catch(e) { reject(e); }
+      };
+      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
+    reader.readAsDataURL(file);
+  });
+};
+
+/**
+ * 스티커용 (작은 이미지, 투명 유지)
+ */
+window.compressSticker = function(file, maxSize) {
+  maxSize = maxSize || 480;
+  return new Promise(function(resolve, reject) {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('이미지 파일이 아니에요')); return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        if (w > maxSize || h > maxSize) {
+          var r = maxSize / Math.max(w, h);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          // 투명 보존 PNG (스티커는 보통 작아서 OK)
+          var dataUrl = canvas.toDataURL('image/png');
+          // 너무 크면 JPEG로 fallback
+          if (dataUrl.length > 200000) {
+            ctx.fillStyle = '#fff';
+            ctx.globalCompositeOperation = 'destination-over';
+            ctx.fillRect(0, 0, w, h);
+            dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+          }
+          resolve(dataUrl);
+        } catch(e) { reject(e); }
+      };
+      img.onerror = function(){ reject(new Error('이미지 로드 실패')); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function(){ reject(new Error('파일 읽기 실패')); };
+    reader.readAsDataURL(file);
+  });
+};
+
 </script>
 </body>
 </html>
