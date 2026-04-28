@@ -21562,9 +21562,48 @@ var _hbSelectedSticker = null;
 var _hbDragInfo = null;
 
 function _hbSave() {
-  try { localStorage.setItem('home_banner_v1', JSON.stringify(_hbState)); }
-  catch(e){ console.error('home_banner save:', e); showToast('저장 공간 부족 (이미지가 너무 큰가?)'); }
-  if(typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
+  var ok = false;
+  try {
+    localStorage.setItem('home_banner_v1', JSON.stringify(_hbState));
+    ok = true;
+  } catch(e) {
+    console.error('[hb] save fail:', e.name, e.message);
+    // QuotaExceeded → 이미지 더 작게 압축 후 재시도
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      if (_hbState.imgUrl && _hbState.imgUrl.length > 200000) {
+        showToast('저장 공간 부족 → 이미지 더 압축 시도');
+        // 캔버스로 더 작게 재압축
+        try {
+          var img = new Image();
+          img.onload = function() {
+            var canvas = document.createElement('canvas');
+            var maxSide = 1000;
+            var w = img.width, h = img.height;
+            if (w > maxSide || h > maxSide) {
+              var r = maxSide / Math.max(w, h);
+              w = Math.round(w*r); h = Math.round(h*r);
+            }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            _hbState.imgUrl = canvas.toDataURL('image/jpeg', 0.7);
+            try {
+              localStorage.setItem('home_banner_v1', JSON.stringify(_hbState));
+              showToast('재압축 후 저장됨');
+              if (typeof hbRender === 'function') hbRender();
+            } catch(e2) {
+              showToast('저장 실패 - 다른 데이터를 정리해주세요');
+            }
+          };
+          img.src = _hbState.imgUrl;
+        } catch(_e) {}
+      } else {
+        showToast('저장 공간 부족');
+      }
+    } else {
+      showToast('저장 실패: ' + e.message);
+    }
+  }
+  if(ok && typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
     try{ fbSaveAll(); }catch(e){}
   }
 }
@@ -21658,19 +21697,47 @@ function hbOpenStickerPicker() {
 
 function hbHandleImageUpload(e) {
   var file = e.target.files[0];
-  if (!file) return;
-  if (file.size > 4 * 1024 * 1024) {
-    showToast('이미지가 너무 커 (4MB 이하 권장)');
+  if (!file) {
+    console.warn('[hb] no file selected');
+    return;
   }
-  var reader = new FileReader();
-  reader.onload = function(ev) {
-    _hbState.imgUrl = ev.target.result;
+  if (!file.type || !file.type.startsWith('image/')) {
+    showToast('이미지 파일만 업로드 가능');
+    e.target.value = '';
+    return;
+  }
+  console.log('[hb] image upload start:', file.name, file.size);
+  showToast('이미지 처리 중...');
+  if (typeof window.compressImage !== 'function') {
+    // 압축 유틸 없으면 fallback (그대로 base64)
+    console.warn('[hb] compressImage not available, fallback');
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      _hbState.imgUrl = ev.target.result;
+      if (_hbState.imgPosX == null) _hbState.imgPosX = 50;
+      if (_hbState.imgPosY == null) _hbState.imgPosY = 50;
+      _hbSave();
+      hbRender();
+      showToast('배너 등록됨');
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+    return;
+  }
+  window.compressImage(file, 1600, 1200, 0.82).then(function(dataUrl) {
+    console.log('[hb] compressed:', Math.round(dataUrl.length/1024)+'KB');
+    _hbState.imgUrl = dataUrl;
+    if (_hbState.imgPosX == null) _hbState.imgPosX = 50;
+    if (_hbState.imgPosY == null) _hbState.imgPosY = 50;
     _hbSave();
     hbRender();
-    showToast('배경 이미지 등록됨');
-  };
-  reader.readAsDataURL(file);
-  e.target.value = ''; // 리셋
+    var sizeKB = Math.round(dataUrl.length / 1024);
+    showToast('배너 등록됨 (' + sizeKB + 'KB)');
+  }).catch(function(err) {
+    console.error('[hb] compress fail:', err);
+    showToast('이미지 처리 실패: ' + (err.message || ''));
+  });
+  e.target.value = '';
 }
 
 function hbHandleStickerUpload(e) {
