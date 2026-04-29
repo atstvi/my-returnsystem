@@ -5744,6 +5744,17 @@ html { overscroll-behavior: none; }
 .home-banner[data-mode="edit"] .home-banner-img-wrap:active {
   cursor: grabbing;
 }
+
+/* 타임그리드 일정 토글 버튼 */
+#tgScheduleToggle {
+  transition: var(--t-fast);
+}
+#tgScheduleToggle.hidden {
+  background: var(--bg-raised);
+  color: var(--fg4);
+  text-decoration: line-through;
+  opacity: 0.6;
+}
 </style>
 </head>
 <body>
@@ -5927,7 +5938,8 @@ html { overscroll-behavior: none; }
         <div class="me-card-head">
           <span>⏱ 타임그리드</span>
           <div class="tg-legend" id="tgLegend"></div>
-          <div style="display:flex;gap:6px;margin-left:auto">
+          <div style="display:flex;gap:6px;margin-left:auto;align-items:center">
+            <button class="me-card-action" id="tgScheduleToggle" onclick="tgToggleSchedule()" title="시간표 일정 표시/숨김" style="font-size:11px">📅 일정</button>
             <button class="me-card-action" onclick="tgShift(-1)">‹</button>
             <span id="tgRangeLabel" style="font-size:11px;color:var(--fg3);align-self:center"></span>
             <button class="me-card-action" onclick="tgShift(1)">›</button>
@@ -6831,8 +6843,53 @@ html { overscroll-behavior: none; }
           <div class="notion-step">
             <div class="notion-step-num">01</div>
             <div class="notion-step-body">
-              <div class="setting-lbl" style="margin-top:0">Notion Worker URL</div>
-              <div class="setting-hint">기존 Notion 연동 Worker URL 그대로 사용 가능</div>
+              <div class="setting-lbl" style="margin-top:0">Notion Worker URL <span style="font-weight:400;color:var(--fg3)">(필수)</span></div>
+              <div class="setting-hint">
+                Notion API는 보안상 브라우저에서 직접 호출이 막혀 있어 중계 서버(Worker)가 필요합니다.<br>
+                <details style="margin-top:6px">
+                  <summary style="cursor:pointer;color:var(--accent);font-weight:600;font-size:11px">📖 Worker 설치 가이드 (5분, 무료)</summary>
+                  <div style="margin-top:8px;padding:10px;background:var(--bg-raised);border-radius:8px;font-size:11px;line-height:1.6">
+                    <strong>방법 A: Cloudflare Workers (추천)</strong><br>
+                    1. <a href="https://workers.cloudflare.com" target="_blank" style="color:var(--accent)">workers.cloudflare.com</a> 가입<br>
+                    2. 새 Worker 생성 → 이름 자유<br>
+                    3. 아래 코드 붙여넣기 → 배포<br>
+                    4. 배포된 URL을 위 칸에 입력<br><br>
+                    <details>
+                      <summary style="cursor:pointer">코드 보기 / 복사</summary>
+                      <pre style="background:var(--bg);padding:8px;border-radius:6px;overflow-x:auto;font-size:10px;margin-top:6px;white-space:pre-wrap"><code id="notionWorkerCode">export default {
+  async fetch(request) {
+    const cors = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Notion-Token',
+    };
+    if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
+    const url = new URL(request.url);
+    if (!url.pathname.startsWith('/notion')) return new Response('OK', { headers: cors });
+    const path = url.pathname.replace('/notion', '');
+    const token = request.headers.get('X-Notion-Token');
+    if (!token) return new Response(JSON.stringify({error:'No token'}), { status:401, headers:{...cors,'Content-Type':'application/json'} });
+    const r = await fetch('https://api.notion.com/v1' + path + url.search, {
+      method: request.method,
+      headers: {
+        'Authorization': 'Bearer ' + token,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: ['GET','HEAD','OPTIONS'].includes(request.method) ? undefined : await request.text(),
+    });
+    const text = await r.text();
+    return new Response(text, { status: r.status, headers: { ...cors, 'Content-Type': 'application/json' } });
+  }
+}</code></pre>
+                      <button class="btn-ghost" onclick="_copyNotionWorkerCode()" style="font-size:10px;padding:4px 10px;margin-top:4px">📋 코드 복사</button>
+                    </details>
+                    <br>
+                    <strong>방법 B: 이미 다른 Notion 연동 Worker 있으면</strong><br>
+                    그 URL 그대로 입력 (할일과 일기 모두 같은 Worker 사용 가능)
+                  </div>
+                </details>
+              </div>
               <div style="display:flex;gap:6px;margin-top:6px">
                 <input id="notionDiaryWorkerUrl" class="setting-inp" style="padding-left:12px;flex:1" placeholder="https://xxx.workers.dev">
                 <button class="btn-secondary" onclick="testNotionDiaryWorker()" id="notionDiaryTestBtn" style="white-space:nowrap;font-size:10px">연결 테스트</button>
@@ -20522,7 +20579,7 @@ function renderTimeGrid(){
   lanes.push({label:'시간',type:'time',color:'#6c63ff'});
   var deadlines=[];
   // schedule 항목: timeStart/timeEnd 포함 (완료 제외)
-  (taskItems||[]).filter(function(t){ return t.catId==='schedule'&&t.date&&!t.done; }).forEach(function(t){
+  (taskItems||[]).filter(function(t){ return !window._tgHideSchedule && t.catId==='schedule'&&t.date&&!t.done; }).forEach(function(t){
     deadlines.push({date:t.date,text:t.text,type:'sched',id:t.id,
       timeStart:t.timeStart||'',timeEnd:t.timeEnd||''});
   });
@@ -21472,16 +21529,37 @@ function clearDiaryNotionConfig() {
 // Notion Worker API 호출
 async function _diaryNotionApi(method, path, body) {
   var cfg = _diaryNotionCfg;
-  if (!cfg.workerUrl || !cfg.token) throw new Error('Worker URL 또는 토큰이 없어');
-  var url = cfg.workerUrl.replace(/\/$/, '') + '/api' + path;
+  if (!cfg.workerUrl || !cfg.token) throw new Error('Worker URL 또는 토큰이 없어요');
+  // path 정규화: 슬래시 보장
+  if (path && !path.startsWith('/')) path = '/' + path;
+  // workerUrl 끝 슬래시 제거 + /notion 경로 통일 (할일 동기화와 동일한 Worker 코드 사용)
+  var base = cfg.workerUrl.replace(/\/+$/, '');
+  var url = base + '/notion' + (path || '');
+  console.log('[diary-notion]', method, url);
   var opts = {
     method: method,
-    headers: { 'Content-Type': 'application/json', 'x-notion-token': cfg.token }
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Notion-Token': cfg.token
+    }
   };
   if (body) opts.body = JSON.stringify(body);
-  var res = await fetch(url, opts);
+  var res;
+  try {
+    res = await fetch(url, opts);
+  } catch(fetchErr) {
+    throw new Error('네트워크 오류: ' + (fetchErr.message || 'fetch failed'));
+  }
   var text = await res.text();
-  if (!res.ok) throw new Error('Notion ' + res.status + ': ' + text.slice(0, 200));
+  if (!res.ok) {
+    // JSON 에러면 message만 추출
+    try {
+      var errJ = JSON.parse(text);
+      throw new Error('Notion ' + res.status + ': ' + (errJ.message || errJ.code || text.slice(0,100)));
+    } catch(_p) {
+      throw new Error('Notion ' + res.status + ': ' + text.slice(0, 200));
+    }
+  }
   try { return JSON.parse(text); } catch(e) { return text; }
 }
 
@@ -22089,11 +22167,78 @@ var _gsCurrentPage = null;
 var _gsDragInfo = null;
 
 function _gsSave() {
-  try { localStorage.setItem('global_stickers_v1', JSON.stringify(_gsState)); }
-  catch(e){ console.error('global_stickers save:', e); showToast('저장 공간 부족'); }
-  if(typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
+  // _gsState가 null이면 빈 객체로 복구 (안전)
+  if (!window._gsState || typeof window._gsState !== 'object') window._gsState = {};
+  var ok = false;
+  try {
+    var str = JSON.stringify(_gsState);
+    var sizeKB = Math.round(str.length / 1024);
+    console.log('[gs] save:', sizeKB+'KB,', Object.keys(_gsState).length, 'pages');
+    localStorage.setItem('global_stickers_v1', str);
+    ok = true;
+  } catch(e) {
+    console.error('[gs] save fail:', e.name, e.message);
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      showToast('⚠ 스티커 데이터가 너무 큼 - 일부 자동 압축 시도');
+      // 큰 스티커 자동 재압축
+      _gsAutoShrink(function(){
+        try {
+          localStorage.setItem('global_stickers_v1', JSON.stringify(_gsState));
+          showToast('스티커 압축 완료, 저장됨');
+          if (typeof gsRenderAll === 'function') gsRenderAll();
+        } catch(_e){
+          showToast('저장 실패 - 일부 스티커 정리 필요');
+        }
+      });
+      return;
+    }
+    showToast('저장 실패: ' + e.message);
+  }
+  if(ok && typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
     try{ fbSaveAll(); }catch(e){}
   }
+}
+
+// 모든 스티커 자동 압축 (크기 줄이기)
+function _gsAutoShrink(callback) {
+  var pages = Object.keys(_gsState || {});
+  var total = 0;
+  pages.forEach(function(pid){ total += (_gsState[pid] || []).length; });
+  if (total === 0) { if (callback) callback(); return; }
+
+  var processed = 0;
+  pages.forEach(function(pid){
+    (_gsState[pid] || []).forEach(function(s){
+      if (!s.src || s.src.length < 100000) {
+        processed++;
+        if (processed === total && callback) callback();
+        return;
+      }
+      // base64 → Image → 작은 캔버스 → 더 작은 base64
+      var img = new Image();
+      img.onload = function(){
+        var w = img.width, h = img.height;
+        var maxSide = 320;
+        if (w > maxSide || h > maxSide) {
+          var r = maxSide / Math.max(w, h);
+          w = Math.round(w*r); h = Math.round(h*r);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        try {
+          s.src = canvas.toDataURL('image/jpeg', 0.7);
+        } catch(_e){}
+        processed++;
+        if (processed === total && callback) callback();
+      };
+      img.onerror = function(){
+        processed++;
+        if (processed === total && callback) callback();
+      };
+      img.src = s.src;
+    });
+  });
 }
 
 // 현재 활성 페이지 ID 가져오기
@@ -22216,6 +22361,9 @@ function gsHandleStickerUpload(e) {
   if (!files.length) return;
   var pageId = _gsCurrentPage || _gsActivePageId();
   if (!pageId) { showToast('활성 페이지가 없어요'); return; }
+  // _gsState null 가드
+  if (typeof _ensureBannerState === 'function') _ensureBannerState();
+  if (!window._gsState || typeof window._gsState !== 'object') window._gsState = {};
   if (!_gsState[pageId]) _gsState[pageId] = [];
 
   showToast(files.length + '개 스티커 처리 중...');
@@ -23502,6 +23650,55 @@ function _tieRerenderPrepRow(itemId) {
   setInterval(_ensureState, 5000);
   window._ensureBannerState = _ensureState;
 })();
+
+
+// ═══════════════════════════════════════════════════════════════
+// 타임그리드 - 시간표 일정(schedule 카테고리) 표시/숨김
+// ═══════════════════════════════════════════════════════════════
+
+window._tgHideSchedule = (function(){
+  try { return localStorage.getItem('tg_hide_schedule') === '1'; }
+  catch(e){ return false; }
+})();
+
+function tgToggleSchedule() {
+  window._tgHideSchedule = !window._tgHideSchedule;
+  try { localStorage.setItem('tg_hide_schedule', window._tgHideSchedule ? '1' : '0'); } catch(e){}
+  var btn = document.getElementById('tgScheduleToggle');
+  if (btn) btn.classList.toggle('hidden', window._tgHideSchedule);
+  if (typeof renderTimeGrid === 'function') renderTimeGrid();
+  showToast(window._tgHideSchedule ? '시간표 일정 숨김' : '시간표 일정 표시');
+}
+
+// 페이지 로드 시 버튼 상태 복원
+setTimeout(function(){
+  var btn = document.getElementById('tgScheduleToggle');
+  if (btn) btn.classList.toggle('hidden', !!window._tgHideSchedule);
+}, 200);
+
+
+
+// Notion Worker 코드 복사
+window._copyNotionWorkerCode = function() {
+  var code = document.getElementById('notionWorkerCode');
+  if (!code) return;
+  var text = code.textContent;
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(function(){
+      showToast('Worker 코드 복사됨');
+    }).catch(function(){ showToast('복사 실패 - 직접 선택해주세요'); });
+  } else {
+    // fallback
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); showToast('Worker 코드 복사됨'); }
+    catch(e){ showToast('복사 실패'); }
+    document.body.removeChild(ta);
+  }
+};
+
 </script>
 <script>
 // onclick 호출에서 함수 못 찾을 때 에러 안 나게 안전망
