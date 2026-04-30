@@ -4792,6 +4792,20 @@ input.setting-inp:focus, textarea.setting-inp:focus {
     drop-shadow(0 4px 8px rgba(0,0,0,0.18));
   transition: filter .15s;
   z-index: 100;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  -webkit-transform: translateZ(0);
+}
+/* 드래그 중인 스티커는 filter 비활성 (잔상 방지) */
+.gs-sticker.dragging {
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.25)) !important;
+  cursor: grabbing;
+  will-change: left, top, transform;
+  z-index: 200;
+}
+/* 다른 스티커들도 GPU 가속 */
+.gs-sticker {
+  will-change: auto;
 }
 .gs-sticker img {
   width: 100%; height: 100%; object-fit: contain;
@@ -4852,10 +4866,25 @@ input.setting-inp:focus, textarea.setting-inp:focus {
 .gs-toolbar {
   position: fixed;
   bottom: 80px; right: 16px;
-  display: flex; flex-direction: column; gap: 8px;
+  display: none;
+  flex-direction: column; gap: 8px;
   z-index: 500;
   pointer-events: auto;
 }
+body.gs-edit-mode .gs-toolbar {
+  display: flex;
+}
+/* 편집 모드 ON 표시 */
+body.gs-edit-mode::before {
+  content: '✏️ 편집모드';
+  position: fixed; top: 12px; right: 12px;
+  background: var(--accent); color: #fff;
+  font-size: 11px; font-weight: 700;
+  padding: 6px 12px; border-radius: 999px;
+  z-index: 9998; pointer-events: none;
+  box-shadow: var(--shadow-md);
+}
+
 .gs-toolbar-btn {
   width: 44px; height: 44px;
   background: var(--bg);
@@ -6586,6 +6615,71 @@ html { overscroll-behavior: none; }
   transition: opacity .15s;
 }
 .diary-widget-tracker:hover .diary-widget-tracker-del { opacity: 1; }
+
+/* 일기 레이아웃 - 가로 더 넓게 */
+@media (min-width: 1024px) {
+  .diary-wrap {
+    max-width: 1480px !important;
+    grid-template-columns: 1fr 360px !important;
+    gap: 28px !important;
+    padding: 12px 24px 80px !important;
+  }
+  .diary-page {
+    padding: 40px 56px 48px !important;
+  }
+}
+@media (min-width: 1400px) {
+  .diary-wrap {
+    max-width: 1680px !important;
+    grid-template-columns: 1fr 380px !important;
+  }
+}
+
+/* 모바일 - 비율 보정 */
+@media (max-width: 599px) {
+  .diary-wrap {
+    padding: 8px 10px 80px !important;
+    max-width: 100% !important;
+  }
+  .diary-page {
+    padding: 18px 14px 24px !important;
+    border-radius: 14px;
+  }
+  .diary-title { font-size: 22px !important; }
+  .diary-section-head { font-size: 12px !important; }
+  .diary-section-body { font-size: 12.5px !important; line-height: 1.7 !important; }
+  .diary-head { padding: 4px 0 8px !important; }
+  .diary-side { margin-top: 14px; }
+  .diary-widget { padding: 12px 14px; }
+}
+
+/* 일기 모바일 - 트래커 단위 칸 너무 좁음 보정 */
+@media (max-width: 599px) {
+  .diary-widget-tracker { gap: 6px; }
+  .diary-widget-tracker-input { width: 70px; padding: 3px 6px; font-size: 11px; }
+  .diary-widget-tracker-unit { width: auto; font-size: 10px; }
+  .diary-widget-tracker-name { font-size: 11px; }
+}
+
+/* 모바일 - 타임그리드/타임블록 비율 보정 */
+@media (max-width: 599px) {
+  .me-card { padding: 12px !important; }
+  .me-htb-allday-chip { font-size: 9px; padding: 2px 6px; }
+  .me-htb-block-title { font-size: 10px; }
+  .me-htb-hour-label { font-size: 8px !important; }
+  .me-card-head > span:first-child { font-size: 13px; }
+  .nm-page-title { font-size: 22px; }
+}
+/* 모바일 - 일기 사이드 위젯 가로폭 보정 */
+@media (max-width: 599px) {
+  .diary-side { width: 100%; }
+  .diary-widget { padding: 11px 13px; }
+}
+
+.me-htb-allday-chip.done {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
 </style>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -7416,6 +7510,19 @@ html { overscroll-behavior: none; }
 
       <!-- 가치관 카드 편집 -->
       <div class="set-section" data-group="personal">
+        <div class="set-section-head" onclick="toggleSection('sec-stickers')">
+          <div class="set-section-icon">✨</div>
+          <div class="set-section-title">페이지 스티커</div>
+          <div class="set-section-badge off" id="setStickerBadge">OFF</div>
+          <div class="set-section-arrow" id="arr-sec-stickers">▼</div>
+        </div>
+        <div class="set-section-body" id="sec-stickers">
+          <div class="setting-hint" style="margin-bottom:10px">스티커 편집 모드를 켜면 우측 하단에 편집 버튼이 나타나고, 평소엔 자동으로 숨겨집니다.</div>
+          <button class="setting-btn primary" id="setStickerEditBtn" onclick="gsToggleEditMode();_setStickerEditBtnUpdate()" style="width:100%">✏️ 편집 모드 켜기</button>
+        </div>
+      </div>
+
+      <div class="set-section" data-group="personal">
         <div class="set-section-head" onclick="toggleSection('sec-phil')">
           <div class="set-section-icon">◎</div>
           <div class="set-section-title">가치관 카드 편집</div>
@@ -8076,6 +8183,12 @@ html { overscroll-behavior: none; }
         <div class="diary-section" data-key="recap">
           <div class="diary-section-head">💬 Recap<span class="diary-dirty-mark">변경됨</span></div>
           <textarea class="diary-section-body" id="diary_recap" placeholder="Empty" oninput="diaryAutoSave()"></textarea>
+        </div>
+
+        <!-- 노션 페이지 본문 (읽기 전용, 자동 동기화) -->
+        <div class="diary-section" id="diaryPageBodySection" style="display:none;margin-top:24px;border-top:1px dashed rgba(139,119,101,0.2);padding-top:18px">
+          <div class="diary-section-head">📄 Notion 페이지 본문 <span style="font-size:10px;color:var(--fg3);font-weight:400;margin-left:auto">자동 동기화 (읽기 전용)</span></div>
+          <div id="diaryPageBody" style="font-family:'Noto Serif KR',serif;font-size:13px;line-height:1.85;color:#3d2c1f;padding:8px 4px;white-space:pre-wrap"></div>
         </div>
 
         <div class="diary-status" id="diaryStatus"></div>
@@ -10081,9 +10194,12 @@ function submitTaskQuick(){
   const inp=document.getElementById('taskQuickInp');
   const text=inp?.value.trim();
   if(!text){showToast('내용을 입력해주세요');return;}
+  // 카테고리 기본 우선순위 적용
+  var defPrio = (typeof _getCatDefaultPriority === 'function') ? (_getCatDefaultPriority(taskQuickCatId) || '') : '';
   taskItems.push({
     id:Date.now(), text, catId:taskQuickCatId,
-    date:taskSelDate, timeEnd:'', note:'', priority:'', done:false,
+    date:taskSelDate, timeStart:'', timeEnd:'', note:'',
+    priority: defPrio, done:false,
     createdAt:Date.now(), updatedAt:Date.now()
   });
   const _newItem = taskItems[taskItems.length - 1];
@@ -19187,6 +19303,10 @@ function renderTtSlots(tt) {
         + '<span style="font-size:11px;color:var(--fg3)">~</span>'
         + '<input type="time" id="ttSeEnd-' + i + '" value="' + s.timeEnd + '" style="padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:12px;color:var(--fg)">'
         + '</div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+        + '<input id="ttSePrep-' + i + '" placeholder="준비물 (예: 책,노트북)" value="' + esc(s.prep || '') + '" style="flex:1;min-width:140px;padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:11px;color:var(--fg)">'
+        + '<input type="number" id="ttSeTravel-' + i + '" placeholder="이동시간(분)" value="' + (s.travel || '') + '" style="width:90px;padding:5px 8px;border-radius:8px;border:none;background:var(--bg);box-shadow:var(--shadow-inset-sm);font-size:11px;color:var(--fg)">'
+        + '</div>'
         + '<div style="display:flex;gap:6px">'
         + '<button onclick="ttSaveSlot(' + i + ')" style="padding:4px 14px;border-radius:999px;background:var(--accent);color:#fff;border:none;font-size:11px;font-weight:600;cursor:pointer">저장</button>'
         + '<button onclick="ttToggleEdit(' + i + ')" style="padding:4px 12px;border-radius:999px;background:var(--bg);box-shadow:var(--shadow-raised-sm);border:none;font-size:11px;color:var(--fg2);cursor:pointer">취소</button>'
@@ -19236,6 +19356,11 @@ function ttSaveSlot(i) {
   tt.slots[i].day       = day;
   tt.slots[i].timeStart = start;
   tt.slots[i].timeEnd   = end2;
+  // 준비물/이동시간
+  var prepEl = document.getElementById('ttSePrep-' + i);
+  var travelEl = document.getElementById('ttSeTravel-' + i);
+  if (prepEl) tt.slots[i].prep = prepEl.value.trim();
+  if (travelEl) tt.slots[i].travel = travelEl.value ? parseInt(travelEl.value) : 0;
   saveTimetables();
   renderTtGrid(tt);
   renderTtSlots(tt);
@@ -19331,13 +19456,45 @@ function ttGenerate() {
       + String(cur.getDate()).padStart(2,'0');
     (tt.slots || []).forEach(function(s) {
       if (s.day !== slotDay) return;
+      // 메인 수업 블록
+      var noteParts = [ttNote];
+      if (s.prep) noteParts.push('🎒 준비물: ' + s.prep);
+      var subs = [];
+      if (s.prep) {
+        // 준비물을 sub-task로 (체크 가능)
+        s.prep.split(/[,;]\s*/).forEach(function(item){
+          var tx = item.trim();
+          if (tx) subs.push({id: 'p_'+Date.now()+'_'+Math.floor(Math.random()*999), text: '🎒 ' + tx, done: false});
+        });
+      }
       toCreate.push({
         id: Date.now() + Math.random(),
         text: s.title, catId: 'schedule', date: dateKey,
         timeStart: s.timeStart, timeEnd: s.timeEnd,
-        priority: '', done: false, note: ttNote,
-        subs: [], createdAt: Date.now(), updatedAt: Date.now()
+        priority: '', done: false, note: noteParts.join('\n'),
+        prep: s.prep || '', travel: s.travel || 0,
+        subs: subs, createdAt: Date.now(), updatedAt: Date.now()
       });
+      // 이동시간 블록 (수업 시작 직전)
+      if (s.travel && s.travel > 0) {
+        var travelMin = parseInt(s.travel);
+        var startParts = s.timeStart.split(':');
+        var startMin = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+        var travelStartMin = startMin - travelMin;
+        if (travelStartMin >= 0) {
+          var ts = String(Math.floor(travelStartMin/60)).padStart(2,'0') + ':' + String(travelStartMin%60).padStart(2,'0');
+          toCreate.push({
+            id: Date.now() + Math.random() + 0.001,
+            text: '🚶 ' + s.title + ' 이동',
+            catId: 'schedule', date: dateKey,
+            timeStart: ts, timeEnd: s.timeStart,
+            priority: '', done: false,
+            note: ttNote + ' (이동)',
+            _isTravel: true,
+            subs: [], createdAt: Date.now(), updatedAt: Date.now()
+          });
+        }
+      }
     });
   }
   if (!toCreate.length) { showToast('해당 기간에 생성할 일정이 없습니다'); return; }
@@ -22057,10 +22214,29 @@ function meHtbRender(){
       var cat=(taskCats||[]).find(function(c){return c.id===t.catId;});
       var col=cat?cat.color:'#6c63ff';
       var chip=document.createElement('div');
-      chip.className='me-htb-allday-chip';
-      chip.style.cssText='background:'+col+'22;color:'+col+';border:1px solid '+col+'44;';
-      chip.textContent=(t.text||'').slice(0,18);
-      chip.title=t.text+' (드래그해서 시간 지정)';
+      chip.className='me-htb-allday-chip' + (t.done ? ' done' : '');
+      chip.style.cssText='background:'+col+'22;color:'+col+';border:1px solid '+col+'44;display:flex;align-items:center;gap:4px;'
+        + (t.done ? 'opacity:0.5;text-decoration:line-through;' : '');
+      // 체크박스
+      var ck = document.createElement('input');
+      ck.type = 'checkbox';
+      ck.checked = !!t.done;
+      ck.style.cssText = 'margin:0;width:11px;height:11px;cursor:pointer;flex-shrink:0;accent-color:'+col;
+      ck.onclick = function(e){
+        e.stopPropagation();
+        var idx = taskItems.findIndex(function(x){return x.id===t.id;});
+        if (idx >= 0) {
+          taskItems[idx].done = !taskItems[idx].done;
+          taskItems[idx].updatedAt = Date.now();
+          saveTaskData();
+          meHtbRender();
+        }
+      };
+      chip.appendChild(ck);
+      var txt = document.createElement('span');
+      txt.textContent = (t.text||'').slice(0,18);
+      chip.appendChild(txt);
+      chip.title=t.text+(t.done?' (완료)':' (드래그해서 시간 지정)');
       chip.onclick=function(){var i=taskItems.findIndex(function(x){return x.id===t.id;});if(i>=0)openTaskItemEdit(i);};
       // allday chip → 타임라인으로 드래그해서 시간 부여
       chip.addEventListener('mousedown',function(e){
@@ -23500,6 +23676,9 @@ function gsRenderAll() {
 function gsToggleEditMode() {
   _gsEditMode = !_gsEditMode;
   _gsCurrentPage = _gsEditMode ? _gsActivePageId() : null;
+
+  // body 클래스 - CSS 통제
+  document.body.classList.toggle('gs-edit-mode', _gsEditMode);
 
   var btn = document.getElementById('gsEditBtn');
   var tb = document.getElementById('gsToolbar');
@@ -25028,6 +25207,24 @@ function diaryLoadDate(dateKey) {
       if (el) _diaryAutoGrow(el);
     });
   }, 0);
+  // 페이지 본문 표시 (있으면)
+  var pbSec = document.getElementById('diaryPageBodySection');
+  var pbEl = document.getElementById('diaryPageBody');
+  if (pbSec && pbEl) {
+    var body = entry._pageBody || '';
+    if (body && body.trim()) {
+      pbSec.style.display = '';
+      // 이미지 URL 자동 변환
+      var html = body.split('\n').map(function(line){
+        var m = line.match(/^\[이미지\]\s+(.+)$/);
+        if (m) return '<img src="'+m[1]+'" style="max-width:100%;border-radius:8px;margin:6px 0">';
+        return line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      }).join('\n');
+      pbEl.innerHTML = html;
+    } else {
+      pbSec.style.display = 'none';
+    }
+  }
   // 자동 노션 pull (백그라운드, dirty 안 건드림)
   if (_diaryNotionCfg && _diaryNotionCfg.workerUrl && _diaryNotionCfg.token && _diaryNotionCfg.dbId) {
     _diaryAutoPull(dateKey);
@@ -25733,6 +25930,12 @@ async function _diaryAutoPull(dateKey) {
         await _diaryPullTrackersFromNotion(dateKey, notionProps, dbMeta);
       }
     } catch(_e){}
+    // 페이지 본문 (블록) 동기화 - 백그라운드
+    try {
+      if (typeof _diarySyncPageBody === 'function') {
+        await _diarySyncPageBody(dateKey, pageData.id);
+      }
+    } catch(_e){}
     if (pulled > 0) {
       _diarySaveAll();
       // 현재 보고 있는 날짜면 화면 갱신
@@ -26245,6 +26448,94 @@ function dlinkCreateAndLink() {
   if (typeof renderTaskList === 'function') renderTaskList();
   if (typeof renderTaskCal === 'function') renderTaskCal();
   showToast('"'+text+'" 추가 + 데드라인 연결됨');
+}
+
+
+// 스티커 편집 모드 버튼 라벨 업데이트
+function _setStickerEditBtnUpdate() {
+  var btn = document.getElementById('setStickerEditBtn');
+  var badge = document.getElementById('setStickerBadge');
+  var on = (typeof _gsEditMode !== 'undefined' && _gsEditMode);
+  if (btn) btn.textContent = on ? '✏️ 편집 모드 끄기' : '✏️ 편집 모드 켜기';
+  if (badge) {
+    badge.textContent = on ? 'ON' : 'OFF';
+    badge.classList.toggle('off', !on);
+  }
+}
+setTimeout(_setStickerEditBtnUpdate, 100);
+
+
+// ═══════════════════════════════════════════════════════════════
+// Notion 페이지 블록(본문) 동기화
+// _pageBlocks: [{type, text, url, ...}]
+// 페이지 본문 안의 모든 텍스트를 평문으로 변환해서 entry._pageBody 에 저장
+// ═══════════════════════════════════════════════════════════════
+async function _diaryFetchPageBlocks(pageId) {
+  if (!pageId) return [];
+  try {
+    var blocks = [];
+    var startCursor = null;
+    var safety = 0;
+    do {
+      var path = '/blocks/' + pageId + '/children?page_size=100';
+      if (startCursor) path += '&start_cursor=' + encodeURIComponent(startCursor);
+      var res = await _diaryNotionApi('GET', path);
+      if (res.results) blocks = blocks.concat(res.results);
+      startCursor = res.has_more ? res.next_cursor : null;
+      safety++;
+    } while (startCursor && safety < 5);
+    return blocks;
+  } catch(e) {
+    console.warn('[diary] fetch blocks fail:', e.message);
+    return [];
+  }
+}
+
+// 블록 → 평문 텍스트 (간단 변환, 마크다운 스타일)
+function _diaryBlocksToText(blocks) {
+  if (!blocks || !blocks.length) return '';
+  var lines = [];
+  blocks.forEach(function(b) {
+    var t = b.type;
+    var data = b[t] || {};
+    var rich = data.rich_text || data.text || [];
+    var txt = rich.map(function(r){ return r.plain_text || (r.text && r.text.content) || ''; }).join('');
+    if (t === 'heading_1') lines.push('# ' + txt);
+    else if (t === 'heading_2') lines.push('## ' + txt);
+    else if (t === 'heading_3') lines.push('### ' + txt);
+    else if (t === 'bulleted_list_item') lines.push('• ' + txt);
+    else if (t === 'numbered_list_item') lines.push('1. ' + txt);
+    else if (t === 'to_do') lines.push((data.checked ? '✓' : '☐') + ' ' + txt);
+    else if (t === 'quote') lines.push('> ' + txt);
+    else if (t === 'code') lines.push('```\n' + txt + '\n```');
+    else if (t === 'divider') lines.push('---');
+    else if (t === 'image') {
+      var url = (data.file && data.file.url) || (data.external && data.external.url) || '';
+      if (url) lines.push('[이미지] ' + url);
+    } else if (t === 'paragraph') {
+      if (txt) lines.push(txt);
+      else lines.push('');
+    } else if (txt) {
+      lines.push(txt);
+    }
+  });
+  return lines.join('\n');
+}
+
+// 페이지 본문 fetch + 일기 entry에 저장
+async function _diarySyncPageBody(dateKey, pageId) {
+  try {
+    var blocks = await _diaryFetchPageBlocks(pageId);
+    var text = _diaryBlocksToText(blocks);
+    if (!_diaryEntries[dateKey]) _diaryEntries[dateKey] = {};
+    _diaryEntries[dateKey]._pageBody = text;
+    _diaryEntries[dateKey]._pageBlocks = blocks; // 원본도 보관 (이미지 url 등)
+    _diarySaveAll();
+    return text;
+  } catch(e) {
+    console.warn('[diary] sync page body fail:', e.message);
+    return '';
+  }
 }
 
 </script>
