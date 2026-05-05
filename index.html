@@ -4874,16 +4874,7 @@ input.setting-inp:focus, textarea.setting-inp:focus {
 body.gs-edit-mode .gs-toolbar {
   display: flex;
 }
-/* 편집 모드 ON 표시 */
-body.gs-edit-mode::before {
-  content: '✏️ 편집모드';
-  position: fixed; top: 12px; right: 12px;
-  background: var(--accent); color: #fff;
-  font-size: 11px; font-weight: 700;
-  padding: 6px 12px; border-radius: 999px;
-  z-index: 9998; pointer-events: none;
-  box-shadow: var(--shadow-md);
-}
+/* 편집모드 인디케이터 제거됨 */
 
 .gs-toolbar-btn {
   width: 44px; height: 44px;
@@ -6680,6 +6671,8 @@ html { overscroll-behavior: none; }
   opacity: 0.5;
   text-decoration: line-through;
 }
+
+/* 스티커 핸들 표시는 _gsHandleVisible 설정으로 제어 */
 </style>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
@@ -7517,8 +7510,8 @@ html { overscroll-behavior: none; }
           <div class="set-section-arrow" id="arr-sec-stickers">▼</div>
         </div>
         <div class="set-section-body" id="sec-stickers">
-          <div class="setting-hint" style="margin-bottom:10px">스티커 편집 모드를 켜면 우측 하단에 편집 버튼이 나타나고, 평소엔 자동으로 숨겨집니다.</div>
-          <button class="setting-btn primary" id="setStickerEditBtn" onclick="gsToggleEditMode();_setStickerEditBtnUpdate()" style="width:100%">✏️ 편집 모드 켜기</button>
+          <div class="setting-hint" style="margin-bottom:10px">우측 하단의 스티커 편집 버튼을 보이거나 숨길 수 있어요. 숨기면 실수로 스티커가 움직이는 걸 방지할 수 있어요.</div>
+          <button class="setting-btn" id="setStickerEditBtn" onclick="gsToggleHandleVisible()" style="width:100%">👁 편집 버튼 숨기기</button>
         </div>
       </div>
 
@@ -8355,12 +8348,12 @@ window.compressSticker = function(file, maxSize) {
 
 var _fbSaveTimer=null,_applyingFbData=false,_fbUnsubscribe=null,_fbLastSaveMs=0;
 
-let memos=JSON.parse(localStorage.getItem('memos_v5')||'[]');
-let philCards=(function(){try{var s=JSON.parse(localStorage.getItem('phil_cards')||'null');return(s&&s.length)?s:[];}catch(e){return[];}})(  );
-let questionSet=(function(){try{var s=JSON.parse(localStorage.getItem('question_set')||'null');return(s&&s.length)?s:[];}catch(e){return[];}})(  );
-let aiSettings=JSON.parse(localStorage.getItem('ai_settings')||'{}');
+let memos=JSON.parse(_lsGet('memos_v5')||'[]');
+let philCards=(function(){try{var s=JSON.parse(_lsGet('phil_cards')||'null');return(s&&s.length)?s:[];}catch(e){return[];}})(  );
+let questionSet=(function(){try{var s=JSON.parse(_lsGet('question_set')||'null');return(s&&s.length)?s:[];}catch(e){return[];}})(  );
+let aiSettings=JSON.parse(_lsGet('ai_settings')||'{}');
 let lastResult=null;
-let API_KEY=localStorage.getItem('groq_key')||'';
+let API_KEY=_lsGet('groq_key')||'';
 
 
 const TASK_DEFAULT_CATS=[
@@ -8376,7 +8369,7 @@ const TASK_CAT_COLORS=['#6C63FF','#38B2AC','#8B84FF','#D97706','#E05050','#6B728
 
 let taskCats=(function(){
   try{
-    const s=localStorage.getItem('task_cats_v1');
+    const s=_lsGet('task_cats_v1');
     const parsed=s?JSON.parse(s):null;
     if(!Array.isArray(parsed)||parsed.length===0){return JSON.parse(JSON.stringify(TASK_DEFAULT_CATS));}
     const seen={};
@@ -8385,33 +8378,33 @@ let taskCats=(function(){
     deduped.forEach(function(cat){if(defs[cat.id]){cat.label=defs[cat.id].label;cat.icon=defs[cat.id].icon;}});
     const fakes=deduped.filter(function(cat){return cat.id!=='schedule'&&cat.label==='일정';});
     if(fakes.length>0){
-      const its=JSON.parse(localStorage.getItem('task_items_v1')||'[]');
+      const its=JSON.parse(_lsGet('task_items_v1')||'[]');
       let changed=false;
       fakes.forEach(function(cat){its.forEach(function(t){if(t.catId===cat.id){t.catId='schedule';changed=true;}});});
-      if(changed)localStorage.setItem('task_items_v1',JSON.stringify(its));
+      if(changed)_lsSet('task_items_v1',JSON.stringify(its));
     }
     const cleaned=deduped.filter(function(cat){return cat.id==='schedule'||cat.label!=='일정';});
     if(!cleaned.find(function(x){return x.id==='schedule';}))
       cleaned.unshift({id:'schedule',label:'일정',color:'#E05050',icon:'📅'});
-    localStorage.setItem('task_cats_v1',JSON.stringify(cleaned));
+    _lsSet('task_cats_v1',JSON.stringify(cleaned));
     return cleaned;
   }catch(e){return JSON.parse(JSON.stringify(TASK_DEFAULT_CATS));}
 })();
 
 let taskItems=(function(){
   try{
-    const s=localStorage.getItem('task_items_v1');
+    const s=_lsGet('task_items_v1');
     const parsed=s?JSON.parse(s):null;
     if(!Array.isArray(parsed))return[];
     return parsed.filter(function(t){return t&&t.id&&(t.text||t.text==='');});
 // 삭제 추적 (다른 기기 동기화 시 부활 방지)
 window._deletedTaskIds = (function(){
-  try { return JSON.parse(localStorage.getItem('_deleted_task_ids') || '{}'); }
+  try { return JSON.parse(_lsGet('_deleted_task_ids') || '{}'); }
   catch(e){ return {}; }
 })();
 // 규칙 자동 재생성 방지 - 사용자가 삭제한 항목의 (ruleId+date) 키 추적
 window._ruleDeletedKeys = (function(){
-  try { return JSON.parse(localStorage.getItem('_rule_deleted_keys') || '{}'); }
+  try { return JSON.parse(_lsGet('_rule_deleted_keys') || '{}'); }
   catch(e){ return {}; }
 })();
 // 60일 지난 키는 정리
@@ -8446,7 +8439,7 @@ let _hideTtSched=false;
 let _tieOpen=null;
 let _tieActiveDp=null;
 let _tieDpMonth=new Date();
-let _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
+let _secCollapsed=JSON.parse(_lsGet('task_sec_collapsed')||'{}');
 
 
 // ═══ 백업 시스템 ═══
@@ -8455,7 +8448,7 @@ var MAX_BACKUPS=10;
 function _createBackup(reason){
   function _trySaveBackup(retries){
     try{
-      var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+      var snaps=JSON.parse(_lsGet('_backups_meta')||'[]');
       var id=Date.now();
       var snap={id:id,time:new Date().toLocaleString('ko-KR'),reason:reason||'수동',keys:[]};
       _BACKUP_KEYS.forEach(function(k){
@@ -8474,7 +8467,7 @@ function _createBackup(reason){
       // QuotaExceeded → 옛 백업 삭제 후 재시도
       if ((e.name === 'QuotaExceededError' || e.code === 22) && retries < 3) {
         try {
-          var snaps2 = JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+          var snaps2 = JSON.parse(_lsGet('_backups_meta')||'[]');
           // 가장 오래된 백업 절반 제거
           var toRemove = Math.max(1, Math.floor(snaps2.length / 2));
           while (toRemove-- > 0 && snaps2.length > 0) {
@@ -8496,7 +8489,7 @@ function _createBackup(reason){
 }
 function _restoreBackup(backupId){
   try{
-    var snaps=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+    var snaps=JSON.parse(_lsGet('_backups_meta')||'[]');
     var snap=snaps.find(function(s){return s.id===backupId;});
     if(!snap){showToast('백업을 찾을 수 없어');return false;}
     _createBackup('복원 직전 자동저장');
@@ -8504,8 +8497,8 @@ function _restoreBackup(backupId){
       var v=localStorage.getItem('_bk_'+backupId+'_'+k);
       if(v!==null)localStorage.setItem(k,v);
     });
-    try{taskItems=JSON.parse(localStorage.getItem('task_items_v1')||'[]');}catch(e){}
-    try{inboxItems=JSON.parse(localStorage.getItem('inbox_v1')||'[]');}catch(e){}
+    try{taskItems=JSON.parse(_lsGet('task_items_v1')||'[]');}catch(e){}
+    try{inboxItems=JSON.parse(_lsGet('inbox_v1')||'[]');}catch(e){}
     try{renderTaskTab&&renderTaskTab();}catch(e){}
     try{renderInbox&&renderInbox();}catch(e){}
     showToast('✅ 복원 완료 ('+snap.time+')');
@@ -8513,7 +8506,7 @@ function _restoreBackup(backupId){
   }catch(e){showToast('복원 실패: '+e.message);return false;}
 }
 function openBackupManager(){
-  var bks=JSON.parse(localStorage.getItem('_backups_meta')||'[]');
+  var bks=JSON.parse(_lsGet('_backups_meta')||'[]');
   var html='<div class="nds-modal" onclick="if(event.target===this)this.remove()" style="z-index:9999">'
     +'<div class="nds-modal-box" style="max-width:460px;max-height:80vh;overflow-y:auto">'
     +'<div style="font-size:16px;font-weight:700;margin-bottom:12px">📦 데이터 백업</div>'
@@ -8539,7 +8532,7 @@ function openBackupManager(){
     +'</div></div>';
   document.body.insertAdjacentHTML('beforeend',html);
 }
-let notionCfg=JSON.parse(localStorage.getItem('notion_config')||'{}');
+let notionCfg=JSON.parse(_lsGet('notion_config')||'{}');
 
 
 function toggleTaskSubPanel(itemId) {
@@ -8734,11 +8727,18 @@ async function gcalPushChanged(){
   }
 }
 function saveTaskData(){
+  // 세션 캐시: 살아있는 반복 ID만 유지 (메모리 누적 방지)
+  if (window._repeatSyncDecision && Object.keys(window._repeatSyncDecision).length > 50) {
+    var _liveIds = new Set((taskItems||[]).filter(function(t){ return t._repeatId; }).map(function(t){ return t._repeatId; }));
+    Object.keys(window._repeatSyncDecision).forEach(function(k){
+      if (!_liveIds.has(k)) delete window._repeatSyncDecision[k];
+    });
+  }
   try{if(typeof meHtbRender==="function")setTimeout(meHtbRender,0);}catch(e){}
   try {
-    localStorage.setItem('task_cats_v1', JSON.stringify(taskCats.filter(function(c){return c&&c.id;})));
+    _lsSet('task_cats_v1', JSON.stringify(taskCats.filter(function(c){return c&&c.id;})));
     // id 없는 항목 방어 필터
-    localStorage.setItem('task_items_v1', JSON.stringify(
+    _lsSet('task_items_v1', JSON.stringify(
       taskItems.filter(function(t){ return t && t.id; })
     ));
   } catch(e) {
@@ -9341,7 +9341,7 @@ function renderTaskList(){
     return;
   }
 
-  const _secCollapsed=JSON.parse(localStorage.getItem('task_sec_collapsed')||'{}');
+  const _secCollapsed=JSON.parse(_lsGet('task_sec_collapsed')||'{}');
   listEl.innerHTML=allCats.map(cat=>{
     // 할일 없는 카테고리 → 헤더만
     if(!groups[cat.id]){
@@ -9596,6 +9596,10 @@ function startTaskRename(itemId, realIdx, el) {
     if (newText && newText !== oldText) {
       t.text = newText;
       t.updatedAt = Date.now();
+      // 반복 인스턴스면 같은 _repeatId 미래 미완료에도 적용
+      if (t._repeatId && typeof _maybeApplyToRepeats === 'function') {
+        _maybeApplyToRepeats(t, function(other){ other.text = newText; }, '이름');
+      }
       saveTaskData();
       showToast('이름 변경됨');
     }
@@ -9809,6 +9813,14 @@ function tieSetTime(itemId, realIdx, val, field) {
   const t = taskItems[realIdx]; if(!t) return;
   if(field==='end') t.timeEnd = val;
   else              t.timeStart = val;
+  t.updatedAt = Date.now();
+  // 반복 인스턴스면 다른 미래 미완료 인스턴스에도 적용
+  if (t._repeatId) {
+    _maybeApplyToRepeats(t, function(other){
+      if (field === 'end') other.timeEnd = val;
+      else other.timeStart = val;
+    }, '시간');
+  }
   saveTaskData();
   const btnId = field==='end' ? 'tiete-'+itemId : 'tiets-'+itemId;
   const btn = document.getElementById(btnId);
@@ -9816,6 +9828,40 @@ function tieSetTime(itemId, realIdx, val, field) {
   tieClosePickers();
   renderTaskList();
 }
+
+// ═══════════════════════════════════════════════════════════════
+// 반복 인스턴스 편집 시 다른 미완료 미래 인스턴스에도 적용 (사용자 확인)
+// ═══════════════════════════════════════════════════════════════
+window._repeatSyncDecision = {}; // _repeatId 별 사용자 선택 캐시 (세션 동안)
+
+function _maybeApplyToRepeats(srcTask, applyFn, label) {
+  if (!srcTask._repeatId) return 0;
+  var todayKey = (function(){
+    var d = new Date();
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  })();
+  // 같은 반복 그룹의 미래 미완료 인스턴스
+  var siblings = taskItems.filter(function(o){
+    return o._repeatId === srcTask._repeatId
+      && o.id !== srcTask.id
+      && !o.done
+      && o.date && o.date >= todayKey;
+  });
+  if (siblings.length === 0) return 0;
+
+  // 세션 캐시 - 같은 반복 그룹에 대해 한 번 결정하면 유지
+  var key = srcTask._repeatId;
+  var decision = window._repeatSyncDecision[key];
+  if (decision === undefined) {
+    decision = confirm('이 ' + (label || '항목') + '은 반복 일정이에요.\n\n다른 ' + siblings.length + '개의 미래 인스턴스도 같이 변경할까요?\n(이번 세션 동안 같은 그룹은 다시 묻지 않음)');
+    window._repeatSyncDecision[key] = decision;
+  }
+  if (!decision) return 0;
+  siblings.forEach(function(o){ applyFn(o); o.updatedAt = Date.now(); });
+  showToast('반복 ' + siblings.length + '개도 함께 수정됨');
+  return siblings.length;
+}
+
 
 // ── 카테고리 / 우선순위 ──
 function tieSetCat(itemId, realIdx, catId) {
@@ -10588,7 +10634,7 @@ function goTab(t){
     if(t==='check' && oc.includes('startCheck')) b.classList.add('active');
   });
   if(t==='me'){
-    todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
+    todoItems=JSON.parse(_lsGet('todo_items')||'[]');
     renderMeTab();
     renderGroundControl();
     try{renderTimeGrid();}catch(e){}
@@ -10611,7 +10657,7 @@ function goTab(t){
 }
 
 // ── 나 탭 ────────────────────────────────────────────────
-let profileData=JSON.parse(localStorage.getItem('profile_data')||'{}');
+let profileData=JSON.parse(_lsGet('profile_data')||'{}');
 
 
 // ══════════════════════════════════════════════════════════════
@@ -10650,7 +10696,7 @@ const RPG_STATS_DEFAULT = [
 ];
 
 function getRpgStats(){
-  const saved = localStorage.getItem('rpg_stats_v1');
+  const saved = _lsGet('rpg_stats_v1');
   if(saved){try{return JSON.parse(saved);}catch(e){}}
   return JSON.parse(JSON.stringify(RPG_STATS_DEFAULT));
 }
@@ -10666,7 +10712,7 @@ let RPG_STATS = getRpgStats();
 // 저장 형식: { 'YYYY-MM-DD': { water: 1|0|-1, move: 1|0|-1, ... } }
 // 1=예, 0=아니오, -1=모르겠음, undefined=미체크
 function getRpgData(){
-  return JSON.parse(localStorage.getItem('rpg_obs_v1')||'{}');
+  return JSON.parse(_lsGet('rpg_obs_v1')||'{}');
 }
 function saveRpgData(d){
   localStorage.setItem('rpg_obs_v1',JSON.stringify(d));
@@ -10773,13 +10819,13 @@ function renderRpgStats(){
   }catch(e){console.warn("renderRpgStats",e);}
 }
 function initMeTab(){
-  profileData=JSON.parse(localStorage.getItem('profile_data')||'{}');
+  profileData=JSON.parse(_lsGet('profile_data')||'{}');
   const nameInp=document.getElementById('meNameInp');
   const tagInp=document.getElementById('meTaglineInp');
   if(nameInp)nameInp.value=profileData.name||'';
   if(tagInp)tagInp.value=profileData.tagline||'';
   // todoItems 최신화
-  todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
+  todoItems=JSON.parse(_lsGet('todo_items')||'[]');
   if(profileData.avatar){
     setTimeout(()=>_showAvatarImage(profileData.avatar), 150);
   }
@@ -10860,7 +10906,7 @@ function _showAvatarPixel(){
 
 function renderMeTab(){
   try{
-  profileData=JSON.parse(localStorage.getItem('profile_data')||'{}');
+  profileData=JSON.parse(_lsGet('profile_data')||'{}');
   const results=memos.filter(m=>m.type==='result');
   const checkCount=results.length;
 
@@ -10888,8 +10934,8 @@ function renderMeTab(){
   // 스탯
   const statEl=document.getElementById('meStatRow');
   if(statEl){
-    const md=JSON.parse(localStorage.getItem('metrics_v1')||'[]');
-    const rd=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
+    const md=JSON.parse(_lsGet('metrics_v1')||'[]');
+    const rd=JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}');
     const _tdk = (function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); })();
     // 오늘 할일: 오늘 날짜 + 미완료 + 시간표 일정 제외
     const _todayUndone = taskItems.filter(t => !t.done && t.date === _tdk && !t._deleted).length;
@@ -10921,7 +10967,7 @@ let focusState = {
   _interval:null, _paused:false
 };
 
-let todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
+let todoItems=JSON.parse(_lsGet('todo_items')||'[]');
 
 function saveTodos(){
   localStorage.setItem('todo_items',JSON.stringify(todoItems));
@@ -10993,7 +11039,7 @@ function saveTodayCharges(arr){
 function renderTodayCharge(){
   const el=document.getElementById('todayChargeArea');if(!el)return;
   const charges=getTodayCharges();
-  const rewardData=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
+  const rewardData=JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}');
   const chargeList=(rewardData.charge||[]).map(function(c){return c.name;});
 
   el.innerHTML='';
@@ -11063,7 +11109,7 @@ function saveTodayDrains(arr){
 function renderTodayDrain(){
   const el=document.getElementById('todayDrainArea');if(!el)return;
   const drains=getTodayDrains();
-  const rewardData=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
+  const rewardData=JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}');
   const drainList=(rewardData.drain||[]).map(function(d){return d.name;});
   el.innerHTML='';
   if(drains.length===0&&drainList.length===0){
@@ -11676,7 +11722,7 @@ Task 순서를 최적으로 정렬해라.
 // ── 나 탭 — 미니 지표 그래프 ─────────────────────────────
 function renderMeMetrics(){
   const el=document.getElementById('meMiniMetrics');if(!el)return;
-  metricsData=JSON.parse(localStorage.getItem('metrics_v1')||'[]');
+  metricsData=JSON.parse(_lsGet('metrics_v1')||'[]');
   if(metricsData.length===0){
     el.innerHTML=`<div class="me-metrics-empty">성장 지표가 없어.<br>기록 탭 → 성장 지표에서 추가해봐.</div>`;
     return;
@@ -12471,7 +12517,7 @@ async function _dlinkSyncToNotion(item, deadlineId, isLink) {
 
 // ── 설정 섹션 토글 ────────────────────────────────────────
 var _eisenCfg = (function(){
-  try { return JSON.parse(localStorage.getItem('eisen_cfg_v1') || '{}'); }
+  try { return JSON.parse(_lsGet('eisen_cfg_v1') || '{}'); }
   catch(e) { return {}; }
 })();
 
@@ -12551,7 +12597,7 @@ function switchSetTab(group) {
   localStorage.setItem('settings_tab',group);
 }
 function initSetTab() {
-  var saved = localStorage.getItem('settings_tab') || 'sync';
+  var saved = _lsGet('settings_tab') || 'sync';
   switchSetTab(saved);
 }
 
@@ -12569,7 +12615,7 @@ function renderPhil(){
 }
 
 // ── API ───────────────────────────────────────────────────
-let HF_TOKEN = localStorage.getItem('hf_token') || '';
+let HF_TOKEN = _lsGet('hf_token') || '';
 
 function loadSavedKey(){
   const i=document.getElementById('apiKeyInp');
@@ -12629,19 +12675,25 @@ async function testApiKey(){
 
 // Pollinations.ai로 이미지 생성
 async function _pollinationsGenerate(prompt, w, h) {
-  w = w || 512; h = h || 768;
-  const seed = Math.floor(Math.random() * 999999);
-  const encoded = encodeURIComponent(prompt);
-  const url = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&seed=${seed}&nologo=true&enhance=false`;
+  try {
+    w = w || 512; h = h || 768;
+    const seed = Math.floor(Math.random() * 999999);
+    const encoded = encodeURIComponent(prompt);
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&model=flux&seed=${seed}&nologo=true&enhance=false`;
 
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    const timeout = setTimeout(() => reject(new Error('이미지 생성 타임아웃 (30초)')), 30000);
-    img.onload = () => { clearTimeout(timeout); resolve(img); };
-    img.onerror = () => { clearTimeout(timeout); reject(new Error('Pollinations 이미지 로드 실패')); };
-    img.src = url;
-  });
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      const timeout = setTimeout(() => reject(new Error('이미지 생성 타임아웃 (30초)')), 30000);
+      img.onload = () => { clearTimeout(timeout); resolve(img); };
+      img.onerror = () => { clearTimeout(timeout); reject(new Error('Pollinations 이미지 로드 실패')); };
+      img.src = url;
+    });
+
+  } catch(e) {
+    console.error('[_pollinationsGenerate]', e);
+    throw e;
+  }
 }
 
 // ── AI 씬 캐시 (sid → visuals 객체) ──
@@ -12677,7 +12729,7 @@ var _bgRenderSeq = 0;
 // ── onload 초기화 ──
 function initTogetherAI() {
   // 구버전 avatar_gen_url → profileData.avatar 마이그레이션
-  const legacyUrl = localStorage.getItem('avatar_gen_url');
+  const legacyUrl = _lsGet('avatar_gen_url');
   if (legacyUrl && !profileData.avatar) {
     profileData.avatar = legacyUrl;
     localStorage.setItem('profile_data', JSON.stringify(profileData));
@@ -12848,7 +12900,7 @@ function renderWsPage(){
         </div>`;
       }
     if(f.type==='reward_pick'){
-      const rd=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
+      const rd=JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}');
       const charges=rd.charge||[];
       return `<div class="ws-field">
         <div class="ws-field-label">${f.label}</div>
@@ -12921,7 +12973,7 @@ function wsPrev(){if(wsPage>0){wsPage--;renderWsPage();}}
 function wsNext(){
   wsPage++;
   if(wsPage>=WS_PAGES.length){
-    todoItems=JSON.parse(localStorage.getItem('todo_items')||'[]');
+    todoItems=JSON.parse(_lsGet('todo_items')||'[]');
     importTasksFromWs(wsAnswers);
     showResult();
   }
@@ -13125,21 +13177,28 @@ JSON만 출력:
 
 // ── AI 호출 (Groq) ────────────────────────────────────────
 async function callAI(prompt,maxTokens=800,keyOverride=null){
-  const key=keyOverride||API_KEY;
-  if(!key)throw new Error('API 키가 없어. 설정 탭에서 입력해줘.');
-  const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
-    body:JSON.stringify({
-      model:'llama-3.1-8b-instant',
-      max_tokens:maxTokens,
-      temperature:0.7,
-      messages:[{role:'system',content:'너는 반드시 순수 한국어로만 답해야 해. 한자(예: 人,日,心,月,年,時 등 한자 자체)와 일본어 문자 절대 금지. 한자 대신 반드시 한글 단어로 써. 구어체. 특수문자(**,#,*,_,`) 금지.'},{role:'user',content:prompt}]
-    })
-  });
-  const d=await res.json();
-  if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
-  return d.choices?.[0]?.message?.content||'';
+  try {
+    const key=keyOverride||API_KEY;
+    if(!key)throw new Error('API 키가 없어. 설정 탭에서 입력해줘.');
+    const res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+      body:JSON.stringify({
+        model:'llama-3.1-8b-instant',
+        max_tokens:maxTokens,
+        temperature:0.7,
+        messages:[{role:'system',content:'너는 반드시 순수 한국어로만 답해야 해. 한자(예: 人,日,心,月,年,時 등 한자 자체)와 일본어 문자 절대 금지. 한자 대신 반드시 한글 단어로 써. 구어체. 특수문자(**,#,*,_,`) 금지.'},{role:'user',content:prompt}]
+      })
+    });
+    const d=await res.json();
+    if(d.error)throw new Error(d.error.message||JSON.stringify(d.error));
+    return d.choices?.[0]?.message?.content||'';
+
+  } catch(e) {
+    console.error('[callAI]', e);
+    showToast && showToast('callAI 오류: ' + (e.message || e));
+    throw e;
+  }
 }
 
 // ── 메모 ─────────────────────────────────────────────────
@@ -13339,7 +13398,7 @@ function saveResultCommitment(memoId){
 }
 
 // ── 성장 지표 ─────────────────────────────────────────────
-let metricsData=JSON.parse(localStorage.getItem('metrics_v1')||'[]');
+let metricsData=JSON.parse(_lsGet('metrics_v1')||'[]');
 
 
 // ══════════════════════════════════════════════════════════
@@ -13556,7 +13615,7 @@ function updateHeaderFocus() {
 }
 
 function renderMetricsPanel(){
-  metricsData=JSON.parse(localStorage.getItem('metrics_v1')||'[]');
+  metricsData=JSON.parse(_lsGet('metrics_v1')||'[]');
   const el=document.getElementById('metricsPanel');if(!el)return;
   if(metricsData.length===0){
     el.innerHTML=`<div class="memo-empty">달리기 거리, 체중, 운동 횟수 같은<br>숫자 지표를 추가해봐. 성장이 보여.</div>`;
@@ -13754,7 +13813,7 @@ function saveMetricItem(editIdx){
   if(!item.name){showToast('이름을 입력해주세요');return;}
   if(editIdx>=0)metricsData[editIdx]=item;
   else metricsData.push(item);
-  localStorage.setItem('metrics_v1',JSON.stringify(metricsData));
+  _lsSet('metrics_v1',JSON.stringify(metricsData));
   document.querySelector('.nds-modal')?.remove();
   renderMetricsPanel();
   if(fbUser)fbSaveAll();
@@ -13778,13 +13837,13 @@ function saveMetricLog(idx){
         var _todayKey = (function(){var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');})();
         if (!window._diaryTrackerValues[_todayKey]) window._diaryTrackerValues[_todayKey] = {};
         window._diaryTrackerValues[_todayKey][_trk.id] = String(val);
-        try { localStorage.setItem('diary_tracker_values_v1', JSON.stringify(window._diaryTrackerValues)); }catch(_){}
+        try { _lsSet('diary_tracker_values_v1', JSON.stringify(window._diaryTrackerValues)); }catch(_){}
         if (typeof diaryRenderTrackers === 'function') diaryRenderTrackers();
       }
     }
   } catch(_e){}
   if(metricsData[idx].history.length>30)metricsData[idx].history=metricsData[idx].history.slice(-30);
-  localStorage.setItem('metrics_v1',JSON.stringify(metricsData));
+  _lsSet('metrics_v1',JSON.stringify(metricsData));
   document.querySelector('.nds-modal')?.remove();
   renderMetricsPanel();renderMeMetrics();showToast('기록됐어!');
   if(fbUser)fbSaveAll();
@@ -13792,7 +13851,7 @@ function saveMetricLog(idx){
 
 function deleteMetricItem(idx){
   metricsData.splice(idx,1);
-  localStorage.setItem('metrics_v1',JSON.stringify(metricsData));
+  _lsSet('metrics_v1',JSON.stringify(metricsData));
   document.querySelector('.nds-modal')?.remove();
   renderMetricsPanel();
 }
@@ -13801,7 +13860,7 @@ function deleteMetricItem(idx){
 // rewardData: declared at top
 
 function initRewardData(){
-  rewardData=JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}');
+  rewardData=JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}');
 }
 
 function saveRewardData(){
@@ -13975,7 +14034,7 @@ function saveRewardEdit(type, idx){
 }
 
 // ── 진짜 원하는 것 ────────────────────────────────────────
-let realNeedData=JSON.parse(localStorage.getItem('real_need_v1')||'[]');
+let realNeedData=JSON.parse(_lsGet('real_need_v1')||'[]');
 
 function saveRealNeedData(){
   localStorage.setItem('real_need_v1',JSON.stringify(realNeedData));
@@ -14048,8 +14107,8 @@ const INBOX_DEFAULT_CATS=[
   {id:'misc',   label:'미분류',   color:'var(--fg2)'},
 ];
 
-let inboxItems=JSON.parse(localStorage.getItem('inbox_v1')||'[]');
-let inboxCats=JSON.parse(localStorage.getItem('inbox_cats_v1')||JSON.stringify(INBOX_DEFAULT_CATS));
+let inboxItems=JSON.parse(_lsGet('inbox_v1')||'[]');
+let inboxCats=JSON.parse(_lsGet('inbox_cats_v1')||JSON.stringify(INBOX_DEFAULT_CATS));
 let inboxActiveCat='all';
 
 function saveInboxData(){
@@ -14791,18 +14850,24 @@ function previewLogPhoto(inp){
 }
 
 async function saveRewardLog(type,idx){
-  const note=document.getElementById('rwLogNote')?.value.trim()||'';
-  let photo='';
-  const fileEl=document.getElementById('rwLogPhoto');
-  if(fileEl&&fileEl.files[0]){
-    const file=fileEl.files[0];
-    photo=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
+  try {
+    const note=document.getElementById('rwLogNote')?.value.trim()||'';
+    let photo='';
+    const fileEl=document.getElementById('rwLogPhoto');
+    if(fileEl&&fileEl.files[0]){
+      const file=fileEl.files[0];
+      photo=await new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.readAsDataURL(file);});
+    }
+    if(!rewardData[type][idx].logs)rewardData[type][idx].logs=[];
+    rewardData[type][idx].logs.push({note,photo,date:new Date().toLocaleDateString('ko-KR')});
+    saveRewardData();
+    document.querySelector('.nds-modal')?.remove();
+    renderRewardList(type);showToast('기록됐어!');
+
+  } catch(e) {
+    console.error('[saveRewardLog]', e);
+    throw e;
   }
-  if(!rewardData[type][idx].logs)rewardData[type][idx].logs=[];
-  rewardData[type][idx].logs.push({note,photo,date:new Date().toLocaleDateString('ko-KR')});
-  saveRewardData();
-  document.querySelector('.nds-modal')?.remove();
-  renderRewardList(type);showToast('기록됐어!');
 }
 
 function deleteRewardLog(type,itemIdx,logIdx){
@@ -14836,8 +14901,8 @@ function exportData(){
   const data={
     version:2,exportedAt:new Date().toISOString(),
     memos,philCards,questionSet,aiSettings,
-    rewardData:JSON.parse(localStorage.getItem('reward_data')||'{"charge":[],"drain":[]}'),
-    metricsV1:JSON.parse(localStorage.getItem('metrics_v1')||'[]')
+    rewardData:JSON.parse(_lsGet('reward_data')||'{"charge":[],"drain":[]}'),
+    metricsV1:JSON.parse(_lsGet('metrics_v1')||'[]')
   };
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
@@ -14859,7 +14924,7 @@ function importData(e){
       if(data.questionSet){questionSet=data.questionSet;localStorage.setItem('question_set',JSON.stringify(questionSet));renderQEdit();}
       if(data.aiSettings){aiSettings=data.aiSettings;localStorage.setItem('ai_settings',JSON.stringify(aiSettings));loadAiSettings();}
       if(data.rewardData){localStorage.setItem('reward_data',JSON.stringify(data.rewardData));initRewardData();}
-      if(data.metricsV1){localStorage.setItem('metrics_v1',JSON.stringify(data.metricsV1));}
+      if(data.metricsV1){_lsSet('metrics_v1',JSON.stringify(data.metricsV1));}
       if(fbUser)fbSaveAll();
       showToast('가져오기 완료!');
     }catch(err){showToast('오류: '+err.message);}
@@ -14868,11 +14933,11 @@ function importData(e){
 }
 
 // ── Firebase ──────────────────────────────────────────────
-let fbConfigSaved=JSON.parse(localStorage.getItem('fb_config')||'null');
+let fbConfigSaved=JSON.parse(_lsGet('fb_config')||'null');
 
 function fbDiagnose(){
   var lines=[];
-  var cfg=localStorage.getItem('fb_config');
+  var cfg=_lsGet('fb_config');
   if(!cfg||cfg==='{}') lines.push('❌ Firebase 설정 없음 → API Key/Auth Domain/Project ID 입력 필요');
   else {
     try{var p=JSON.parse(cfg);lines.push('✅ 설정 저장됨: '+p.projectId);}catch(e){lines.push('❌ 설정 파싱 오류');}
@@ -14909,7 +14974,7 @@ function saveFbConfig(){
 function clearFbConfig(){
   if(!confirm('Firebase 연결을 해제할까?\n설정은 숨김 처리됩니다 (언제든 복원 가능)'))return;
   // 삭제 대신 백업
-  var backup = localStorage.getItem('fb_config');
+  var backup = _lsGet('fb_config');
   if (backup) localStorage.setItem('_hidden_fb_config', backup);
   localStorage.setItem('fb_config', '');
   fbConfigSaved=null;fbUser=null;fbAuth=null;fbDb=null;fbApp=null;
@@ -14936,7 +15001,7 @@ function _showFbRestoreBtn(){
 }
 
 function restoreFbConfig(){
-  var backup=localStorage.getItem('_hidden_fb_config');
+  var backup=_lsGet('_hidden_fb_config');
   if(!backup){showToast('저장된 Firebase 설정 없음');return;}
   var cfg=JSON.parse(backup);
   localStorage.setItem('fb_config',backup);
@@ -15030,7 +15095,7 @@ function setSyncStatus(status){
   } else {
     if(badge) { badge.textContent='OFFLINE'; badge.className='set-section-badge off'; }
     if(dot)   { dot.className='notion-sync-dot'; }
-    if(bar && !localStorage.getItem('fb_config')) bar.classList.add('visible');
+    if(bar && !_lsGet('fb_config')) bar.classList.add('visible');
   }
 }
 
@@ -15043,10 +15108,17 @@ async function fbGoogleLogin(){
 }
 
 async function fbLogout(){
-  if(!fbAuth)return;
-  if(typeof _fbUnsubscribe!=="undefined"&&_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
-  await fbAuth.signOut();
-  showToast('로그아웃됐어');
+  try {
+    if(!fbAuth)return;
+    if(typeof _fbUnsubscribe!=="undefined"&&_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
+    await fbAuth.signOut();
+    showToast('로그아웃됐어');
+
+  } catch(e) {
+    console.error('[fbLogout]', e);
+    showToast && showToast('fbLogout 오류: ' + (e.message || e));
+    throw e;
+  }
 }
 
 // fbSave debounce
@@ -15061,7 +15133,7 @@ async function fbLogout(){
 // ═══════════════════════════════════════════════════════════════════
 
 // 기기 고유 ID (탭/기기 구분)
-var _DEVICE_ID = localStorage.getItem('_device_id') || (function(){
+var _DEVICE_ID = _lsGet('_device_id') || (function(){
   var id = 'dev_' + Date.now() + '_' + Math.random().toString(36).slice(2);
   localStorage.setItem('_device_id', id);
   return id;
@@ -15093,23 +15165,23 @@ async function _fbSaveNow(){
       savedAt: Date.now(),
       _deletedRepeatDates: _deletedRepeatDates,
       // 핵심 할일 데이터
-      taskItemsV1:    localStorage.getItem('task_items_v1')    || '[]',
-      taskCatsV1:     localStorage.getItem('task_cats_v1')     || '[]',
-      todoItems:      localStorage.getItem('todo_items')       || '[]',
+      taskItemsV1:    _lsGet('task_items_v1')    || '[]',
+      taskCatsV1:     _lsGet('task_cats_v1')     || '[]',
+      todoItems:      _lsGet('todo_items')       || '[]',
       // 인박스
-      inboxV1:        localStorage.getItem('inbox_v1')         || '[]',
-      inboxCatsV1:    localStorage.getItem('inbox_cats_v1')    || '[]',
+      inboxV1:        _lsGet('inbox_v1')         || '[]',
+      inboxCatsV1:    _lsGet('inbox_cats_v1')    || '[]',
       // 기록/메모
       memos:          JSON.stringify(memos),
       philCards:      JSON.stringify(philCards),
       questionSet:    JSON.stringify(questionSet),
       aiSettings:     JSON.stringify(aiSettings),
-      metricsV1:      localStorage.getItem('metrics_v1')       || '[]',
-      realNeedV1:     localStorage.getItem('real_need_v1')     || '[]',
+      metricsV1:      _lsGet('metrics_v1')       || '[]',
+      realNeedV1:     _lsGet('real_need_v1')     || '[]',
       // RPG/상태
-      rpgObsV1:       localStorage.getItem('rpg_obs_v1')       || '{}',
-      rpgStatsV1:     localStorage.getItem('rpg_stats_v1')     || 'null',
-      rewardData:     localStorage.getItem('reward_data')      || '{"charge":[],"drain":[]}',
+      rpgObsV1:       _lsGet('rpg_obs_v1')       || '{}',
+      rpgStatsV1:     _lsGet('rpg_stats_v1')     || 'null',
+      rewardData:     _lsGet('reward_data')      || '{"charge":[],"drain":[]}',
       // 오늘 충전/방전 (날짜 키 포함)
       todayChargeKey: getTodayChargeKey(),
       todayChargeVal: localStorage.getItem(getTodayChargeKey()) || '[]',
@@ -15117,30 +15189,30 @@ async function _fbSaveNow(){
       todayDrainVal:  getTodayDrainKey ? (localStorage.getItem(getTodayDrainKey()) || '[]') : '[]',
       // 스토리
       // 프로필
-      profileData:    localStorage.getItem('profile_data')     || '{}',
+      profileData:    _lsGet('profile_data')     || '{}',
       // Notion 설정 (기기간 공유)
-      notionConfig:   localStorage.getItem('notion_config')    || '{}',
-      timetablesV1:   localStorage.getItem('timetables_v1')    || '[]',
+      notionConfig:   _lsGet('notion_config')    || '{}',
+      timetablesV1:   _lsGet('timetables_v1')    || '[]',
       // 새 기능 데이터 (배너/스티커/테마/취미/준비물)
-      homeBannerV1:        localStorage.getItem('home_banner_v1')        || '{}',
-      globalStickersV1:    localStorage.getItem('global_stickers_v1')    || '{}',
-      themeV1:             localStorage.getItem('theme_v1')               || '{}',
-      hobbyCatsV2:         localStorage.getItem('hobby_cats_v2')          || '[]',
-      hobbyItemsV2:        localStorage.getItem('hobby_items_v2')         || '[]',
-      taskPrepTemplatesV1: localStorage.getItem('task_prep_templates_v1') || '[]',
-      diaryEntriesV1:      localStorage.getItem('diary_entries_v1')        || '{}',
-      diaryTrackersV1:     localStorage.getItem('diary_trackers_v1')        || '[]',
-      diaryTrackerValuesV1:localStorage.getItem('diary_tracker_values_v1')  || '{}',
-      subscriptionsV1: localStorage.getItem('subscriptions_v1') || '[]',
+      homeBannerV1:        _lsGet('home_banner_v1')        || '{}',
+      globalStickersV1:    _lsGet('global_stickers_v1')    || '{}',
+      themeV1:             _lsGet('theme_v1')               || '{}',
+      hobbyCatsV2:         _lsGet('hobby_cats_v2')          || '[]',
+      hobbyItemsV2:        _lsGet('hobby_items_v2')         || '[]',
+      taskPrepTemplatesV1: _lsGet('task_prep_templates_v1') || '[]',
+      diaryEntriesV1:      _lsGet('diary_entries_v1')        || '{}',
+      diaryTrackersV1:     _lsGet('diary_trackers_v1')        || '[]',
+      diaryTrackerValuesV1:_lsGet('diary_tracker_values_v1')  || '{}',
+      subscriptionsV1: _lsGet('subscriptions_v1') || '[]',
       // 할일 규칙 / 반복 할일 (기기간 공유)
-      taskRulesV1:    localStorage.getItem('task_rules_v1')    || '[]',
-      repeatItemsV1:  localStorage.getItem('repeat_items_v1') || '[]',
-      gcRuleNotes:    localStorage.getItem('gc_rule_notes')   || '{}',
-      gcMemos:        localStorage.getItem('gc_memos')         || '[]',
+      taskRulesV1:    _lsGet('task_rules_v1')    || '[]',
+      repeatItemsV1:  _lsGet('repeat_items_v1') || '[]',
+      gcRuleNotes:    _lsGet('gc_rule_notes')   || '{}',
+      gcMemos:        _lsGet('gc_memos')         || '[]',
       // 🎯 아일랜드 전체 데이터
-      fishTickets:    localStorage.getItem('fish_tickets')     || '0',
-      sanctuaryTotalSessions: localStorage.getItem('sanctuary_total_sessions') || '0',
-      sanctuaryVitality:      localStorage.getItem('sanctuary_vitality')       || '0',
+      fishTickets:    _lsGet('fish_tickets')     || '0',
+      sanctuaryTotalSessions: _lsGet('sanctuary_total_sessions') || '0',
+      sanctuaryVitality:      _lsGet('sanctuary_vitality')       || '0',
       // 집중 기록 traces
       sanctuaryTraces: JSON.stringify((function(){
         var tr={};
@@ -15151,7 +15223,7 @@ async function _fbSaveNow(){
         return tr;
       })()),
       // 집중 상태 (기기간 연동)
-      focusPersist:   localStorage.getItem('focus_persist') || '',
+      focusPersist:   _lsGet('focus_persist') || '',
       // 메타
       updatedAt:      firebase.firestore.FieldValue.serverTimestamp(),
       updatedAt_ms:   _fbLastSaveMs,
@@ -15321,7 +15393,7 @@ function _applyFirebaseData(d, force){
       // _deleted 마커 처리: 원격과 병합 후 실제 삭제
       items = Object.values(deduped).filter(function(t){ return !t._deleted; });
       taskItems = items;
-      localStorage.setItem('task_items_v1', JSON.stringify(items));
+      _lsSet('task_items_v1', JSON.stringify(items));
       // 수동 삭제 기록 원격과 병합
       if(d._deletedRepeatDates){
         Object.keys(d._deletedRepeatDates).forEach(function(rid){
@@ -15390,19 +15462,19 @@ function _applyFirebaseData(d, force){
   }
   if(d.diaryTrackersV1 !== undefined && d.diaryTrackersV1 !== null){
     try{
-      localStorage.setItem('diary_trackers_v1', d.diaryTrackersV1);
+      _lsSet('diary_trackers_v1', d.diaryTrackersV1);
       window._diaryTrackers = JSON.parse(d.diaryTrackersV1 || '[]');
     }catch(e){ console.warn('diaryTrackers apply:', e); }
   }
   if(d.diaryTrackerValuesV1 !== undefined && d.diaryTrackerValuesV1 !== null){
     try{
-      localStorage.setItem('diary_tracker_values_v1', d.diaryTrackerValuesV1);
+      _lsSet('diary_tracker_values_v1', d.diaryTrackerValuesV1);
       window._diaryTrackerValues = JSON.parse(d.diaryTrackerValuesV1 || '{}');
     }catch(e){ console.warn('diaryTrackerValues apply:', e); }
   }
   if(d.diaryEntriesV1 !== undefined && d.diaryEntriesV1 !== null){
     try{
-      localStorage.setItem('diary_entries_v1', d.diaryEntriesV1);
+      _lsSet('diary_entries_v1', d.diaryEntriesV1);
       window._diaryEntries = JSON.parse(d.diaryEntriesV1 || '{}');
       // 현재 일기 탭 보고 있으면 갱신
       if (window._diaryCurrentDate && document.getElementById('page-diary') && document.getElementById('page-diary').classList.contains('active')) {
@@ -15416,7 +15488,7 @@ function _applyFirebaseData(d, force){
   if(d.taskCatsV1 !== undefined){
     try {
       const cats = JSON.parse(d.taskCatsV1 || '[]');
-      if(cats && cats.length > 0){ taskCats = cats; localStorage.setItem('task_cats_v1', d.taskCatsV1); }
+      if(cats && cats.length > 0){ taskCats = cats; _lsSet('task_cats_v1', d.taskCatsV1); }
     } catch(e){}
   }
 
@@ -15500,7 +15572,7 @@ function _applyFirebaseData(d, force){
     try { loadAiSettings && loadAiSettings(); } catch(e){}
   }
   if(d.metricsV1 !== undefined){
-    localStorage.setItem('metrics_v1', d.metricsV1 || '[]');
+    _lsSet('metrics_v1', d.metricsV1 || '[]');
   }
   if(d.realNeedV1 !== undefined){
     try { realNeedData = JSON.parse(d.realNeedV1 || '[]'); } catch(e){ realNeedData = []; }
@@ -15552,7 +15624,7 @@ function _applyFirebaseData(d, force){
 
   // ── Notion 설정 (기기간 공유) ──
   // notion_disabled 플래그가 있으면 Firebase에서 복원하지 않음
-  if(d.notionConfig && d.notionConfig !== '{}' && !localStorage.getItem('notion_disabled')){
+  if(d.notionConfig && d.notionConfig !== '{}' && !_lsGet('notion_disabled')){
     try {
       localStorage.setItem('notion_config', d.notionConfig);
       notionCfg = JSON.parse(d.notionConfig);
@@ -15563,7 +15635,7 @@ function _applyFirebaseData(d, force){
   if(d.taskRulesV1 !== undefined){
     try {
       var remRules = JSON.parse(d.taskRulesV1 || '[]');
-      var locRules = JSON.parse(localStorage.getItem('task_rules_v1') || '[]');
+      var locRules = JSON.parse(_lsGet('task_rules_v1') || '[]');
       var rMerged = {};
       locRules.forEach(function(r){ rMerged[r.id] = r; });
       remRules.forEach(function(r){ if(!(r.id in rMerged)||(r.updatedAt||0)>(rMerged[r.id].updatedAt||0)) rMerged[r.id]=r; });
@@ -15575,11 +15647,11 @@ function _applyFirebaseData(d, force){
   if(d.repeatItemsV1 !== undefined){
     try {
       var remRep = JSON.parse(d.repeatItemsV1 || '[]');
-      var locRep = JSON.parse(localStorage.getItem('repeat_items_v1') || '[]');
+      var locRep = JSON.parse(_lsGet('repeat_items_v1') || '[]');
       var rpMerged = {};
       locRep.forEach(function(r){ rpMerged[r.id] = r; });
       remRep.forEach(function(r){ if(!(r.id in rpMerged)||(r.updatedAt||0)>(rpMerged[r.id].updatedAt||0)) rpMerged[r.id]=r; });
-      localStorage.setItem('repeat_items_v1', JSON.stringify(Object.values(rpMerged)));
+      _lsSet('repeat_items_v1', JSON.stringify(Object.values(rpMerged)));
       try{_generateRepeatTasks&&_generateRepeatTasks();}catch(e){}
       try{renderTaskTab&&renderTaskTab();}catch(e){}
     } catch(e){}
@@ -15587,7 +15659,7 @@ function _applyFirebaseData(d, force){
   if(d.gcRuleNotes !== undefined){
     try{
       var _remN=JSON.parse(d.gcRuleNotes||'{}');
-      var _locN=JSON.parse(localStorage.getItem('gc_rule_notes')||'{}');
+      var _locN=JSON.parse(_lsGet('gc_rule_notes')||'{}');
       var _mN=Object.assign({},[_locN,_remN].reduce(function(a,b){return Object.assign(a,b);}));
       localStorage.setItem('gc_rule_notes',JSON.stringify(_mN));
       if(typeof _gcRuleNotes!=='undefined')_gcRuleNotes=_mN;
@@ -15596,7 +15668,7 @@ function _applyFirebaseData(d, force){
   if(d.gcMemos !== undefined){
     try{
       var _remM=JSON.parse(d.gcMemos||'[]');
-      var _locM=JSON.parse(localStorage.getItem('gc_memos')||'[]');
+      var _locM=JSON.parse(_lsGet('gc_memos')||'[]');
       var _mMap={};
       _locM.forEach(function(m){_mMap[m.id]=m;});
       _remM.forEach(function(m){if(!_mMap[m.id]||(m.updatedAt||m.createdAt||0)>(_mMap[m.id].updatedAt||_mMap[m.id].createdAt||0))_mMap[m.id]=m;});
@@ -15651,11 +15723,18 @@ function _reRenderCurrentTab(){
 }
 
 async function fbForceSync(){
-  if(!fbUser){ showToast('로그인이 필요해'); return; }
-  showToast('동기화 중...');
-  await _fbSaveNow();
-  await fbLoadAll();
-  showToast('동기화 완료! ↕');
+  try {
+    if(!fbUser){ showToast('로그인이 필요해'); return; }
+    showToast('동기화 중...');
+    await _fbSaveNow();
+    await fbLoadAll();
+    showToast('동기화 완료! ↕');
+
+  } catch(e) {
+    console.error('[fbForceSync]', e);
+    showToast && showToast('fbForceSync 오류: ' + (e.message || e));
+    throw e;
+  }
 }
 
 
@@ -15687,7 +15766,7 @@ window.onload=()=>{
     try{renderTimeGrid();}catch(e){}
     updateSettingsStatus();
     initNotionSync();
-    if(!localStorage.getItem('fb_config'))setTimeout(()=>{const b=document.getElementById('syncBar');if(b)b.classList.add('visible');},2000);
+    if(!_lsGet('fb_config'))setTimeout(()=>{const b=document.getElementById('syncBar');if(b)b.classList.add('visible');},2000);
   }, 100);
 };
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -16676,11 +16755,11 @@ function updateSettingsStatus() {
   const apiDot = document.getElementById('sysApiDot');
   const fbDot  = document.getElementById('sysFbDot');
   if(apiDot) {
-    const hasApi = !!localStorage.getItem('groq_key');
+    const hasApi = !!_lsGet('groq_key');
     apiDot.className = 'sys-stat-dot' + (hasApi ? ' ok' : '');
   }
   if(fbDot) {
-    const hasFb = !!localStorage.getItem('fb_config');
+    const hasFb = !!_lsGet('fb_config');
     fbDot.className = 'sys-stat-dot' + (hasFb ? ' ok' : ' warn');
   }
 }
@@ -16721,7 +16800,7 @@ function renderNotionDbMapping() {
 // ── 설정탭 열릴 때 호출 ──
 function initNotionSettings() {
   // 토글 상태 동기화
-  var _isOff = !!localStorage.getItem('notion_disabled');
+  var _isOff = !!_lsGet('notion_disabled');
   var _hasCfg = !!(notionCfg && (notionCfg.workerUrl || notionCfg.token));
   var _isOn = !_isOff && _hasCfg;
   var _tr = document.getElementById('notionToggleTrack');
@@ -16846,14 +16925,14 @@ function setNotionEnabled(enabled) {
   if (chk) chk.checked = !!enabled;
   if (enabled) {
     localStorage.removeItem('notion_disabled');
-    var backup = localStorage.getItem('_hidden_notion_config');
+    var backup = _lsGet('_hidden_notion_config');
     if (backup && backup !== '{}') {
       localStorage.setItem('notion_config', backup);
       try { notionCfg = JSON.parse(backup); } catch(e) {}
     }
     showToast('Notion 연동 활성화됨');
   } else {
-    var cur = localStorage.getItem('notion_config');
+    var cur = _lsGet('notion_config');
     if (cur && cur !== '{}') localStorage.setItem('_hidden_notion_config', cur);
     notionCfg = {};
     localStorage.setItem('notion_config', '{}');
@@ -16869,7 +16948,7 @@ function clearNotionConfig() {
 }
 
 function restoreNotionConfig() {
-  var backup = localStorage.getItem('_hidden_notion_config');
+  var backup = _lsGet('_hidden_notion_config');
   if (!backup || backup === '{}') { localStorage.removeItem('notion_disabled');
   showToast('저장된 Notion 설정 없음'); return; }
   localStorage.setItem('notion_config', backup);
@@ -17163,19 +17242,25 @@ async function _detectNotionProps(dbId) {
 
 // ── DB에서 모든 페이지 가져오기 (페이지네이션) ──
 async function fetchAllNotionPages(dbId) {
-  const pages = [];
-  let cursor = undefined;
-  let pageCount = 0;
-  const MAX_PAGES = 20; // 안전 제한 (100개/페이지 × 20 = 최대 2000개)
-  do {
-    const body = cursor ? { start_cursor: cursor, page_size: 100 } : { page_size: 100 };
-    const res = await notionApi('POST', `/databases/${dbId}/query`, body);
-    pages.push(...(res.results || []));
-    cursor = res.has_more ? res.next_cursor : undefined;
-    pageCount++;
-    if (pageCount >= MAX_PAGES) { console.warn('fetchAllNotionPages: 최대 페이지 수 도달'); break; }
-  } while (cursor);
-  return pages;
+  try {
+    const pages = [];
+    let cursor = undefined;
+    let pageCount = 0;
+    const MAX_PAGES = 20; // 안전 제한 (100개/페이지 × 20 = 최대 2000개)
+    do {
+      const body = cursor ? { start_cursor: cursor, page_size: 100 } : { page_size: 100 };
+      const res = await notionApi('POST', `/databases/${dbId}/query`, body);
+      pages.push(...(res.results || []));
+      cursor = res.has_more ? res.next_cursor : undefined;
+      pageCount++;
+      if (pageCount >= MAX_PAGES) { console.warn('fetchAllNotionPages: 최대 페이지 수 도달'); break; }
+    } while (cursor);
+    return pages;
+
+  } catch(e) {
+    console.error('[fetchAllNotionPages]', e);
+    throw e;
+  }
 }
 
 // ── 단일 카테고리 동기화 ──
@@ -17814,7 +17899,7 @@ function _hookNotionForTaskOps() {
 
 // ── 초기화 ──
 function initNotionSync() {
-  notionCfg = JSON.parse(localStorage.getItem('notion_config') || '{}');
+  notionCfg = JSON.parse(_lsGet('notion_config') || '{}');
   _hookNotionForTaskTab();
   _hookNotionForTaskOps();
 }
@@ -17831,10 +17916,10 @@ function _collectSystemState() {
   const yr = d.getFullYear(), mo = d.getMonth()+1, dy = d.getDate();
 
   // 에너지 배터리
-  const battery = parseInt(localStorage.getItem('battery_level') || '5');
+  const battery = parseInt(_lsGet('battery_level') || '5');
 
   // RPG 스탯 체크 (오늘 체크된 항목 수)
-  const rpgChecks = JSON.parse(localStorage.getItem('rpg_obs_v1') || '{}');
+  const rpgChecks = JSON.parse(_lsGet('rpg_obs_v1') || '{}');
   const todayChecks = rpgChecks[today] || {};
   const checkedCount = Object.values(todayChecks).filter(Boolean).length;
 
@@ -17845,25 +17930,25 @@ function _collectSystemState() {
   const todayDrainList  = JSON.parse(localStorage.getItem(drainKey)  || '[]');
 
   // 활성/완료 할일
-  const allTodos = JSON.parse(localStorage.getItem('todo_items') || '[]');
+  const allTodos = JSON.parse(_lsGet('todo_items') || '[]');
   const todos    = allTodos.filter(t => !t.done);
   const doneTodos = allTodos.filter(t => t.done).length;
-  const allTasks = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
+  const allTasks = JSON.parse(_lsGet('task_items_v1') || '[]');
   const tasks    = allTasks.filter(t => !t.done);
   const doneTasks = allTasks.filter(t => t.done).length;
 
   // 프로필
-  const profile = JSON.parse(localStorage.getItem('profile_data') || '{}');
+  const profile = JSON.parse(_lsGet('profile_data') || '{}');
   const agentName = (profile.name || profile.codename || '요원').trim() || '요원';
   const agentClass = profile.agentClass || profile.class || '';
 
   // 인박스 미처리
-  const inbox = JSON.parse(localStorage.getItem('inbox_v1') || '[]').filter(m => !m.done);
+  const inbox = JSON.parse(_lsGet('inbox_v1') || '[]').filter(m => !m.done);
 
   // 체크인 결과 — ws_answers_YYYY-MM-DD 형태인지 확인
   let wsAnswers = {};
   try {
-    wsAnswers = JSON.parse(localStorage.getItem('ws_answers_today') || '{}');
+    wsAnswers = JSON.parse(_lsGet('ws_answers_today') || '{}');
     if(!wsAnswers || typeof wsAnswers !== 'object') wsAnswers = {};
   } catch(e) { wsAnswers = {}; }
 
@@ -17978,7 +18063,7 @@ var DEFAULT_IMAGE_PROMPT = `{{scene}}, cinematic magical illustration, high-end 
 
 
 
-function getImagePromptTemplate()  { return localStorage.getItem('image_prompt_custom')   || DEFAULT_IMAGE_PROMPT; }
+function getImagePromptTemplate()  { return _lsGet('image_prompt_custom')   || DEFAULT_IMAGE_PROMPT; }
 
 // ── 프롬프트 생성 ──
 
@@ -18507,9 +18592,7 @@ function _scRain(ctx, W, H, intensity, rng) {
 }
 
 // ── 헬퍼 ──
-function _px(ctx,x,y,w,h,color){
-  ctx.fillStyle=color;ctx.fillRect(x,y,w,h);
-}
+// _px: 중복 제거
 function _neonSign(ctx,x,y,w,h,color){
   var g=ctx.createLinearGradient(x,y,x+w,y+h);
   g.addColorStop(0,color+'ff');g.addColorStop(1,color+'cc');
@@ -18737,7 +18820,7 @@ function _saveFocusState() {
 
 function _restoreFocusState() {
   try {
-    var raw = localStorage.getItem('focus_persist');
+    var raw = _lsGet('focus_persist');
     if (!raw) return false;
     var s = JSON.parse(raw);
     if (!s || !s.taskId) return false;
@@ -18862,7 +18945,7 @@ function _loadSanctuaryPlants(zoneId){ if(!zoneId)return []; try{return JSON.par
 function _saveSanctuaryPlants(zoneId,plants){ if(!zoneId)return; localStorage.setItem('sanctuary_plants_'+zoneId,JSON.stringify(plants)); }
 function _loadSanctuaryStars(zoneId){ if(!zoneId)return []; try{return JSON.parse(localStorage.getItem('sanctuary_stars_'+zoneId)||'[]');}catch(e){return[];} }
 function _saveSanctuaryStars(zoneId,stars){ if(!zoneId)return; localStorage.setItem('sanctuary_stars_'+zoneId,JSON.stringify(stars)); }
-function _loadVitality(){ try{ var v=parseFloat(localStorage.getItem('sanctuary_vitality')||'20'); var last=parseInt(localStorage.getItem('sanctuary_last_focus')||'0'); var elapsed=(Date.now()-last)/(1000*60*60); v=Math.max(10,v-elapsed*2); return Math.min(100,v); }catch(e){return 20;} }
+function _loadVitality(){ try{ var v=parseFloat(_lsGet('sanctuary_vitality')||'20'); var last=parseInt(_lsGet('sanctuary_last_focus')||'0'); var elapsed=(Date.now()-last)/(1000*60*60); v=Math.max(10,v-elapsed*2); return Math.min(100,v); }catch(e){return 20;} }
 function _saveVitality(v){ localStorage.setItem('sanctuary_vitality',String(v)); localStorage.setItem('sanctuary_last_focus',String(Date.now())); }
 
 // ── UI 업데이트 ──────────────────────────────────────
@@ -18919,7 +19002,7 @@ function _onSanctuarySessionComplete(){
   _saveVitality(_sanctuary.vitality);
   _showSanctuaryToast('🌱 흔적이 새겨졌습니다 · 낚시 1회 획득!');
   // 낚시 티켓 적립
-  var tickets=parseInt(localStorage.getItem('fish_tickets')||'0')+1;
+  var tickets=parseInt(_lsGet('fish_tickets')||'0')+1;
   localStorage.setItem('fish_tickets',String(tickets));
 }
 
@@ -19035,7 +19118,7 @@ document.addEventListener('click', function(e) {
 // ══════════════════════════════════════════
 
 let timetables = (function() {
-  try { return JSON.parse(localStorage.getItem('timetables_v1') || '[]'); }
+  try { return JSON.parse(_lsGet('timetables_v1') || '[]'); }
   catch(e) { return []; }
 })();
 
@@ -19501,7 +19584,7 @@ function ttGenerate() {
 
   if (!taskCats.find(function(cat){ return cat.id === 'schedule'; })) {
     taskCats.unshift({id:'schedule', label:'일정', color:'#E05050', icon:'📅'});
-    localStorage.setItem('task_cats_v1', JSON.stringify(taskCats));
+    _lsSet('task_cats_v1', JSON.stringify(taskCats));
   }
 
   // 기존 관련 일정 탐색 (note 기준 + 마킹 사라진 것 모두)
@@ -19610,7 +19693,7 @@ function _ttGenerateModal(tt, toCreate, allExisting, existByNote, existOrphan, t
 }
 
 function _ttApply(tt, toCreate, allExisting, ttNote, choice) {
-  taskItems = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
+  taskItems = JSON.parse(_lsGet('task_items_v1') || '[]');
   var slotTitles = new Set((tt.slots || []).map(function(s){ return s.title; }));
 
   function isRelated(item) {
@@ -19707,7 +19790,7 @@ function _applyPhilSlide() { /* 사용 안 함 */ }
 // 구독 관리
 // ══════════════════════════════════════
 var subscriptions = (function() {
-  try { return JSON.parse(localStorage.getItem('subscriptions_v1') || '[]'); }
+  try { return JSON.parse(_lsGet('subscriptions_v1') || '[]'); }
   catch(e) { return []; }
 })();
 
@@ -20131,7 +20214,7 @@ function saveNotifInterval() {
 }
 
 function loadNotifInterval() {
-  var saved = localStorage.getItem('notif_interval_min') || '30';
+  var saved = _lsGet('notif_interval_min') || '30';
   var sel = document.getElementById('notifIntervalSel');
   if (sel) sel.value = saved;
   return parseInt(saved);
@@ -20139,7 +20222,7 @@ function loadNotifInterval() {
 
 function toggleInboxNotif(){
   var btn=document.getElementById('notifToggleBtn');
-  var isOff=localStorage.getItem('notif_disabled')==='1';
+  var isOff=_lsGet('notif_disabled')==='1';
   if(isOff){
     localStorage.removeItem('notif_disabled');
     startNotificationLoop();
@@ -20154,7 +20237,7 @@ function toggleInboxNotif(){
 }
 
 function startNotificationLoop() {
-  if(localStorage.getItem('notif_disabled')==='1'){
+  if(_lsGet('notif_disabled')==='1'){
     var btn=document.getElementById('notifToggleBtn');
     if(btn){btn.textContent='🔔 알림 켜기';btn.style.color='var(--accent)';}
     return;
@@ -20448,14 +20531,14 @@ async function fetchNotionPrioOptions() {
 // Google Calendar 동기화
 // ══════════════════════════════════════════════════════
 var _gcalCfg = (function(){
-  try { return JSON.parse(localStorage.getItem('gcal_cfg_v1') || '{}'); } catch(e){ return {}; }
+  try { return JSON.parse(_lsGet('gcal_cfg_v1') || '{}'); } catch(e){ return {}; }
 })();
 var _gcalToken = null;
 var _gcalTokenExp = 0;
 // 저장된 GCal 토큰 복원
 (function(){
   try {
-    var saved = JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');
+    var saved = JSON.parse(_lsGet('gcal_cfg_v1')||'{}');
     if(saved._savedToken && saved._savedTokenExp && saved._savedTokenExp > Date.now() + 60000){
       _gcalToken = saved._savedToken;
       _gcalTokenExp = saved._savedTokenExp;
@@ -20521,7 +20604,7 @@ function gcalUpdateBadge() {
     badge.textContent = '만료됨 (재로그인)';
     badge.className = 'set-section-badge warn';
     _gcalToken = null;
-    try{ var _tc=JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');
+    try{ var _tc=JSON.parse(_lsGet('gcal_cfg_v1')||'{}');
       delete _tc._savedToken; delete _tc._savedTokenExp;
       localStorage.setItem('gcal_cfg_v1',JSON.stringify(_tc)); }catch(e){}
   } else {
@@ -20586,25 +20669,31 @@ function gcalAuth() {
 })();
 
 async function gcalApi(method, path, body) {
-  if (!_gcalToken) throw new Error('Google 인증이 필요해');
-  if (Date.now() > _gcalTokenExp - 60000) throw new Error('토큰이 만료됐어. 다시 로그인해줘');
-  var calId = encodeURIComponent(_gcalCfg.calendarId || 'primary');
-  var base = 'https://www.googleapis.com/calendar/v3/calendars/' + calId + '/events';
-  var url = base + (path || '');
-  var res = await fetch(url, {
-    method: method,
-    headers: {
-      'Authorization': 'Bearer ' + _gcalToken,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    var errText = await res.text();
-    throw new Error('GCal ' + res.status + ': ' + errText.slice(0, 120));
+  try {
+    if (!_gcalToken) throw new Error('Google 인증이 필요해');
+    if (Date.now() > _gcalTokenExp - 60000) throw new Error('토큰이 만료됐어. 다시 로그인해줘');
+    var calId = encodeURIComponent(_gcalCfg.calendarId || 'primary');
+    var base = 'https://www.googleapis.com/calendar/v3/calendars/' + calId + '/events';
+    var url = base + (path || '');
+    var res = await fetch(url, {
+      method: method,
+      headers: {
+        'Authorization': 'Bearer ' + _gcalToken,
+        'Content-Type': 'application/json',
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok) {
+      var errText = await res.text();
+      throw new Error('GCal ' + res.status + ': ' + errText.slice(0, 120));
+    }
+    if (res.status === 204) return {};
+    return res.json();
+
+  } catch(e) {
+    console.error('[gcalApi]', e);
+    throw e;
   }
-  if (res.status === 204) return {};
-  return res.json();
 }
 
 function _taskToGcalEvent(item) {
@@ -20651,19 +20740,25 @@ function _taskToGcalEvent(item) {
 
 // GCal API - calendarId 오버라이드 가능
 async function gcalApiCal(method, path, body, calId) {
-  if (!_gcalToken) throw new Error('Google 인증이 필요해');
-  if (Date.now() > _gcalTokenExp - 60000) throw new Error('토큰 만료. 다시 로그인해줘');
-  var cId = encodeURIComponent(calId || _gcalCfg.calendarId || 'primary');
-  var base = 'https://www.googleapis.com/calendar/v3/calendars/' + cId + '/events';
-  var url = path ? base + path : base;
-  return fetch(url, {
-    method: method,
-    headers: {
-      'Authorization': 'Bearer ' + _gcalToken,
-      'Content-Type': 'application/json'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  }).then(function(r) { return r.json(); });
+  try {
+    if (!_gcalToken) throw new Error('Google 인증이 필요해');
+    if (Date.now() > _gcalTokenExp - 60000) throw new Error('토큰 만료. 다시 로그인해줘');
+    var cId = encodeURIComponent(calId || _gcalCfg.calendarId || 'primary');
+    var base = 'https://www.googleapis.com/calendar/v3/calendars/' + cId + '/events';
+    var url = path ? base + path : base;
+    return fetch(url, {
+      method: method,
+      headers: {
+        'Authorization': 'Bearer ' + _gcalToken,
+        'Content-Type': 'application/json'
+      },
+      body: body ? JSON.stringify(body) : undefined
+    }).then(function(r) { return r.json(); });
+
+  } catch(e) {
+    console.error('[gcalApiCal]', e);
+    throw e;
+  }
 }
 
 // 할일 전용 캘린더 생성 또는 기존 것 사용
@@ -21187,7 +21282,7 @@ function meAiCancel(){
 
 // ══ 할일 규칙 시스템 ══
 function _loadTaskRules() {
-  try { return JSON.parse(localStorage.getItem('task_rules_v1') || '[]'); } catch(e) { return []; }
+  try { return JSON.parse(_lsGet('task_rules_v1') || '[]'); } catch(e) { return []; }
 }
 function _saveTaskRules(rules) { localStorage.setItem('task_rules_v1', JSON.stringify(rules)); }
 function _dateKey(d) {
@@ -21573,7 +21668,7 @@ function gcToggle() {
 
 
 // ═══ GC 규칙 메모 및 일괄 삭제 ═══
-var _gcRuleNotes = (function(){ try{ return JSON.parse(localStorage.getItem('gc_rule_notes')||'{}'); }catch(e){return {};} })();
+var _gcRuleNotes = (function(){ try{ return JSON.parse(_lsGet('gc_rule_notes')||'{}'); }catch(e){return {};} })();
 function _saveGcRuleNotes(){ localStorage.setItem('gc_rule_notes', JSON.stringify(_gcRuleNotes)); }
 
 function gcRuleNoteEdit(ruleId) {
@@ -21601,7 +21696,7 @@ function gcDeleteRules(ids) {
 }
 
 // ═══ GC 독립 메모 ═══
-var _gcMemos=(function(){try{return JSON.parse(localStorage.getItem('gc_memos')||'[]');}catch(e){return [];}})();
+var _gcMemos=(function(){try{return JSON.parse(_lsGet('gc_memos')||'[]');}catch(e){return [];}})();
 function _saveGcMemos(){localStorage.setItem('gc_memos',JSON.stringify(_gcMemos));if(typeof fbUser!=='undefined'&&fbUser)fbSaveAll();}
 function gcMemoAdd(){
   var t=prompt('메모 내용:');if(!t||!t.trim())return;
@@ -21830,7 +21925,7 @@ function renderTimeGrid(){
   }
   var now=new Date();
   var todayMidnight=new Date(now); todayMidnight.setHours(0,0,0,0);
-  function fmtKey(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  // fmtKey: 중복 제거
   var todayKey=fmtKey(todayMidnight);
   var startDay=new Date(todayMidnight); startDay.setDate(startDay.getDate()+_tgOffsetDays);
   var dpr=window.devicePixelRatio||1;
@@ -22036,8 +22131,8 @@ function renderTimeGrid(){
 // ═══ 가로 타임블록 ═══
 var _htbDate=null;
 var HTB_HW=64;
-var _htbStartH=parseInt(localStorage.getItem('htb_start_h')||'0');  // 표시 시작 시각
-var _htbEndH=parseInt(localStorage.getItem('htb_end_h')||'24');      // 표시 종료 시각
+var _htbStartH=parseInt(_lsGet('htb_start_h')||'0');  // 표시 시작 시각
+var _htbEndH=parseInt(_lsGet('htb_end_h')||'24');      // 표시 종료 시각
 
 
 function htbRangeChange(){
@@ -22505,8 +22600,8 @@ function meHtbRender(){
 }
 
 // ══ 반복 할일 시스템 ══
-function _loadRepeatItems(){ try{ return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]'); }catch(e){ return []; } }
-function _saveRepeatItems(items){ localStorage.setItem('repeat_items_v1', JSON.stringify(items)); }
+function _loadRepeatItems(){ try{ return JSON.parse(_lsGet('repeat_items_v1')||'[]'); }catch(e){ return []; } }
+function _saveRepeatItems(items){ _lsSet('repeat_items_v1', JSON.stringify(items)); }
 var _WEEKDAY_LBL = ['일','월','화','수','목','금','토'];
 var _FREQ_LBL = { daily:'매일', weekly:'매주', biweekly:'격주', monthly:'매월', weekdays:'평일(월-금)', custom:'N일마다' };
 
@@ -22521,7 +22616,7 @@ function _getCatDefaultPriority(catId) {
 
 // 수동 삭제된 반복 할일 날짜 추적 (재생성 방지)
 var _deletedRepeatDates = (function(){
-  try{ return JSON.parse(localStorage.getItem('_deletedRepeatDates')||'{}'); }catch(e){ return {}; }
+  try{ return JSON.parse(_lsGet('_deletedRepeatDates')||'{}'); }catch(e){ return {}; }
 })();
 function _saveDeletedRepeatDates(){
   try{ localStorage.setItem('_deletedRepeatDates', JSON.stringify(_deletedRepeatDates)); }catch(e){}
@@ -22719,17 +22814,7 @@ function deleteRepeatItem(repeatId) {
 }
 
 
-function deleteRepeatItem(repeatId) {
-  if (!confirm('반복 할일을 삭제할까요?')) return;
-  _saveRepeatItems(_loadRepeatItems().filter(function(x){ return x.id!==repeatId; }));
-  var today=new Date();today.setHours(0,0,0,0);var tk=_dateKey(today);
-  taskItems=taskItems.filter(function(t){ return !(t._repeatId===repeatId&&!t.done&&t.date>=tk); });
-  saveTaskData();
-  document.getElementById('repeatItemModal')&&document.getElementById('repeatItemModal').remove();
-  renderTaskTab&&renderTaskTab();
-  renderGroundControl&&renderGroundControl();
-  showToast('반복 할일 삭제됨');
-}
+// deleteRepeatItem: 중복 제거 (위 정의 사용)
 
 
 
@@ -22740,7 +22825,7 @@ function deleteRepeatItem(repeatId) {
 // ═══════════════════════════════════════════════════════════════
 
 var _diaryNotionCfg = (function(){
-  try { return JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); } catch(e){ return {}; }
+  try { return JSON.parse(_lsGet('diary_notion_cfg')||'{}'); } catch(e){ return {}; }
 })();
 var _diaryAutoSyncTimer = null;
 
@@ -22875,6 +22960,47 @@ async function _diaryNotionApi(method, path, body) {
   try { return JSON.parse(text); } catch(e) { return text; }
 }
 
+
+// ═══════════════════════════════════════════════════════════════
+// localStorage 안전 헬퍼 (QuotaExceededError / Private 모드 보호)
+// ═══════════════════════════════════════════════════════════════
+function _lsGet(key, fallback) {
+  if (fallback === undefined) fallback = null;
+  try {
+    var val = localStorage.getItem(key);
+    return val !== null ? val : fallback;
+  } catch(e) {
+    console.warn('[ls] getItem fail:', key, e.name);
+    return fallback;
+  }
+}
+function _lsSet(key, val) {
+  try {
+    localStorage.setItem(key, val);
+    return true;
+  } catch(e) {
+    if (e.name === 'QuotaExceededError' || e.code === 22) {
+      console.warn('[ls] QuotaExceeded on setItem:', key, '(size:', String(val).length, ')');
+    } else {
+      console.warn('[ls] setItem fail:', key, e.name);
+    }
+    return false;
+  }
+}
+function _lsRemove(key) {
+  try { localStorage.removeItem(key); return true; }
+  catch(e) { console.warn('[ls] removeItem fail:', key, e.name); return false; }
+}
+
+// Notion 속성 → 평문 텍스트 추출 (공유 유틸)
+function _diaryExtractNotionText(propVal) {
+  if (!propVal) return '';
+  var arr = propVal.rich_text || propVal.title || [];
+  return arr.map(function(t){ return t.plain_text || (t.text && t.text.content) || ''; }).join('');
+}
+
+
+
 // Worker 연결 테스트
 async function testNotionDiaryWorker() {
   var btn = document.getElementById('notionDiaryTestBtn');
@@ -22962,8 +23088,14 @@ function _buildTodayTasksText(dateKey) {
 
 // AI로 타임라인 정리
 async function _formatTimelineWithAI(rawText) {
-  var prompt = (_diaryNotionCfg.prompt || DIARY_DEFAULT_PROMPT).replace('{tasks}', rawText);
-  return await callAI(prompt, 2000);
+  try {
+    var prompt = (_diaryNotionCfg.prompt || DIARY_DEFAULT_PROMPT).replace('{tasks}', rawText);
+    return await callAI(prompt, 2000);
+
+  } catch(e) {
+    console.error('[_formatTimelineWithAI]', e);
+    throw e;
+  }
 }
 
 // Notion에서 오늘 날짜 페이지 찾기 또는 생성
@@ -23002,12 +23134,18 @@ async function _findOrCreateDiaryPage(dateKey) {
 
 // Notion 페이지에 타임라인 저장
 async function _saveDiaryTimelineToPage(pageId, text) {
-  var cfg = _diaryNotionCfg;
-  var prop = cfg.timelineProp || '타임라인';
-  var props = {};
-  // rich_text 최대 2000자 제한
-  props[prop] = { rich_text: [{ text: { content: text.slice(0, 2000) } }] };
-  await _diaryNotionApi('PATCH', '/pages/'+pageId, { properties: props });
+  try {
+    var cfg = _diaryNotionCfg;
+    var prop = cfg.timelineProp || '타임라인';
+    var props = {};
+    // rich_text 최대 2000자 제한
+    props[prop] = { rich_text: [{ text: { content: text.slice(0, 2000) } }] };
+    await _diaryNotionApi('PATCH', '/pages/'+pageId, { properties: props });
+
+  } catch(e) {
+    console.error('[_saveDiaryTimelineToPage]', e);
+    throw e;
+  }
 }
 
 // 메인: 오늘 일기 동기화
@@ -23099,7 +23237,7 @@ function initDiaryNotionSettings() {
 // ═══════════════════════════════════════════════════════════════
 
 var _hbState = (function(){
-  try { return JSON.parse(localStorage.getItem('home_banner_v1')||'{}'); }
+  try { return JSON.parse(_lsGet('home_banner_v1')||'{}'); }
   catch(e){ return {}; }
 })();
 if (!_hbState.stickers) _hbState.stickers = [];
@@ -23512,7 +23650,7 @@ setTimeout(function(){ try{ hbRender(); }catch(e){ console.error('hbRender:', e)
 // ═══════════════════════════════════════════════════════════════
 
 var _gsState = (function(){
-  try { return JSON.parse(localStorage.getItem('global_stickers_v1')||'{}'); }
+  try { return JSON.parse(_lsGet('global_stickers_v1')||'{}'); }
   catch(e){ return {}; }
 })();
 
@@ -23676,9 +23814,6 @@ function gsRenderAll() {
 function gsToggleEditMode() {
   _gsEditMode = !_gsEditMode;
   _gsCurrentPage = _gsEditMode ? _gsActivePageId() : null;
-
-  // body 클래스 - CSS 통제
-  document.body.classList.toggle('gs-edit-mode', _gsEditMode);
 
   var btn = document.getElementById('gsEditBtn');
   var tb = document.getElementById('gsToolbar');
@@ -23967,20 +24102,20 @@ var THEME_PRESETS = [
 ];
 
 var _currentTheme = (function(){
-  try { return JSON.parse(localStorage.getItem('theme_v1') || '{}'); }
+  try { return JSON.parse(_lsGet('theme_v1') || '{}'); }
   catch(e){ return {}; }
 })();
 
 // 16진수 → RGB
-function _hexToRgb(hex) {
+function _hexToRgbObj(hex) {
   hex = hex.replace('#', '');
-  if (hex.length === 3) hex = hex.split('').map(c=>c+c).join('');
+  if (hex.length === 3) hex = hex.split('').map(function(c){ return c+c; }).join('');
   var n = parseInt(hex, 16);
   return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
 }
 // 색 밝기 계산
 function _adjustColor(hex, percent) {
-  var rgb = _hexToRgb(hex);
+  var rgb = _hexToRgbObj(hex);
   var amt = percent / 100;
   function ch(c) {
     if (amt > 0) return Math.round(c + (255 - c) * amt);
@@ -23998,7 +24133,7 @@ function applyTheme(hex) {
   // 액센트 + 변형 파생
   var accent = hex;
   var accentHover = _adjustColor(hex, -10);  // 10% 어둡게
-  var rgb = _hexToRgb(hex);
+  var rgb = _hexToRgbObj(hex);
   var accentLight = 'rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.12)';
 
   document.documentElement.style.setProperty('--accent', accent);
@@ -24174,7 +24309,7 @@ var _hobDraftType = 'event';
 
 function _hobLoadCats() {
   try {
-    var saved = localStorage.getItem('hobby_cats_v2');
+    var saved = _lsGet('hobby_cats_v2');
     if (saved) return JSON.parse(saved);
   } catch(e) {}
   // 기본 카테고리
@@ -24191,7 +24326,7 @@ function _hobSaveCats(cats) {
 }
 function _hobLoadItems() {
   try {
-    var saved = localStorage.getItem('hobby_items_v2');
+    var saved = _lsGet('hobby_items_v2');
     if (saved) return JSON.parse(saved);
   } catch(e) {}
   return [];
@@ -24345,8 +24480,29 @@ function hobSaveItem() {
   if (_hobEditingItem) {
     var it = _hobItems.find(function(i){ return i.id === _hobEditingItem; });
     if (it) {
+      var wasRepeat = it._repeatId;
       it.text = text; it.catId = catId; it.type = _hobDraftType;
       it.timeStart = ts; it.timeEnd = te; it.note = note;
+      // 반복 항목이면 같은 _repeatId의 다른 미완료 인스턴스에도 변경 적용
+      if (wasRepeat) {
+        var doSync = confirm('이 항목은 반복 중인 일정입니다.\n\n다른 날짜의 같은 반복 항목들도 같이 수정할까요? (이미 완료된 항목은 제외)');
+        if (doSync) {
+          var changed = 0;
+          _hobItems.forEach(function(other){
+            if (other.id === it.id) return;
+            if (other._repeatId !== wasRepeat) return;
+            if (other.done) return; // 완료된 건 안 건드림
+            other.text = text;
+            other.catId = catId;
+            other.type = _hobDraftType;
+            other.timeStart = ts;
+            other.timeEnd = te;
+            other.note = note;
+            changed++;
+          });
+          if (changed > 0) showToast('반복 ' + changed + '개도 함께 수정됨');
+        }
+      }
     }
   } else if (repKind) {
     // 반복 → 여러 항목 자동 생성
@@ -24791,7 +24947,7 @@ function _hbBgTouchEnd() {
 // ═══════════════════════════════════════════════════════════════
 
 var _tmeTemplates = (function(){
-  try{ return JSON.parse(localStorage.getItem('task_prep_templates_v1')||'[]'); }
+  try{ return JSON.parse(_lsGet('task_prep_templates_v1')||'[]'); }
   catch(e){ return []; }
 })();
 
@@ -25042,7 +25198,7 @@ function _tieRerenderPrepRow(itemId) {
     try {
       if (typeof _hbState === 'undefined' || _hbState === null) {
         try {
-          var saved = localStorage.getItem('home_banner_v1');
+          var saved = _lsGet('home_banner_v1');
           window._hbState = saved ? JSON.parse(saved) : {};
         } catch(e){ window._hbState = {}; }
       }
@@ -25051,7 +25207,7 @@ function _tieRerenderPrepRow(itemId) {
 
       if (typeof _gsState === 'undefined' || _gsState === null) {
         try {
-          var savedGs = localStorage.getItem('global_stickers_v1');
+          var savedGs = _lsGet('global_stickers_v1');
           window._gsState = savedGs ? JSON.parse(savedGs) : {};
         } catch(e){ window._gsState = {}; }
       }
@@ -25059,7 +25215,7 @@ function _tieRerenderPrepRow(itemId) {
 
       if (typeof _currentTheme === 'undefined' || _currentTheme === null) {
         try {
-          var savedTh = localStorage.getItem('theme_v1');
+          var savedTh = _lsGet('theme_v1');
           window._currentTheme = savedTh ? JSON.parse(savedTh) : {};
         } catch(e){ window._currentTheme = {}; }
       }
@@ -25079,13 +25235,13 @@ function _tieRerenderPrepRow(itemId) {
 // ═══════════════════════════════════════════════════════════════
 
 window._tgHideSchedule = (function(){
-  try { return localStorage.getItem('tg_hide_schedule') === '1'; }
+  try { return _lsGet('tg_hide_schedule') === '1'; }
   catch(e){ return false; }
 })();
 
 function tgToggleSchedule() {
   window._tgHideSchedule = !window._tgHideSchedule;
-  try { localStorage.setItem('tg_hide_schedule', window._tgHideSchedule ? '1' : '0'); } catch(e){}
+  try { _lsSet('tg_hide_schedule', window._tgHideSchedule ? '1' : '0'); } catch(e){}
   var btn = document.getElementById('tgScheduleToggle');
   if (btn) btn.classList.toggle('hidden', window._tgHideSchedule);
   if (typeof renderTimeGrid === 'function') renderTimeGrid();
@@ -25129,7 +25285,7 @@ window._copyNotionWorkerCode = function() {
 // ═══════════════════════════════════════════════════════════════
 
 window._diaryEntries = (function(){
-  try { return JSON.parse(localStorage.getItem('diary_entries_v1') || '{}'); }
+  try { return JSON.parse(_lsGet('diary_entries_v1') || '{}'); }
   catch(e){ return {}; }
 })();
 window._diaryCurrentDate = null;
@@ -25143,7 +25299,7 @@ function _diaryToday() {
 
 function _diarySaveAll() {
   try {
-    localStorage.setItem('diary_entries_v1', JSON.stringify(_diaryEntries));
+    _lsSet('diary_entries_v1', JSON.stringify(_diaryEntries));
   } catch(e) {
     console.error('[diary] save fail:', e);
     showToast('일기 저장 실패 (용량?)');
@@ -25363,9 +25519,14 @@ function diaryAutoSave() {
 // ═══════════════════════════════════════════════════════════════
 async function diarySyncCurrent() {
   if (!_diaryCurrentDate) return;
-  _diaryCommitCurrent();
-  _diarySaveAll();
-  await diarySyncDate(_diaryCurrentDate, true);
+  try {
+    _diaryCommitCurrent();
+    _diarySaveAll();
+    await diarySyncDate(_diaryCurrentDate, true);
+  } catch(e) {
+    console.error('[diarySyncCurrent]', e);
+    showToast && showToast('동기화 중 오류: ' + (e.message || e));
+  }
 }
 
 async function diarySyncDate(dateKey, showProgress) {
@@ -25473,11 +25634,7 @@ async function _diarySyncSections(pageId, entry) {
   }
 
   // 노션 값 → 텍스트 추출 (rich_text/title)
-  function _extractText(propVal) {
-    if (!propVal) return '';
-    var arr = propVal.rich_text || propVal.title || [];
-    return arr.map(function(t){ return t.plain_text || (t.text && t.text.content) || ''; }).join('');
-  }
+  // _extractText → _diaryExtractNotionText (공유 함수)
 
   // 1단계: 노션에 있는 내용을 로컬에 가져옴 (로컬이 비어있을 때만, 또는 lastSync 이후 노션이 더 새로울 때)
   var localChanged = false;
@@ -25485,7 +25642,7 @@ async function _diarySyncSections(pageId, entry) {
   _diarySections.forEach(function(key){
     var prop = keyToProp[key];
     if (!prop) return;
-    var notionText = _extractText(notionProps[prop]);
+    var notionText = _diaryExtractNotionText(notionProps[prop]);
     var localText = entry[key] || '';
     // 로컬이 비어있고 노션에 내용 있으면 → 로컬로 가져옴
     if (!localText.trim() && notionText.trim()) {
@@ -25816,11 +25973,7 @@ async function diaryPullFromNotion() {
       night:          [cfg.nightProp,          'Night Thanks', '저녁감사', 'Night'].filter(Boolean),
       recap:          [cfg.recapProp,          'Recap', '회고', '돌아보기'].filter(Boolean)
     };
-    function _extractText(propVal) {
-      if (!propVal) return '';
-      var arr = propVal.rich_text || propVal.title || [];
-      return arr.map(function(t){ return t.plain_text || (t.text && t.text.content) || ''; }).join('');
-    }
+    // _diaryExtractNotionText: 공유 함수 사용
     if (!_diaryEntries[dateKey]) _diaryEntries[dateKey] = {};
     var entry = _diaryEntries[dateKey];
     entry._dirty = {}; // 노션 우선
@@ -25839,7 +25992,7 @@ async function diaryPullFromNotion() {
         if (found) matched = found;
       }
       if (matched) {
-        var text = _extractText(notionProps[matched]);
+        var text = _diaryExtractNotionText(notionProps[matched]);
         if (text || entry[key]) { entry[key] = text; pulled++; }
       }
     });
@@ -25891,11 +26044,7 @@ async function _diaryAutoPull(dateKey) {
       night:          [cfg.nightProp,          'Night Thanks', '저녁감사', 'Night'].filter(Boolean),
       recap:          [cfg.recapProp,          'Recap', '회고', '돌아보기'].filter(Boolean)
     };
-    function _extractText(propVal) {
-      if (!propVal) return '';
-      var arr = propVal.rich_text || propVal.title || [];
-      return arr.map(function(t){ return t.plain_text || (t.text && t.text.content) || ''; }).join('');
-    }
+    // _diaryExtractNotionText: 공유 함수 사용
     if (!_diaryEntries[dateKey]) _diaryEntries[dateKey] = {};
     var entry = _diaryEntries[dateKey];
     if (!entry._dirty) entry._dirty = {};
@@ -25916,7 +26065,7 @@ async function _diaryAutoPull(dateKey) {
         if (found) matched = found;
       }
       if (matched) {
-        var text = _extractText(notionProps[matched]);
+        var text = _diaryExtractNotionText(notionProps[matched]);
         var localText = entry[key] || '';
         if (text !== localText) {
           entry[key] = text;
@@ -26042,7 +26191,7 @@ function tieSetTrigger(itemId, val) {
 
 window._diaryTrackers = (function(){
   try {
-    var saved = JSON.parse(localStorage.getItem('diary_trackers_v1') || 'null');
+    var saved = JSON.parse(_lsGet('diary_trackers_v1') || 'null');
     if (saved && saved.length) return saved;
   } catch(e){}
   // 기본 트래커
@@ -26055,14 +26204,14 @@ window._diaryTrackers = (function(){
   ];
 })();
 window._diaryTrackerValues = (function(){
-  try { return JSON.parse(localStorage.getItem('diary_tracker_values_v1') || '{}'); }
+  try { return JSON.parse(_lsGet('diary_tracker_values_v1') || '{}'); }
   catch(e){ return {}; }
 })();
 
 function _diaryTrackerSave() {
   try {
-    localStorage.setItem('diary_trackers_v1', JSON.stringify(window._diaryTrackers));
-    localStorage.setItem('diary_tracker_values_v1', JSON.stringify(window._diaryTrackerValues));
+    _lsSet('diary_trackers_v1', JSON.stringify(window._diaryTrackers));
+    _lsSet('diary_tracker_values_v1', JSON.stringify(window._diaryTrackerValues));
   } catch(e) { console.error('[diary-tracker] save:', e); }
   if(typeof fbUser !== 'undefined' && fbUser && typeof fbSaveAll === 'function') {
     try{ fbSaveAll(); }catch(e){}
@@ -26155,7 +26304,7 @@ function diaryTrackerAdd() {
       _diaryCreateLinkedMetric(newTr);
       // 방금 만든 metric의 id를 찾아 _metricId로 연결
       try {
-        var metrics = JSON.parse(localStorage.getItem('metrics_v1') || '[]');
+        var metrics = JSON.parse(_lsGet('metrics_v1') || '[]');
         var linkedM = metrics.find(function(m){ return m._trackerId === id; });
         if (linkedM) newTr._metricId = linkedM.id;
       } catch(_e){}
@@ -26180,7 +26329,7 @@ function diaryRenderStats() {
   var hobs = (typeof _hobItems !== 'undefined' ? _hobItems : []).filter(function(h){ return h.date === dk; });
   var hobDone = hobs.filter(function(h){ return h.done; }).length;
   // 충전/방전
-  var rd = JSON.parse(localStorage.getItem('reward_data') || '{"charge":[],"drain":[]}');
+  var rd = JSON.parse(_lsGet('reward_data') || '{"charge":[],"drain":[]}');
   var todayCharges = (rd.charge || []).filter(function(c){
     return new Date(c.t || 0).toISOString().slice(0,10) === dk;
   }).length;
@@ -26233,7 +26382,7 @@ function diaryRenderStats() {
     if (t.id === 'sleep' && !t.notionProp) { t.notionProp = 'In Bed'; changed = true; }
   });
   if (changed) {
-    try { localStorage.setItem('diary_trackers_v1', JSON.stringify(window._diaryTrackers)); }
+    try { _lsSet('diary_trackers_v1', JSON.stringify(window._diaryTrackers)); }
     catch(e){}
   }
 })();
@@ -26287,47 +26436,49 @@ async function _diaryPushTrackerToNotion(tracker, value) {
 
 // 노션 → 트래커 (자동 pull 안에서 호출)
 async function _diaryPullTrackersFromNotion(dateKey, notionProps, dbMeta) {
-  if (!notionProps || !dbMeta) return 0;
-  if (!window._diaryTrackers || window._diaryTrackers.length === 0) return 0;
-  var availableProps = Object.keys(dbMeta.properties || {});
-  if (!window._diaryTrackerValues[dateKey]) window._diaryTrackerValues[dateKey] = {};
-  var values = window._diaryTrackerValues[dateKey];
-  var pulled = 0;
-  function _extractText(propVal) {
-    if (!propVal) return '';
-    var arr = propVal.rich_text || propVal.title || [];
-    return arr.map(function(t){ return t.plain_text || (t.text && t.text.content) || ''; }).join('');
+  try {
+    if (!notionProps || !dbMeta) return 0;
+    if (!window._diaryTrackers || window._diaryTrackers.length === 0) return 0;
+    var availableProps = Object.keys(dbMeta.properties || {});
+    if (!window._diaryTrackerValues[dateKey]) window._diaryTrackerValues[dateKey] = {};
+    var values = window._diaryTrackerValues[dateKey];
+    var pulled = 0;
+    // _extractText → _diaryExtractNotionText (공유 함수)
+    window._diaryTrackers.forEach(function(tr){
+      if (!tr.notionProp) return;
+      var prop = null;
+      if (availableProps.indexOf(tr.notionProp) >= 0) prop = tr.notionProp;
+      else {
+        var norm = tr.notionProp.toLowerCase().replace(/\s+/g,'');
+        var found = availableProps.find(function(p){ return p.toLowerCase().replace(/\s+/g,'') === norm; });
+        if (found) prop = found;
+      }
+      if (!prop) return;
+      var propVal = notionProps[prop];
+      var notionVal = '';
+      if (propVal) {
+        if (propVal.number != null) notionVal = String(propVal.number);
+        else notionVal = _diaryExtractNotionText(propVal);
+      }
+      var localVal = values[tr.id] || '';
+      if (notionVal !== localVal && notionVal) {
+        values[tr.id] = notionVal;
+        pulled++;
+        console.log('[diary-tracker] pull:', tr.name, '←', prop, '=', notionVal);
+      }
+    });
+    if (pulled > 0) {
+      _diaryTrackerSave();
+      if (_diaryCurrentDate === dateKey && typeof diaryRenderTrackers === 'function') {
+        diaryRenderTrackers();
+      }
+    }
+    return pulled;
+
+  } catch(e) {
+    console.error('[_diaryPullTrackersFromNotion]', e);
+    throw e;
   }
-  window._diaryTrackers.forEach(function(tr){
-    if (!tr.notionProp) return;
-    var prop = null;
-    if (availableProps.indexOf(tr.notionProp) >= 0) prop = tr.notionProp;
-    else {
-      var norm = tr.notionProp.toLowerCase().replace(/\s+/g,'');
-      var found = availableProps.find(function(p){ return p.toLowerCase().replace(/\s+/g,'') === norm; });
-      if (found) prop = found;
-    }
-    if (!prop) return;
-    var propVal = notionProps[prop];
-    var notionVal = '';
-    if (propVal) {
-      if (propVal.number != null) notionVal = String(propVal.number);
-      else notionVal = _extractText(propVal);
-    }
-    var localVal = values[tr.id] || '';
-    if (notionVal !== localVal && notionVal) {
-      values[tr.id] = notionVal;
-      pulled++;
-      console.log('[diary-tracker] pull:', tr.name, '←', prop, '=', notionVal);
-    }
-  });
-  if (pulled > 0) {
-    _diaryTrackerSave();
-    if (_diaryCurrentDate === dateKey && typeof diaryRenderTrackers === 'function') {
-      diaryRenderTrackers();
-    }
-  }
-  return pulled;
 }
 
 
@@ -26340,7 +26491,7 @@ function _diaryTrackerSyncToMetric(tracker, value, dateKey) {
   var v = parseFloat(value);
   if (isNaN(v)) return;
   try {
-    var metrics = JSON.parse(localStorage.getItem('metrics_v1') || '[]');
+    var metrics = JSON.parse(_lsGet('metrics_v1') || '[]');
     // 트래커와 연결된 metric 찾기 (_trackerId로 식별)
     var metric = metrics.find(function(m){ return m._trackerId === tracker.id; });
     if (!metric) return; // 연결된 metric 없으면 skip
@@ -26355,7 +26506,7 @@ function _diaryTrackerSyncToMetric(tracker, value, dateKey) {
       if (metric.history.length > 60) metric.history = metric.history.slice(-60);
     }
     metric.current = v;
-    localStorage.setItem('metrics_v1', JSON.stringify(metrics));
+    _lsSet('metrics_v1', JSON.stringify(metrics));
     if (typeof renderMeMetrics === 'function') renderMeMetrics();
     if (typeof renderMetricsPanel === 'function') renderMetricsPanel();
   } catch(e) {
@@ -26367,7 +26518,7 @@ function _diaryTrackerSyncToMetric(tracker, value, dateKey) {
 function _diaryCreateLinkedMetric(tracker) {
   if (!tracker || tracker.type === 'time' || tracker.type === 'text') return;
   try {
-    var metrics = JSON.parse(localStorage.getItem('metrics_v1') || '[]');
+    var metrics = JSON.parse(_lsGet('metrics_v1') || '[]');
     if (metrics.find(function(m){ return m._trackerId === tracker.id; })) return; // 이미 있음
     metrics.push({
       id: 'm_' + Date.now(),
@@ -26382,7 +26533,7 @@ function _diaryCreateLinkedMetric(tracker) {
       note: '일기 트래커와 자동 동기화',
       icon: tracker.icon || '📊'
     });
-    localStorage.setItem('metrics_v1', JSON.stringify(metrics));
+    _lsSet('metrics_v1', JSON.stringify(metrics));
     if (typeof renderMeMetrics === 'function') renderMeMetrics();
   } catch(e){}
 }
@@ -26403,11 +26554,11 @@ function _diaryCreateLinkedTracker(metric) {
   });
   // metric에 역방향 링크
   try {
-    var metrics = JSON.parse(localStorage.getItem('metrics_v1') || '[]');
+    var metrics = JSON.parse(_lsGet('metrics_v1') || '[]');
     var m = metrics.find(function(x){ return x.id === metric.id; });
     if (m) {
       m._trackerId = 'm_' + metric.id;
-      localStorage.setItem('metrics_v1', JSON.stringify(metrics));
+      _lsSet('metrics_v1', JSON.stringify(metrics));
     }
   } catch(e){}
   _diaryTrackerSave();
@@ -26451,18 +26602,42 @@ function dlinkCreateAndLink() {
 }
 
 
-// 스티커 편집 모드 버튼 라벨 업데이트
-function _setStickerEditBtnUpdate() {
+// ─── 스티커 편집 핸들 보이기/숨기기 설정 ───
+window._gsHandleVisible = (function(){
+  try { return _lsGet('_gs_handle_visible') !== '0'; }
+  catch(e){ return true; }
+})();
+
+function _gsApplyHandleVisible() {
+  var handle = document.getElementById('gsToolbarHandle');
+  var toolbar = document.getElementById('gsToolbar');
+  if (handle) handle.style.display = window._gsHandleVisible ? '' : 'none';
+  // 숨길 때 편집 모드도 같이 끔 (드래그 방지)
+  if (!window._gsHandleVisible && typeof _gsEditMode !== 'undefined' && _gsEditMode) {
+    _gsEditMode = false;
+    if (toolbar) toolbar.classList.remove('expanded');
+    document.querySelectorAll('.gs-layer').forEach(function(l){ l.classList.remove('edit'); });
+    document.querySelectorAll('.gs-sticker.selected').forEach(function(s){ s.classList.remove('selected'); });
+  }
+  // 설정 버튼 라벨 업데이트
   var btn = document.getElementById('setStickerEditBtn');
   var badge = document.getElementById('setStickerBadge');
-  var on = (typeof _gsEditMode !== 'undefined' && _gsEditMode);
-  if (btn) btn.textContent = on ? '✏️ 편집 모드 끄기' : '✏️ 편집 모드 켜기';
+  if (btn) btn.textContent = window._gsHandleVisible ? '👁 편집 버튼 숨기기' : '👁 편집 버튼 보이기';
   if (badge) {
-    badge.textContent = on ? 'ON' : 'OFF';
-    badge.classList.toggle('off', !on);
+    badge.textContent = window._gsHandleVisible ? 'ON' : 'OFF';
+    badge.classList.toggle('off', !window._gsHandleVisible);
   }
 }
-setTimeout(_setStickerEditBtnUpdate, 100);
+
+function gsToggleHandleVisible() {
+  window._gsHandleVisible = !window._gsHandleVisible;
+  try { _lsSet('_gs_handle_visible', window._gsHandleVisible ? '1' : '0'); } catch(e){}
+  _gsApplyHandleVisible();
+  showToast(window._gsHandleVisible ? '✨ 편집 버튼 표시됨' : '🔒 편집 버튼 숨겨짐');
+}
+
+// 페이지 로드 시 상태 복원
+setTimeout(_gsApplyHandleVisible, 150);
 
 
 // ═══════════════════════════════════════════════════════════════
