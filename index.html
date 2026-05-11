@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko" data-theme="warm-sand">
 <head>
@@ -1045,6 +1046,10 @@ input,textarea { outline:none; }
 .cat-chip{height:22px;padding:0 var(--sp-4);border-radius:var(--r-full);font-size:var(--text-xs);font-weight:var(--fw-medium);background:var(--bg-raised);color:var(--fg-3);cursor:pointer;white-space:nowrap;transition:background var(--t-snap),color var(--t-snap);display:inline-flex;align-items:center;gap:var(--sp-1)}
 .cat-chip:hover{background:var(--bg-sunken);color:var(--fg-2)}
 .cat-chip.active{background:var(--accent-light);color:var(--a-600)}
+.task-cat-row{align-items:center;gap:var(--sp-3)}
+.cat-color-picker{display:flex;gap:var(--sp-2);align-items:center}
+.cat-color-swatch{width:24px;height:24px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--border);background:var(--swatch)}
+.cat-color-swatch.active{box-shadow:0 0 0 2px var(--bg-card),0 0 0 4px var(--accent)}
 
 /* Grid scroll */
 .cal-grid-outer{flex:1;overflow-y:auto;padding:var(--sp-4) var(--sp-6) var(--sp-8)}
@@ -3250,95 +3255,7 @@ to{opacity:1;transform:translateY(0)}}
 .memo-card{animation:fade-up var(--t-enter) both}
 
 
-/* Projects runtime moved to the script section. This accidental style-block copy is inert.
-var projects=[], activeProjectId=null;
-function loadProjects(){try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}}
-function saveProjects(){try{localStorage.setItem('projects_v1',JSON.stringify(projects));}catch(e){}}
-function projectEsc(v){return typeof tEscHtml==='function'?tEscHtml(v==null?'':String(v)):String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-function projectTaskItems(project){return (typeof tasks!=='undefined'?tasks:[]).filter(function(t){return String(t.projectId||'')===String(project.id);});}
-function projectReadArray(key){try{return JSON.parse(localStorage.getItem(key)||'[]')||[];}catch(e){return [];}}
-function projectReadDiary(){try{return JSON.parse(localStorage.getItem('diary_entries_v1')||'{}')||{};}catch(e){return {};}}
-function projectStatusLabel(status){return status==='done'?'완료':status==='archived'?'보관':'진행';}
-function projectProgress(project){var linked=projectTaskItems(project);return linked.length?Math.round(linked.filter(function(t){return t.done;}).length/linked.length*100):0;}
-function openProjectEditor(project){
-  openFormDialog(project?'프로젝트 편집':'새 프로젝트', [
-    {key:'title',label:'제목',value:project?project.title:''},
-    {key:'description',label:'설명',value:project?project.description:''},
-    {key:'status',label:'상태',type:'select',value:project?project.status:'active',options:[{value:'active',label:'진행'},{value:'done',label:'완료'},{value:'archived',label:'보관'}]},
-    {key:'deadline',label:'마감일',type:'date',value:project?project.deadline:''},
-    {key:'icon',label:'아이콘',value:project?project.icon:'🗂️'}
-  ], function(data){
-    var title=(data.title||'').trim(); if(!title)return;
-    if(project){project.title=title;project.description=data.description||'';project.status=data.status||'active';project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.updatedAt=Date.now();}
-    else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
-    saveProjects();renderProjects();
-  });
-}
-function openProjectTaskLinker(project){
-  var old=document.getElementById('project-task-linker'); if(old)old.remove();
-  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='project-task-linker';
-  var rows=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return !t._travelOnly;}).map(function(t){
-    var active=String(t.projectId||'')===String(project.id), cat=getCat(t.catId||'etc');
-    return '<button type="button" class="project-linked-item '+(active?'selected':'')+'" data-id="'+t.id+'"><span>'+projectEsc((cat.emoji?cat.emoji+' ':'')+t.text)+'</span><span class="chip">'+(active?'연결됨':'연결')+'</span></button>';
-  }).join('') || '<div class="project-empty">연결할 할일이 아직 없어요.</div>';
-  ov.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-head"><div class="modal-title">할일 연결</div></div><div class="modal-body"><div class="project-linked-list">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-primary" id="ptl-close">닫기</button></div></div>';
-  document.body.appendChild(ov);
-  function close(){ov.remove();}
-  ov.addEventListener('click',function(e){if(e.target===ov)close();});
-  ov.querySelector('#ptl-close').addEventListener('click',close);
-  ov.querySelectorAll('[data-id]').forEach(function(btn){btn.addEventListener('click',function(){
-    var task=(typeof tasks!=='undefined'?tasks:[]).find(function(t){return String(t.id)===btn.getAttribute('data-id');}); if(!task)return;
-    if(String(task.projectId||'')===String(project.id)) delete task.projectId; else task.projectId=project.id;
-    if(typeof saveTaskData==='function')saveTaskData(); close(); renderProjects();
-  });});
-}
-function openProjectResourceEditor(project, resource){
-  openFormDialog(resource?'리소스 편집':'리소스 추가', [
-    {key:'title',label:'제목',value:resource?resource.title:''},
-    {key:'url',label:'링크',value:resource?resource.url:''},
-    {key:'image',label:'미리보기 이미지 URL',value:resource?resource.image:''},
-    {key:'note',label:'메모',value:resource?resource.note:''}
-  ], function(data){
-    var title=(data.title||data.url||'리소스').trim(); if(!title)return;
-    project.resources=project.resources||[];
-    if(resource){resource.title=title;resource.url=data.url||'';resource.image=data.image||'';resource.note=data.note||'';}
-    else project.resources.push({id:'res_'+Date.now(),title:title,url:data.url||'',image:data.image||'',note:data.note||''});
-    project.updatedAt=Date.now(); saveProjects(); renderProjects();
-  });
-}
-function renderProjects(){
-  loadProjects();
-  var list=document.getElementById('project-list'), detail=document.getElementById('project-detail'); if(!list||!detail)return;
-  if(!activeProjectId&&projects.length)activeProjectId=projects[0].id;
-  list.innerHTML=projects.map(function(p){return '<div class="project-card '+(p.id===activeProjectId?'active':'')+'" data-id="'+p.id+'"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+' · '+(p.deadline||'마감 없음')+' · '+projectProgress(p)+'%</div></div></div>';}).join('') || '<div class="project-empty">아직 프로젝트가 없어요.</div>';
-  list.querySelectorAll('[data-id]').forEach(function(row){row.addEventListener('click',function(){activeProjectId=row.getAttribute('data-id');renderProjects();});});
-  var p=projects.find(function(x){return x.id===activeProjectId;});
-  if(!p){detail.innerHTML='<div class="project-empty">프로젝트를 선택하거나 새로 만들어 주세요.</div>';return;}
-  var linked=projectTaskItems(p), pct=projectProgress(p);
-  var memos=projectReadArray('memos_v5').filter(function(m){return String(m.projectId||'')===String(p.id);});
-  var checks=projectReadArray('return_check_logs').filter(function(c){return String(c.projectId||'')===String(p.id);});
-  var diary=projectReadDiary(), diaryRows=Object.keys(diary).filter(function(d){return String((diary[d]||{}).projectId||'')===String(p.id);});
-  var tasksHtml=linked.map(function(t){return '<button type="button" class="project-linked-item" data-task="'+t.id+'"><span>'+projectEsc(t.text)+'</span><span class="chip">'+(t.done?'완료':'진행')+'</span></button>';}).join('')||'<div class="project-empty">연결된 할일이 없어요.</div>';
-  var notesHtml=memos.map(function(m){return '<div class="project-mini-row"><span>메모</span><span>'+projectEsc(m.text||m.title||'')+'</span></div>';}).join('')+checks.map(function(c){return '<div class="project-mini-row"><span>체크</span><span>'+projectEsc(c.commitment||c.note||new Date(c.ts||Date.now()).toLocaleDateString())+'</span></div>';}).join('')+diaryRows.map(function(d){return '<div class="project-mini-row"><span>일기</span><span>'+projectEsc(d)+'</span></div>';}).join('');
-  if(!notesHtml)notesHtml='<div class="project-empty">연결된 기록이 없어요.</div>';
-  var resHtml=(p.resources||[]).map(function(r){var host='링크';try{host=r.url?new URL(r.url).hostname:'메모';}catch(e){}return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+(r.image?'<img src="'+projectEsc(r.image)+'" alt="">':projectEsc(host))+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div></div>';}).join('')||'<div class="project-empty">링크, 이미지, 참고 메모를 추가해 보세요.</div>';
-  detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">연결된 할일</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div><div class="project-linked-list">'+tasksHtml+'</div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">Resources</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
-  detail.querySelector('#project-edit').addEventListener('click',function(){openProjectEditor(p);});
-  detail.querySelector('#project-archive').addEventListener('click',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
-  detail.querySelector('#project-delete').addEventListener('click',function(){projects=projects.filter(function(x){return x.id!==p.id;});activeProjectId=projects[0]?projects[0].id:null;saveProjects();renderProjects();});
-  detail.querySelector('#project-link-task').addEventListener('click',function(){openProjectTaskLinker(p);});
-  detail.querySelector('#project-add-resource').addEventListener('click',function(){openProjectResourceEditor(p);});
-  detail.querySelectorAll('[data-task]').forEach(function(btn){btn.addEventListener('click',function(){var t=tasks.find(function(x){return String(x.id)===btn.getAttribute('data-task');});if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);});});
-  detail.querySelectorAll('[data-res]').forEach(function(card){card.addEventListener('click',function(){var r=(p.resources||[]).find(function(x){return x.id===card.getAttribute('data-res');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
-}
-function _initProjects(){
-  loadProjects();
-  var btn=document.getElementById('project-new-btn');
-  if(btn&&!btn.dataset.bound){btn.dataset.bound='1';btn.addEventListener('click',function(){openProjectEditor(null);});}
-  renderProjects();
-}
 
-*/
 /* ══ SETTINGS ══ */
 /* ── SETTINGS PAGE ── */
 .settings-page{flex:1;min-width:0;height:100%;overflow:hidden;display:flex}
@@ -4276,6 +4193,7 @@ to{opacity:1;transform:translateY(0)}}
           <button class="ctrl-btn" id="btn-cal-view" title="달력 뷰 전환">📅 콤팩트</button>
           <button class="ctrl-btn" id="btn-dl-view" title="마감-할일 연결 보기">🔗 마감 뷰</button>
           <button class="ctrl-btn" id="btn-tt-hide" title="시간표 일정 숨기기">🎓 시간표</button>
+          <button class="ctrl-btn" id="btn-done-hide" title="완료 항목 숨기기">완료 숨김</button>
         </div>
         <!-- Category filter -->
         <div class="cat-filter" id="cat-filter">
@@ -6222,6 +6140,19 @@ function openFormDialog(title, fields, onSave){
   var first = ov.querySelector('[data-key]');
   if (first) setTimeout(function(){ first.focus(); }, 30);
 }
+function openConfirmDialog(title, message, onConfirm){
+  var old=document.getElementById('simple-confirm-dialog');
+  if(old)old.remove();
+  var ov=document.createElement('div');
+  ov.className='overlay open';
+  ov.id='simple-confirm-dialog';
+  ov.innerHTML='<div class="modal" style="max-width:440px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title||'확인')+'</div></div><div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);line-height:var(--lh-normal)">'+tEscHtml(message||'계속할까요?')+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="scd-cancel">취소</button><button class="btn btn-danger" id="scd-ok">삭제</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  ov.querySelector('#scd-cancel').addEventListener('click',close);
+  ov.querySelector('#scd-ok').addEventListener('click',function(){if(typeof onConfirm==='function')onConfirm();close();});
+}
 var taskRules = loadTaskRules();
 function openHomeRuleModal(){
   openFormDialog('활성 규칙 추가', [
@@ -7806,6 +7737,7 @@ var activeView= 'list';
 var calFull   = false;      /* compact/full toggle */
 var dlView    = false;      /* deadline view toggle */
 var hideTt    = false;      /* hide timetable toggle */
+var hideDoneTasks = false;  /* hide completed tasks in calendar/list */
 var selMode   = false;
 var selIds    = new Set();
 var editId    = null;
@@ -7816,9 +7748,9 @@ var newCat    = 'etc';
 var newDeadline = '';
 
 /* Load prefs */
-try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;}catch(e){}
+try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;}catch(e){}
 
-function savePrefs(){try{localStorage.setItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt}));}catch(e){}}
+function savePrefs(){try{localStorage.setItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks}));}catch(e){}}
 function renderTaskCatFilter(){
   var bar=document.getElementById('cat-filter');
   if(!bar)return;
@@ -7842,63 +7774,6 @@ function renderTaskCatFilter(){
   manage.addEventListener('click',function(e){e.stopPropagation();openTaskCatManager();});
   bar.appendChild(manage);
 }
-function openTaskCatManager(){
-  var old=document.getElementById('task-cat-manager');
-  if(old)old.remove();
-  var ov=document.createElement('div');
-  ov.className='overlay open';
-  ov.id='task-cat-manager';
-  var rows=CATS.map(function(c){
-    var locked=c.id==='schedule';
-    return '<div class="modal-row task-cat-row" data-id="'+tEscHtml(c.id)+'">'
-      + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:56px;text-align:center">'
-      + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1">'
-      + '<input class="task-cat-color" type="color" value="'+(/^#[0-9a-fA-F]{6}$/.test(c.color)?c.color:'#8B84FF')+'">'
-      + '<button class="btn btn-ghost task-cat-del" '+(locked?'disabled title="일정 카테고리는 시간표/데드라인 연결 때문에 삭제할 수 없어요"':'')+'>삭제</button>'
-      + '</div>';
-  }).join('');
-  ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">할일 카테고리</div></div><div class="modal-body" id="task-cat-manager-body">'+rows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="task-cat-add">새 카테고리</button><button class="btn btn-ghost" id="task-cat-cancel">취소</button><button class="btn btn-primary" id="task-cat-save">저장</button></div></div>';
-  document.body.appendChild(ov);
-  function close(){ov.remove();}
-  ov.addEventListener('click',function(e){if(e.target===ov)close();});
-  ov.querySelector('#task-cat-cancel').onclick=close;
-  ov.querySelector('#task-cat-add').onclick=function(){
-    var row=document.createElement('div');
-    row.className='modal-row task-cat-row';
-    row.dataset.id='cat_'+Date.now();
-    row.innerHTML='<input class="field-inp task-cat-emoji" value="📌" style="width:56px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1"><input class="task-cat-color" type="color" value="#8B84FF"><button class="btn btn-ghost task-cat-del">삭제</button>';
-    ov.querySelector('#task-cat-manager-body').appendChild(row);
-  };
-  ov.addEventListener('click',function(e){
-    var del=e.target.closest('.task-cat-del');
-    if(!del||del.disabled)return;
-    var row=del.closest('.task-cat-row');
-    var id=row.dataset.id;
-    if(tasks.some(function(t){return t.catId===id;})){
-      if(!confirm('이 카테고리의 할일을 기타로 옮기고 삭제할까요?'))return;
-      tasks.forEach(function(t){if(t.catId===id)t.catId='etc';});
-    }
-    row.remove();
-  });
-  ov.querySelector('#task-cat-save').onclick=function(){
-    var next=[];
-    ov.querySelectorAll('.task-cat-row').forEach(function(row){
-      var id=row.dataset.id;
-      var emoji=row.querySelector('.task-cat-emoji').value.trim()||'📌';
-      var label=row.querySelector('.task-cat-label').value.trim()||'카테고리';
-      var color=row.querySelector('.task-cat-color').value||'#8B84FF';
-      next.push({id:id,label:label,emoji:emoji,color:color});
-    });
-    if(!next.some(function(c){return c.id==='schedule';})){
-      next.unshift(CATS.find(function(c){return c.id==='schedule';})||{id:'schedule',label:'일정',emoji:'📅',color:'#E05050'});
-    }
-    CATS=next;
-    saveTaskCatsData(); saveTaskData();
-    refreshTaskCatSelect();
-    renderTaskCatFilter(); renderCal(); renderList();
-    close();
-  };
-}
 function refreshTaskCatSelect(){
   var sel=document.getElementById('modal-cat-sel');
   if(!sel)return;
@@ -7910,6 +7785,98 @@ function refreshTaskCatSelect(){
 
 /* ── Helpers ── */
 function getCat(id){return CATS.find(function(c){return c.id===id;})||{label:id,emoji:'📌',color:'#999'};}
+var TASK_CAT_PALETTE=[
+  {id:'accent',label:'기본',value:'var(--a-400)'},
+  {id:'teal',label:'초록',value:'var(--t-400)'},
+  {id:'purple',label:'보라',value:'var(--p-400)'},
+  {id:'warm',label:'노랑',value:'var(--w-400)'},
+  {id:'danger',label:'빨강',value:'var(--danger)'},
+  {id:'neutral',label:'회색',value:'var(--fg-4)'}
+];
+function normalizeTaskCatColor(color){
+  if(!color)return 'var(--a-400)';
+  if(String(color).indexOf('var(')===0)return color;
+  var known={'#E05050':'var(--danger)','#6C63FF':'var(--p-400)','#38B2AC':'var(--t-400)','#D97706':'var(--w-400)','#5B8A5B':'var(--t-600)','#8B84FF':'var(--p-400)','#6B7280':'var(--fg-4)'};
+  return known[String(color).toUpperCase()]||'var(--a-400)';
+}
+function taskCatSoftBg(color){
+  color=normalizeTaskCatColor(color);
+  if(color==='var(--t-400)'||color==='var(--t-600)')return 'var(--t-50)';
+  if(color==='var(--p-400)')return 'var(--p-50)';
+  if(color==='var(--w-400)')return 'var(--w-50)';
+  if(color==='var(--danger)')return 'var(--d-50)';
+  if(color==='var(--fg-4)')return 'var(--bg-raised)';
+  return 'var(--accent-light)';
+}
+function openTaskCatManager(){
+  var old=document.getElementById('task-cat-manager');
+  if(old)old.remove();
+  var ov=document.createElement('div');
+  ov.className='overlay open';
+  ov.id='task-cat-manager';
+  function swatches(active){
+    active=normalizeTaskCatColor(active);
+    return TASK_CAT_PALETTE.map(function(p){
+      return '<button type="button" class="cat-color-swatch '+(p.value===active?'active':'')+'" data-color="'+p.value+'" title="'+p.label+'" style="--swatch:'+p.value+'"></button>';
+    }).join('');
+  }
+  var rows=CATS.map(function(c){
+    var locked=c.id==='schedule';
+    return '<div class="modal-row task-cat-row" data-id="'+tEscHtml(c.id)+'" data-color="'+normalizeTaskCatColor(c.color)+'">'
+      + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:56px;text-align:center">'
+      + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1;min-width:120px">'
+      + '<div class="cat-color-picker">'+swatches(c.color)+'</div>'
+      + '<button class="btn btn-ghost task-cat-del" '+(locked?'disabled title="일정 카테고리는 시간표와 연결되어 삭제할 수 없어요."':'')+'>삭제</button>'
+      + '</div>';
+  }).join('');
+  ov.innerHTML='<div class="modal" style="max-width:720px"><div class="modal-head"><div class="modal-title">할일 카테고리</div></div><div class="modal-body"><div class="field-help">일정 카테고리는 시간표/마감 연결에 쓰이는 시스템 카테고리라 삭제할 수 없어요.</div><div id="task-cat-manager-body">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="task-cat-add">새 카테고리</button><button class="btn btn-ghost" id="task-cat-cancel">취소</button><button class="btn btn-primary" id="task-cat-save">저장</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  ov.querySelector('#task-cat-cancel').onclick=close;
+  ov.querySelector('#task-cat-add').onclick=function(){
+    var row=document.createElement('div');
+    row.className='modal-row task-cat-row';
+    row.dataset.id='cat_'+Date.now();
+    row.dataset.color='var(--a-400)';
+    row.innerHTML='<input class="field-inp task-cat-emoji" value="📌" style="width:56px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1;min-width:120px"><div class="cat-color-picker">'+swatches('var(--a-400)')+'</div><button class="btn btn-ghost task-cat-del">삭제</button>';
+    ov.querySelector('#task-cat-manager-body').appendChild(row);
+    var inp=row.querySelector('.task-cat-label'); setTimeout(function(){inp.select();inp.focus();},30);
+  };
+  ov.addEventListener('click',function(e){
+    var sw=e.target.closest('.cat-color-swatch');
+    if(sw){
+      var row=sw.closest('.task-cat-row');
+      row.dataset.color=sw.dataset.color;
+      row.querySelectorAll('.cat-color-swatch').forEach(function(b){b.classList.toggle('active',b===sw);});
+      return;
+    }
+    var del=e.target.closest('.task-cat-del');
+    if(!del||del.disabled)return;
+    del.closest('.task-cat-row').remove();
+  });
+  ov.querySelector('#task-cat-save').onclick=function(){
+    var next=[];
+    ov.querySelectorAll('.task-cat-row').forEach(function(row){
+      var id=row.dataset.id;
+      var emoji=row.querySelector('.task-cat-emoji').value.trim()||'📌';
+      var label=row.querySelector('.task-cat-label').value.trim()||'카테고리';
+      var color=normalizeTaskCatColor(row.dataset.color);
+      next.push({id:id,label:label,emoji:emoji,color:color});
+    });
+    var schedule=CATS.find(function(c){return c.id==='schedule';})||{id:'schedule',label:'일정',emoji:'📅',color:'var(--danger)'};
+    schedule.color=normalizeTaskCatColor(schedule.color);
+    if(!next.some(function(c){return c.id==='schedule';})) next.unshift(schedule);
+    var ids=new Set(next.map(function(c){return c.id;}));
+    if(!ids.has('etc')){next.push({id:'etc',label:'기타',emoji:'📌',color:'var(--fg-4)'});ids.add('etc');}
+    tasks.forEach(function(t){if(!ids.has(t.catId))t.catId='etc';});
+    CATS=next;
+    saveTaskCatsData(); saveTaskData();
+    refreshTaskCatSelect();
+    renderTaskCatFilter(); renderCal(); renderList();
+    close();
+  };
+}
 function dlState(ds){
   if(!ds)return null;
   var d=new Date(ds+'T00:00');d.setHours(0,0,0,0);
@@ -7928,6 +7895,7 @@ function visibleTasks(){
   return tasks.filter(function(t){
     if(t.date!==selDate)return false;
     if(t._travelOnly)return false;
+    if(hideDoneTasks&&t.done)return false;
     if(activeCat!=='all'&&t.catId!==activeCat)return false;
     return true;
     /* NOTE: hideTt (시간표 숨기기) is calendar-only — tasks always show in list */
@@ -7981,7 +7949,7 @@ function renderCal(){
     if(dow===0)cell.classList.add('sun');
     if(dow===6)cell.classList.add('sat');
 
-    var dayTasks=(byDay[dkey]||[]).filter(function(t){return !t._travelOnly && (!hideTt||!t._isTt);}); /* hideTt only for calendar */
+    var dayTasks=(byDay[dkey]||[]).filter(function(t){return !t._travelOnly && (!hideTt||!t._isTt) && (!hideDoneTasks||!t.done);}); /* hideTt only for calendar */
     var dlTasks=dlDay[dkey]||[];
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='today';}))cell.classList.add('has-dl-today');
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='overdue';}))cell.classList.add('has-dl-overdue');
@@ -8002,8 +7970,8 @@ function renderCal(){
         var cat=getCat(t.catId);
         var pill=document.createElement('div');
         pill.className='cal-event-pill';
-        pill.style.background=cat.color+'20';
-        pill.style.color=cat.color;
+        pill.style.background=taskCatSoftBg(cat.color);
+        pill.style.color=normalizeTaskCatColor(cat.color);
         pill.textContent=t.text;
         pill.setAttribute('draggable','true');
         pill.addEventListener('click',function(e){e.stopPropagation();selDate=t.date;renderCal();renderList();tasksOpenModal(t);});
@@ -8042,6 +8010,11 @@ function renderCal(){
   document.getElementById('btn-cal-view').classList.toggle('on',calFull);
   document.getElementById('btn-dl-view').classList.toggle('on',dlView);
   document.getElementById('btn-tt-hide').classList.toggle('on',hideTt);
+  var doneBtn=document.getElementById('btn-done-hide');
+  if(doneBtn){
+    doneBtn.textContent=hideDoneTasks?'완료 표시':'완료 숨김';
+    doneBtn.classList.toggle('on',hideDoneTasks);
+  }
 
   /* Bind drag-drop onto date cells */
   setupCalDragDrop();
@@ -8143,6 +8116,7 @@ document.getElementById('btn-cal-view').addEventListener('click',function(){
 });
 document.getElementById('btn-dl-view').addEventListener('click',function(){dlView=!dlView;savePrefs();renderCal();});
 document.getElementById('btn-tt-hide').addEventListener('click',function(){hideTt=!hideTt;savePrefs();renderCal();/* list always shows timetable items */});
+document.getElementById('btn-done-hide').addEventListener('click',function(){hideDoneTasks=!hideDoneTasks;savePrefs();renderCal();renderList();});
 
 /* ── CALENDAR DATE DRAG-DROP ──
    Task items can be dragged from the list onto any calendar date
@@ -8493,6 +8467,33 @@ function openNameDelete(){
 }
 
 /* ── MORE MENU ── */
+bulkDelete=function(){
+  if(!selIds.size)return;
+  openConfirmDialog('선택 항목 삭제', selIds.size+'개 항목을 삭제할까요?', function(){
+    tasks=tasks.filter(function(t){return!selIds.has(t.id);});
+    if(typeof saveTaskData==='function')saveTaskData();
+    exitSelMode();renderCal();
+  });
+};
+bulkDeleteDone=function(){
+  var n=tasks.filter(function(t){return t.done&&t.date===selDate;}).length;
+  if(!n){if(typeof showToast==='function')showToast('완료된 항목이 없어요.');return;}
+  openConfirmDialog('완료 항목 삭제', n+'개 완료 항목을 삭제할까요?', function(){
+    tasks=tasks.filter(function(t){return!(t.done&&t.date===selDate);});
+    if(typeof saveTaskData==='function')saveTaskData();
+    renderList();renderCal();closeMoreMenu();
+  });
+};
+bulkMoveDate=function(){
+  openFormDialog('날짜 이동', [
+    {key:'date', label:'이동할 날짜', type:'date', value:TK}
+  ], function(data){
+    if(!data.date)return;
+    tasks.forEach(function(t){if(selIds.has(t.id))t.date=data.date;});
+    if(typeof saveTaskData==='function')saveTaskData();
+    exitSelMode();renderCal();
+  });
+};
 var moreMenuOpen=false;
 document.getElementById('btn-more').addEventListener('click',function(e){
   e.stopPropagation();
@@ -8543,6 +8544,13 @@ document.getElementById('add-cat-chip').addEventListener('click',function(){
   newCat=CATS[(idx+1)%CATS.length].id;updateAddChips();
 });
 document.getElementById('add-dl-chip').addEventListener('click',function(){
+  openFormDialog('마감일 설정', [
+    {key:'deadline', label:'마감일', type:'date', value:newDeadline || selDate}
+  ], function(data){
+    newDeadline=data.deadline||'';
+    updateAddChips();
+  });
+  return;
   var val = prompt('마감일을 YYYY-MM-DD 형식으로 입력하세요', newDeadline || selDate);
   if (val === null) return;
   val = val.trim();
@@ -8596,6 +8604,12 @@ function tasksOpenModal(task){
 
   /* Delete button */
   document.getElementById('modal-del-btn').onclick=function(){
+    openConfirmDialog('할일 삭제', '"'+task.text+'" 항목을 삭제할까요?', function(){
+      tasks=tasks.filter(function(t){return t.id!==task.id;});
+      saveTaskData();
+      tasksCloseModal();renderList();renderCal();
+    });
+    return;
     if(!confirm('"'+task.text+'" 을(를) 삭제할까요?'))return;
     tasks=tasks.filter(function(t){return t.id!==task.id;});
     saveTaskData();
