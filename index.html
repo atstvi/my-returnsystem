@@ -5298,11 +5298,30 @@ to{opacity:1;transform:translateY(0)}}
           </div>
           <div class="set-detail" id="gcal-detail">
             <div class="field-group">
-              <div class="field-hint">Google Calendar API 키를 입력하면 일정이 자동으로 시간표에 동기화돼요.</div>
-              <input class="set-inp mono" id="gcal-key" placeholder="Google API Key" style="margin-top:var(--sp-3)">
-              <div style="margin-top:var(--sp-4)">
-                <button class="set-btn btn-primary" onclick="saveGcalKey()">저장</button>
+              <div class="field-label">Google Calendar OAuth Client ID</div>
+              <div class="field-help">Google Cloud Console에서 OAuth 클라이언트 ID를 만들고 승인된 JavaScript 원본에 현재 배포 도메인을 추가해야 해요.</div>
+              <input class="set-inp mono" id="gcal-client-id" placeholder="xxxxx.apps.googleusercontent.com">
+              <div class="field-label" style="margin-top:var(--sp-4)">일정 캘린더 ID</div>
+              <input class="set-inp mono" id="gcal-calendar-id" placeholder="primary 또는 xxx@group.calendar.google.com">
+              <div class="field-label" style="margin-top:var(--sp-4)">할일/준비 캘린더 ID</div>
+              <input class="set-inp mono" id="gcal-task-calendar-id" placeholder="비우면 일정 캘린더 사용">
+              <div style="display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;margin-top:var(--sp-4)">
+                <label class="field-help"><input type="checkbox" id="gcal-auto-sync"> 자동 동기화</label>
+                <select class="set-inp" id="gcal-reminder-min" style="width:130px">
+                  <option value="0">알림 없음</option>
+                  <option value="5">5분 전</option>
+                  <option value="10">10분 전</option>
+                  <option value="30">30분 전</option>
+                  <option value="60">1시간 전</option>
+                </select>
               </div>
+              <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
+                <button class="set-btn btn-primary" onclick="gcalSaveConfig()">설정 저장</button>
+                <button class="set-btn btn-ghost" onclick="gcalAuth()">Google 로그인</button>
+                <button class="set-btn btn-ghost" onclick="gcalSync()">지금 동기화</button>
+                <button class="set-btn btn-ghost" onclick="gcalClearConfig()">연동 해제</button>
+              </div>
+              <div class="field-help" id="gcal-status" style="margin-top:var(--sp-3)"></div>
             </div>
           </div>
         </div>
@@ -13580,11 +13599,35 @@ clearFbConfig=function(){localStorage.removeItem('fb_config');if(_fbUnsubscribe)
 async function fbGoogleLogin(){try{if(!fbAuth){var ok=await initFirebase();if(!ok)return;}await fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());}catch(e){showToast('Google 로그인 실패: '+e.message);}}
 function fbCollectData(){var data={updatedAtMs:Date.now(),keys:{}};FB_DATA_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)data.keys[k]=v;});return data;}
 function fbApplyData(data){if(!data||!data.keys)return;_applyingFbData=true;Object.keys(data.keys).forEach(function(k){try{localStorage.setItem(k,data.keys[k]);}catch(e){}});try{if(typeof loadTaskData==='function')loadTaskData();if(typeof renderCal==='function')renderCal();if(typeof renderList==='function')renderList();if(typeof loadInboxItems==='function')loadInboxItems();if(typeof loadProjects==='function')loadProjects();}catch(e){}setTimeout(function(){_applyingFbData=false;},500);}
-async function fbLoadAll(){if(!fbDb||!fbUser)return;var ref=fbDb.collection('returnUsers').doc(fbUser.uid);var snap=await ref.get();if(snap.exists)fbApplyData(snap.data());if(_fbUnsubscribe)_fbUnsubscribe();_fbUnsubscribe=ref.onSnapshot(function(s){if(!s.exists)return;var d=s.data();if(d.updatedAtMs&&Date.now()-d.updatedAtMs<1200)return;fbApplyData(d);});}
-function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(async function(){try{setFbStatus('동기화 중...','saving');await fbDb.collection('returnUsers').doc(fbUser.uid).set(fbCollectData(),{merge:true});setFbStatus('연결됨 - '+(fbUser.email||'Google 계정'),'ok');}catch(e){setFbStatus('동기화 오류: '+e.message,'err');}},900);}
+async function fbLoadAll(){
+  if(!fbDb||!fbUser)return;
+  var ref=fbDb.collection('users').doc(fbUser.uid);
+  try{
+    var snap=await ref.get();
+    if(snap.exists)fbApplyData(snap.data());
+    if(_fbUnsubscribe)_fbUnsubscribe();
+    _fbUnsubscribe=ref.onSnapshot(function(s){
+      if(!s.exists)return;
+      var d=s.data();
+      if(d.updatedAtMs&&Date.now()-d.updatedAtMs<1200)return;
+      fbApplyData(d);
+    },function(e){
+      var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기를 허용하지 않아요. Firebase Console > Firestore 규칙을 확인해주세요.':e.message;
+      setFbStatus('동기화 오류: '+msg,'err');
+    });
+  }catch(e){
+    var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기를 허용하지 않아요. Firebase Console > Firestore 규칙을 확인해주세요.':e.message;
+    setFbStatus('동기화 오류: '+msg,'err');
+  }
+}
+function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(async function(){try{setFbStatus('동기화 중...','saving');await fbDb.collection('users').doc(fbUser.uid).set(fbCollectData(),{merge:true});setFbStatus('연결됨 - '+(fbUser.email||'Google 계정'),'ok');}catch(e){var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 쓰기를 허용하지 않아요. Firebase Console > Firestore 규칙을 확인해주세요.':e.message;setFbStatus('동기화 오류: '+msg,'err');}},900);}
 function fbForceSync(){if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}fbSaveAll();showToast('Firebase 동기화를 요청했어요');}
 var _rawSetItem = localStorage.setItem.bind(localStorage);
-localStorage.setItem = function(k,v){_rawSetItem(k,v);if(FB_DATA_KEYS.indexOf(k)>=0&&typeof fbSaveAll==='function')fbSaveAll();};
+localStorage.setItem = function(k,v){
+  _rawSetItem(k,v);
+  if(FB_DATA_KEYS.indexOf(k)>=0&&typeof fbSaveAll==='function')fbSaveAll();
+  if(k==='task_items_v1'&&typeof gcalQueueAutoSync==='function')gcalQueueAutoSync();
+};
 
 var DIARY_DEFAULT_PROMPT='아래 오늘의 할일과 일정을 Notion 타임라인에 넣기 좋게 시간순으로 간결하게 정리해줘. 빠진 준비나 마감 위험이 보이면 함께 적어줘.\n\n{tasks}';
 var _diaryNotionCfg={};
@@ -13604,6 +13647,111 @@ async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElem
 async function diaryAutoDetectProps(){saveNotionConfig();try{var db=await _diaryNotionApi('GET','/databases/'+_diaryNotionCfg.dbId);var keys=Object.keys(db.properties||{});function pick(id,cands){var v=keys.find(function(k){return cands.some(function(c){return k.toLowerCase().replace(/\s+/g,'').indexOf(c.toLowerCase().replace(/\s+/g,''))>=0;});});if(v)setNotionVal(id,v);}pick('notion-date-prop',['날짜','date']);pick('notion-timeline-prop',['타임라인','timeline']);pick('notion-sleep-prop',['sleep','수면']);pick('notion-morning-prop',['morning','아침']);pick('notion-resolution-prop',['resolution','다짐']);pick('notion-accomplishment-prop',['accomplishment','성취']);pick('notion-night-prop',['night','저녁']);pick('notion-recap-prop',['recap','회고']);showToast('속성명을 자동 감지했어요');}catch(e){showToast('자동 감지 실패: '+e.message);}}
 var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':');if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0))syncDiaryToNotion(TK);},60000);}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
+
+/* Google Calendar runtime */
+var _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');}catch(e){return{};}})();
+var _gcalToken=_gcalCfg._savedToken||null;
+var _gcalTokenExp=_gcalCfg._savedTokenExp||0;
+function gcalStatus(text){var el=document.getElementById('gcal-status');if(el)el.textContent=text;var st=document.getElementById('gcal-status');if(st)st.textContent=text;var row=document.getElementById('gcal-status');}
+function gcalLoadConfig(){
+  _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');}catch(e){return{};}})();
+  _gcalToken=_gcalCfg._savedToken||_gcalToken;
+  _gcalTokenExp=_gcalCfg._savedTokenExp||_gcalTokenExp||0;
+  var cid=document.getElementById('gcal-client-id'), cal=document.getElementById('gcal-calendar-id'), tcal=document.getElementById('gcal-task-calendar-id'), auto=document.getElementById('gcal-auto-sync'), rem=document.getElementById('gcal-reminder-min');
+  if(cid)cid.value=_gcalCfg.clientId||''; if(cal)cal.value=_gcalCfg.calendarId||'primary'; if(tcal)tcal.value=_gcalCfg.taskCalendarId||''; if(auto)auto.checked=!!_gcalCfg.autoSync; if(rem)rem.value=String(_gcalCfg.reminderMin||0);
+  if(_gcalToken&&_gcalTokenExp>Date.now()) gcalStatus('Google 인증됨 - 토큰 만료까지 약 '+Math.round((_gcalTokenExp-Date.now())/60000)+'분');
+  else gcalStatus(_gcalCfg.clientId?'설정 저장됨 - Google 로그인이 필요해요':'설정 필요');
+}
+function gcalSaveConfig(){
+  _gcalCfg.clientId=(document.getElementById('gcal-client-id')||{}).value||_gcalCfg.clientId||'';
+  _gcalCfg.calendarId=(document.getElementById('gcal-calendar-id')||{}).value||'primary';
+  _gcalCfg.taskCalendarId=(document.getElementById('gcal-task-calendar-id')||{}).value||'';
+  _gcalCfg.autoSync=!!((document.getElementById('gcal-auto-sync')||{}).checked);
+  _gcalCfg.reminderMin=parseInt((document.getElementById('gcal-reminder-min')||{}).value||'0',10)||0;
+  if(_gcalToken){_gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;}
+  localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+  gcalLoadConfig(); showToast('Google Calendar 설정 저장됨');
+}
+saveGcalKey=gcalSaveConfig;
+function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_gcalToken=null;_gcalTokenExp=0;gcalLoadConfig();showToast('Google Calendar 연동을 해제했어요');}
+function gcalAuth(){
+  gcalSaveConfig();
+  var clientId=_gcalCfg.clientId;
+  if(!clientId){showToast('OAuth Client ID를 입력해주세요');return;}
+  var redirect=location.origin+location.pathname;
+  if(location.protocol==='file:') redirect='https://developers.google.com/oauthplayground';
+  var url='https://accounts.google.com/o/oauth2/v2/auth?response_type=token'
+    +'&client_id='+encodeURIComponent(clientId)
+    +'&redirect_uri='+encodeURIComponent(redirect)
+    +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+    +'&include_granted_scopes=true&prompt=consent';
+  var pop=window.open(url,'gcal_auth','width=520,height=640');
+  var timer=setInterval(function(){
+    try{
+      if(!pop||pop.closed){clearInterval(timer);return;}
+      var h=pop.location.hash||'';
+      if(h.indexOf('access_token')>=0){
+        var params=new URLSearchParams(h.slice(1));
+        _gcalToken=params.get('access_token');
+        _gcalTokenExp=Date.now()+Number(params.get('expires_in')||3600)*1000;
+        _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
+        localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+        pop.close();clearInterval(timer);gcalLoadConfig();showToast('Google Calendar 인증 완료');
+      }
+    }catch(e){}
+  },800);
+}
+function gcalEventFromTask(t){
+  var title=t.text||'Return';
+  var desc=(t.note||'')+(t.deadlineDate?'\n마감: '+t.deadlineDate:'');
+  var ev={summary:title,description:desc};
+  if(t.timeStart){
+    var start=t.date+'T'+t.timeStart+':00';
+    var end=t.date+'T'+(t.timeEnd||t.timeStart)+':00';
+    if(!t.timeEnd||t.timeEnd===t.timeStart){var d=new Date(start);d.setMinutes(d.getMinutes()+30);end=d.toISOString().slice(0,16)+':00';}
+    ev.start={dateTime:start,timeZone:'Asia/Seoul'};ev.end={dateTime:end,timeZone:'Asia/Seoul'};
+  } else {
+    ev.start={date:t.deadlineDate||t.date};
+    var d2=new Date((t.deadlineDate||t.date)+'T00:00');d2.setDate(d2.getDate()+1);ev.end={date:d2.toISOString().slice(0,10)};
+  }
+  if(_gcalCfg.reminderMin){ev.reminders={useDefault:false,overrides:[{method:'popup',minutes:_gcalCfg.reminderMin}]};}
+  return ev;
+}
+async function gcalApiCal(method,path,body,calId){
+  if(!_gcalToken||Date.now()>_gcalTokenExp-60000)throw new Error('Google 인증이 필요하거나 토큰이 만료됐어요');
+  var base='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId||_gcalCfg.calendarId||'primary')+'/events';
+  var res=await fetch(base+(path||''),{method:method,headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  var txt=await res.text(), data={};try{data=txt?JSON.parse(txt):{};}catch(e){data={message:txt};}
+  if(!res.ok)throw new Error(data.message||('Google Calendar '+res.status));
+  return data;
+}
+var _gcalAutoTimer=null;
+function gcalQueueAutoSync(){
+  if(!_gcalCfg||!_gcalCfg.autoSync||!_gcalToken||Date.now()>_gcalTokenExp-60000)return;
+  clearTimeout(_gcalAutoTimer);
+  _gcalAutoTimer=setTimeout(function(){gcalSync().catch(function(e){console.warn('gcal auto sync',e);});},2500);
+}
+async function gcalSync(){
+  gcalSaveConfig();
+  if(!_gcalToken){showToast('먼저 Google 로그인이 필요해요');return;}
+  var status=document.getElementById('gcal-status');if(status)status.textContent='동기화 중...';
+  var list=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return !t.done && (t.date||t.deadlineDate);});
+  _gcalCfg.eventIds=_gcalCfg.eventIds||{};
+  var ok=0,err=0;
+  for(var i=0;i<list.length;i++){
+    var t=list[i], calId=(t.catId==='schedule'?(_gcalCfg.calendarId||'primary'):(_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary'));
+    try{
+      var ev=gcalEventFromTask(t), id=_gcalCfg.eventIds[String(t.id)];
+      var r=id?await gcalApiCal('PATCH','/'+id,ev,calId):await gcalApiCal('POST','',ev,calId);
+      if(r&&r.id)_gcalCfg.eventIds[String(t.id)]=r.id;
+      ok++;
+    }catch(e){console.warn('gcal item',t.text,e);err++;}
+  }
+  localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+  if(status)status.textContent='동기화 완료: '+ok+'개, 오류 '+err+'개';
+  showToast('Google Calendar 동기화 완료');
+}
+
 
 function calcDataSize() {
   var total = 0;
@@ -13700,6 +13848,7 @@ function _initSettings(){
     fillFbInputs();
     loadDiaryNotionConfig();
     scheduleDiaryAutoSync();
+    if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
     if (fbConfig().apiKey) initFirebase().catch(function(e){ setFbStatus('Firebase 오류: '+e.message,'err'); });
     var st = document.getElementById('sticker-toggle');
     if (st) st.classList.toggle('on', localStorage.getItem('global_sticker_edit_visible') !== '0');
@@ -13712,6 +13861,7 @@ function _initSettings(){
 try {
   if (typeof fbConfig === 'function' && fbConfig().apiKey) initFirebase().catch(function(e){ setFbStatus('Firebase 오류: '+e.message,'err'); });
   if (typeof loadDiaryNotionConfig === 'function') { loadDiaryNotionConfig(); scheduleDiaryAutoSync(); }
+  if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
 } catch(e) {}
 (function finalBoot(){
   var slug = window.__returnInitialPage || _currentPage || 'home';
