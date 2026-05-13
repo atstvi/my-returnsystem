@@ -15935,10 +15935,13 @@ async function runFirebaseDiagnostics(){
     }
   }
 
-  /* Step 6: Write test (diagnostic doc) */
-  var testDocRef=ref.collection('data').doc('__diag_test__');
+  /* Step 6: Write test (diagnostic doc).
+     Firestore reserves any ID that starts/ends with double underscores, so
+     `__diag_test__` itself triggers an `invalid-argument` error before we
+     ever hit security rules. Use a plain ID instead. */
+  var testDocRef=ref.collection('data').doc('return_diag_test');
   try {
-    await testDocRef.set({key:'__diag_test__',value:'ping',updatedAtMs:Date.now()});
+    await testDocRef.set({key:'return_diag_test',value:'ping',updatedAtMs:Date.now()});
     add('users/{uid}/data 쓰기 테스트','ok','테스트 문서 작성 성공');
     /* cleanup */
     try { await testDocRef.delete(); add('테스트 문서 정리','ok'); }
@@ -16271,30 +16274,76 @@ async function runNotionDiagnostics(){
     return;
   }
 
-  /* === Step 3.5: check property names match config === */
-  var requiredProps={
-    '날짜(dateProp)':cfg.dateProp||'날짜',
-    '타임라인(timelineProp)':cfg.timelineProp,
-    'Sleep(sleepProp)':cfg.sleepProp,
-    'Morning(morningProp)':cfg.morningProp,
-    'Resolution(resolutionProp)':cfg.resolutionProp,
-    'Accomplishment(accomplishmentProp)':cfg.accomplishmentProp,
-    'Night(nightProp)':cfg.nightProp,
-    'Recap(recapProp)':cfg.recapProp,
-  };
-  var propsOk=true;
-  Object.keys(requiredProps).forEach(function(k){
-    var name=requiredProps[k];
-    if(!name) return; /* not set, optional */
-    if(meta.properties[name]){
-      add(k+' = "'+name+'"','ok','type: '+meta.properties[name].type);
+  /* === Step 3.5: check property names AND TYPES match config ===
+     Each section property must be writable rich_text. The date property
+     must be a real `date` type — `last_edited_time`/`created_time` look
+     date-like but Notion auto-manages them and ignores writes, which means
+     pages get queried by their actual edit time instead of the diary date.
+     Same trap for formula/rollup/created_time on section props. */
+  var sectionProps=[
+    {key:'타임라인(timelineProp)', name:cfg.timelineProp, want:'rich_text'},
+    {key:'Sleep(sleepProp)',       name:cfg.sleepProp,    want:'rich_text'},
+    {key:'Morning(morningProp)',   name:cfg.morningProp,  want:'rich_text'},
+    {key:'Resolution(resolutionProp)',     name:cfg.resolutionProp,     want:'rich_text'},
+    {key:'Accomplishment(accomplishmentProp)', name:cfg.accomplishmentProp, want:'rich_text'},
+    {key:'Night(nightProp)',       name:cfg.nightProp,    want:'rich_text'},
+    {key:'Recap(recapProp)',       name:cfg.recapProp,    want:'rich_text'},
+  ];
+  var hardErrors=0;
+
+  /* Date property — special case, allow `date` only */
+  var dateName=cfg.dateProp||'날짜';
+  var dateProp=meta.properties[dateName];
+  if(!dateProp){
+    add('날짜(dateProp) = "'+dateName+'"','err','속성이 DB에 없어요. "Notion DB에서 자동 감지"를 눌러보세요.');
+    hardErrors++;
+  } else if(dateProp.type==='last_edited_time' || dateProp.type==='created_time'){
+    add('날짜(dateProp) = "'+dateName+'" — type: '+dateProp.type,'err',
+      '이 속성은 Notion이 자동 관리하는 시스템 속성이라 일기 날짜로 쓸 수 없어요. '+
+      '"Date" 타입의 새 속성을 DB에 만들고, 그 이름을 입력하거나 자동 감지를 다시 실행해주세요.');
+    hardErrors++;
+  } else if(dateProp.type!=='date'){
+    add('날짜(dateProp) = "'+dateName+'" — type: '+dateProp.type,'err',
+      '"date" 타입이어야 합니다. 현재 타입 ('+dateProp.type+')으로는 동기화가 작동하지 않아요.');
+    hardErrors++;
+  } else {
+    add('날짜(dateProp) = "'+dateName+'"','ok','type: date');
+  }
+
+  /* Section properties — only rich_text is writable */
+  sectionProps.forEach(function(s){
+    if(!s.name) return; /* optional, not configured */
+    var p=meta.properties[s.name];
+    if(!p){
+      add(s.key+' = "'+s.name+'"','err','속성이 DB에 없어요.');
+      hardErrors++;
+      return;
+    }
+    var readOnly={formula:1,rollup:1,created_time:1,last_edited_time:1,created_by:1,last_edited_by:1,unique_id:1};
+    if(readOnly[p.type]){
+      add(s.key+' = "'+s.name+'" — type: '+p.type,'err',
+        '이 속성은 Notion이 자동 계산하는 read-only 타입이라 앱에서 쓸 수 없어요. ' +
+        'DB에 "Text(rich_text)" 타입의 새 속성을 만들고 그 이름으로 바꿔주세요.');
+      hardErrors++;
+    } else if(p.type!=='rich_text' && p.type!=='title'){
+      add(s.key+' = "'+s.name+'" — type: '+p.type,'warn',
+        '"rich_text" 타입을 기대했는데 '+p.type+' 타입이에요. 동기화가 거부될 수 있어요.');
     } else {
-      add(k+' = "'+name+'"','err','이 속성이 DB에 없어요. "Notion DB에서 자동 감지"를 눌러보세요.');
-      propsOk=false;
+      add(s.key+' = "'+s.name+'"','ok','type: '+p.type);
     }
   });
-  if(!propsOk){
-    add('속성 검증','warn','일부 속성명이 DB와 다름. 자동 감지를 실행하거나 수동으로 맞춰주세요.');
+
+  if(hardErrors){
+    /* Stop here — continuing would just spam more errors */
+    var warn=document.createElement('div');
+    warn.style.cssText='margin-top:var(--sp-3);padding:var(--sp-4);border-radius:var(--r-md);background:var(--d-50);color:var(--danger);font-size:var(--text-sm);font-weight:var(--fw-semibold);font-family:var(--font-sans);line-height:1.5';
+    warn.innerHTML='❌ '+hardErrors+'개 속성 문제로 진단을 중단했어요.<br>' +
+      '<span style="font-weight:var(--fw-regular);color:var(--fg-2);font-size:var(--text-xs);display:block;margin-top:var(--sp-2);line-height:1.6">' +
+      '<strong>해결법:</strong> Notion DB에서 "Date" 타입 속성과 "Text(rich_text)" 타입 속성들을 만들어주세요. ' +
+      '시스템 속성(last_edited_time, formula 등)은 앱이 직접 쓸 수 없어요. ' +
+      '예를 들어 "updated" 대신 "Diary Date"라는 Date 속성을, "Sleep"(formula) 대신 "Sleep Notes"라는 Text 속성을 만든 뒤 설정에서 이름을 바꾸거나 "자동 감지" 버튼을 누르세요.</span>';
+    listEl.appendChild(warn);
+    return;
   }
 
   /* === Step 4: query by date === */
@@ -16415,8 +16464,59 @@ async function callAI(prompt, maxTokens){
 }
 function _buildTodayTasksText(dateKey){dateKey=dateKey||TK;var lines=[];(tasks||[]).filter(function(t){return t.date===dateKey||t.deadlineDate===dateKey;}).forEach(function(t){lines.push((t.timeStart?t.timeStart+' ':'')+(t.deadlineDate===dateKey?'[마감] ':'')+t.text+(t.done?' (완료)':''));});return lines.join('\n')||'오늘 할일/일정이 없어요.';}
 async function _formatTimelineWithAI(raw){var prompt=(_diaryNotionCfg.prompt||DIARY_DEFAULT_PROMPT).replace('{tasks}',raw);if(typeof callAI==='function')return await callAI(prompt,1200);return raw;}
+/* ── DB metadata cache ──
+   Sync builds a properties object based on user-configured property NAMES,
+   but Notion enforces TYPES — pushing rich_text to a formula/last_edited_time
+   property fails the entire request. We fetch DB metadata once and use it to
+   skip read-only properties silently, instead of failing the whole sync. */
+var _diaryNotionMetaCache = {dbId:null, props:null, fetchedAt:0};
+async function _getDiaryDbMeta(){
+  var cfg=_diaryNotionCfg;
+  /* Re-fetch if DB changed or cache is older than 5 minutes */
+  if(_diaryNotionMetaCache.dbId===cfg.dbId
+     && _diaryNotionMetaCache.props
+     && Date.now()-_diaryNotionMetaCache.fetchedAt < 5*60*1000){
+    return _diaryNotionMetaCache.props;
+  }
+  var meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);
+  _diaryNotionMetaCache={dbId:cfg.dbId, props:meta.properties||{}, fetchedAt:Date.now()};
+  return _diaryNotionMetaCache.props;
+}
+/* Returns true if `propName` exists on the cached DB and is writable as rich_text.
+   Skips read-only auto-managed types so a single bad config field doesn't
+   abort the whole sync. */
+function _isWritableRichText(metaProps, propName){
+  if(!propName||!metaProps) return false;
+  var p=metaProps[propName]; if(!p) return false;
+  var readOnly={formula:1,rollup:1,created_time:1,last_edited_time:1,created_by:1,last_edited_by:1,unique_id:1};
+  if(readOnly[p.type]) return false;
+  return p.type==='rich_text' || p.type==='title';
+}
+
 async function _findOrCreateDiaryPage(dateKey, returnPage){
   var cfg=_diaryNotionCfg, dateProp=cfg.dateProp||'날짜';
+  /* Pre-check: dateProp must be a real `date` type. Catch the silent-failure
+     case where dateProp is last_edited_time/created_time — Notion accepts the
+     filter but writes to it are ignored, so every diary day shares one page. */
+  try {
+    var metaProps=await _getDiaryDbMeta();
+    var dp=metaProps[dateProp];
+    if(dp){
+      if(dp.type==='last_edited_time' || dp.type==='created_time'){
+        throw new Error('"'+dateProp+'"는 시스템 속성('+dp.type+')이라 날짜 속성으로 쓸 수 없어요. ' +
+          'Notion DB에 "Date" 타입 속성을 만들고 설정에서 그 이름으로 바꿔주세요.');
+      }
+      if(dp.type!=='date'){
+        throw new Error('"'+dateProp+'"는 "date" 타입이어야 해요. 현재 타입: '+dp.type);
+      }
+    }
+  } catch(e){
+    /* Only throw if it's our own type-check error; if metadata fetch fails,
+       fall through to the original behavior so we don't add new failure modes. */
+    if(e && /타입|속성/.test(e.message||'')) throw e;
+    console.warn('dateProp type check skipped:', e&&e.message);
+  }
+
   /* 1) Try to find an existing page with this date */
   var found;
   try {
@@ -16779,15 +16879,31 @@ async function syncDiaryToNotion(dateKey, opts){
       }
     }
 
-    /* 3. Build property updates from the (now-merged) entry */
+    /* 3. Build property updates from the (now-merged) entry.
+       Type-guard each prop against the cached DB metadata so a single
+       formula/last_edited_time field doesn't fail the whole sync. */
     setStatus('속성 업데이트 중...');
     var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:{};
     var props={};
+    var skipped=[];
+    var metaProps={};
+    try { metaProps=await _getDiaryDbMeta(); } catch(e){ console.warn('meta fetch for type-guard failed:',e); }
+
+    function addProp(propName, content){
+      if(!propName) return;
+      if(!_isWritableRichText(metaProps, propName)){
+        var typ=(metaProps[propName]&&metaProps[propName].type)||'없음';
+        skipped.push(propName+'('+typ+')');
+        return;
+      }
+      props[propName]={rich_text:[{text:{content:String(content).slice(0,2000)}}]};
+    }
+
     /* Timeline — AI-formatted summary of today's tasks */
     try {
       if(cfg.timelineProp && !opts.skipAI){
         var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));
-        props[cfg.timelineProp]={rich_text:[{text:{content:String(formatted).slice(0,2000)}}]};
+        addProp(cfg.timelineProp, formatted);
       }
     } catch(e){
       console.warn('timeline format failed:', e&&e.message);
@@ -16797,9 +16913,7 @@ async function syncDiaryToNotion(dateKey, opts){
      ['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']
     ].forEach(function(pair){
       var key=pair[0], prop=cfg[pair[1]];
-      if(prop && entry[key]){
-        props[prop]={rich_text:[{text:{content:String(entry[key]).slice(0,2000)}}]};
-      }
+      if(prop && entry[key]) addProp(prop, entry[key]);
     });
     if(Object.keys(props).length){
       try {
@@ -16807,6 +16921,9 @@ async function syncDiaryToNotion(dateKey, opts){
       } catch(e){
         throw new Error('속성 업데이트 실패: '+e.message);
       }
+    }
+    if(skipped.length){
+      console.warn('Notion sync — skipped read-only props:', skipped);
     }
 
     /* 4. Push body blocks. force=true on manual sync so the user can always
@@ -16826,9 +16943,14 @@ async function syncDiaryToNotion(dateKey, opts){
     var msg='동기화 완료 '+timeStr
       + (propPulled?' · 속성 '+propPulled:'')
       + (pulled?' · 본문 '+pulled:'')
-      + (bodyCount?' · 보냄 '+bodyCount:'');
-    setStatus(msg, 'ok');
-    if(!opts.silent)showToast('Notion 동기화 완료'+((pulled||propPulled)?' (가져옴 '+(pulled+propPulled)+'개)':''));
+      + (bodyCount?' · 보냄 '+bodyCount:'')
+      + (skipped&&skipped.length?' · 스킵 '+skipped.length+'개 (read-only)':'');
+    setStatus(msg, skipped&&skipped.length ? 'warn' : 'ok');
+    if(!opts.silent){
+      var toastMsg='Notion 동기화 완료'+((pulled||propPulled)?' (가져옴 '+(pulled+propPulled)+'개)':'');
+      if(skipped&&skipped.length) toastMsg += ' — '+skipped.length+'개 속성은 read-only라 건너뜀';
+      showToast(toastMsg);
+    }
   }catch(e){
     var emsg=e&&e.message||'알 수 없는 오류';
     setStatus('실패: '+emsg, 'err');
@@ -16886,7 +17008,78 @@ async function pullDiaryFromNotion(dateKey){
     showToast('Notion 가져오기 실패: '+e.message);
   }
 }
-async function diaryAutoDetectProps(){saveNotionConfig();try{var db=await _diaryNotionApi('GET','/databases/'+_diaryNotionCfg.dbId);var keys=Object.keys(db.properties||{});function pick(id,cands){var v=keys.find(function(k){return cands.some(function(c){return k.toLowerCase().replace(/\s+/g,'').indexOf(c.toLowerCase().replace(/\s+/g,''))>=0;});});if(v)setNotionVal(id,v);}pick('notion-date-prop',['날짜','date']);pick('notion-timeline-prop',['타임라인','timeline']);pick('notion-sleep-prop',['sleep','수면']);pick('notion-morning-prop',['morning','아침']);pick('notion-resolution-prop',['resolution','다짐']);pick('notion-accomplishment-prop',['accomplishment','성취']);pick('notion-night-prop',['night','저녁']);pick('notion-recap-prop',['recap','회고']);showToast('속성명을 자동 감지했어요');}catch(e){showToast('자동 감지 실패: '+e.message);}}
+async function diaryAutoDetectProps(){
+  saveNotionConfig();
+  try {
+    var db=await _diaryNotionApi('GET','/databases/'+_diaryNotionCfg.dbId);
+    var allProps=db.properties||{};
+    var readOnly={formula:1,rollup:1,created_time:1,last_edited_time:1,created_by:1,last_edited_by:1,unique_id:1};
+
+    /* For section fields we need writable rich_text properties — never formula/etc */
+    var textKeys=Object.keys(allProps).filter(function(k){
+      var p=allProps[k];
+      return p && !readOnly[p.type] && (p.type==='rich_text' || p.type==='title');
+    });
+    /* For date field we need an actual `date` type — NOT last_edited_time */
+    var dateKeys=Object.keys(allProps).filter(function(k){
+      return allProps[k] && allProps[k].type==='date';
+    });
+
+    /* Match by name (case-insensitive, whitespace-collapsed) against a list
+       of candidate keywords. Returns the first matching key or null. */
+    function pickFrom(pool, cands){
+      return pool.find(function(k){
+        var nk=k.toLowerCase().replace(/\s+/g,'');
+        return cands.some(function(c){
+          return nk.indexOf(c.toLowerCase().replace(/\s+/g,''))>=0;
+        });
+      })||null;
+    }
+    function pick(id, pool, cands){
+      var v=pickFrom(pool, cands);
+      if(v) setNotionVal(id, v);
+      return v;
+    }
+
+    var picked={};
+    picked.date         = pick('notion-date-prop',         dateKeys, ['날짜','date','일자']);
+    picked.timeline     = pick('notion-timeline-prop',     textKeys, ['타임라인','timeline']);
+    picked.sleep        = pick('notion-sleep-prop',        textKeys, ['sleep','수면']);
+    picked.morning      = pick('notion-morning-prop',      textKeys, ['morning','아침','morning thanks']);
+    picked.resolution   = pick('notion-resolution-prop',   textKeys, ['resolution','다짐']);
+    picked.accomplishment=pick('notion-accomplishment-prop',textKeys, ['accomplishment','성취']);
+    picked.night        = pick('notion-night-prop',        textKeys, ['night','저녁','night thanks']);
+    picked.recap        = pick('notion-recap-prop',        textKeys, ['recap','회고']);
+
+    /* Warn the user when no date prop was found */
+    var msgs=[];
+    if(!picked.date){
+      if(dateKeys.length===0) msgs.push('Date 타입 속성이 DB에 없어요 — Notion에서 "Date" 타입 속성을 하나 만들어주세요.');
+      else msgs.push('날짜 속성을 자동으로 못 찾았어요. 후보: '+dateKeys.join(', '));
+    }
+    /* Hint when a name matched but only as a read-only type */
+    var readOnlyHits=Object.keys(allProps).filter(function(k){
+      var nk=k.toLowerCase();
+      return readOnly[allProps[k].type] &&
+        /sleep|수면|morning|아침|resolution|다짐|accomplishment|성취|night|저녁|recap|회고|timeline|타임라인/.test(nk);
+    });
+    if(readOnlyHits.length){
+      msgs.push('이름이 비슷하지만 read-only 타입이라 건너뛴 속성: '+readOnlyHits.map(function(k){return k+'('+allProps[k].type+')';}).join(', '));
+    }
+
+    var summary='속성명을 자동 감지했어요';
+    if(msgs.length) summary += ' — '+msgs.join(' / ');
+    showToast(summary);
+
+    /* Update notion-sync-status as well so the message persists after toast fades */
+    var st=document.getElementById('notion-sync-status');
+    if(st){
+      st.textContent=msgs.length ? '⚠ 자동 감지: '+msgs.join(' / ') : '✓ 모든 속성을 자동으로 감지했어요';
+    }
+  } catch(e){
+    showToast('자동 감지 실패: '+e.message);
+  }
+}
 var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:true});},300000);}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
