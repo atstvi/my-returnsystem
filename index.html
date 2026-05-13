@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko" data-theme="warm-sand">
 <head>
@@ -14268,13 +14269,23 @@ var THEME_PRESETS = [
   { id:'teal',   name:'틸',          vars:{'--a-50':'var(--t-50)','--a-100':'var(--t-50)','--a-200':'var(--t-200)','--a-400':'var(--t-400)','--a-500':'var(--t-600)','--a-600':'var(--t-600)'} },
   { id:'amber',  name:'앰버',        vars:{'--a-50':'var(--w-50)','--a-100':'var(--w-50)','--a-200':'var(--w-200)','--a-400':'var(--w-400)','--a-500':'var(--w-600)','--a-600':'var(--w-600)'} },
 ];
+window.THEME_PRESETS = THEME_PRESETS;
 
+function getThemePresets(){
+  return Array.isArray(window.THEME_PRESETS) ? window.THEME_PRESETS : [
+    { id:'red',    name:'기본 레드', vars:{'--a-50':'var(--a-50)','--a-100':'var(--a-100)','--a-200':'var(--a-200)','--a-400':'var(--a-400)','--a-500':'var(--a-500)','--a-600':'var(--a-600)'} },
+    { id:'indigo', name:'인디고',   vars:{'--a-50':'var(--p-50)','--a-100':'var(--p-50)','--a-200':'var(--p-200)','--a-400':'var(--p-400)','--a-500':'var(--p-600)','--a-600':'var(--p-600)'} },
+    { id:'teal',   name:'틸',       vars:{'--a-50':'var(--t-50)','--a-100':'var(--t-50)','--a-200':'var(--t-200)','--a-400':'var(--t-400)','--a-500':'var(--t-600)','--a-600':'var(--t-600)'} },
+    { id:'amber',  name:'앰버',     vars:{'--a-50':'var(--w-50)','--a-100':'var(--w-50)','--a-200':'var(--w-200)','--a-400':'var(--w-400)','--a-500':'var(--w-600)','--a-600':'var(--w-600)'} }
+  ];
+}
 function renderThemeSwatches() {
   var savedPalette = localStorage.getItem('return_theme_palette') || (localStorage.getItem('return_theme_color') ? '' : 'red');
   var saved = localStorage.getItem('return_theme_color') || getComputedStyle(document.documentElement).getPropertyValue('--a-400').trim();
   var wrap = document.getElementById('theme-swatches');
+  if(!wrap) return;
   wrap.innerHTML = '';
-  THEME_PRESETS.forEach(function(p) {
+  getThemePresets().forEach(function(p) {
     var sw = document.createElement('div');
     sw.className = 'theme-swatch' + (savedPalette === p.id ? ' active' : '');
     sw.style.background = p.vars['--a-400'];
@@ -14286,12 +14297,15 @@ function renderThemeSwatches() {
     wrap.appendChild(sw);
   });
   /* Sync custom picker */
-  document.getElementById('theme-custom-picker').value = saved;
-  document.getElementById('theme-custom-hex').value = saved;
+  var picker=document.getElementById('theme-custom-picker');
+  var hex=document.getElementById('theme-custom-hex');
+  if(picker) picker.value = saved;
+  if(hex) hex.value = saved;
 }
 
 function applyThemePalette(id, silent) {
-  var preset = THEME_PRESETS.find(function(p){ return p.id === id; }) || THEME_PRESETS[0];
+  var presets=getThemePresets();
+  var preset = presets.find(function(p){ return p.id === id; }) || presets[0];
   if (preset.id === 'red') {
     var existing = document.getElementById('theme-override');
     if (existing) existing.remove();
@@ -14917,7 +14931,7 @@ async function callAI(prompt, maxTokens){
 }
 function _buildTodayTasksText(dateKey){dateKey=dateKey||TK;var lines=[];(tasks||[]).filter(function(t){return t.date===dateKey||t.deadlineDate===dateKey;}).forEach(function(t){lines.push((t.timeStart?t.timeStart+' ':'')+(t.deadlineDate===dateKey?'[마감] ':'')+t.text+(t.done?' (완료)':''));});return lines.join('\n')||'오늘 할일/일정이 없어요.';}
 async function _formatTimelineWithAI(raw){var prompt=(_diaryNotionCfg.prompt||DIARY_DEFAULT_PROMPT).replace('{tasks}',raw);if(typeof callAI==='function')return await callAI(prompt,1200);return raw;}
-async function _findOrCreateDiaryPage(dateKey){
+async function _findOrCreateDiaryPage(dateKey, returnPage){
   var cfg=_diaryNotionCfg, dateProp=cfg.dateProp||'날짜';
   /* 1) Try to find an existing page with this date */
   var found;
@@ -14933,7 +14947,7 @@ async function _findOrCreateDiaryPage(dateKey){
     }
     throw e;
   }
-  if(found.results && found.results[0]) return found.results[0].id;
+  if(found.results && found.results[0]) return returnPage ? found.results[0] : found.results[0].id;
 
   /* 2) No existing page — create one */
   var meta;
@@ -14957,7 +14971,7 @@ async function _findOrCreateDiaryPage(dateKey){
   } catch(e){
     throw new Error('새 페이지 생성 실패: '+e.message);
   }
-  return page.id;
+  return returnPage ? page : page.id;
 }
 
 function _diaryHeadingBlock(text){
@@ -15177,16 +15191,14 @@ async function _pullDiaryPageBody(pageId, dateKey){
   var appOnly=(entry._blocks||[]).filter(function(b){return b && !b._notionId;});
   entry._blocks=freeBlocks.concat(appOnly);
 
-  /* Save state */
-  if(typeof saveAll==='function') saveAll();
-  else if(typeof saveAllEntries==='function') saveAllEntries();
-  else { try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){} }
-
-  /* Refresh diary screen unconditionally if user is viewing diary */
-  try {
-    if(typeof loadBlocks==='function') loadBlocks(dateKey);
-    if(typeof loadEntry==='function' && dateKey===currentDate) loadEntry(dateKey);
-  } catch(e){ console.warn('diary refresh',e); }
+  /* Save state and refresh diary screen unconditionally if user is viewing it. */
+  if(typeof _applyPulledDiaryEntry==='function') _applyPulledDiaryEntry(dateKey);
+  else {
+    if(typeof saveAll==='function') saveAll();
+    else if(typeof saveAllEntries==='function') saveAllEntries();
+    else { try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){} }
+    try { if(typeof loadBlocks==='function') loadBlocks(dateKey); } catch(e){ console.warn('diary refresh',e); }
+  }
 
   /* Convert image URLs to base64 in the background so they persist beyond
      Notion's 1-hour URL expiry. Runs after the initial render. */
@@ -15202,6 +15214,38 @@ async function _pullDiaryPageBody(pageId, dateKey){
   }
 
   return added;
+}
+
+function _readNotionRichTextProp(prop){
+  var rt=(prop&&prop.rich_text)||[];
+  return rt.map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('').trim();
+}
+function _applyPulledDiaryEntry(dateKey){
+  try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
+  try{
+    if(typeof loadDate==='function' && dateKey===currentDate) loadDate(dateKey);
+    else {
+      if(typeof loadBlocks==='function') loadBlocks(dateKey);
+      if(typeof renderTrackerRow==='function') renderTrackerRow(dateKey);
+      if(typeof renderRightTrackers==='function') renderRightTrackers(dateKey);
+    }
+  }catch(e){ console.warn('diary refresh', e); }
+}
+function _pullDiaryPageProperties(page, dateKey, cfg){
+  if(!page||!dateKey||typeof entries==='undefined')return 0;
+  var entry=entries[dateKey]||(entries[dateKey]={});
+  var props=page.properties||{}, changed=0;
+  [['sleepProp','sleep'],['morningProp','morning'],['resolutionProp','resolution'],
+   ['accomplishmentProp','accomplishment'],['nightProp','night'],['recapProp','recap'],
+   ['timelineProp','timeline']].forEach(function(pair){
+    var propName=(cfg||_diaryNotionCfg)[pair[0]];
+    if(propName&&props[propName]){
+      var v=_readNotionRichTextProp(props[propName]);
+      if(v && entry[pair[1]]!==v){entry[pair[1]]=v;changed++;}
+    }
+  });
+  if(changed)_applyPulledDiaryEntry(dateKey);
+  return changed;
 }
 
 async function syncDiaryToNotion(dateKey){
@@ -15227,9 +15271,11 @@ async function syncDiaryToNotion(dateKey){
   setStatus('Notion 페이지 찾는 중...');
   try{
     /* 1. Find or create the diary page */
-    var pageId;
+    var pageId, notionPage=null;
     try {
-      pageId=await _findOrCreateDiaryPage(dateKey);
+      var foundPage=await _findOrCreateDiaryPage(dateKey, true);
+      if(foundPage&&typeof foundPage==='object'){notionPage=foundPage;pageId=foundPage.id;}
+      else pageId=foundPage;
     } catch(e){
       throw new Error('페이지 찾기 실패: '+e.message);
     }
@@ -15237,8 +15283,9 @@ async function syncDiaryToNotion(dateKey){
     /* 2. Pull whatever is currently in Notion FIRST so we don't overwrite
        changes the user made directly in Notion. */
     setStatus('Notion에서 가져오는 중...');
-    var pulled=0;
+    var pulled=0, propPulled=0;
     try {
+      if(notionPage) propPulled=_pullDiaryPageProperties(notionPage, dateKey, cfg);
       pulled=await _pullDiaryPageBody(pageId, dateKey);
     } catch(e){
       console.warn('pull step failed (continuing):', e&&e.message);
@@ -15289,10 +15336,11 @@ async function syncDiaryToNotion(dateKey){
 
     var timeStr=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     var msg='동기화 완료 '+timeStr
-      + (pulled?' · 가져옴 '+pulled:'')
+      + (propPulled?' · 속성 '+propPulled:'')
+      + (pulled?' · 본문 '+pulled:'')
       + (bodyCount?' · 보냄 '+bodyCount:'');
     setStatus(msg, 'ok');
-    showToast('Notion 동기화 완료'+(pulled?' (가져옴 '+pulled+'개)':''));
+    showToast('Notion 동기화 완료'+((pulled||propPulled)?' (가져옴 '+(pulled+propPulled)+'개)':''));
   }catch(e){
     var emsg=e&&e.message||'알 수 없는 오류';
     setStatus('실패: '+emsg, 'err');
@@ -15332,24 +15380,10 @@ async function pullDiaryFromNotion(dateKey){
       return;
     }
     /* Also pull property values (Sleep/Morning/etc fields stored as properties) */
-    var entry=entries[dateKey]||(entries[dateKey]={});
-    var props=page.properties||{};
-    function readRichText(p){
-      var rt=(p&&p.rich_text)||[];
-      return rt.map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('').trim();
-    }
-    [['sleepProp','sleep'],['morningProp','morning'],['resolutionProp','resolution'],
-     ['accomplishmentProp','accomplishment'],['nightProp','night'],['recapProp','recap'],
-     ['timelineProp','timeline']].forEach(function(pair){
-      var propName=cfg[pair[0]];
-      if(propName&&props[propName]){
-        var v=readRichText(props[propName]);
-        if(v) entry[pair[1]]=v;
-      }
-    });
+    var propPulled=_pullDiaryPageProperties(page, dateKey, cfg);
     /* Pull body blocks */
     var pulled=await _pullDiaryPageBody(page.id, dateKey);
-    if(st)st.textContent='가져옴: '+pulled+'개 블록 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    if(st)st.textContent='가져옴: 속성 '+propPulled+'개 · 본문 '+pulled+'개 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(row)row.setAttribute('data-state','ok');
     /* Force diary view refresh */
     try {
@@ -15357,7 +15391,7 @@ async function pullDiaryFromNotion(dateKey){
       if(typeof loadBlocks==='function') loadBlocks(dateKey);
       if(typeof renderDiary==='function') renderDiary();
     } catch(e){}
-    showToast('Notion에서 '+pulled+'개 항목을 가져왔어요');
+    showToast('Notion에서 '+(pulled+propPulled)+'개 항목을 가져왔어요');
   }catch(e){
     if(st)st.textContent='가져오기 실패: '+e.message;
     if(row)row.setAttribute('data-state','err');
