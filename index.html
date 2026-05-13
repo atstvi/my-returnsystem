@@ -605,6 +605,8 @@ input,textarea { outline:none; }
 .project-linked-list{display:flex;flex-direction:column;gap:var(--sp-2)}
 .project-linked-item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg);text-align:left}
 .project-linked-item:hover,.project-linked-item.selected{background:var(--accent-light)}
+.project-linked-item.done{opacity:.55}
+.project-linked-item.done span:first-child{text-decoration:line-through;text-decoration-color:var(--fg-4)}
 .project-task-timeline{display:flex;flex-direction:column;gap:var(--sp-3)}
 .project-task-day{display:grid;grid-template-columns:78px 1fr;gap:var(--sp-4);align-items:start}
 .project-task-date{font-family:var(--font-mono);font-size:var(--text-xs);color:var(--fg-4);padding-top:var(--sp-3)}
@@ -911,44 +913,77 @@ input,textarea { outline:none; }
 }
 .inbox-item.done .item-text { text-decoration:line-through; color:var(--fg-4); }
 
+/* ── INFINITE FREEFORM BOARD ──────────────────────────────────────── */
+/* .inbox-board  = the viewport clip area (overflow:hidden, no scroll) */
+/* .board-world  = the infinite canvas that pans + zooms inside it     */
 .inbox-board {
-  flex:1; margin:0 var(--sp-10) var(--sp-4); border:.5px solid var(--border-subtle);
-  border-radius:var(--r-xl); position:relative; overflow:auto; min-height:0;
-  background:
-    linear-gradient(var(--border-subtle) .5px, transparent .5px),
-    linear-gradient(90deg, var(--border-subtle) .5px, transparent .5px),
-    var(--bg-page);
-  background-size:48px 48px;
-  display:none;
+  flex:1; margin:0 var(--sp-6) var(--sp-4); border:.5px solid var(--border-subtle);
+  border-radius:var(--r-xl); position:relative; overflow:hidden; min-height:0;
+  display:none; touch-action:none; user-select:none;
+  cursor:grab;
 }
 .inbox-board.active { display:block; }
+.inbox-board:active { cursor:grabbing; }
+/* The transform target — all notes live here */
+.board-world {
+  position:absolute; top:0; left:0;
+  /* dot-grid background that zooms with the world */
+  background-image:radial-gradient(circle, var(--border-strong) 1px, transparent 1px);
+  background-size:48px 48px;
+  background-color:var(--bg-page);
+  /* large enough to feel infinite; notes placed absolutely inside */
+  width:4000px; height:4000px;
+  transform-origin:0 0;
+  will-change:transform;
+}
+/* HUD toolbar — floats above the board, unaffected by pan/zoom */
+.board-hud {
+  position:absolute; top:var(--sp-4); left:var(--sp-4); z-index:20;
+  display:flex; gap:var(--sp-2);
+}
+.board-zoom-hud {
+  position:absolute; bottom:var(--sp-4); right:var(--sp-4); z-index:20;
+  display:flex; gap:var(--sp-1); align-items:center;
+}
+.board-tool-btn {
+  height:28px; padding:0 var(--sp-4); border-radius:var(--r-full);
+  background:var(--bg-card); color:var(--fg-3); box-shadow:var(--elev-1);
+  font-size:var(--text-xs); font-weight:var(--fw-medium);
+  transition:background var(--t-snap);
+}
+.board-tool-btn:hover { background:var(--bg-sunken); }
+.board-zoom-btn {
+  width:28px; height:28px; border-radius:var(--r-full);
+  background:var(--bg-card); color:var(--fg-3); box-shadow:var(--elev-1);
+  font-size:var(--text-sm); font-weight:var(--fw-semibold);
+  display:flex; align-items:center; justify-content:center;
+}
+.board-zoom-label {
+  font-family:var(--font-mono); font-size:var(--text-2xs); color:var(--fg-3);
+  min-width:36px; text-align:center;
+}
+/* Notes */
 .board-note {
   position:absolute; width:220px; min-height:142px; padding:var(--sp-6);
-  background:var(--n-0); border:.5px solid var(--border-subtle);
-  border-radius:var(--r-sm); box-shadow:var(--elev-2);
+  background:var(--bg-card); border:.5px solid var(--border-subtle);
+  border-radius:var(--r-md); box-shadow:var(--elev-2);
   cursor:grab; display:flex; flex-direction:column; gap:var(--sp-4);
+  transition:box-shadow var(--t-snap);
 }
 .board-note:active { cursor:grabbing; }
-.board-note.need { box-shadow:var(--elev-2), inset 3px 0 0 var(--danger); }
-.board-note.done { opacity:.62; }
+.board-note:hover  { box-shadow:var(--elev-3); }
+.board-note.need   { box-shadow:var(--elev-2), inset 3px 0 0 var(--danger); }
+.board-note.done   { opacity:.55; }
 .board-note.done .board-note-text { text-decoration:line-through; color:var(--fg-4); }
+.board-note.selected { box-shadow:var(--elev-3), var(--focus-ring); }
+.board-note.linking  { box-shadow:var(--elev-3), 0 0 0 2px var(--accent); }
 .board-note-time { font-family:var(--font-mono); font-size:var(--text-xs); color:var(--fg-4); }
 .board-note-text { font-size:var(--text-base); line-height:var(--lh-relaxed); color:var(--fg); word-break:break-word; flex:1; }
 .board-note-foot { display:flex; justify-content:space-between; align-items:center; gap:var(--sp-2); }
 .board-note-actions{display:flex;align-items:center;gap:var(--sp-1)}
-.board-mini-btn{height:24px;padding:0 var(--sp-3);border-radius:var(--r-full);background:var(--bg-card);color:var(--fg-3);font-size:var(--text-2xs);font-weight:var(--fw-semibold);box-shadow:inset 0 0 0 .5px var(--border)}
-.board-mini-btn.on{background:var(--danger-bg);color:var(--danger);box-shadow:none}
+.board-mini-btn{height:24px;padding:0 var(--sp-3);border-radius:var(--r-full);background:var(--bg-raised);color:var(--fg-3);font-size:var(--text-2xs);font-weight:var(--fw-semibold);box-shadow:inset 0 0 0 .5px var(--border)}
+.board-mini-btn.on{background:var(--danger-bg,var(--d-50));color:var(--danger);box-shadow:none}
 .board-mini-btn.done-on{background:var(--t-50);color:var(--t-600);box-shadow:none}
-.board-note.selected { box-shadow:var(--elev-3), var(--focus-ring); }
-.board-tools {
-  position:sticky; top:var(--sp-4); left:var(--sp-4); z-index:5;
-  display:flex; gap:var(--sp-2); padding:var(--sp-2);
-}
-.board-tool-btn {
-  height:26px; padding:0 var(--sp-4); border-radius:var(--r-full);
-  background:var(--bg-card); color:var(--fg-3); box-shadow:var(--elev-1);
-  font-size:var(--text-xs); font-weight:var(--fw-medium);
-}
 .board-link-layer { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; overflow:visible; }
 .board-note-link-handle{position:absolute;right:var(--sp-3);top:var(--sp-3);width:20px;height:20px;border-radius:var(--r-full);background:var(--bg-card);box-shadow:var(--elev-2);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:var(--text-xs);cursor:crosshair}
 .board-note.linking .board-note-link-handle{background:var(--accent);color:var(--n-0)}
@@ -4221,7 +4256,7 @@ to{opacity:1;transform:translateY(0)}}
       <div class="capture-inner">
         <button class="capture-type active" id="capture-inbox-btn" type="button">Inbox</button>
         <button class="capture-type" id="capture-task-btn" type="button">Task</button>
-        <input class="capture-inp" id="capture-inp" type="text" placeholder="지금 생각난 것을 바로 캡처...">
+        <input class="capture-inp" id="capture-inp" type="text" placeholder="Task: 내일 오전 10시 팀 미팅 · Inbox: 지금 떠오른 것 아무거나">
         <button class="capture-send" aria-label="전송">↑</button>
       </div>
     </div>
@@ -5409,7 +5444,7 @@ to{opacity:1;transform:translateY(0)}}
             <div class="service-logo">📅</div>
             <div class="service-info">
               <div class="service-name">Google Calendar</div>
-              <div class="service-status" id="gcal-status">설정 필요</div>
+              <div class="service-status" id="gcal-status">OAuth Client ID를 입력해 시작하세요</div>
             </div>
             <button class="set-btn btn-ghost" onclick="toggleDetail('gcal-detail')">설정</button>
           </div>
@@ -6120,13 +6155,24 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 var cinp = document.getElementById('capture-inp');
 if (cinp) {
   cinp.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey && cinp.value.trim()) { e.preventDefault(); homeCapture(cinp.value); cinp.value = ''; }
+    if (e.key === 'Enter' && !e.shiftKey && cinp.value.trim()) {
+      e.preventDefault();
+      var val = cinp.value.trim();
+      cinp.value = '';
+      homeCaptureAI(val);
+    }
+    if (e.key === 'Escape') _closeCapturePreview();
   });
 }
 var qa = document.getElementById('home-quick-add');
 if (qa && cinp) qa.addEventListener('click', function() { cinp.focus(); });
 var csend = document.querySelector('.capture-send');
-if (csend && cinp) csend.addEventListener('click', function(){ homeCapture(cinp.value); cinp.value=''; });
+if (csend && cinp) csend.addEventListener('click', function(){
+  var val = cinp.value.trim();
+  if(!val) return;
+  cinp.value = '';
+  homeCaptureAI(val);
+});
 
 function homeToast(msg){ if(typeof showToast==='function') showToast(msg); else console.log(msg); }
 function homeTodayTasks(){
@@ -6888,7 +6934,11 @@ function homeCapture(raw){
   var text = String(raw || '').trim();
   if (!text) return;
   if (homeCaptureType === 'task' && typeof tasks !== 'undefined') {
-    tasks.unshift({id:Date.now(),text:text,catId:'etc',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    /* AI natural language parse is handled by homeCaptureAI — this plain path
+       is only reached when AI is skipped or unavailable. */
+    var defCat = 'etc';
+    var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
+    tasks.unshift({id:Date.now(),text:text,catId:defCat,date:TK,priority:defPrio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     if (typeof saveTaskData === 'function') saveTaskData();
     if (typeof renderList === 'function') renderList();
     renderHomeTasks();
@@ -6898,6 +6948,190 @@ function homeCapture(raw){
     if (typeof saveInboxItems === 'function') saveInboxItems();
     if (typeof renderFeed === 'function') renderFeed();
     homeToast('인박스에 담았어요');
+  }
+}
+
+/* ── NATURAL LANGUAGE TASK CAPTURE ──────────────────────────────────
+   When the capture bar is in Task mode, the text is sent to Groq for
+   NL parsing before insertion. A preview panel appears above the input
+   showing the parsed result so the user can confirm or cancel.
+   ──────────────────────────────────────────────────────────────────── */
+var _capturePreviewEl = null;
+var _capturePreviewPending = null; /* {task} waiting for confirmation */
+
+function _closeCapturePreview(){
+  if(_capturePreviewEl){ try{_capturePreviewEl.remove();}catch(e){} _capturePreviewEl=null; }
+  _capturePreviewPending=null;
+}
+
+function _showCapturePreview(parsed){
+  /* Remove any previous preview */
+  _closeCapturePreview();
+  _capturePreviewPending = parsed;
+
+  var bar = document.querySelector('.capture-bar');
+  if(!bar) return;
+
+  var pv = document.createElement('div');
+  pv.id = 'capture-preview';
+  pv.style.cssText=[
+    'position:absolute','bottom:calc(100% + 8px)','left:0','right:0',
+    'background:var(--bg-card)','border:.5px solid var(--border)',
+    'border-radius:var(--r-xl)','box-shadow:var(--elev-3)',
+    'padding:var(--sp-5) var(--sp-6)','z-index:200',
+    'display:flex','flex-direction:column','gap:var(--sp-4)',
+    'animation:fade-up var(--t-enter) both'
+  ].join(';');
+
+  var cat = getCat ? getCat(parsed.catId||'etc') : {emoji:'📌',label:'기타',color:'#999'};
+  var prioLabel = {high:'🔴 높음', mid:'🟡 중간', low:'🔵 낮음', '':'없음'}[parsed.priority||''] || '';
+  var rows = [
+    ['할일', parsed.text],
+    ['카테고리', (cat.emoji||'')+'  '+(cat.label||parsed.catId||'기타')],
+    ['날짜', parsed.date||TK],
+    ['우선순위', prioLabel||'없음'],
+    parsed.timeStart ? ['시간', parsed.timeStart+(parsed.timeEnd?'–'+parsed.timeEnd:'')] : null,
+    parsed.deadlineDate ? ['마감', parsed.deadlineDate] : null,
+  ].filter(Boolean);
+
+  var table = rows.map(function(r){
+    return '<div style="display:flex;gap:var(--sp-4);align-items:baseline">'
+      +'<span style="font-size:var(--text-xs);color:var(--fg-4);min-width:56px;flex-shrink:0">'+r[0]+'</span>'
+      +'<span style="font-size:var(--text-sm);color:var(--fg);font-weight:var(--fw-medium)">'+tEscHtml(String(r[1]||''))+'</span>'
+      +'</div>';
+  }).join('');
+
+  if(parsed.note){
+    table += '<div style="font-size:var(--text-xs);color:var(--fg-4);margin-top:var(--sp-1)">'+tEscHtml(parsed.note)+'</div>';
+  }
+
+  pv.innerHTML = '<div style="font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-3);letter-spacing:.4px;text-transform:uppercase;margin-bottom:var(--sp-2)">추가 확인</div>'
+    + table
+    + '<div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-2)">'
+    + '<button class="set-btn btn-primary" id="cpv-confirm" style="flex:1">추가</button>'
+    + '<button class="set-btn btn-ghost" id="cpv-edit" style="flex:1">수정</button>'
+    + '<button class="set-btn btn-ghost" id="cpv-cancel">취소</button>'
+    + '</div>';
+
+  /* Make bar relatively positioned so preview positions above it */
+  bar.style.position = 'relative';
+  bar.appendChild(pv);
+  _capturePreviewEl = pv;
+
+  pv.querySelector('#cpv-confirm').onclick = function(){
+    _commitCaptureTask(_capturePreviewPending);
+    _closeCapturePreview();
+  };
+  pv.querySelector('#cpv-edit').onclick = function(){
+    /* Open the full task modal pre-filled */
+    _closeCapturePreview();
+    if(typeof tasksOpenNewModal === 'function') tasksOpenNewModal(parsed);
+    else if(typeof tasksOpenModal === 'function') tasksOpenModal(parsed);
+  };
+  pv.querySelector('#cpv-cancel').onclick = function(){
+    _closeCapturePreview();
+    showToast('취소했어요');
+  };
+  /* Close preview when clicking outside */
+  setTimeout(function(){
+    document.addEventListener('mousedown', function _outsideClose(e){
+      if(_capturePreviewEl && !_capturePreviewEl.contains(e.target) && !e.target.closest('.capture-bar')){
+        _closeCapturePreview();
+        document.removeEventListener('mousedown', _outsideClose);
+      }
+    });
+  }, 80);
+}
+
+function _commitCaptureTask(parsed){
+  if(!parsed||typeof tasks==='undefined') return;
+  var defPrio = (parsed.priority) || (getCatDefaultPriority ? getCatDefaultPriority(parsed.catId||'etc') : '');
+  tasks.unshift({
+    id:Date.now(), text:parsed.text||'새 할일',
+    catId:parsed.catId||'etc', date:parsed.date||TK,
+    priority:defPrio, done:false,
+    deadlineDate:parsed.deadlineDate||'', deadlineId:'',
+    timeStart:parsed.timeStart||'', timeEnd:parsed.timeEnd||'',
+    note:parsed.note||'홈 빠른 캡처 (AI)',
+    subs:[], _ruleId:'', _repeat:false,
+    createdAt:Date.now(), updatedAt:Date.now()
+  });
+  if(typeof saveTaskData==='function') saveTaskData();
+  if(typeof renderList==='function') renderList();
+  if(typeof renderCal==='function') renderCal();
+  renderHomeTasks();
+  homeToast('할일 추가됨: '+String(parsed.text||'').slice(0,20));
+}
+
+async function homeCaptureAI(raw){
+  var text = String(raw||'').trim();
+  if(!text) return;
+
+  /* Inbox mode — no AI */
+  if(homeCaptureType !== 'task'){
+    homeCapture(text);
+    return;
+  }
+
+  var groqKey = localStorage.getItem('groq_api_key')||'';
+  if(!groqKey){
+    /* No API key: fall through to plain add */
+    homeCapture(text);
+    return;
+  }
+
+  /* Show a loading state in the preview slot */
+  var bar = document.querySelector('.capture-bar');
+  if(bar){
+    _closeCapturePreview();
+    var loading = document.createElement('div');
+    loading.id = 'capture-preview';
+    loading.style.cssText='position:absolute;bottom:calc(100% + 8px);left:0;right:0;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-3);padding:var(--sp-5) var(--sp-6);z-index:200;font-size:var(--text-sm);color:var(--fg-3);animation:fade-up var(--t-enter) both';
+    loading.textContent = '✦ 분석 중...';
+    bar.style.position='relative';
+    bar.appendChild(loading);
+    _capturePreviewEl = loading;
+  }
+
+  /* Build cat list for the prompt */
+  var catList = CATS.map(function(c){return c.id+'('+c.label+')';}).join(', ');
+  var today = TK;
+
+  var systemPrompt = '당신은 한국어 자연어를 할일 데이터로 파싱하는 도우미입니다.\n'
+    +'오늘 날짜: '+today+'\n'
+    +'카테고리 목록(id(이름)): '+catList+'\n'
+    +'우선순위: high/mid/low/""(없음)\n'
+    +'반드시 JSON만 반환하세요. 다른 텍스트 없이.\n'
+    +'스키마:\n'
+    +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|"}\n'
+    +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
+
+  try {
+    var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        max_tokens:300,
+        temperature:0.1,
+        messages:[
+          {role:'system',content:systemPrompt},
+          {role:'user',content:'파싱: '+text}
+        ]
+      })
+    });
+    var data = await resp.json();
+    var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
+    /* Strip markdown code fences if any */
+    content = content.replace(/```json|```/g,'').trim();
+    var parsed = JSON.parse(content);
+    if(!parsed.text) parsed.text = text;
+    _showCapturePreview(parsed);
+  } catch(e) {
+    /* AI failed — remove loading and fall back to plain add */
+    _closeCapturePreview();
+    homeCapture(text);
+    homeToast('AI 파싱 실패, 그냥 추가했어요');
   }
 }
 
@@ -7263,122 +7497,290 @@ function fallbackCopyText(text){
   ta.remove();
 }
 
+/* ── INFINITE BOARD STATE ── */
+var _boardTx=0, _boardTy=0, _boardScale=1;
+var _boardPanning=false, _boardPanSx=0, _boardPanSy=0, _boardPanOx=0, _boardPanOy=0;
+var _boardPinchDist=0;
+
+function _boardApplyTransform(world, zoomLabel){
+  world.style.transform='translate('+_boardTx+'px,'+_boardTy+'px) scale('+_boardScale+')';
+  if(zoomLabel) zoomLabel.textContent=Math.round(_boardScale*100)+'%';
+}
+function _boardClampScale(s){ return Math.max(0.15, Math.min(3, s)); }
+
 function renderInboxBoard(items){
   var board = document.getElementById('inbox-board');
   if (!board) return;
   board.innerHTML = '';
-  var tools=document.createElement('div');
-  tools.className='board-tools';
-  tools.innerHTML='<button class="board-tool-btn" id="board-copy-btn">선택 복사</button><button class="board-tool-btn" id="board-link-btn">관계 연결</button>';
-  board.appendChild(tools);
-  var svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+
+  /* ── World (infinite canvas) ── */
+  var world = document.createElement('div');
+  world.className = 'board-world';
+  _boardApplyTransform(world);
+  board.appendChild(world);
+
+  /* ── SVG link layer inside world ── */
+  var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.classList.add('board-link-layer');
-  board.appendChild(svg);
-  tools.querySelector('#board-copy-btn').onclick=function(){
+  svg.style.cssText='width:4000px;height:4000px;position:absolute;top:0;left:0;pointer-events:none;overflow:visible';
+  world.appendChild(svg);
+
+  /* ── HUD toolbar (fixed over board) ── */
+  var hud = document.createElement('div');
+  hud.className = 'board-hud';
+  hud.innerHTML='<button class="board-tool-btn" id="board-copy-btn">선택 복사</button><button class="board-tool-btn" id="board-link-btn">관계 연결</button><button class="board-tool-btn" id="board-fit-btn">전체 보기</button>';
+  board.appendChild(hud);
+
+  /* ── Zoom HUD ── */
+  var zhud = document.createElement('div');
+  zhud.className = 'board-zoom-hud';
+  var zLabel = document.createElement('span'); zLabel.className='board-zoom-label'; zLabel.textContent=Math.round(_boardScale*100)+'%';
+  var zIn = document.createElement('button'); zIn.className='board-zoom-btn'; zIn.textContent='+'; zIn.title='확대';
+  var zOut= document.createElement('button'); zOut.className='board-zoom-btn'; zOut.textContent='−'; zOut.title='축소';
+  var zRst= document.createElement('button'); zRst.className='board-zoom-btn'; zRst.textContent='⊙'; zRst.title='100%';
+  zhud.append(zOut, zLabel, zIn, zRst);
+  board.appendChild(zhud);
+
+  /* Zoom helpers */
+  function zoomAround(cx, cy, factor){
+    var newScale = _boardClampScale(_boardScale * factor);
+    var k = newScale / _boardScale;
+    _boardTx = cx - k*(cx - _boardTx);
+    _boardTy = cy - k*(cy - _boardTy);
+    _boardScale = newScale;
+    _boardApplyTransform(world, zLabel);
+    drawBoardLinks(world, svg, items);
+  }
+  function fitAll(){
+    if(!items.length){ _boardTx=80; _boardTy=80; _boardScale=1; _boardApplyTransform(world,zLabel); return; }
+    var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    items.forEach(function(it){
+      var x=it.boardX||0, y=it.boardY||0;
+      minX=Math.min(minX,x); minY=Math.min(minY,y);
+      maxX=Math.max(maxX,x+240); maxY=Math.max(maxY,y+180);
+    });
+    var vw=board.clientWidth-80, vh=board.clientHeight-80;
+    var cw=maxX-minX, ch=maxY-minY;
+    var s=_boardClampScale(Math.min(vw/Math.max(cw,1), vh/Math.max(ch,1), 1));
+    _boardScale=s;
+    _boardTx=40-minX*s;
+    _boardTy=40-minY*s;
+    _boardApplyTransform(world, zLabel);
+    drawBoardLinks(world, svg, items);
+  }
+  zIn.onclick=function(){ var r=board.getBoundingClientRect(); zoomAround(r.width/2,r.height/2,1.25); };
+  zOut.onclick=function(){ var r=board.getBoundingClientRect(); zoomAround(r.width/2,r.height/2,0.8); };
+  zRst.onclick=function(){ _boardScale=1; _boardApplyTransform(world,zLabel); drawBoardLinks(world,svg,items); };
+  document.getElementById('board-fit-btn').onclick=fitAll;
+
+  /* ── HUD button logic ── */
+  document.getElementById('board-copy-btn').onclick=function(){
     var text=items.filter(function(it){return boardSelectedIds.has(it.id);}).map(function(it){return it.text;}).join('\n');
-    if(!text){ if(typeof showToast==='function')showToast('복사할 메모를 먼저 선택해주세요'); return; }
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(text).then(function(){if(typeof showToast==='function')showToast('선택한 메모를 복사했어요');}).catch(function(){ fallbackCopyText(text); });
-    } else {
-      fallbackCopyText(text);
-    }
-    return;
-    if(!text)return;
-    if(navigator.clipboard)navigator.clipboard.writeText(text);
-    else prompt('복사할 텍스트', text);
+    if(!text){ showToast('복사할 메모를 먼저 선택해주세요'); return; }
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(function(){showToast('선택한 메모를 복사했어요');}).catch(function(){fallbackCopyText(text);});
+    } else fallbackCopyText(text);
   };
-  tools.querySelector('#board-link-btn').onclick=function(){
+  document.getElementById('board-link-btn').onclick=function(){
     var ids=Array.from(boardSelectedIds);
-    if(ids.length<2){
-      boardLinkSourceId = null;
-      if(typeof showToast==='function')showToast('메모 2개 이상을 선택하거나, 메모의 연결점을 차례로 눌러 연결하세요');
-      renderFeed();
-      return;
-    }
+    if(ids.length<2){ boardLinkSourceId=null; showToast('메모 2개 이상을 선택하거나, 연결점을 차례로 눌러 연결하세요'); renderFeed(); return; }
     var a=inboxItems.find(function(x){return x.id===ids[0];});
     if(!a.links)a.links=[];
     ids.slice(1).forEach(function(id){if(a.links.indexOf(id)<0)a.links.push(id);});
-    boardSelectedIds.clear();
-    saveInboxItems();renderFeed();
-    if(typeof showToast==='function')showToast('선택한 메모를 연결했어요');
+    boardSelectedIds.clear(); saveInboxItems(); renderFeed(); showToast('선택한 메모를 연결했어요');
   };
+
+  /* ── INTERACTION MODEL (Figma/Miro/tldraw-style) ──
+       • Mouse down on the BOARD BACKGROUND (not a note) → pan the world.
+         Cursor changes to grab/grabbing for visual feedback.
+       • Mouse down on a NOTE → drag the note (handled in dragInboxNote).
+       • Wheel alone → zoom in/out around the cursor (no modifier needed).
+         This matches the Figma/Miro default.
+       • Shift+wheel → horizontal pan (Figma convention).
+       • Ctrl/Cmd+wheel → also zooms (trackpad pinch maps to this).
+       • Two-finger touch → pinch zoom + pan.
+       • One-finger touch on empty area → pan.
+       • One-finger touch on note → drag note.
+     The drag-vs-pan decision happens at mousedown: if e.target is the board
+     OR the world OR the empty-state child, it's a pan; if it's inside a
+     .board-note (or its children), the note's own mousedown handler took it. */
+  board.addEventListener('mousedown', function(e){
+    if(e.button!==0) return; /* only left button */
+    /* Note's own mousedown listener stopped propagation; we only see clicks
+       on empty board space or HUD. HUD elements are buttons — let them work. */
+    if(e.target.closest('.board-note')) return;
+    if(e.target.closest('.board-hud')) return;
+    if(e.target.closest('.board-zoom-hud')) return;
+    e.preventDefault();
+    _boardPanning=true;
+    board.style.cursor='grabbing';
+    _boardPanSx=e.clientX; _boardPanSy=e.clientY;
+    _boardPanOx=_boardTx; _boardPanOy=_boardTy;
+    /* Clear any text selection that might have started */
+    if(window.getSelection) window.getSelection().removeAllRanges();
+  });
+  /* Show grab cursor on hover over empty board for affordance */
+  board.style.cursor='grab';
+  document.addEventListener('mousemove', function(e){
+    if(!_boardPanning) return;
+    _boardTx=_boardPanOx+(e.clientX-_boardPanSx);
+    _boardTy=_boardPanOy+(e.clientY-_boardPanSy);
+    _boardApplyTransform(world, zLabel);
+  });
+  document.addEventListener('mouseup', function(){
+    if(_boardPanning){
+      _boardPanning=false;
+      board.style.cursor='grab';
+    }
+  });
+
+  /* Wheel — zoom by default (matches Figma/Miro). Shift = horizontal pan. */
+  board.addEventListener('wheel', function(e){
+    e.preventDefault();
+    var r=board.getBoundingClientRect();
+    var cx=e.clientX-r.left, cy=e.clientY-r.top;
+    if(e.shiftKey && !e.ctrlKey && !e.metaKey){
+      /* Shift+wheel → horizontal pan (Figma) */
+      _boardTx -= e.deltaY;
+      _boardApplyTransform(world, zLabel);
+      return;
+    }
+    /* Default & ctrl/cmd+wheel → zoom around cursor */
+    /* Trackpad pinch arrives as ctrl+wheel from the browser */
+    var factor;
+    if(e.ctrlKey || e.metaKey){
+      /* Pinch: smaller, more responsive steps */
+      factor = e.deltaY < 0 ? 1.06 : 0.94;
+    } else {
+      /* Regular wheel: bigger steps */
+      factor = e.deltaY < 0 ? 1.18 : 0.85;
+    }
+    zoomAround(cx, cy, factor);
+  },{passive:false});
+
+  /* Touch: 1 finger on empty = pan, 1 finger on note = drag note,
+     2 fingers = pinch zoom + pan together. */
+  board.addEventListener('touchstart', function(e){
+    if(e.target.closest('.board-note')) return; /* let note drag handle it */
+    if(e.touches.length===2){
+      _boardPinchDist=Math.hypot(e.touches[1].clientX-e.touches[0].clientX, e.touches[1].clientY-e.touches[0].clientY);
+      _boardPanning=true;
+      _boardPanSx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+      _boardPanSy=(e.touches[0].clientY+e.touches[1].clientY)/2;
+      _boardPanOx=_boardTx; _boardPanOy=_boardTy;
+    } else if(e.touches.length===1){
+      _boardPanning=true;
+      _boardPanSx=e.touches[0].clientX; _boardPanSy=e.touches[0].clientY;
+      _boardPanOx=_boardTx; _boardPanOy=_boardTy;
+    }
+  },{passive:true});
+  board.addEventListener('touchmove', function(e){
+    if(!_boardPanning) return;
+    e.preventDefault();
+    if(e.touches.length===2){
+      /* Pinch zoom + pan center */
+      var dist=Math.hypot(e.touches[1].clientX-e.touches[0].clientX, e.touches[1].clientY-e.touches[0].clientY);
+      var factor=dist/(_boardPinchDist||dist||1);
+      _boardPinchDist=dist;
+      var r=board.getBoundingClientRect();
+      var midX=(e.touches[0].clientX+e.touches[1].clientX)/2;
+      var midY=(e.touches[0].clientY+e.touches[1].clientY)/2;
+      var cx=midX-r.left, cy=midY-r.top;
+      zoomAround(cx,cy,factor);
+      /* Also pan with two-finger drag of the centroid */
+      _boardTx=_boardPanOx+(midX-_boardPanSx);
+      _boardTy=_boardPanOy+(midY-_boardPanSy);
+      _boardApplyTransform(world, zLabel);
+    } else if(e.touches.length===1){
+      _boardTx=_boardPanOx+(e.touches[0].clientX-_boardPanSx);
+      _boardTy=_boardPanOy+(e.touches[0].clientY-_boardPanSy);
+      _boardApplyTransform(world, zLabel);
+    }
+  },{passive:false});
+  board.addEventListener('touchend', function(e){
+    if(e.touches.length<2){
+      _boardPanning=false;
+      drawBoardLinks(world,svg,items);
+    }
+  },{passive:true});
+
+  /* ── Empty state ── */
   if (!items.length) {
     var empty = document.createElement('div');
     empty.className = 'inbox-empty';
-    empty.style.display = 'flex';
-    empty.innerHTML = '<div class="empty-icon">□</div><p class="empty-title">보드가 비어 있어요</p><p class="empty-sub">인박스에 적은 뒤 보드에서 자유롭게 배치해보세요.</p>';
-    board.appendChild(empty);
+    empty.style.cssText='position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:var(--sp-4)';
+    empty.innerHTML = '<div class="empty-icon" style="font-size:32px">□</div><p class="empty-title">보드가 비어 있어요</p><p class="empty-sub">인박스에 적은 뒤 보드에서 자유롭게 배치해보세요.</p>';
+    world.appendChild(empty);
     return;
   }
+
+  /* ── Lay out notes ── */
   items.forEach(function(item, idx){
-    if (item.boardX == null) item.boardX = 40 + (idx % 4) * 250;
-    if (item.boardY == null) item.boardY = 40 + Math.floor(idx / 4) * 180;
+    if (item.boardX == null) item.boardX = 60 + (idx % 4) * 270;
+    if (item.boardY == null) item.boardY = 60 + Math.floor(idx / 4) * 200;
     var note = document.createElement('div');
     note.className = 'board-note' + (item.unread ? ' need' : '') + (item.done ? ' done' : '') + (boardSelectedIds.has(item.id) ? ' selected' : '') + (boardLinkSourceId === item.id ? ' linking' : '');
     note.style.left = item.boardX + 'px';
-    note.style.top = item.boardY + 'px';
+    note.style.top  = item.boardY + 'px';
     note.setAttribute('data-id', item.id);
     var meta = getCatMeta(item.cat);
-    note.innerHTML = '<button class="board-note-link-handle" title="관계 연결">↔</button><div class="board-note-time">' + timeAgo(item.ts) + '</div>'
+    note.innerHTML = '<button class="board-note-link-handle" title="관계 연결">↔</button>'
+      + '<div class="board-note-time">' + timeAgo(item.ts) + '</div>'
       + '<div class="board-note-text"></div>'
-      + '<div class="board-note-foot"><button class="item-cat ' + meta.cls + '">' + meta.emoji + ' ' + meta.label + '</button><div class="board-note-actions"><button class="board-mini-btn board-need ' + (item.unread ? 'on' : '') + '" title="처리 필요 토글">처리</button><button class="board-mini-btn board-done ' + (item.done ? 'done-on' : '') + '" title="완료 토글">완료</button><button class="icon-btn board-delete" title="삭제">×</button></div></div>';
+      + '<div class="board-note-foot"><button class="item-cat ' + meta.cls + '">' + meta.emoji + ' ' + meta.label + '</button>'
+      + '<div class="board-note-actions">'
+      + '<button class="board-mini-btn board-need ' + (item.unread ? 'on' : '') + '" title="처리 필요 토글">처리</button>'
+      + '<button class="board-mini-btn board-done ' + (item.done ? 'done-on' : '') + '" title="완료 토글">완료</button>'
+      + '<button class="icon-btn board-delete" title="삭제">×</button>'
+      + '</div></div>';
     note.querySelector('.board-note-text').textContent = item.text;
     if (item.imgs && item.imgs[0]) {
       var img=document.createElement('img');
       img.src=item.imgs[0];
       img.style.cssText='width:100%;max-height:120px;object-fit:cover;border-radius:var(--r-sm);border:.5px solid var(--border)';
-      img.onload=function(){ drawBoardLinks(board, items); };
+      img.onload=function(){ drawBoardLinks(world, svg, items); };
       note.insertBefore(img, note.querySelector('.board-note-foot'));
     }
     note.querySelector('.item-cat').addEventListener('click', function(e){ e.stopPropagation(); cycleCat(item); });
-    note.querySelector('.board-need').addEventListener('click', function(e){ e.stopPropagation(); item.unread = !item.unread; saveInboxItems(); renderFeed(); });
-    note.querySelector('.board-done').addEventListener('click', function(e){ e.stopPropagation(); item.done = !item.done; if(item.done)item.unread=false; saveInboxItems(); renderFeed(); });
+    note.querySelector('.board-need').addEventListener('click', function(e){ e.stopPropagation(); item.unread=!item.unread; saveInboxItems(); renderFeed(); });
+    note.querySelector('.board-done').addEventListener('click', function(e){ e.stopPropagation(); item.done=!item.done; if(item.done)item.unread=false; saveInboxItems(); renderFeed(); });
     note.querySelector('.board-delete').addEventListener('click', function(e){ e.stopPropagation(); deleteItem(item, note); });
     note.querySelector('.board-note-link-handle').addEventListener('click', function(e){
       e.stopPropagation();
-      if (!boardLinkSourceId) { boardLinkSourceId = item.id; renderFeed(); return; }
+      if (!boardLinkSourceId) { boardLinkSourceId=item.id; renderFeed(); return; }
       if (boardLinkSourceId !== item.id) {
-        var src = inboxItems.find(function(x){ return x.id === boardLinkSourceId; });
-        if (src) {
-          if (!src.links) src.links = [];
-          var ix = src.links.indexOf(item.id);
-          if (ix >= 0) src.links.splice(ix, 1);
-          else src.links.push(item.id);
-          saveInboxItems();
-        }
+        var src=inboxItems.find(function(x){return x.id===boardLinkSourceId;});
+        if(src){ if(!src.links)src.links=[]; var ix=src.links.indexOf(item.id); if(ix>=0)src.links.splice(ix,1); else src.links.push(item.id); saveInboxItems(); }
       }
-      boardLinkSourceId = null;
-      renderFeed();
+      boardLinkSourceId=null; renderFeed();
     });
     note.addEventListener('click', function(e){
-      if(e.target.closest('button') || note._dragMoved) return;
-      if(boardSelectedIds.has(item.id))boardSelectedIds.delete(item.id);else boardSelectedIds.add(item.id);
+      if(e.target.closest('button')||note._dragMoved) return;
+      if(boardSelectedIds.has(item.id))boardSelectedIds.delete(item.id); else boardSelectedIds.add(item.id);
       renderFeed();
     });
-    note.addEventListener('dblclick', function(){ item.unread = !item.unread; saveInboxItems(); renderFeed(); });
-    note.addEventListener('mousedown', function(e){ dragInboxNote(e, item, board, note); });
-    board.appendChild(note);
+    note.addEventListener('mousedown', function(e){ dragInboxNote(e, item, world, svg, note, items, zLabel); });
+    world.appendChild(note);
   });
-  requestAnimationFrame(function(){ drawBoardLinks(board, items); });
+
+  requestAnimationFrame(function(){ drawBoardLinks(world, svg, items); });
 }
 
-function drawBoardLinks(board, items){
-  var svg=board.querySelector('.board-link-layer'); if(!svg)return;
-  svg.setAttribute('width', Math.max(board.scrollWidth, board.clientWidth));
-  svg.setAttribute('height', Math.max(board.scrollHeight, board.clientHeight));
+function drawBoardLinks(world, svg, items){
+  if(!world||!svg) return;
   svg.innerHTML='';
   items.forEach(function(a){
     (a.links||[]).forEach(function(id){
       var b=items.find(function(x){return x.id===id;}); if(!b)return;
-      var aEl=board.querySelector('[data-id="'+a.id+'"]');
-      var bEl=board.querySelector('[data-id="'+b.id+'"]');
+      var aEl=world.querySelector('[data-id="'+a.id+'"]');
+      var bEl=world.querySelector('[data-id="'+b.id+'"]');
       if(!aEl||!bEl)return;
-      var br=board.getBoundingClientRect(), ar=aEl.getBoundingClientRect(), rr=bEl.getBoundingClientRect();
-      var x1=ar.right-br.left+board.scrollLeft, y1=ar.top-br.top+board.scrollTop+Math.min(34, ar.height/2);
-      var x2=rr.left-br.left+board.scrollLeft, y2=rr.top-br.top+board.scrollTop+Math.min(34, rr.height/2);
+      /* Use element offsets within world (independent of pan/zoom) */
+      var ax=(a.boardX||0)+(aEl.offsetWidth||220), ay=(a.boardY||0)+(aEl.offsetHeight||142)/2;
+      var bx=(b.boardX||0),                         by=(b.boardY||0)+(bEl.offsetHeight||142)/2;
       var path=document.createElementNS('http://www.w3.org/2000/svg','path');
-      var bend=Math.max(60, Math.abs(x2-x1)*0.35);
-      path.setAttribute('d','M '+x1+' '+y1+' C '+(x1+bend)+' '+y1+', '+(x2-bend)+' '+y2+', '+x2+' '+y2);
+      var bend=Math.max(60, Math.abs(bx-ax)*0.35);
+      path.setAttribute('d','M '+ax+' '+ay+' C '+(ax+bend)+' '+ay+', '+(bx-bend)+' '+by+', '+bx+' '+by);
       path.setAttribute('fill','none');
       path.setAttribute('stroke','var(--accent)');
       path.setAttribute('stroke-width','2');
@@ -7389,29 +7791,30 @@ function drawBoardLinks(board, items){
   });
 }
 
-function dragInboxNote(e, item, board, note){
-  if (e.button !== 0 || e.target.closest('button')) return;
-  e.preventDefault();
-  var rect = board.getBoundingClientRect();
-  var sx = e.clientX, sy = e.clientY, ox = item.boardX || 0, oy = item.boardY || 0;
-  note._dragMoved = false;
+function dragInboxNote(e, item, world, svg, note, items, zLabel){
+  if(e.button!==0||e.target.closest('button')) return;
+  /* Stop propagation so the board's pan handler doesn't ALSO start a pan */
+  e.preventDefault(); e.stopPropagation();
+  note._dragMoved=false;
+  var sx=e.clientX, sy=e.clientY, ox=item.boardX||0, oy=item.boardY||0;
   function move(ev){
-    if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 3) note._dragMoved = true;
-    item.boardX = Math.max(0, ox + ev.clientX - sx);
-    item.boardY = Math.max(0, oy + ev.clientY - sy);
-    note.style.left = item.boardX + 'px';
-    note.style.top = item.boardY + 'px';
-    board.style.minWidth = Math.max(rect.width, item.boardX + 260) + 'px';
-    board.style.minHeight = Math.max(rect.height, item.boardY + 200) + 'px';
-    drawBoardLinks(board, filteredItems());
+    /* Scale-adjusted delta so dragging feels natural at any zoom level */
+    var dx=(ev.clientX-sx)/_boardScale, dy=(ev.clientY-sy)/_boardScale;
+    if(Math.abs(dx)+Math.abs(dy)>3) note._dragMoved=true;
+    item.boardX=Math.max(0, ox+dx);
+    item.boardY=Math.max(0, oy+dy);
+    note.style.left=item.boardX+'px';
+    note.style.top =item.boardY+'px';
+    drawBoardLinks(world, svg, items);
   }
   function up(){
     document.removeEventListener('mousemove', move);
     document.removeEventListener('mouseup', up);
     saveInboxItems();
-    setTimeout(function(){ note._dragMoved = false; }, 0);
+    setTimeout(function(){ note._dragMoved=false; }, 0);
   }
-  document.addEventListener('mousemove', move); document.addEventListener('mouseup', up);
+  document.addEventListener('mousemove', move);
+  document.addEventListener('mouseup', up);
 }
 
 document.getElementById('inbox-feed-view') && document.getElementById('inbox-feed-view').addEventListener('click', function(){ setInboxView('feed'); });
@@ -7552,7 +7955,13 @@ function deleteItem(item, el) {
 
 function convertToTask(item, el) {
   if (typeof tasks !== 'undefined') {
-    tasks.unshift({id:Date.now(),text:item.text,catId:item.cat==='urgent'?'etc':item.cat,date:TK,priority:item.cat==='urgent'?'high':'',done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    var catId = item.cat==='urgent' ? 'etc' : item.cat;
+    /* Map inbox categories (task/idea/buy/memo/urgent) to task category IDs
+       only when they match an existing task CATS id; otherwise fall back to 'etc'. */
+    if(!CATS.some(function(c){return c.id===catId;})) catId='etc';
+    var prio = item.cat==='urgent' ? 'high'
+             : (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(catId) : '');
+    tasks.unshift({id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     if (typeof saveTaskData === 'function') saveTaskData();
   }
   item.done = true;
@@ -8010,19 +8419,31 @@ if (window.innerWidth >= 640) { ta.focus(); }
    ───────────────────────────────────────────────────────────── */
 
 var CATS = [
-  {id:'schedule',label:'일정',  emoji:'📅', color:'#E05050'},
-  {id:'uni',     label:'대학',  emoji:'🎓', color:'#6C63FF'},
-  {id:'work',    label:'작업',  emoji:'💻', color:'#38B2AC'},
-  {id:'health',  label:'건강',  emoji:'💪', color:'#D97706'},
-  {id:'life',    label:'생활',  emoji:'🏠', color:'#5B8A5B'},
-  {id:'idea',    label:'아이디어',emoji:'💡',color:'#8B84FF'},
-  {id:'etc',     label:'기타',  emoji:'📌', color:'#6B7280'},
+  {id:'schedule',label:'일정',  emoji:'📅', color:'#E05050', defaultPriority:''},
+  {id:'uni',     label:'대학',  emoji:'🎓', color:'#6C63FF', defaultPriority:'high'},
+  {id:'work',    label:'작업',  emoji:'💻', color:'#38B2AC', defaultPriority:'mid'},
+  {id:'health',  label:'건강',  emoji:'💪', color:'#D97706', defaultPriority:'low'},
+  {id:'life',    label:'생활',  emoji:'🏠', color:'#5B8A5B', defaultPriority:''},
+  {id:'idea',    label:'아이디어',emoji:'💡',color:'#8B84FF', defaultPriority:''},
+  {id:'etc',     label:'기타',  emoji:'📌', color:'#6B7280', defaultPriority:''},
 ];
 try {
   var storedCats = JSON.parse(localStorage.getItem('task_cats_v1') || 'null');
-  if (Array.isArray(storedCats) && storedCats.length) CATS = storedCats;
+  if (Array.isArray(storedCats) && storedCats.length) {
+    /* Merge stored cats — preserve defaultPriority if not in stored data (backward compat) */
+    CATS = storedCats.map(function(sc){
+      var preset = [{id:'schedule',defaultPriority:''},{id:'uni',defaultPriority:'high'},{id:'work',defaultPriority:'mid'},{id:'health',defaultPriority:'low'},{id:'life',defaultPriority:''},{id:'idea',defaultPriority:''},{id:'etc',defaultPriority:''}].find(function(p){return p.id===sc.id;});
+      return Object.assign({defaultPriority: preset?preset.defaultPriority:''}, sc);
+    });
+  }
 } catch(e) {}
 function saveTaskCatsData(){ try { localStorage.setItem('task_cats_v1', JSON.stringify(CATS)); } catch(e) {} }
+
+/* Return the default priority for a catId, '' if none set */
+function getCatDefaultPriority(catId){
+  var c=CATS.find(function(x){return x.id===catId;});
+  return (c&&c.defaultPriority)||'';
+}
 
 /* Today helpers */
 var TODAY = new Date(); TODAY.setHours(0,0,0,0);
@@ -8163,16 +8584,21 @@ function openTaskCatManager(){
       return '<button type="button" class="cat-color-swatch '+(p.value===active?'active':'')+'" data-color="'+p.value+'" title="'+p.label+'" style="--swatch:'+p.value+'"></button>';
     }).join('');
   }
+  function prioOpts(val){
+    return [['','없음'],['high','높음 🔴'],['mid','중간 🟡'],['low','낮음 🔵']]
+      .map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(val||'')?'selected':'')+'>'+o[1]+'</option>';}).join('');
+  }
   var rows=CATS.map(function(c){
     var locked=c.id==='schedule';
     return '<div class="modal-row task-cat-row" data-id="'+tEscHtml(c.id)+'" data-color="'+normalizeTaskCatColor(c.color)+'">'
-      + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:56px;text-align:center">'
-      + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1;min-width:120px">'
+      + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:48px;text-align:center">'
+      + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1;min-width:80px">'
       + '<div class="cat-color-picker">'+swatches(c.color)+'</div>'
-      + '<button class="btn btn-ghost task-cat-del" '+(locked?'disabled title="일정 카테고리는 시간표와 연결되어 삭제할 수 없어요."':'')+'>삭제</button>'
+      + '<label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)">'+prioOpts(c.defaultPriority)+'</select></label>'
+      + '<button class="btn btn-ghost task-cat-del" style="flex-shrink:0" '+(locked?'disabled title="일정 카테고리는 삭제할 수 없어요."':'')+'>삭제</button>'
       + '</div>';
   }).join('');
-  ov.innerHTML='<div class="modal" style="max-width:720px"><div class="modal-head"><div class="modal-title">할일 카테고리</div></div><div class="modal-body"><div class="field-help">일정 카테고리는 시간표/마감 연결에 쓰이는 시스템 카테고리라 삭제할 수 없어요.</div><div id="task-cat-manager-body">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="task-cat-add">새 카테고리</button><button class="btn btn-ghost" id="task-cat-cancel">취소</button><button class="btn btn-primary" id="task-cat-save">저장</button></div></div>';
+  ov.innerHTML='<div class="modal" style="max-width:800px"><div class="modal-head"><div class="modal-title">할일 카테고리</div></div><div class="modal-body"><div class="field-help">기본 우선순위를 설정하면 해당 카테고리로 새 할일 추가 시 자동 적용돼요. 일정 카테고리는 시스템 카테고리라 삭제할 수 없어요.</div><div id="task-cat-manager-body">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="task-cat-add">+ 새 카테고리</button><button class="btn btn-ghost" id="task-cat-cancel">취소</button><button class="btn btn-primary" id="task-cat-save">저장</button></div></div>';
   document.body.appendChild(ov);
   function close(){ov.remove();}
   ov.addEventListener('click',function(e){if(e.target===ov)close();});
@@ -8182,7 +8608,7 @@ function openTaskCatManager(){
     row.className='modal-row task-cat-row';
     row.dataset.id='cat_'+Date.now();
     row.dataset.color='var(--a-400)';
-    row.innerHTML='<input class="field-inp task-cat-emoji" value="📌" style="width:56px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1;min-width:120px"><div class="cat-color-picker">'+swatches('var(--a-400)')+'</div><button class="btn btn-ghost task-cat-del">삭제</button>';
+    row.innerHTML='<input class="field-inp task-cat-emoji" value="📌" style="width:48px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1;min-width:80px"><div class="cat-color-picker">'+swatches('var(--a-400)')+'</div><label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)"><option value="">없음</option><option value="high">높음 🔴</option><option value="mid">중간 🟡</option><option value="low">낮음 🔵</option></select></label><button class="btn btn-ghost task-cat-del" style="flex-shrink:0">삭제</button>';
     ov.querySelector('#task-cat-manager-body').appendChild(row);
     var inp=row.querySelector('.task-cat-label'); setTimeout(function(){inp.select();inp.focus();},30);
   };
@@ -8205,19 +8631,21 @@ function openTaskCatManager(){
       var emoji=row.querySelector('.task-cat-emoji').value.trim()||'📌';
       var label=row.querySelector('.task-cat-label').value.trim()||'카테고리';
       var color=normalizeTaskCatColor(row.dataset.color);
-      next.push({id:id,label:label,emoji:emoji,color:color});
+      var defPrio=(row.querySelector('.task-cat-defprio')||{}).value||'';
+      next.push({id:id,label:label,emoji:emoji,color:color,defaultPriority:defPrio});
     });
-    var schedule=CATS.find(function(c){return c.id==='schedule';})||{id:'schedule',label:'일정',emoji:'📅',color:'var(--danger)'};
+    var schedule=CATS.find(function(c){return c.id==='schedule';})||{id:'schedule',label:'일정',emoji:'📅',color:'var(--danger)',defaultPriority:''};
     schedule.color=normalizeTaskCatColor(schedule.color);
     if(!next.some(function(c){return c.id==='schedule';})) next.unshift(schedule);
     var ids=new Set(next.map(function(c){return c.id;}));
-    if(!ids.has('etc')){next.push({id:'etc',label:'기타',emoji:'📌',color:'var(--fg-4)'});ids.add('etc');}
+    if(!ids.has('etc')){next.push({id:'etc',label:'기타',emoji:'📌',color:'var(--fg-4)',defaultPriority:''});ids.add('etc');}
     tasks.forEach(function(t){if(!ids.has(t.catId))t.catId='etc';});
     CATS=next;
     saveTaskCatsData(); saveTaskData();
     refreshTaskCatSelect();
     renderTaskCatFilter(); renderCal(); renderList();
     close();
+    showToast('카테고리 저장됨 — 새 할일에 기본 우선순위 자동 적용');
   };
 }
 function dlState(ds){
@@ -8304,6 +8732,8 @@ function renderCal(){
         var s=dlState(t.deadlineDate);
         var chip=document.createElement('div');
         chip.className='cal-day-dl-chip '+(s||'safe');
+        chip.setAttribute('data-task-id', t.id);
+        chip.setAttribute('data-role','deadline'); /* dest anchor for arrow */
         chip.textContent=dlText(t.deadlineDate)+' · '+t.text;
         chip.addEventListener('click',function(e){e.stopPropagation();selDate=t.date;renderCal();renderList();tasksOpenModal(t);});
         evWrap.appendChild(chip);
@@ -8312,6 +8742,8 @@ function renderCal(){
         var cat=getCat(t.catId);
         var pill=document.createElement('div');
         pill.className='cal-event-pill';
+        pill.setAttribute('data-task-id', t.id);
+        pill.setAttribute('data-role','task'); /* source anchor for arrow */
         pill.style.background=taskCatSoftBg(cat.color);
         pill.style.color=normalizeTaskCatColor(cat.color);
         pill.textContent=t.text;
@@ -8379,7 +8811,6 @@ function renderDlCanvas(){
 
   if(!dlView){canvas.classList.remove('visible');return;}
 
-  /* Size canvas to match container */
   var cw=container.offsetWidth||280;
   var ch=container.offsetHeight||200;
   canvas.width=cw; canvas.height=ch;
@@ -8388,61 +8819,89 @@ function renderDlCanvas(){
 
   var ctx=canvas.getContext('2d');
   ctx.clearRect(0,0,cw,ch);
+  var cr=container.getBoundingClientRect();
 
-  /* Draw preparation links from a task date to the linked schedule/deadline date. */
+  /* Find the rendered chip/pill for a task. Returns {x,y} pointing at the
+     right edge (source) or left edge (destination) of that element's vertical
+     center. Falls back to the date cell only when the task chip isn't visible
+     in the current view (e.g. truncated in a compact-view day). */
+  function itemAnchor(taskId, date, role, side){
+    /* Prefer the chip that matches BOTH taskId AND its role (task pill vs
+       deadline chip). Without role-matching, a task that's both a source AND
+       a dest can collapse onto the same chip. */
+    var el = container.querySelector('[data-task-id="'+taskId+'"][data-role="'+role+'"]')
+          || container.querySelector('[data-task-id="'+taskId+'"]');
+    if (el) {
+      var r=el.getBoundingClientRect();
+      var x = side==='right' ? (r.right-cr.left-3) : (r.left-cr.left+3);
+      var y = r.top-cr.top + r.height/2;
+      return {x:Math.max(2,Math.min(x,cw-2)), y:Math.max(2,Math.min(y,ch-2)), exact:true};
+    }
+    /* Compact view: task is rendered as a tiny dot, no per-task element. Use
+       the date cell as a fallback — aim at the side edge so the arrow at
+       least points TO that cell, not just its center. */
+    var cellEl=container.querySelector('[data-dk="'+date+'"]');
+    if(!cellEl) return null;
+    var sr=cellEl.getBoundingClientRect();
+    var fx = side==='right' ? (sr.right-cr.left-6) : (sr.left-cr.left+6);
+    var fy = sr.top-cr.top + Math.min(sr.height*0.5, 40);
+    return {x:Math.max(2,Math.min(fx,cw-2)), y:Math.max(2,Math.min(fy,ch-2)), exact:false};
+  }
+
   tasks.forEach(function(task){
     if(!task.deadlineId||!task.date)return;
+    if(task.done) return; /* don't draw arrows from completed tasks */
     var target=tasks.find(function(t){return String(t.id)===String(task.deadlineId);});
     var targetDate=target?(target.deadlineDate||target.date):task.deadlineDate;
     if(!targetDate||task.date===targetDate)return;
 
-    /* Get position of task date cell and deadline date cell */
-    var srcEl=container.querySelector('[data-dk="'+task.date+'"]');
-    var dstEl=container.querySelector('[data-dk="'+targetDate+'"]');
-    if(!srcEl||!dstEl)return;
-
-    var cr=container.getBoundingClientRect();
-    var sr=srcEl.getBoundingClientRect();
-    var dr=dstEl.getBoundingClientRect();
-
-    var sx=sr.left-cr.left+sr.width/2;
-    var sy=sr.top-cr.top+Math.min(sr.height*.55, 54);
-    var dx=dr.left-cr.left+dr.width/2;
-    var dy=dr.top-cr.top+Math.min(dr.height*.34, 40);
-
-    /* Color by deadline urgency */
-    var state=dlState((target&&target.deadlineDate)||task.deadlineDate||targetDate);
-    var colorMap={safe:'rgba(58,155,133,.34)',soon:'rgba(217,119,6,.38)',
-      imminent:'rgba(217,119,6,.48)',today:'rgba(220,38,38,.52)',
-      overdue:'rgba(220,38,38,.34)'};
-    var col=colorMap[state||'safe'];
-
-    /* Don't draw if src and dst are in same cell position */
+    /* Source = the prep TASK pill (right edge)
+       Dest   = the DEADLINE chip on the target date (left edge) */
+    var src=itemAnchor(task.id, task.date, 'task', 'right');
+    var dst=itemAnchor(target?target.id:task.deadlineId, targetDate, 'deadline', 'left');
+    if(!src||!dst)return;
+    var sx=src.x, sy=src.y, dx=dst.x, dy=dst.y;
     if(Math.abs(sx-dx)<4&&Math.abs(sy-dy)<4)return;
 
-    /* Curved bezier line */
-    var midX=(sx+dx)/2;
-    var midY=Math.min(sy,dy)-20;
+    var state=dlState((target&&target.deadlineDate)||task.deadlineDate||targetDate);
+    var colorMap={safe:'rgba(58,155,133,.55)', soon:'rgba(217,119,6,.60)',
+      imminent:'rgba(217,119,6,.72)', today:'rgba(220,38,38,.75)',
+      overdue:'rgba(220,38,38,.55)'};
+    var col=colorMap[state||'safe'];
+
+    /* Smooth cubic bezier with horizontal control handles */
+    var cpOffset=Math.max(40, Math.abs(dx-sx)*0.42);
+    var cp1x=sx+cpOffset, cp1y=sy;
+    var cp2x=dx-cpOffset, cp2y=dy;
 
     ctx.save();
     ctx.strokeStyle=col;
-    ctx.lineWidth=1.4;
+    ctx.lineWidth=1.7;
     ctx.lineCap='round';
     ctx.setLineDash([5,4]);
     ctx.beginPath();
     ctx.moveTo(sx,sy);
-    ctx.quadraticCurveTo(midX,midY,dx,dy);
+    ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,dx,dy);
     ctx.stroke();
 
-    /* Arrowhead at destination */
+    /* Solid arrowhead at destination */
     ctx.setLineDash([]);
-    var angle=Math.atan2(dy-midY,dx-midX);
-    var hs=6;
+    var tx2=dx-cp2x, ty2=dy-cp2y;
+    var angle=Math.atan2(ty2,tx2);
+    var hs=7;
+    ctx.fillStyle=col;
     ctx.beginPath();
-    ctx.moveTo(dx-hs*Math.cos(angle-0.4),dy-hs*Math.sin(angle-0.4));
-    ctx.lineTo(dx,dy);
-    ctx.lineTo(dx-hs*Math.cos(angle+0.4),dy-hs*Math.sin(angle+0.4));
-    ctx.stroke();
+    ctx.moveTo(dx,dy);
+    ctx.lineTo(dx-hs*Math.cos(angle-0.42), dy-hs*Math.sin(angle-0.42));
+    ctx.lineTo(dx-hs*Math.cos(angle+0.42), dy-hs*Math.sin(angle+0.42));
+    ctx.closePath();
+    ctx.fill();
+
+    /* Source dot */
+    ctx.beginPath();
+    ctx.arc(sx, sy, 3, 0, Math.PI*2);
+    ctx.fill();
+
     ctx.restore();
   });
 }
@@ -8875,7 +9334,10 @@ function openAdd(){addWrap.classList.add('open');addInput.focus();}
 function closeAdd(){addWrap.classList.remove('open');addInput.value='';newPrio='';newCat='etc';newDeadline='';updateAddChips();}
 function confirmAdd(){
   var txt=addInput.value.trim();if(!txt){closeAdd();return;}
-  tasks.unshift({id:Date.now(),text:txt,catId:newCat,date:selDate,priority:newPrio,done:false,deadlineDate:newDeadline,deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+  /* If the user hasn't explicitly picked a priority, fall back to the
+     category's defaultPriority — old-app behavior. */
+  var effectivePrio = newPrio || (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(newCat) : '');
+  tasks.unshift({id:Date.now(),text:txt,catId:newCat,date:selDate,priority:effectivePrio,done:false,deadlineDate:newDeadline,deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
   if (typeof saveTaskData === 'function') saveTaskData();
   closeAdd();renderList();renderCal();
 }
@@ -8900,7 +9362,14 @@ document.getElementById('add-prio-chip').addEventListener('click',function(){
 });
 document.getElementById('add-cat-chip').addEventListener('click',function(){
   var idx=CATS.findIndex(function(c){return c.id===newCat;});
-  newCat=CATS[(idx+1)%CATS.length].id;updateAddChips();
+  newCat=CATS[(idx+1)%CATS.length].id;
+  /* Auto-apply the category's default priority only if the user hasn't
+     explicitly picked one already. Lets users override when they want. */
+  if(!newPrio){
+    var def = typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(newCat) : '';
+    if(def){ newPrio = def; }
+  }
+  updateAddChips();
 });
 document.getElementById('add-dl-chip').addEventListener('click',function(){
   openFormDialog('마감일 설정', [
@@ -9032,47 +9501,126 @@ function taskLinkTargetLabel(target){
   if(target.timeStart) bits.push(target.timeStart+(target.timeEnd?'–'+target.timeEnd:''));
   return (cat.emoji?cat.emoji+' ':'')+target.text+' · '+bits.join(' · ');
 }
-function getTaskLinkTargets(task){
+function getTaskLinkTargets(task, includePast){
+  /* Today as YYYY-MM-DD for past filtering */
+  var todayKey=TK;
   return tasks.filter(function(t){
-    if(!t||t.id===task.id||t._travelOnly)return false;
-    return t.catId==='schedule'||t._isTt||!!t.deadlineDate||!!t.timeStart;
+    if(!t||t.id===task.id||t._travelOnly) return false;
+    if(!(t.catId==='schedule'||t._isTt||!!t.deadlineDate||!!t.timeStart)) return false;
+    /* Filter out completed by default — they're rarely useful as link targets */
+    if(t.done && !includePast) return false;
+    /* Filter past dates by default — focus on upcoming */
+    if(!includePast){
+      var d=t.deadlineDate||t.date||'';
+      if(d && d < todayKey) return false;
+    }
+    return true;
   }).sort(function(a,b){
-    var ad=a.deadlineDate||a.date||'', bd=b.deadlineDate||b.date||'';
-    return ad.localeCompare(bd)||String(a.timeStart||'').localeCompare(String(b.timeStart||''));
+    /* Sort: nearest future date first, then by time */
+    var ad=a.deadlineDate||a.date||'9999-99-99';
+    var bd=b.deadlineDate||b.date||'9999-99-99';
+    if(ad!==bd) return ad.localeCompare(bd);
+    return String(a.timeStart||'').localeCompare(String(b.timeStart||''));
   });
 }
 function openTaskLinkPicker(task){
   var old=document.getElementById('task-link-picker');
   if(old)old.remove();
-  var targets=getTaskLinkTargets(task);
+
+  var includePast=false;
   var ov=document.createElement('div');
   ov.className='overlay open';
   ov.id='task-link-picker';
-  var rows=targets.map(function(t){
-    var active=String(task.deadlineId||'')===String(t.id);
-    return '<button type="button" class="project-linked-item '+(active?'selected':'')+'" data-id="'+t.id+'"><span>'+tEscHtml(taskLinkTargetLabel(t))+'</span><span class="chip">'+(active?'연결됨':'연결')+'</span></button>';
-  }).join('') || '<div class="project-empty">연결할 일정이나 마감 항목이 아직 없어요.</div>';
-  ov.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-head"><div class="modal-title">일정/마감 연결</div></div><div class="modal-body"><div class="field-help">일정 카테고리의 할일, 시간 있는 항목, 마감일이 있는 항목을 준비 대상처럼 연결합니다.</div><div class="project-linked-list">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="tlp-clear">연결 해제</button><button class="btn btn-primary" id="tlp-close">닫기</button></div></div>';
+
+  function renderList(){
+    var query=(ov.querySelector('#tlp-search')||{}).value||'';
+    var q=query.trim().toLowerCase();
+    var targets=getTaskLinkTargets(task, includePast);
+    if(q){
+      targets=targets.filter(function(t){
+        return (t.text||'').toLowerCase().indexOf(q)>=0
+          || (t.note||'').toLowerCase().indexOf(q)>=0
+          || (taskLinkTargetLabel(t)||'').toLowerCase().indexOf(q)>=0;
+      });
+    }
+    var listEl=ov.querySelector('#tlp-list');
+    if(!listEl) return;
+    if(!targets.length){
+      listEl.innerHTML='<div class="project-empty">'+(q?'검색 결과가 없어요.':(includePast?'연결할 항목이 없어요.':'다가오는 항목이 없어요. 아래 "지난 항목도 보기"를 켜보세요.'))+'</div>';
+      return;
+    }
+    listEl.innerHTML=targets.map(function(t){
+      var active=String(task.deadlineId||'')===String(t.id);
+      var label=taskLinkTargetLabel(t);
+      /* Highlight match */
+      var safeLabel=tEscHtml(label);
+      if(q){
+        var re=new RegExp('('+q.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+        safeLabel=safeLabel.replace(re,'<mark style="background:var(--accent-light);color:var(--a-600);padding:0 2px;border-radius:2px">$1</mark>');
+      }
+      return '<button type="button" class="project-linked-item '+(active?'selected':'')+(t.done?' done':'')+'" data-id="'+t.id+'"><span>'+safeLabel+'</span><span class="chip">'+(active?'연결됨':'연결')+'</span></button>';
+    }).join('');
+    /* Re-bind click on freshly rendered items */
+    listEl.querySelectorAll('[data-id]').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var id=btn.getAttribute('data-id');
+        var target=tasks.find(function(t){return String(t.id)===String(id);});
+        task.deadlineId=id;
+        var linkValEl=document.getElementById('modal-link-val');
+        if(linkValEl){
+          linkValEl.textContent=target?taskLinkTargetLabel(target):('연결됨 ('+id+')');
+          linkValEl.className='mr-value';
+        }
+        close();
+      });
+    });
+  }
+
+  ov.innerHTML='<div class="modal" style="max-width:640px">'
+    +'<div class="modal-head"><div class="modal-title">일정/마감 연결</div></div>'
+    +'<div class="modal-body">'
+    +  '<div class="field-help" style="margin-bottom:var(--sp-3)">준비할 일정·마감 항목을 검색해서 연결하세요. 가까운 날짜가 위쪽이에요.</div>'
+    +  '<input type="search" id="tlp-search" placeholder="이름으로 검색..." class="field-inp" style="width:100%;margin-bottom:var(--sp-3);font-size:16px">'
+    +  '<label style="display:flex;align-items:center;gap:var(--sp-2);font-size:var(--text-xs);color:var(--fg-3);margin-bottom:var(--sp-3);cursor:pointer">'
+    +    '<input type="checkbox" id="tlp-include-past"> 지난 항목 · 완료된 항목도 보기'
+    +  '</label>'
+    +  '<div class="project-linked-list" id="tlp-list" style="max-height:380px;overflow-y:auto"></div>'
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" id="tlp-clear">연결 해제</button><button class="btn btn-primary" id="tlp-close">닫기</button></div>'
+    +'</div>';
+
   document.body.appendChild(ov);
   function close(){ov.remove();}
   ov.addEventListener('click',function(e){if(e.target===ov)close();});
   ov.querySelector('#tlp-close').addEventListener('click',close);
   ov.querySelector('#tlp-clear').addEventListener('click',function(){
     task.deadlineId='';
-    document.getElementById('modal-link-val').textContent='연결 없음';
-    document.getElementById('modal-link-val').className='mr-value empty';
+    var linkValEl=document.getElementById('modal-link-val');
+    if(linkValEl){
+      linkValEl.textContent='연결 없음';
+      linkValEl.className='mr-value empty';
+    }
     close();
   });
-  ov.querySelectorAll('[data-id]').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      var id=btn.getAttribute('data-id');
-      var target=tasks.find(function(t){return String(t.id)===String(id);});
-      task.deadlineId=id;
-      document.getElementById('modal-link-val').textContent=target?taskLinkTargetLabel(target):('연결됨 ('+id+')');
-      document.getElementById('modal-link-val').className='mr-value';
-      close();
-    });
+  /* Search input — live filter */
+  var search=ov.querySelector('#tlp-search');
+  search.addEventListener('input', renderList);
+  search.addEventListener('keydown', function(e){
+    if(e.key==='Escape'){ close(); }
+    /* Enter on first item — auto-select first match */
+    if(e.key==='Enter'){
+      var first=ov.querySelector('#tlp-list [data-id]');
+      if(first) first.click();
+    }
   });
+  /* Include-past toggle */
+  ov.querySelector('#tlp-include-past').addEventListener('change', function(e){
+    includePast=e.target.checked;
+    renderList();
+  });
+
+  renderList();
+  setTimeout(function(){ search.focus(); }, 50);
 }
 function bindTaskModalRows(task){
   var linkRow=document.getElementById('modal-link-val').closest('.modal-row');
@@ -14210,61 +14758,167 @@ function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;i
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.token&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — 일기 타임라인 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
 saveNotionConfig=function(){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();showToast('Notion 설정 저장됨');};
 function clearDiaryNotionConfig(){localStorage.removeItem('diary_notion_cfg');_diaryNotionCfg={};loadDiaryNotionConfig();showToast('Notion 연동을 해제했어요');}
-async function _diaryNotionApi(method,path,body){var cfg=_diaryNotionCfg&&_diaryNotionCfg.workerUrl?_diaryNotionCfg:getNotionCfg();var base=(cfg.workerUrl||'').replace(/\/+$/,'');if(!base||!cfg.token)throw new Error('Worker URL 또는 토큰이 없어요');var res=await fetch(base+'/notion'+path,{method:method,headers:{'Content-Type':'application/json','X-Notion-Token':cfg.token},body:body?JSON.stringify(body):undefined});var text=await res.text(),data={};try{data=text?JSON.parse(text):{};}catch(e){data={message:text};}if(!res.ok)throw new Error(data.message||('Notion '+res.status));return data;}
+async function _diaryNotionApi(method,path,body){
+  var cfg=_diaryNotionCfg&&_diaryNotionCfg.workerUrl?_diaryNotionCfg:getNotionCfg();
+  var base=(cfg.workerUrl||'').replace(/\/+$/,'');
+  if(!base) throw new Error('Worker URL이 없어요. 설정 > Notion > Worker URL을 입력해주세요.');
+  if(!cfg.token) throw new Error('Notion 토큰이 없어요. 설정 > Notion > Integration Token을 입력해주세요.');
+  /* Ensure /notion prefix on path. Worker must proxy /notion/* → api.notion.com/v1/* */
+  var apiPath = path.startsWith('/') ? path : '/'+path;
+  var fullPath = apiPath.startsWith('/notion') ? apiPath : '/notion'+apiPath;
+  var res=await fetch(base+fullPath,{
+    method:method,
+    headers:{'Content-Type':'application/json','X-Notion-Token':cfg.token},
+    body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+  });
+  if(method==='DELETE'&&res.status===200) return {};
+  var text=await res.text(), data={};
+  try{data=text?JSON.parse(text):{};}catch(e){data={message:text};}
+  if(!res.ok) throw new Error(data.message||data.code||('Notion API '+res.status+': '+text.slice(0,200)));
+  return data;
+}
 testNotion=async function(){saveNotionConfig();var st=document.getElementById('notion-sync-status');var row=document.getElementById('notion-row');if(st)st.textContent='연결 테스트 중...';if(row)row.setAttribute('data-state','saving');try{await _diaryNotionApi('GET','/users/me');if(st)st.textContent='연결 성공';if(row)row.setAttribute('data-state','ok');showToast('Notion 연결 성공');}catch(e){if(st)st.textContent='연결 실패: '+e.message;if(row)row.setAttribute('data-state','err');showToast('Notion 연결 실패: '+e.message);}};
+/* ── callAI ── Groq completion helper used by diary timeline formatter */
+async function callAI(prompt, maxTokens){
+  var key=localStorage.getItem('groq_api_key')||'';
+  if(!key) return prompt; /* No key → return raw */
+  var res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({
+      model:'llama-3.3-70b-versatile',
+      max_tokens:maxTokens||800,
+      messages:[{role:'user',content:prompt}]
+    })
+  });
+  var data=await res.json();
+  var text=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
+  if(!text) throw new Error('AI 응답 없음');
+  return text;
+}
 function _buildTodayTasksText(dateKey){dateKey=dateKey||TK;var lines=[];(tasks||[]).filter(function(t){return t.date===dateKey||t.deadlineDate===dateKey;}).forEach(function(t){lines.push((t.timeStart?t.timeStart+' ':'')+(t.deadlineDate===dateKey?'[마감] ':'')+t.text+(t.done?' (완료)':''));});return lines.join('\n')||'오늘 할일/일정이 없어요.';}
 async function _formatTimelineWithAI(raw){var prompt=(_diaryNotionCfg.prompt||DIARY_DEFAULT_PROMPT).replace('{tasks}',raw);if(typeof callAI==='function')return await callAI(prompt,1200);return raw;}
 async function _findOrCreateDiaryPage(dateKey){var cfg=_diaryNotionCfg,dateProp=cfg.dateProp||'날짜';var found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{filter:{property:dateProp,date:{equals:dateKey}},page_size:1});if(found.results&&found.results[0])return found.results[0].id;var meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);var titleKey=Object.keys(meta.properties||{}).find(function(k){return meta.properties[k].type==='title';});var props={};props[dateProp]={date:{start:dateKey}};if(titleKey)props[titleKey]={title:[{text:{content:dateKey}}]};var page=await _diaryNotionApi('POST','/pages',{parent:{database_id:cfg.dbId},properties:props});return page.id;}
 
-function _diaryParagraphBlock(text){return {object:'block',type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:String(text||'').slice(0,1900)}}]}};}
-function _diaryImageBlock(src, caption){return {object:'block',type:'image',image:{type:'external',external:{url:src},caption:caption?[{type:'text',text:{content:String(caption).slice(0,1900)}}]:[]}};}
+function _diaryHeadingBlock(text){
+  return {object:'block',type:'heading_3',heading_3:{rich_text:[{type:'text',text:{content:String(text||'').slice(0,900)}}]}};
+}
+function _diaryParagraphBlock(text){
+  return {object:'block',type:'paragraph',paragraph:{rich_text:[{type:'text',text:{content:String(text||'').slice(0,1900)}}]}};
+}
+function _diaryImageBlock(src, caption){
+  return {object:'block',type:'image',image:{type:'external',external:{url:src},caption:caption?[{type:'text',text:{content:String(caption).slice(0,1900)}}]:[]}};
+}
 function _diaryBodyBlocks(entry){
   var out=[];
-  var sectionLabels={sleep:'Sleep',morning:'Morning',resolution:'Resolution',timeline:'Timeline',accomplishment:'Accomplishment',night:'Night',recap:'Recap'};
-  ['sleep','morning','resolution','timeline','accomplishment','night','recap'].forEach(function(key){
-    var val=entry&&entry[key];
-    if(String(val||'').trim())out.push(_diaryParagraphBlock(sectionLabels[key]+'\n'+String(val).trim()));
+  var sections=[
+    {key:'sleep',      label:'🌙 Sleep (수면)'},
+    {key:'morning',    label:'🌅 Morning (아침 감사)'},
+    {key:'resolution', label:'✊ Resolution (오늘의 다짐)'},
+    {key:'timeline',   label:'⏱ Timeline'},
+    {key:'accomplishment',label:'🏆 Accomplishment (성취)'},
+    {key:'night',      label:'🙏 Night (저녁 감사)'},
+    {key:'recap',      label:'📝 Recap (하루 회고)'},
+  ];
+  sections.forEach(function(s){
+    var val=entry&&entry[s.key];
+    var txt=String(val||'').trim();
+    if(!txt) return;
+    out.push(_diaryHeadingBlock(s.label));
+    /* Split long text into multiple paragraphs at double-newlines */
+    txt.split(/\n{2,}/).forEach(function(part){
+      if(part.trim()) out.push(_diaryParagraphBlock(part.trim()));
+    });
   });
+  /* App body blocks (images, free-text) that haven't been pushed to Notion yet */
   var blocks=(entry&&entry._blocks)||[];
-  blocks.forEach(function(b){
-    if(!b)return;
-    if(b._notionId)return;
-    if(b.type==='text' && String(b.content||'').trim()){
-      String(b.content).split(/\n{2,}/).forEach(function(part){if(part.trim())out.push(_diaryParagraphBlock(part.trim()));});
-    } else if(b.type==='image' && b.content){
-      if(/^https?:\/\//i.test(b.content)) out.push(_diaryImageBlock(b.content,b.caption||''));
-      else out.push(_diaryParagraphBlock('[로컬 이미지] '+(b.caption||'앱에 저장된 이미지')+' - Notion API는 브라우저 localStorage/base64 이미지를 바로 첨부할 수 없어 원본은 Return 안에 보관됩니다.'));
-    }
-  });
+  var hasNew=blocks.some(function(b){return !b._notionId;});
+  if(hasNew){
+    out.push(_diaryHeadingBlock('📎 첨부'));
+    blocks.forEach(function(b){
+      if(!b||b._notionId) return; /* already on Notion — skip to avoid duplicates */
+      if(b.type==='text'&&String(b.content||'').trim()){
+        String(b.content).split(/\n{2,}/).forEach(function(part){
+          if(part.trim()) out.push(_diaryParagraphBlock(part.trim()));
+        });
+      } else if(b.type==='image'&&b.content){
+        if(/^https?:\/\//i.test(b.content)){
+          out.push(_diaryImageBlock(b.content,b.caption||''));
+        } else {
+          out.push(_diaryParagraphBlock('[로컬 이미지: '+(b.caption||'앱에 저장된 이미지')+'] — base64 이미지는 Notion에 직접 첨부할 수 없어요. Return 앱 내에 보관됩니다.'));
+        }
+      }
+    });
+  }
   return out;
 }
+/* _diaryBodyBlocks / _diaryParagraphBlock / _diaryImageBlock / _diaryHeadingBlock
+   are defined above near the other diary Notion helpers. */
 function _diaryBodySignature(blocks){
   try{return JSON.stringify(blocks).slice(0,50000);}catch(e){return String(Date.now());}
 }
 async function _syncDiaryPageBody(pageId, entry, dateKey){
   var blocks=_diaryBodyBlocks(entry);
-  if(!blocks.length)return 0;
   _diaryNotionCfg.bodyHashes=_diaryNotionCfg.bodyHashes||{};
   var sig=_diaryBodySignature(blocks);
-  if(dateKey&&_diaryNotionCfg.bodyHashes[dateKey]===sig)return 0;
-  for(var i=0;i<blocks.length;i+=80){
-    await _diaryNotionApi('PATCH','/blocks/'+pageId+'/children',{children:blocks.slice(i,i+80)});
+  /* Skip if content hasn't changed since last sync */
+  if(dateKey&&_diaryNotionCfg.bodyHashes[dateKey]===sig) return 0;
+
+  /* Step 1: Delete all existing child blocks so we don't accumulate duplicates.
+     Notion's append-children endpoint adds to the end — there is no "replace"
+     endpoint, so we must delete-then-rewrite. */
+  try{
+    var existing=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
+    var existingIds=(existing.results||[]).map(function(b){return b.id;});
+    /* Delete in small batches — Notion rate-limits deletes */
+    for(var di=0;di<existingIds.length;di++){
+      try{ await _diaryNotionApi('DELETE','/blocks/'+existingIds[di]); }catch(de){ console.warn('block delete',de); }
+    }
+  }catch(e){ console.warn('_syncDiaryPageBody delete step',e); }
+
+  /* Step 2: Append new blocks in batches of 100 (Notion limit) */
+  if(!blocks.length) return 0;
+  for(var i=0;i<blocks.length;i+=100){
+    await _diaryNotionApi('PATCH','/blocks/'+pageId+'/children',{children:blocks.slice(i,i+100)});
   }
-  if(dateKey)_diaryNotionCfg.bodyHashes[dateKey]=sig;
+  if(dateKey) _diaryNotionCfg.bodyHashes[dateKey]=sig;
   return blocks.length;
 }
 async function _pullDiaryPageBody(pageId, dateKey){
-  if(!dateKey)return 0;
-  var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:(entries[dateKey]={});
+  if(!dateKey) return 0;
+  var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:(typeof entries!=='undefined'?(entries[dateKey]={}):null);
+  if(!entry) return 0;
   entry._blocks=entry._blocks||[];
   entry._notionBlockIds=entry._notionBlockIds||{};
   var data=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
   var added=0;
+  var sectionMap={
+    '🌙 sleep (수면)':'sleep','sleep (수면)':'sleep','sleep':'sleep',
+    '🌅 morning (아침 감사)':'morning','morning (아침 감사)':'morning','morning':'morning',
+    '✊ resolution (오늘의 다짐)':'resolution','resolution (오늘의 다짐)':'resolution','resolution':'resolution',
+    '⏱ timeline':'timeline','timeline':'timeline',
+    '🏆 accomplishment (성취)':'accomplishment','accomplishment (성취)':'accomplishment','accomplishment':'accomplishment',
+    '🙏 night (저녁 감사)':'night','night (저녁 감사)':'night','night':'night',
+    '📝 recap (하루 회고)':'recap','recap (하루 회고)':'recap','recap':'recap',
+  };
+  var currentSection=null;
   (data.results||[]).forEach(function(b){
-    if(!b||entry._notionBlockIds[b.id])return;
+    if(!b) return;
+    /* heading — update current section context */
+    if(b.type==='heading_1'||b.type==='heading_2'||b.type==='heading_3'){
+      var ht=((b[b.type]||{}).rich_text||[]).map(function(r){return r.plain_text||'';}).join('').trim().toLowerCase();
+      currentSection=sectionMap[ht]||null;
+      return; /* Don't add heading as a block */
+    }
+    if(entry._notionBlockIds[b.id]) return; /* already pulled */
     if(b.type==='paragraph'){
       var txt=((b.paragraph||{}).rich_text||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
-      if(txt.trim()){
+      if(!txt.trim()) return;
+      /* If inside a known section, merge into that field rather than _blocks */
+      if(currentSection&&!entry[currentSection]){
+        entry[currentSection]=txt.trim();
+        entry._notionBlockIds[b.id]=true; added++;
+      } else {
         entry._blocks.push({type:'text',content:txt.trim(),caption:'',_notionId:b.id});
         entry._notionBlockIds[b.id]=true; added++;
       }
@@ -14278,8 +14932,8 @@ async function _pullDiaryPageBody(pageId, dateKey){
       }
     }
   });
-  if(added&&typeof saveAll==='function')saveAll();
-  if(added&&dateKey===currentDate&&typeof loadBlocks==='function')loadBlocks(dateKey);
+  if(added&&typeof saveAll==='function') saveAll();
+  if(added&&dateKey===currentDate&&typeof loadBlocks==='function') loadBlocks(dateKey);
   return added;
 }
 
@@ -14315,10 +14969,27 @@ function gcalLoadConfig(){
   _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');}catch(e){return{};}})();
   _gcalToken=_gcalCfg._savedToken||_gcalToken;
   _gcalTokenExp=_gcalCfg._savedTokenExp||_gcalTokenExp||0;
-  var cid=document.getElementById('gcal-client-id'), cal=document.getElementById('gcal-calendar-id'), tcal=document.getElementById('gcal-task-calendar-id'), auto=document.getElementById('gcal-auto-sync'), rem=document.getElementById('gcal-reminder-min');
-  if(cid)cid.value=_gcalCfg.clientId||''; if(cal)cal.value=_gcalCfg.calendarId||'primary'; if(tcal)tcal.value=_gcalCfg.taskCalendarId||''; if(auto)auto.checked=!!_gcalCfg.autoSync; if(rem)rem.value=String(_gcalCfg.reminderMin||0);
-  if(_gcalToken&&_gcalTokenExp>Date.now()) gcalStatus('Google 인증됨 - 토큰 만료까지 약 '+Math.round((_gcalTokenExp-Date.now())/60000)+'분');
-  else gcalStatus(_gcalCfg.clientId?'설정 저장됨 - Google 로그인이 필요해요':'설정 필요');
+  var cid=document.getElementById('gcal-client-id'),
+      cal=document.getElementById('gcal-calendar-id'),
+      tcal=document.getElementById('gcal-task-calendar-id'),
+      auto=document.getElementById('gcal-auto-sync'),
+      rem=document.getElementById('gcal-reminder-min');
+  if(cid)cid.value=_gcalCfg.clientId||'';
+  if(cal)cal.value=_gcalCfg.calendarId||'primary';
+  if(tcal)tcal.value=_gcalCfg.taskCalendarId||'';
+  if(auto)auto.checked=!!_gcalCfg.autoSync;
+  if(rem)rem.value=String(_gcalCfg.reminderMin||0);
+  if(_gcalToken && _gcalTokenExp > Date.now()){
+    var minsLeft=Math.round((_gcalTokenExp-Date.now())/60000);
+    gcalStatus('연결됨 — 토큰 만료까지 약 '+minsLeft+'분','ok');
+  } else if(_gcalToken && _gcalTokenExp > 0) {
+    gcalStatus('토큰 만료됨 — "Google 로그인"을 다시 눌러주세요','err');
+    _gcalToken=null;
+  } else if(_gcalCfg.clientId) {
+    gcalStatus('Client ID 저장됨 — "Google 로그인"을 눌러 인증을 완료해주세요');
+  } else {
+    gcalStatus('OAuth Client ID를 입력하고 "설정 저장"을 눌러주세요');
+  }
 }
 function gcalSaveConfig(){
   _gcalCfg.clientId=(document.getElementById('gcal-client-id')||{}).value||_gcalCfg.clientId||'';
@@ -14374,8 +15045,10 @@ function gcalAuth(){
     _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
     try{ localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); }catch(e){}
     gcalLoadConfig();
-    showToast('Google Calendar 인증 완료');
+    showToast('Google Calendar 인증 완료 — 동기화를 시작해요');
     cleanup();
+    /* Auto-sync immediately after auth so user sees it working */
+    setTimeout(function(){ gcalSync().catch(function(e){ console.warn('gcal post-auth sync',e); }); }, 400);
   }
   var bc=null;
   try { if('BroadcastChannel' in window) bc=new BroadcastChannel('return-gcal-oauth'); }catch(e){}
@@ -14463,11 +15136,28 @@ function gcalEventFromTask(t){
   return ev;
 }
 async function gcalApiCal(method,path,body,calId){
-  if(!_gcalToken||Date.now()>_gcalTokenExp-60000)throw new Error('Google 인증이 필요하거나 토큰이 만료됐어요');
+  /* Refresh token check — 1 minute buffer */
+  if(!_gcalToken) throw new Error('Google 로그인이 필요해요. 설정 > Google Calendar > Google 로그인을 눌러주세요.');
+  if(Date.now()>_gcalTokenExp-60000){
+    _gcalToken=null; /* force re-auth */
+    gcalStatus('토큰 만료됨 — 다시 로그인이 필요해요','err');
+    throw new Error('Google 인증이 만료됐어요. 설정 > Google Calendar > Google 로그인을 눌러주세요.');
+  }
   var base='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId||_gcalCfg.calendarId||'primary')+'/events';
-  var res=await fetch(base+(path||''),{method:method,headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
-  var txt=await res.text(), data={};try{data=txt?JSON.parse(txt):{};}catch(e){data={message:txt};}
-  if(!res.ok)throw new Error(data.message||('Google Calendar '+res.status));
+  var res=await fetch(base+(path||''),{
+    method:method,
+    headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},
+    body:body?JSON.stringify(body):undefined
+  });
+  var txt=await res.text(), data={};
+  try{data=txt?JSON.parse(txt):{};}catch(e){data={message:txt};}
+  if(res.status===401){
+    _gcalToken=null;
+    gcalStatus('인증 만료 — 다시 로그인이 필요해요','err');
+    throw new Error('Google 인증이 만료됐어요 (401). 다시 로그인해주세요.');
+  }
+  if(res.status===403) throw new Error('Google Calendar 권한이 없어요. Client ID의 승인된 원본 설정을 확인해주세요. (403)');
+  if(!res.ok) throw new Error((data.error&&data.error.message)||data.message||('Google Calendar 오류 '+res.status));
   return data;
 }
 var _gcalAutoTimer=null;
@@ -14478,23 +15168,42 @@ function gcalQueueAutoSync(){
 }
 async function gcalSync(){
   gcalSaveConfig();
-  if(!_gcalToken){showToast('먼저 Google 로그인이 필요해요');return;}
-  gcalStatus('동기화 중...');
+  if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
+    gcalStatus('Google 로그인이 필요해요 — 설정 > Google 로그인을 눌러주세요','err');
+    showToast('먼저 Google 로그인이 필요해요');
+    return;
+  }
+  gcalStatus('동기화 중...','saving');
   var list=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return !t.done && (t.date||t.deadlineDate);});
   _gcalCfg.eventIds=_gcalCfg.eventIds||{};
-  var ok=0,err=0;
+  var ok=0,err=0,errMsg='';
   for(var i=0;i<list.length;i++){
-    var t=list[i], calId=(t.catId==='schedule'?(_gcalCfg.calendarId||'primary'):(_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary'));
+    var t=list[i];
+    var calId=(t.catId==='schedule'?(_gcalCfg.calendarId||'primary'):(_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary'));
     try{
       var ev=gcalEventFromTask(t), id=_gcalCfg.eventIds[String(t.id)];
       var r=id?await gcalApiCal('PATCH','/'+id,ev,calId):await gcalApiCal('POST','',ev,calId);
-      if(r&&r.id)_gcalCfg.eventIds[String(t.id)]=r.id;
+      if(r&&r.id) _gcalCfg.eventIds[String(t.id)]=r.id;
       ok++;
-    }catch(e){console.warn('gcal item',t.text,e);err++;}
+    }catch(e){
+      console.warn('gcal item sync failed:',t.text,e&&e.message);
+      if(!errMsg) errMsg=e&&e.message||'알 수 없는 오류';
+      err++;
+      /* If auth error, stop immediately */
+      if(e&&(e.message||'').indexOf('401')>=0) break;
+    }
   }
-  localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
-  gcalStatus('동기화 완료: '+ok+'개, 오류 '+err+'개');
-  showToast('Google Calendar 동기화 완료');
+  try{ localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); }catch(e){}
+  if(err>0 && ok===0){
+    gcalStatus('동기화 실패: '+errMsg,'err');
+    showToast('Google Calendar 동기화 실패: '+errMsg);
+  } else if(err>0){
+    gcalStatus('부분 완료: '+ok+'개 성공, '+err+'개 실패 — '+errMsg,'err');
+    showToast('Google Calendar: '+ok+'개 완료, '+err+'개 실패');
+  } else {
+    gcalStatus('동기화 완료: '+ok+'개 이벤트','ok');
+    showToast('Google Calendar 동기화 완료 ('+ok+'개)');
+  }
 }
 
 
