@@ -10,6 +10,94 @@
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
 <!-- Inline SVG favicon prevents the browser from requesting /favicon.ico (404). -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23C2433D'/><text x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-family='system-ui,Pretendard,sans-serif' font-size='38' font-weight='700' fill='white'>R</text></svg>">
+<script>
+/* ─────────────────────────────────────────────────────────────────────────
+   GOOGLE OAUTH CALLBACK — TOP-OF-DOCUMENT INTERCEPTOR
+
+   Why this lives in <head>:
+   When the OAuth popup is redirected back to our same-origin URL with
+   #access_token=... in the hash, it ALSO begins loading our entire app.
+   If we wait until the bottom-of-body script runs to detect the hash, the
+   popup ends up rendering the full Return UI inside itself — exactly the
+   "팝업 안에 다시 return 화면" symptom the user reported.
+
+   By detecting the hash here — before any CSS is parsed, before <body>
+   exists — we short-circuit the page load: deliver the token to the opener
+   via three channels (postMessage, BroadcastChannel, localStorage), replace
+   document content with a tiny "logged in, you can close this" message,
+   and try window.close(). Even if close is blocked, the user sees a clean
+   one-line page instead of a full duplicate app.
+   ─────────────────────────────────────────────────────────────────────── */
+(function _gcalHandleOauthCallback(){
+  try{
+    var h=window.location.hash||'';
+    if(h.indexOf('access_token')<0) return;
+    var params=new URLSearchParams(h.replace(/^#/,''));
+    var token=params.get('access_token');
+    if(!token) return;
+    var expiresIn=Number(params.get('expires_in')||3600);
+    var state=params.get('state')||'';
+    var payload={type:'gcal_token', token:token, expiresIn:expiresIn, state:state};
+
+    /* Try every channel — first that succeeds is enough.
+       1) window.opener.postMessage — most direct, works when opener handle
+          is accessible. Modern browsers may block this under COOP, but it's
+          worth attempting first.
+       2) BroadcastChannel — works across same-origin tabs/windows even when
+          opener handle is blocked.
+       3) localStorage 'storage' event — fires in OTHER same-origin windows,
+          the most reliable fallback. */
+    var delivered=false;
+    try{
+      if(window.opener && !window.opener.closed){
+        window.opener.postMessage(payload, location.origin);
+        delivered=true;
+      }
+    }catch(e){}
+    try{
+      if('BroadcastChannel' in window){
+        var bc=new BroadcastChannel('return-gcal-oauth');
+        bc.postMessage(payload);
+        delivered=true;
+        setTimeout(function(){ try{bc.close();}catch(e){} }, 80);
+      }
+    }catch(e){}
+    try{
+      /* Storage events fire ONLY in other windows, so the opener (which has
+         a listener) will receive this even though we just wrote it. */
+      localStorage.setItem('gcal_oauth_msg', JSON.stringify(payload));
+      delivered=true;
+    }catch(e){}
+
+    /* Stop the rest of the document from loading. We replace the entire
+       document HTML to prevent the main app from initializing inside this
+       popup. document.open() is the cleanest way to halt parsing. */
+    try{
+      document.open();
+      document.write(
+        '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        '<title>Google Calendar — 로그인 완료</title>' +
+        '<style>body{font-family:system-ui,-apple-system,Pretendard,sans-serif;background:#FAF9F7;color:#3a3a3a;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}.box{max-width:360px}h1{font-size:18px;margin:0 0 12px}p{font-size:14px;color:#7a7a7a;line-height:1.5;margin:0 0 16px}button{background:#C2433D;color:#fff;border:0;border-radius:999px;padding:10px 20px;font-size:14px;cursor:pointer}</style>' +
+        '</head><body><div class="box">' +
+        '<div style="font-size:32px;margin-bottom:8px">✓</div>' +
+        '<h1>로그인 완료</h1>' +
+        '<p>Return 앱에서 Google Calendar 동기화가 시작됩니다.<br>이 창이 자동으로 닫히지 않으면 닫아주세요.</p>' +
+        '<button onclick="window.close()">닫기</button>' +
+        '</div></body></html>'
+      );
+      document.close();
+    }catch(e){}
+
+    /* Try to auto-close. Many browsers only allow window.close() on windows
+       that were opened by script (which is true here since the opener used
+       window.open). If blocked, the page above shows a manual close button. */
+    setTimeout(function(){ try{ window.close(); }catch(e){} }, 100);
+  }catch(e){
+    /* If anything fails, do nothing — let the page continue loading normally
+       so the user is not left with a blank screen. */
+  }
+})();
+</script>
 <style>
 
 /* ── DESIGN SYSTEM TOKENS ── */
@@ -5433,7 +5521,8 @@ to{opacity:1;transform:translateY(0)}}
               </div>
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveNotionConfig()">설정 저장</button>
-                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion()">지금 동기화</button>
+                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion()">지금 동기화 (양방향)</button>
+                <button class="set-btn btn-ghost" onclick="pullDiaryFromNotion()">⬇ Notion에서 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="clearDiaryNotionConfig()">연동 해제</button>
               </div>
               <div class="field-help" id="notion-sync-status" style="margin-top:var(--sp-3)"></div>
@@ -6971,16 +7060,28 @@ function _showCapturePreview(parsed){
 
   var bar = document.querySelector('.capture-bar');
   if(!bar) return;
+  /* Find capture-bar's screen position so we can position preview ABOVE it.
+     We mount the preview on document.body (position:fixed) instead of inside
+     .capture-bar — that container is position:sticky and appending children
+     can break its layout (the user reported the input "disappearing"). */
+  var rect = bar.getBoundingClientRect();
 
   var pv = document.createElement('div');
   pv.id = 'capture-preview';
   pv.style.cssText=[
-    'position:absolute','bottom:calc(100% + 8px)','left:0','right:0',
-    'background:var(--bg-card)','border:.5px solid var(--border)',
-    'border-radius:var(--r-xl)','box-shadow:var(--elev-3)',
-    'padding:var(--sp-5) var(--sp-6)','z-index:200',
+    'position:fixed',
+    'left:'+rect.left+'px',
+    'width:'+rect.width+'px',
+    'bottom:'+(window.innerHeight - rect.top + 8)+'px',
+    'background:var(--bg-card)',
+    'border:.5px solid var(--border)',
+    'border-radius:var(--r-xl)',
+    'box-shadow:var(--elev-3)',
+    'padding:var(--sp-5) var(--sp-6)',
+    'z-index:200',
     'display:flex','flex-direction:column','gap:var(--sp-4)',
-    'animation:fade-up var(--t-enter) both'
+    'animation:fade-up var(--t-enter) both',
+    'max-height:60vh','overflow:auto'
   ].join(';');
 
   var cat = getCat ? getCat(parsed.catId||'etc') : {emoji:'📌',label:'기타',color:'#999'};
@@ -7013,9 +7114,7 @@ function _showCapturePreview(parsed){
     + '<button class="set-btn btn-ghost" id="cpv-cancel">취소</button>'
     + '</div>';
 
-  /* Make bar relatively positioned so preview positions above it */
-  bar.style.position = 'relative';
-  bar.appendChild(pv);
+  document.body.appendChild(pv);
   _capturePreviewEl = pv;
 
   pv.querySelector('#cpv-confirm').onclick = function(){
@@ -7023,7 +7122,6 @@ function _showCapturePreview(parsed){
     _closeCapturePreview();
   };
   pv.querySelector('#cpv-edit').onclick = function(){
-    /* Open the full task modal pre-filled */
     _closeCapturePreview();
     if(typeof tasksOpenNewModal === 'function') tasksOpenNewModal(parsed);
     else if(typeof tasksOpenModal === 'function') tasksOpenModal(parsed);
@@ -7080,16 +7178,18 @@ async function homeCaptureAI(raw){
     return;
   }
 
-  /* Show a loading state in the preview slot */
+  /* Show a loading state in the preview slot — mounted on body (fixed),
+     positioned just above the capture bar. Same approach as the final
+     preview to avoid breaking the sticky capture-bar layout. */
   var bar = document.querySelector('.capture-bar');
   if(bar){
     _closeCapturePreview();
+    var rect = bar.getBoundingClientRect();
     var loading = document.createElement('div');
     loading.id = 'capture-preview';
-    loading.style.cssText='position:absolute;bottom:calc(100% + 8px);left:0;right:0;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-3);padding:var(--sp-5) var(--sp-6);z-index:200;font-size:var(--text-sm);color:var(--fg-3);animation:fade-up var(--t-enter) both';
+    loading.style.cssText='position:fixed;left:'+rect.left+'px;width:'+rect.width+'px;bottom:'+(window.innerHeight - rect.top + 8)+'px;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-3);padding:var(--sp-5) var(--sp-6);z-index:200;font-size:var(--text-sm);color:var(--fg-3);animation:fade-up var(--t-enter) both';
     loading.textContent = '✦ 분석 중...';
-    bar.style.position='relative';
-    bar.appendChild(loading);
+    document.body.appendChild(loading);
     _capturePreviewEl = loading;
   }
 
@@ -14825,26 +14925,30 @@ function _diaryBodyBlocks(entry){
     var txt=String(val||'').trim();
     if(!txt) return;
     out.push(_diaryHeadingBlock(s.label));
-    /* Split long text into multiple paragraphs at double-newlines */
     txt.split(/\n{2,}/).forEach(function(part){
       if(part.trim()) out.push(_diaryParagraphBlock(part.trim()));
     });
   });
-  /* App body blocks (images, free-text) that haven't been pushed to Notion yet */
+  /* App body blocks (free-text, images) — push ALL of them, including ones
+     previously pulled from Notion. Since _syncDiaryPageBody deletes existing
+     Notion blocks before re-writing, we must include pulled blocks too,
+     otherwise content written in Notion gets erased on every sync. */
   var blocks=(entry&&entry._blocks)||[];
-  var hasNew=blocks.some(function(b){return !b._notionId;});
-  if(hasNew){
-    out.push(_diaryHeadingBlock('📎 첨부'));
+  if(blocks.length){
+    out.push(_diaryHeadingBlock('📎 본문'));
     blocks.forEach(function(b){
-      if(!b||b._notionId) return; /* already on Notion — skip to avoid duplicates */
+      if(!b) return;
       if(b.type==='text'&&String(b.content||'').trim()){
         String(b.content).split(/\n{2,}/).forEach(function(part){
           if(part.trim()) out.push(_diaryParagraphBlock(part.trim()));
         });
       } else if(b.type==='image'&&b.content){
         if(/^https?:\/\//i.test(b.content)){
+          /* Re-push the URL. Notion-internal URLs expire after ~1h so we may
+             re-receive a new URL on the next pull — that's OK. */
           out.push(_diaryImageBlock(b.content,b.caption||''));
         } else {
+          /* base64 — Notion can't host it, leave a placeholder note */
           out.push(_diaryParagraphBlock('[로컬 이미지: '+(b.caption||'앱에 저장된 이미지')+'] — base64 이미지는 Notion에 직접 첨부할 수 없어요. Return 앱 내에 보관됩니다.'));
         }
       }
@@ -14852,8 +14956,8 @@ function _diaryBodyBlocks(entry){
   }
   return out;
 }
-/* _diaryBodyBlocks / _diaryParagraphBlock / _diaryImageBlock / _diaryHeadingBlock
-   are defined above near the other diary Notion helpers. */
+/* _diaryParagraphBlock / _diaryImageBlock / _diaryHeadingBlock are defined
+   above near the other diary Notion helpers. */
 function _diaryBodySignature(blocks){
   try{return JSON.stringify(blocks).slice(0,50000);}catch(e){return String(Date.now());}
 }
@@ -14884,61 +14988,202 @@ async function _syncDiaryPageBody(pageId, entry, dateKey){
   if(dateKey) _diaryNotionCfg.bodyHashes[dateKey]=sig;
   return blocks.length;
 }
+/* Convert a Notion-hosted (expiring) image URL into a base64 data URL so it
+   survives the URL's 1-hour expiry. Best-effort; returns the original URL on
+   failure so the image still renders at least immediately. */
+async function _notionImageToDataUrl(url){
+  try{
+    var res=await fetch(url);
+    if(!res.ok) return url;
+    var blob=await res.blob();
+    if(blob.size > 3*1024*1024) return url; /* skip huge images, keep URL */
+    return await new Promise(function(resolve,reject){
+      var fr=new FileReader();
+      fr.onload=function(){ resolve(fr.result); };
+      fr.onerror=function(){ resolve(url); };
+      fr.readAsDataURL(blob);
+    });
+  }catch(e){ return url; }
+}
+
 async function _pullDiaryPageBody(pageId, dateKey){
   if(!dateKey) return 0;
-  var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:(typeof entries!=='undefined'?(entries[dateKey]={}):null);
-  if(!entry) return 0;
+  if(typeof entries==='undefined') return 0;
+  if(!entries[dateKey]) entries[dateKey]={};
+  var entry=entries[dateKey];
   entry._blocks=entry._blocks||[];
   entry._notionBlockIds=entry._notionBlockIds||{};
-  var data=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
+
+  var data;
+  try {
+    data=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
+  } catch(e){
+    console.warn('pull diary body failed:',e&&e.message);
+    return 0;
+  }
   var added=0;
-  var sectionMap={
-    '🌙 sleep (수면)':'sleep','sleep (수면)':'sleep','sleep':'sleep',
-    '🌅 morning (아침 감사)':'morning','morning (아침 감사)':'morning','morning':'morning',
-    '✊ resolution (오늘의 다짐)':'resolution','resolution (오늘의 다짐)':'resolution','resolution':'resolution',
-    '⏱ timeline':'timeline','timeline':'timeline',
-    '🏆 accomplishment (성취)':'accomplishment','accomplishment (성취)':'accomplishment','accomplishment':'accomplishment',
-    '🙏 night (저녁 감사)':'night','night (저녁 감사)':'night','night':'night',
-    '📝 recap (하루 회고)':'recap','recap (하루 회고)':'recap','recap':'recap',
-  };
+
+  /* Normalize a heading's text → a section field name. Strips emoji, spaces,
+     punctuation, and matches by Korean OR English keyword. */
+  function detectSection(text){
+    var t=String(text||'').toLowerCase().replace(/[^\wㄱ-ㅎㅏ-ㅣ가-힣]/g,'');
+    if(!t) return null;
+    if(t.indexOf('sleep')>=0||t.indexOf('수면')>=0) return 'sleep';
+    if(t.indexOf('morning')>=0||t.indexOf('아침')>=0) return 'morning';
+    if(t.indexOf('resolution')>=0||t.indexOf('다짐')>=0) return 'resolution';
+    if(t.indexOf('timeline')>=0||t.indexOf('타임라인')>=0) return 'timeline';
+    if(t.indexOf('accomplishment')>=0||t.indexOf('성취')>=0) return 'accomplishment';
+    if(t.indexOf('night')>=0||t.indexOf('저녁')>=0) return 'night';
+    if(t.indexOf('recap')>=0||t.indexOf('회고')>=0) return 'recap';
+    if(t.indexOf('본문')>=0||t.indexOf('첨부')>=0||t.indexOf('body')>=0) return '_body';
+    return null;
+  }
+
   var currentSection=null;
+  var sectionTexts={}; /* {sectionKey: [paragraphs...]} */
+  var freeBlocks=[];   /* paragraphs/images outside any known section */
+  var imageJobs=[];    /* deferred image processing */
+
   (data.results||[]).forEach(function(b){
     if(!b) return;
-    /* heading — update current section context */
     if(b.type==='heading_1'||b.type==='heading_2'||b.type==='heading_3'){
-      var ht=((b[b.type]||{}).rich_text||[]).map(function(r){return r.plain_text||'';}).join('').trim().toLowerCase();
-      currentSection=sectionMap[ht]||null;
-      return; /* Don't add heading as a block */
+      var ht=((b[b.type]||{}).rich_text||[]).map(function(r){return r.plain_text||'';}).join('');
+      currentSection=detectSection(ht);
+      return;
     }
-    if(entry._notionBlockIds[b.id]) return; /* already pulled */
     if(b.type==='paragraph'){
       var txt=((b.paragraph||{}).rich_text||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
       if(!txt.trim()) return;
-      /* If inside a known section, merge into that field rather than _blocks */
-      if(currentSection&&!entry[currentSection]){
-        entry[currentSection]=txt.trim();
-        entry._notionBlockIds[b.id]=true; added++;
+      if(currentSection&&currentSection!=='_body'){
+        if(!sectionTexts[currentSection]) sectionTexts[currentSection]=[];
+        sectionTexts[currentSection].push(txt.trim());
+        entry._notionBlockIds[b.id]=true;
+        added++;
       } else {
-        entry._blocks.push({type:'text',content:txt.trim(),caption:'',_notionId:b.id});
-        entry._notionBlockIds[b.id]=true; added++;
+        freeBlocks.push({type:'text',content:txt.trim(),caption:'',_notionId:b.id});
+        entry._notionBlockIds[b.id]=true;
+        added++;
       }
+      return;
     }
     if(b.type==='image'){
       var img=b.image||{}, url=(img.external&&img.external.url)||(img.file&&img.file.url)||'';
-      if(url){
-        var cap=(img.caption||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
-        entry._blocks.push({type:'image',content:url,caption:cap,_notionId:b.id});
-        entry._notionBlockIds[b.id]=true; added++;
-      }
+      if(!url) return;
+      var cap=(img.caption||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
+      var blockObj={type:'image',content:url,caption:cap,_notionId:b.id};
+      freeBlocks.push(blockObj);
+      entry._notionBlockIds[b.id]=true;
+      added++;
+      /* If Notion-hosted (file URL), cache as data URL — file URLs expire */
+      if(img.file && img.file.url) imageJobs.push(blockObj);
     }
   });
-  if(added&&typeof saveAll==='function') saveAll();
-  if(added&&dateKey===currentDate&&typeof loadBlocks==='function') loadBlocks(dateKey);
+
+  /* Apply section data: replace entry fields with pulled content.
+     Previously we only filled empty fields; now we sync, preferring Notion
+     as the source of truth on pull. */
+  Object.keys(sectionTexts).forEach(function(k){
+    entry[k]=sectionTexts[k].join('\n\n');
+  });
+
+  /* Replace _blocks with the new free-blocks set. Keep app-only blocks
+     (those without _notionId) appended at the end so user-added local blocks
+     aren't lost. */
+  var appOnly=(entry._blocks||[]).filter(function(b){return b && !b._notionId;});
+  entry._blocks=freeBlocks.concat(appOnly);
+
+  /* Save state */
+  if(typeof saveAll==='function') saveAll();
+  else if(typeof saveAllEntries==='function') saveAllEntries();
+  else { try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){} }
+
+  /* Refresh diary screen unconditionally if user is viewing diary */
+  try {
+    if(typeof loadBlocks==='function') loadBlocks(dateKey);
+    if(typeof loadEntry==='function' && dateKey===currentDate) loadEntry(dateKey);
+  } catch(e){ console.warn('diary refresh',e); }
+
+  /* Convert image URLs to base64 in the background so they persist beyond
+     Notion's 1-hour URL expiry. Runs after the initial render. */
+  if(imageJobs.length){
+    Promise.all(imageJobs.map(function(blk){
+      return _notionImageToDataUrl(blk.content).then(function(dataUrl){
+        blk.content=dataUrl;
+      });
+    })).then(function(){
+      try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
+      if(typeof loadBlocks==='function' && dateKey===currentDate) loadBlocks(dateKey);
+    });
+  }
+
   return added;
 }
 
 async function syncDiaryToNotion(dateKey){saveNotionConfig();var cfg=_diaryNotionCfg;dateKey=dateKey||currentDate||TK;if(dateKey===currentDate&&typeof commitCurrent==='function'){commitCurrent();if(typeof saveAll==='function')saveAll();}var st=document.getElementById('notion-sync-status');var row=document.getElementById('notion-row');if(st)st.textContent='Notion 동기화 중...';if(row)row.setAttribute('data-state','saving');if(!cfg.workerUrl||!cfg.token||!cfg.dbId){if(row)row.setAttribute('data-state','');showToast('Notion 설정을 먼저 완료해주세요');return;}try{var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));var pageId=await _findOrCreateDiaryPage(dateKey);var pulled=await _pullDiaryPageBody(pageId,dateKey);var props={};props[cfg.timelineProp||'타임라인']={rich_text:[{text:{content:formatted.slice(0,2000)}}]};var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:{};[['sleep','sleepProp'],['morning','morningProp'],['resolution','resolutionProp'],['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']].forEach(function(pair){var key=pair[0], prop=cfg[pair[1]];if(prop&&entry[key])props[prop]={rich_text:[{text:{content:String(entry[key]).slice(0,2000)}}]};});await _diaryNotionApi('PATCH','/pages/'+pageId,{properties:props});var bodyCount=await _syncDiaryPageBody(pageId,entry,dateKey);_diaryNotionCfg.lastSync=Date.now();localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));if(st)st.textContent='동기화 완료: '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+(pulled?' · 가져옴 '+pulled+'개':'')+(bodyCount?' · 보냄 '+bodyCount+'개':'');if(row)row.setAttribute('data-state','ok');showToast('Notion 동기화 완료'+(pulled?' · 가져옴 '+pulled+'개':''));}catch(e){if(st)st.textContent='동기화 실패: '+e.message;if(row)row.setAttribute('data-state','err');showToast('Notion 실패: '+e.message);}}
 async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElementById('notion-preview');if(!el)return;el.style.display='block';el.textContent='정리 중...';try{el.textContent=await _formatTimelineWithAI(_buildTodayTasksText(currentDate||TK));}catch(e){el.textContent='오류: '+e.message;}}
+
+/* Pull-only: fetches the current diary date's page from Notion and refreshes
+   the diary view, WITHOUT writing back. Useful when the user edits the page
+   directly in Notion and wants to see it in the app. */
+async function pullDiaryFromNotion(dateKey){
+  saveNotionConfig();
+  var cfg=_diaryNotionCfg;
+  dateKey=dateKey||currentDate||TK;
+  var st=document.getElementById('notion-sync-status');
+  var row=document.getElementById('notion-row');
+  if(!cfg.workerUrl||!cfg.token||!cfg.dbId){
+    showToast('Notion 설정을 먼저 완료해주세요');
+    return;
+  }
+  if(st)st.textContent='Notion에서 '+dateKey+' 가져오는 중...';
+  if(row)row.setAttribute('data-state','saving');
+  try{
+    /* Find the page; do NOT create if missing — pull is read-only */
+    var dateProp=cfg.dateProp||'날짜';
+    var found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+      filter:{property:dateProp,date:{equals:dateKey}},
+      page_size:1
+    });
+    var page=(found.results||[])[0];
+    if(!page){
+      if(st)st.textContent=dateKey+'에 해당하는 Notion 페이지가 없어요';
+      if(row)row.setAttribute('data-state','');
+      showToast('해당 날짜 페이지가 Notion에 없어요');
+      return;
+    }
+    /* Also pull property values (Sleep/Morning/etc fields stored as properties) */
+    var entry=entries[dateKey]||(entries[dateKey]={});
+    var props=page.properties||{};
+    function readRichText(p){
+      var rt=(p&&p.rich_text)||[];
+      return rt.map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('').trim();
+    }
+    [['sleepProp','sleep'],['morningProp','morning'],['resolutionProp','resolution'],
+     ['accomplishmentProp','accomplishment'],['nightProp','night'],['recapProp','recap'],
+     ['timelineProp','timeline']].forEach(function(pair){
+      var propName=cfg[pair[0]];
+      if(propName&&props[propName]){
+        var v=readRichText(props[propName]);
+        if(v) entry[pair[1]]=v;
+      }
+    });
+    /* Pull body blocks */
+    var pulled=await _pullDiaryPageBody(page.id, dateKey);
+    if(st)st.textContent='가져옴: '+pulled+'개 블록 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    if(row)row.setAttribute('data-state','ok');
+    /* Force diary view refresh */
+    try {
+      if(typeof loadEntry==='function' && dateKey===currentDate) loadEntry(dateKey);
+      if(typeof loadBlocks==='function') loadBlocks(dateKey);
+      if(typeof renderDiary==='function') renderDiary();
+    } catch(e){}
+    showToast('Notion에서 '+pulled+'개 항목을 가져왔어요');
+  }catch(e){
+    if(st)st.textContent='가져오기 실패: '+e.message;
+    if(row)row.setAttribute('data-state','err');
+    showToast('Notion 가져오기 실패: '+e.message);
+  }
+}
 async function diaryAutoDetectProps(){saveNotionConfig();try{var db=await _diaryNotionApi('GET','/databases/'+_diaryNotionCfg.dbId);var keys=Object.keys(db.properties||{});function pick(id,cands){var v=keys.find(function(k){return cands.some(function(c){return k.toLowerCase().replace(/\s+/g,'').indexOf(c.toLowerCase().replace(/\s+/g,''))>=0;});});if(v)setNotionVal(id,v);}pick('notion-date-prop',['날짜','date']);pick('notion-timeline-prop',['타임라인','timeline']);pick('notion-sleep-prop',['sleep','수면']);pick('notion-morning-prop',['morning','아침']);pick('notion-resolution-prop',['resolution','다짐']);pick('notion-accomplishment-prop',['accomplishment','성취']);pick('notion-night-prop',['night','저녁']);pick('notion-recap-prop',['recap','회고']);showToast('속성명을 자동 감지했어요');}catch(e){showToast('자동 감지 실패: '+e.message);}}
 var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':');if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0))syncDiaryToNotion(TK);},60000);}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
@@ -15034,8 +15279,12 @@ function gcalAuth(){
     +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
     +'&include_granted_scopes=true&prompt=consent'
     +'&state='+encodeURIComponent(state);
-  // Open the popup; we deliberately don't keep its handle around for polling.
-  window.open(url,'gcal_auth','width=520,height=640,noopener=no');
+  /* Open the popup. We DO want the opener handle so the callback page can
+     window.opener.postMessage(). Browsers default `noopener` to false when
+     `window.open` is called from script with no rel/feature spec, but we
+     omit `noopener` explicitly to be safe across browsers.
+     Width 520 / height 640 fits Google's OAuth UI. */
+  window.open(url,'gcal_auth','width=520,height=640');
   // Receive the token through the channels listed above.
   var done=false;
   function finish(token, expiresIn){
@@ -15057,6 +15306,13 @@ function gcalAuth(){
     if(d&&d.type==='gcal_token'&&d.state===state) finish(d.token, d.expiresIn);
   }
   if(bc) bc.addEventListener('message', onBC);
+  function onMessage(ev){
+    /* Only accept messages from our own origin */
+    if(ev.origin && ev.origin !== location.origin) return;
+    var d=ev&&ev.data||{};
+    if(d&&d.type==='gcal_token'&&d.state===state) finish(d.token, d.expiresIn);
+  }
+  window.addEventListener('message', onMessage);
   function onStorage(ev){
     if(ev.key!=='gcal_oauth_msg'||!ev.newValue) return;
     try{
@@ -15075,50 +15331,13 @@ function gcalAuth(){
   function cleanup(){
     clearTimeout(timeout);
     window.removeEventListener('storage', onStorage);
+    window.removeEventListener('message', onMessage);
     if(bc){ try{ bc.removeEventListener('message', onBC); bc.close(); }catch(e){} }
   }
 }
-/* OAuth callback handler — runs once at boot when the page loads with an
-   access_token in the hash. The popup arrives here after Google redirects
-   to the same-origin redirect URI, so this code lives in the popup window. */
-(function _gcalHandleOauthCallback(){
-  try{
-    var h=window.location.hash||'';
-    if(h.indexOf('access_token')<0) return;
-    var params=new URLSearchParams(h.replace(/^#/,''));
-    var token=params.get('access_token');
-    if(!token) return;
-    var expiresIn=Number(params.get('expires_in')||3600);
-    var state=params.get('state')||'';
-    var payload={type:'gcal_token', token:token, expiresIn:expiresIn, state:state};
-    var delivered=false;
-    try{
-      if('BroadcastChannel' in window){
-        var bc=new BroadcastChannel('return-gcal-oauth');
-        bc.postMessage(payload);
-        delivered=true;
-        // small delay to ensure the message flushes before close
-        setTimeout(function(){ try{bc.close();}catch(e){} }, 50);
-      }
-    }catch(e){}
-    try{
-      // Storage event fires only in OTHER windows, which is exactly what we need.
-      localStorage.setItem('gcal_oauth_msg', JSON.stringify(payload));
-      delivered=true;
-    }catch(e){}
-    // Clean our own URL so subsequent reloads don't re-trigger this branch.
-    try{ history.replaceState(null,'', location.pathname + location.search); }catch(e){}
-    if(delivered){
-      // Close the popup; if window.close is blocked, leave a friendly message.
-      try{ window.close(); }catch(e){}
-      setTimeout(function(){
-        if(!window.closed){
-          document.body.innerHTML='<div style="font-family:system-ui;padding:24px;color:#333">로그인 완료. 이 창을 닫으셔도 됩니다.</div>';
-        }
-      }, 200);
-    }
-  }catch(e){}
-})();
+/* OAuth callback handler — moved to a HEAD script that runs before the
+   main app script, so the popup window doesn't render the entire app
+   before processing the token. See <head> for the actual implementation. */
 function gcalEventFromTask(t){
   var title=t.text||'Return';
   var desc=(t.note||'')+(t.deadlineDate?'\n마감: '+t.deadlineDate:'');
