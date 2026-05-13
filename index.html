@@ -5642,7 +5642,7 @@ to{opacity:1;transform:translateY(0)}}
               </div>
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveNotionConfig()">설정 저장</button>
-                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion(null,{pullFirst:true})">양방향 동기화</button>
+                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion(null,{pullFirst:false})">비상시 동기화</button>
                 <button class="set-btn btn-ghost" onclick="pullDiaryFromNotion()">⬇ Notion에서 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="clearDiaryNotionConfig()">연동 해제</button>
               </div>
@@ -7003,18 +7003,24 @@ function ruleWeekdayLabel(value){
 }
 
 openHomeRuleModal=function(){
+  var catOptions=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {value:c.id,label:(c.emoji?c.emoji+' ':'')+c.label};});
+  if(!catOptions.length)catOptions=[{value:'etc',label:'기타'}];
   openFormDialog('활성 규칙 추가', [
+    {key:'triggerType', label:'연결 방식', type:'select', value:'keyword', options:[{value:'keyword',label:'일정/키워드'},{value:'weekday',label:'요일'}]},
     {key:'matchText', label:'일정/키워드', value:''},
     {key:'weekdays', label:'요일 연결', type:'weekdays', value:''},
     {key:'taskText', label:'자동 생성할 할일', value:'준비'},
+    {key:'taskCatId', label:'카테고리', type:'select', value:'etc', options:catOptions},
+    {key:'taskPriority', label:'우선순위', type:'select', value:'mid', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
     {key:'offsetDays', label:'며칠 전 생성', type:'number', value:'0'}
   ], function(data){
-    var match=(data.matchText||'').trim();
-    var weekdays=(data.weekdays||'').trim();
+    var triggerType=data.triggerType==='weekday'?'weekday':'keyword';
+    var match=triggerType==='keyword'?(data.matchText||'').trim():'';
+    var weekdays=triggerType==='weekday'?(data.weekdays||'').trim():'';
     var text=(data.taskText||'').trim();
     if((!match&&!weekdays)||!text)return;
     taskRules=loadTaskRules();
-    taskRules.push({id:'rule_'+Date.now(),matchText:match,weekdays:weekdays,taskText:text,taskCatId:'etc',taskPriority:'mid',offsetDays:parseInt(data.offsetDays,10)||0});
+    taskRules.push({id:'rule_'+Date.now(),triggerType:triggerType,matchText:match,weekdays:weekdays,taskText:text,taskCatId:data.taskCatId||'etc',taskPriority:data.taskPriority||'',offsetDays:parseInt(data.offsetDays,10)||0});
     saveTaskRules(taskRules);
     applyActiveTaskRules();
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -7025,15 +7031,24 @@ editHomeRule=function(id){
   var rules=loadTaskRules();
   var r=rules.find(function(x){return x.id===id;});
   if(!r)return;
+  var catOptions=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {value:c.id,label:(c.emoji?c.emoji+' ':'')+c.label};});
+  if(!catOptions.length)catOptions=[{value:'etc',label:'기타'}];
+  var triggerType=r.triggerType || (r.weekdays ? 'weekday' : 'keyword');
   openFormDialog('활성 규칙 편집', [
+    {key:'triggerType', label:'연결 방식', type:'select', value:triggerType, options:[{value:'keyword',label:'일정/키워드'},{value:'weekday',label:'요일'}]},
     {key:'matchText', label:'일정/키워드', value:r.matchText||''},
     {key:'weekdays', label:'요일 연결', type:'weekdays', value:r.weekdays||''},
     {key:'taskText', label:'자동 생성할 할일', value:r.taskText||''},
+    {key:'taskCatId', label:'카테고리', type:'select', value:r.taskCatId||'etc', options:catOptions},
+    {key:'taskPriority', label:'우선순위', type:'select', value:r.taskPriority||'', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
     {key:'offsetDays', label:'며칠 전 생성', type:'number', value:String(r.offsetDays||0)}
   ], function(data){
-    r.matchText=(data.matchText||'').trim();
-    r.weekdays=(data.weekdays||'').trim();
+    r.triggerType=data.triggerType==='weekday'?'weekday':'keyword';
+    r.matchText=r.triggerType==='keyword'?(data.matchText||'').trim():'';
+    r.weekdays=r.triggerType==='weekday'?(data.weekdays||'').trim():'';
     r.taskText=(data.taskText||'').trim();
+    r.taskCatId=data.taskCatId||'etc';
+    r.taskPriority=data.taskPriority||'';
     r.offsetDays=parseInt(data.offsetDays,10)||0;
     if(typeof tasks!=='undefined'){
       tasks=tasks.filter(function(t){return t._ruleId!==id||t.done;});
@@ -7054,16 +7069,26 @@ applyActiveTaskRules=function(){
   if(!rules.length)return;
   var made=false;
   var horizon=21;
+  var seen={};
+  tasks=tasks.filter(function(t){
+    if(!t||!t._ruleId)return true;
+    var sig=[t._ruleId,t._ruleSourceId||'',t.date||'',t.deadlineDate||'',t.text||''].join('|');
+    if(seen[sig]&&!t.done)return false;
+    seen[sig]=true;
+    return true;
+  });
   function addRuleTask(rule, dk, src){
     var sourceId=src?String(src.id):('weekday:'+dk);
-    if(tasks.some(function(t){return t._ruleId===rule.id&&t._ruleSourceId===sourceId&&t.date===dk;}))return;
-    tasks.push({id:Date.now()+Math.random(),text:rule.taskText,catId:rule.taskCatId||(src&&src.catId)||'etc',date:dk,priority:rule.taskPriority||'mid',done:false,deadlineDate:(src&&(src.deadlineDate||src.date))||'',deadlineId:src?String(src.id):'',timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],_ruleId:rule.id,_ruleGen:true,_ruleSourceId:sourceId,createdAt:Date.now(),updatedAt:Date.now()});
+    var deadline=(src&&(src.deadlineDate||src.date))||dk;
+    if(tasks.some(function(t){return t._ruleId===rule.id&&t._ruleSourceId===sourceId&&t.date===dk&&t.deadlineDate===deadline;}))return;
+    tasks.push({id:Date.now()+Math.random(),text:rule.taskText,catId:rule.taskCatId||(src&&src.catId)||'etc',date:dk,priority:rule.taskPriority||'',done:false,deadlineDate:deadline,deadlineId:src?String(src.id):'',timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],_ruleId:rule.id,_ruleGen:true,_ruleSourceId:sourceId,createdAt:Date.now(),updatedAt:Date.now()});
     made=true;
   }
   rules.forEach(function(rule){
     if(!rule.taskText)return;
+    var triggerType=rule.triggerType || (rule.weekdays ? 'weekday' : 'keyword');
     var key=String(rule.matchText||'').trim();
-    if(key){
+    if(triggerType==='keyword'&&key){
       tasks.slice().forEach(function(src){
         if(src._ruleGen||src._repeatId||src._travelOnly)return;
         if(String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return;
@@ -7076,7 +7101,7 @@ applyActiveTaskRules=function(){
       });
     }
     var raw=String(rule.weekdays||'').split(/[, ]+/).filter(Boolean).map(function(x){return parseInt(x,10);}).filter(function(n){return n>=0&&n<=6;});
-    if(raw.length){
+    if(triggerType==='weekday'&&raw.length){
       var base=new Date(TK+'T00:00');
       for(var i=0;i<=horizon;i++){
         var d2=new Date(base);d2.setDate(base.getDate()+i);
@@ -7117,8 +7142,11 @@ renderHomeOpsPanel=function(){
   }
   rules.forEach(function(rule){
     var trigger=[];
-    if(rule.matchText)trigger.push('키워드 '+rule.matchText);
-    if(rule.weekdays)trigger.push('요일 '+ruleWeekdayLabel(rule.weekdays));
+    var triggerType=rule.triggerType || (rule.weekdays ? 'weekday' : 'keyword');
+    if(triggerType==='keyword'&&rule.matchText)trigger.push('키워드 '+rule.matchText);
+    if(triggerType==='weekday'&&rule.weekdays)trigger.push('요일 '+ruleWeekdayLabel(rule.weekdays));
+    var cat=(typeof getCat==='function')?getCat(rule.taskCatId||'etc'):{emoji:'',label:rule.taskCatId||'기타'};
+    if(cat)trigger.push('카테고리 '+((cat.emoji?cat.emoji+' ':'')+cat.label));
     row(rule,rule.taskText,trigger.join(' / ')+' / '+(rule.offsetDays||0)+'일 전 생성',pendingForRule(rule)+'개 대기',function(){editHomeRule(rule.id);},function(){deleteHomeRule(rule.id);});
   });
   repeats.forEach(function(rep){
@@ -11822,7 +11850,7 @@ document.getElementById('diary-date-input').addEventListener('change', function(
 
 /* ── NOTION SYNC (stub) ── */
 document.getElementById('sync-btn').addEventListener('click', function() {
-  if (typeof syncDiaryToNotion === 'function') { syncDiaryToNotion(currentDate || TK, {pullFirst:true}); return; }
+  if (typeof syncDiaryToNotion === 'function') { syncDiaryToNotion(currentDate || TK, {pullFirst:false}); return; }
   var dot = document.getElementById('notion-dot');
   var txt = document.getElementById('notion-status-text');
   dot.className = 'sync-dot syncing';
@@ -15163,6 +15191,13 @@ var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_p
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','recharge_reflects','recharge_energy']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;
 });
+function shouldFbSyncKey(k){
+  if(!k)return false;
+  if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup'].indexOf(k)>=0)return false;
+  if(CLOUD_SETTING_KEYS.indexOf(k)>=0)return true;
+  if(FB_DATA_KEYS.indexOf(k)>=0)return true;
+  return /^(return_|task_|diary_|hobby_|home_|inbox_|project|projects_|memos_|metrics_|phil_|reward_|recharge_|timetables_|global_sticker)/.test(k);
+}
 function fbConfig(){ try{return Object.assign({},DEFAULT_FB_CONFIG,JSON.parse(localStorage.getItem('fb_config')||'{}'));}catch(e){return Object.assign({},DEFAULT_FB_CONFIG);} }
 function readFbInputs(){var cur=fbConfig();return {apiKey:(document.getElementById('fb-api-key')||{}).value||cur.apiKey||DEFAULT_FB_CONFIG.apiKey,authDomain:(document.getElementById('fb-auth-domain')||{}).value||cur.authDomain||DEFAULT_FB_CONFIG.authDomain,projectId:(document.getElementById('fb-project-id')||{}).value||cur.projectId||DEFAULT_FB_CONFIG.projectId};}
 function fillFbInputs(){var c=fbConfig(),a=document.getElementById('fb-api-key'),d=document.getElementById('fb-auth-domain'),p=document.getElementById('fb-project-id');if(a)a.value=c.apiKey||'';if(d)d.value=c.authDomain||'';if(p)p.value=c.projectId||'';}
@@ -15254,7 +15289,7 @@ async function fbGoogleLogin(){
     }catch(calErr){console.warn('calendar token from firebase login',calErr);}
   }catch(e){showToast('Google 로그인 실패: '+e.message);}
 }
-function fbCollectData(){var data={updatedAtMs:Date.now(),keys:{}};FB_DATA_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)data.keys[k]=v;});return data;}
+function fbCollectData(){var data={updatedAtMs:Date.now(),keys:{}};for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);if(shouldFbSyncKey(k)){var v=localStorage.getItem(k);if(v!=null)data.keys[k]=v;}}return data;}
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {
@@ -15432,20 +15467,31 @@ async function fbSaveNow(){
     await fbSaveCloudSettings(ref);
     var old=await ref.collection('data').get();
     var batch=fbDb.batch(), ops=0;
-    old.forEach(function(doc){batch.delete(doc.ref);ops++;});
-    Object.keys(data.keys).forEach(function(k){
-      var parts=fbSplitValue(data.keys[k]), base=fbDocIdForKey(k);
+    async function commitIfFull(force){
+      if(ops && (force || ops>=430)){await batch.commit();batch=fbDb.batch();ops=0;}
+    }
+    var oldDocs=[];
+    old.forEach(function(doc){oldDocs.push(doc);});
+    for(var od=0;od<oldDocs.length;od++){
+      batch.delete(oldDocs[od].ref);ops++;
+      await commitIfFull(false);
+    }
+    var dataKeys=Object.keys(data.keys);
+    for(var ki=0;ki<dataKeys.length;ki++){
+      var k=dataKeys[ki], parts=fbSplitValue(data.keys[k]), base=fbDocIdForKey(k);
       if(parts.length===1){
         batch.set(ref.collection('data').doc(base),{key:k,value:parts[0],updatedAtMs:data.updatedAtMs});
         ops++;
+        await commitIfFull(false);
       }else{
-        parts.forEach(function(part,idx){
-          batch.set(ref.collection('data').doc(base+'__'+idx),{key:k,part:idx,value:part,updatedAtMs:data.updatedAtMs});
+        for(var pi=0;pi<parts.length;pi++){
+          batch.set(ref.collection('data').doc(base+'__'+pi),{key:k,part:pi,value:parts[pi],updatedAtMs:data.updatedAtMs});
           ops++;
-        });
+          await commitIfFull(false);
+        }
       }
-    });
-    if(ops)await batch.commit();
+    }
+    await commitIfFull(true);
     await ref.set({updatedAtMs:data.updatedAtMs,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
     setFbStatus(fbStatusTime('Firebase 저장 완료'),'ok');
     return true;
@@ -15530,7 +15576,8 @@ localStorage.setItem = function(k,v){
   }
   if(prev === String(v)) return; // no-op write, skip side effects
   if(_applyingFbData) return;    // remote sync in progress, do not echo back
-  if((FB_DATA_KEYS.indexOf(k)>=0 || CLOUD_SETTING_KEYS.indexOf(k)>=0 || k==='diary_notion_cfg' || k==='gcal_cfg_v1') && typeof fbSaveAll==='function') fbSaveAll();
+  if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1') && typeof fbSaveAll==='function') fbSaveAll();
+  if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
   if(k==='task_items_v1' && typeof gcalQueueAutoSync==='function') gcalQueueAutoSync();
 };
 
@@ -15541,6 +15588,41 @@ function notionVal(id){var el=document.getElementById(id);return el?(el.type==='
 function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!val;else el.value=val||'';}
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — Worker 비밀 토큰 또는 로컬 토큰으로 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
 saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
+var _notionSaveTimer=null;
+function queueDiaryNotionSave(dateKey){
+  var cfg=getNotionCfg();
+  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
+  clearTimeout(_notionSaveTimer);
+  _notionSaveTimer=setTimeout(function(){
+    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:false});
+  },2500);
+}
+function simplifySyncSettingsUI(){
+  [
+    ['fb-detail','fbForceSync()','비상시 동기화'],
+    ['fb-detail','clearFbConfig()','연동 해제'],
+    ['notion-detail','syncDiaryToNotion','비상시 동기화'],
+    ['notion-detail','clearDiaryNotionConfig()','연동 해제'],
+    ['gcal-detail','gcalSync()','비상시 동기화'],
+    ['gcal-detail','gcalClearConfig()','연동 해제']
+  ].forEach(function(item){
+    var root=document.getElementById(item[0]); if(!root)return;
+    var btn=[].slice.call(root.querySelectorAll('button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf(item[1])>=0;});
+    if(btn)btn.textContent=item[2];
+  });
+  var pull=[].slice.call(document.querySelectorAll('#notion-detail button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf('pullDiaryFromNotion')>=0;});
+  if(pull)pull.style.display='none';
+  var rules=[].slice.call(document.querySelectorAll('#fb-detail button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf('showFirebaseRulesHelp')>=0;});
+  if(rules)rules.style.display='none';
+  var aiLabel=document.querySelector('label[for="notion-auto-sync"]');
+  var auto=document.getElementById('notion-auto-sync');
+  if(auto&&auto.parentElement)auto.parentElement.childNodes.forEach(function(n){if(n.nodeType===3)n.textContent=' 자동 동기화';});
+  var time=document.getElementById('notion-auto-time');
+  if(time){
+    var span=time.parentElement&&time.parentElement.querySelector('.field-help');
+    if(span)span.textContent='AI 타임라인 정리는 이 시간에 하루 1번 실행';
+  }
+}
 function clearDiaryNotionConfig(){localStorage.removeItem('diary_notion_cfg');_diaryNotionCfg={};loadDiaryNotionConfig();showToast('Notion 연동을 해제했어요');}
 async function _diaryNotionApi(method,path,body){
   var cfg=_diaryNotionCfg&&_diaryNotionCfg.workerUrl?_diaryNotionCfg:getNotionCfg();
@@ -15557,6 +15639,13 @@ async function _diaryNotionApi(method,path,body){
       headers:headers,
       body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
     });
+    if(res.status===404 && fullPath!==apiPath){
+      res=await fetch(base+apiPath,{
+        method:method,
+        headers:headers,
+        body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+      });
+    }
   } catch(netErr){
     /* Network-level failure (CORS, DNS, offline). Most common when the
        Worker URL is wrong or worker isn't deployed. */
@@ -16461,6 +16550,7 @@ function _initSettings(){
     loadNotifSettings();
     fillFbInputs();
     loadDiaryNotionConfig();
+    if(typeof simplifySyncSettingsUI==='function')simplifySyncSettingsUI();
     if(typeof updateAuthLockCopy==='function')updateAuthLockCopy();
     scheduleDiaryAutoSync();
     if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
