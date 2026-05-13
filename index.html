@@ -772,29 +772,31 @@ html.focus-mode .page-container.active{height:100vh}
 .project-card .project-meta{font-size:var(--text-2xs);color:var(--fg-4);margin-top:2px;font-family:var(--font-mono)}
 
 /* — DETAIL HEADER —
-   Left-aligned, tight composition. Title is the focal point, status/meta
-   live right next to it, actions on the right, description below. The
-   progress bar slides under the title row, not into the actions column. */
+   Flex layout, not grid. Icon on the left, title block flexes to fill, actions
+   on the right. With grid `auto 1fr auto` the 1fr column was stretching the
+   title into the middle when the title was short, looking like center-aligned.
+   Flex with min-width:0 on the main block keeps things naturally left-aligned. */
 .project-head{
   background:transparent;
-  border-radius:0;border:0;border-left:0;
-  box-shadow:none;padding:0;
-  display:grid;
-  grid-template-columns:auto 1fr auto;
-  gap:var(--sp-5);
-  align-items:start;
+  border:0;box-shadow:none;padding:0;
+  display:flex;align-items:flex-start;gap:var(--sp-5);
 }
 .project-head .project-dot{
   width:44px;height:44px;border-radius:var(--r-lg);
   font-size:20px;background:var(--accent-light);
-  /* subtle ring instead of harsh border */
   box-shadow:inset 0 0 0 .5px var(--border-subtle);
+  flex-shrink:0;
 }
-.project-head .project-head-main{display:flex;flex-direction:column;gap:var(--sp-2);min-width:0}
+.project-head .project-head-main{
+  flex:1;min-width:0;
+  display:flex;flex-direction:column;gap:var(--sp-2);
+}
 .project-head .project-title{
   font-size:var(--text-xl);font-weight:var(--fw-semibold);
   color:var(--fg);line-height:var(--lh-snug);
   letter-spacing:-.01em;
+  /* Long titles can ellipsize gracefully */
+  word-break:break-word;
 }
 .project-head .project-meta-row{
   display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
@@ -823,7 +825,7 @@ html.focus-mode .page-container.active{height:100vh}
   border-radius:var(--r-full);
   transition:width var(--t-base);
 }
-.project-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap;align-self:flex-start}
+.project-actions{display:flex;gap:var(--sp-2);flex-shrink:0;flex-wrap:wrap}
 .project-actions .btn{height:30px;padding:0 var(--sp-4);font-size:var(--text-xs)}
 
 /* — SECTION SPACING —
@@ -977,19 +979,30 @@ html.focus-mode .page-container.active{height:100vh}
 .project-linked-item.done span:first-child{text-decoration:line-through;text-decoration-color:var(--fg-4)}
 
 /* — EMPTY STATES —
-   Small friendly hints, not full-width gray walls. */
+   Compact one-line hint with a small inline action. Previously the empty
+   states were tall centered boxes that ate up the whole detail column, making
+   the project page look like it was 90% blank placeholders. */
 .project-empty{
-  color:var(--fg-4);font-size:var(--text-sm);
-  padding:var(--sp-5) var(--sp-6);text-align:center;
+  color:var(--fg-4);font-size:var(--text-xs);
+  padding:var(--sp-3) var(--sp-4);
   border:.5px dashed var(--border);
-  border-radius:var(--r-lg);
+  border-radius:var(--r-md);
   background:transparent;
   line-height:var(--lh-relaxed);
-  display:flex;flex-direction:column;align-items:center;gap:var(--sp-3);
+  display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;
 }
-.project-empty .empty-title{font-weight:var(--fw-medium);color:var(--fg-3)}
-.project-empty .empty-sub{font-size:var(--text-xs);color:var(--fg-4);max-width:360px}
-.project-empty .btn{height:30px;padding:0 var(--sp-5);font-size:var(--text-xs);margin-top:var(--sp-2)}
+.project-empty .empty-title{
+  font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg-3);
+  flex-shrink:0;
+}
+.project-empty .empty-sub{
+  font-size:var(--text-xs);color:var(--fg-4);
+  flex:1;min-width:0;
+}
+.project-empty .btn{
+  height:26px;padding:0 var(--sp-4);font-size:var(--text-xs);
+  margin-top:0;margin-left:auto;flex-shrink:0;
+}
 
 /* — KIND CHIPS — */
 .project-kind{height:22px;padding:0 var(--sp-3);border-radius:var(--r-full);font-size:var(--text-2xs);font-weight:var(--fw-semibold);display:inline-flex;align-items:center;background:var(--bg-card);color:var(--fg-3);box-shadow:inset 0 0 0 .5px var(--border)}
@@ -14804,7 +14817,7 @@ function renderProjects(){
   var linked=projectTaskItems(p), pct=projectProgress(p);
   var notesHtml=projectRecordAccessRows(p);
   var resHtml=(p.resources||[]).map(function(r){var host='링크';try{host=r.url?new URL(r.url).hostname:'메모';}catch(e){}return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+(r.image?'<img src="'+projectEsc(r.image)+'" alt="">':projectEsc(host))+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div></div>';}).join('')||'<div class="project-empty">링크, 이미지, 참고 메모를 추가해 보세요.</div>';
-  detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">연결된 할일</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div><div class="project-linked-list">'+tasksHtml+'</div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">Resources</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
+  detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">연결된 할일</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div><div class="project-linked-list">'+tasksHtml+'</div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">참고 자료</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
   detail.querySelector('#project-edit').addEventListener('click',function(){openProjectEditor(p);});
   detail.querySelector('#project-archive').addEventListener('click',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   detail.querySelector('#project-delete').addEventListener('click',function(){deleteProjectSafely(p);});
@@ -15034,7 +15047,7 @@ renderProjects=function(){
   var linked=projectTaskItems(p), pct=projectProgress(p);
   var notesHtml=projectRecordAccessRows(p);
   var resHtml=(p.resources||[]).map(function(r){return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+projectResourcePreview(r)+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div><div style="display:flex;gap:var(--sp-2);margin-top:auto"><button type="button" class="btn btn-ghost" data-res-open="'+r.id+'">'+(r.url?'열기':'보기')+'</button><button type="button" class="btn btn-ghost" data-res-edit="'+r.id+'">편집</button><button type="button" class="btn btn-danger" data-res-del="'+r.id+'">삭제</button></div></div>';}).join('')||'<div class="project-empty">링크를 추가하면 도메인 미리보기가 자동으로 표시돼요.</div>';
-  detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">프로젝트 로그</span><button class="btn btn-ghost" id="project-add-log">글 추가</button></div>'+projectLogsHtml(p)+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">할일 타임라인</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div>'+projectTaskTimelineHtml(linked)+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span><button class="btn btn-ghost" id="project-link-record">기록 연결</button></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">Resources</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
+  detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">프로젝트 로그</span><button class="btn btn-ghost" id="project-add-log">글 추가</button></div>'+projectLogsHtml(p)+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">할일 타임라인</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div>'+projectTaskTimelineHtml(linked)+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span><button class="btn btn-ghost" id="project-link-record">기록 연결</button></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">참고 자료</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
   detail.querySelector('#project-edit').addEventListener('click',function(){openProjectEditor(p);});
   detail.querySelector('#project-archive').addEventListener('click',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   detail.querySelector('#project-delete').addEventListener('click',function(){deleteProjectSafely(p);});
@@ -15099,7 +15112,7 @@ renderProjects=function(){
   +'<section class="project-section"><div class="project-section-head"><span class="sec-label">프로젝트 로그</span><button class="btn btn-ghost" id="project-add-log">+ 글 추가</button></div>'+logsHtml+'</section>'
   +'<section class="project-section"><div class="project-section-head"><span class="sec-label">할일 타임라인</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div>'+tasksHtml+'</section>'
   +'<section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span><button class="btn btn-ghost" id="project-link-record">기록 연결</button></div>'+notesHtml+'</section>'
-  +'<section class="project-section"><div class="project-section-head"><span class="sec-label">Resources</span><button class="btn btn-ghost" id="project-add-resource">+ 추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
+  +'<section class="project-section"><div class="project-section-head"><span class="sec-label">참고 자료</span><button class="btn btn-ghost" id="project-add-resource">+ 추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
   bind('project-edit',function(){openProjectEditor(p);});
   bind('project-archive',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
@@ -16068,10 +16081,23 @@ saveNotionConfig=function(silent){
     if(!el)return fallback||'';
     return el.type==='checkbox'?el.checked:el.value.trim();
   }
+  var newDbId=valOr('notion-db',prev.dbId);
+  /* If DB or any property name changed, invalidate the DB metadata cache so
+     the next sync re-fetches types. Also wipe bodyHashes so the next push
+     re-evaluates body content under the new mapping (otherwise a stale sig
+     might skip the body push even though section-to-property mapping changed). */
+  var propsKey=['dateProp','timelineProp','sleepProp','morningProp','resolutionProp',
+                'accomplishmentProp','nightProp','recapProp'];
+  var propsChanged = newDbId !== prev.dbId
+    || propsKey.some(function(k){ return valOr('notion-'+k.replace('Prop','-prop'),prev[k])!==prev[k]; });
+  if(propsChanged){
+    _diaryNotionMetaCache={dbId:null,props:null,fetchedAt:0};
+  }
+
   _diaryNotionCfg={
     workerUrl:valOr('notion-worker-url',prev.workerUrl),
     token:valOr('notion-token',prev.token),
-    dbId:valOr('notion-db',prev.dbId),
+    dbId:newDbId,
     dateProp:valOr('notion-date-prop',prev.dateProp||'날짜')||'날짜',
     timelineProp:valOr('notion-timeline-prop',prev.timelineProp||'타임라인')||'타임라인',
     sleepProp:valOr('notion-sleep-prop',prev.sleepProp),
@@ -16084,7 +16110,9 @@ saveNotionConfig=function(silent){
     autoSync:valOr('notion-auto-sync',prev.autoSync),
     autoTime:valOr('notion-auto-time',prev.autoTime||'23:00')||'23:00',
     lastSync:prev.lastSync||_diaryNotionCfg.lastSync||0,
-    bodyHashes:prev.bodyHashes||_diaryNotionCfg.bodyHashes||{}
+    /* Reset body sig cache on config change so the body push isn't skipped
+       under stale comparison after the property mapping moves. */
+    bodyHashes: propsChanged ? {} : (prev.bodyHashes||_diaryNotionCfg.bodyHashes||{})
   };
   localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
   if(document.getElementById('notion-worker-url'))loadDiaryNotionConfig();
@@ -16567,21 +16595,41 @@ function _diaryParagraphBlock(text){
 function _diaryImageBlock(src, caption){
   return {object:'block',type:'image',image:{type:'external',external:{url:src},caption:caption?[{type:'text',text:{content:String(caption).slice(0,1900)}}]:[]}};
 }
-function _diaryBodyBlocks(entry){
+/* Build the page body block list.
+   IMPORTANT: A diary section (sleep / morning / etc.) should NOT be duplicated
+   in the page body if its value already syncs to a writable Notion property.
+   Otherwise the Notion page ends up with both "Sleep Notes: 푹 잤어요"
+   (property) AND "🌙 Sleep (수면)\n푹 잤어요" (body heading + paragraph),
+   which is what the user reported as ugly duplication.
+   We accept an optional `metaProps` (from _getDiaryDbMeta) so we can tell
+   which sections are already covered by a writable property. */
+function _diaryBodyBlocks(entry, metaProps){
   var out=[];
+  var cfg=_diaryNotionCfg||{};
+  var readOnly={formula:1,rollup:1,created_time:1,last_edited_time:1,created_by:1,last_edited_by:1,unique_id:1};
+  function sectionGoesToProperty(propName){
+    if(!propName || !metaProps) return false;
+    var p=metaProps[propName]; if(!p) return false;
+    if(readOnly[p.type]) return false;
+    return p.type==='rich_text' || p.type==='title';
+  }
   var sections=[
-    {key:'sleep',      label:'🌙 Sleep (수면)'},
-    {key:'morning',    label:'🌅 Morning (아침 감사)'},
-    {key:'resolution', label:'✊ Resolution (오늘의 다짐)'},
-    {key:'timeline',   label:'⏱ Timeline'},
-    {key:'accomplishment',label:'🏆 Accomplishment (성취)'},
-    {key:'night',      label:'🙏 Night (저녁 감사)'},
-    {key:'recap',      label:'📝 Recap (하루 회고)'},
+    {key:'sleep',      label:'🌙 Sleep (수면)',            prop:cfg.sleepProp},
+    {key:'morning',    label:'🌅 Morning (아침 감사)',     prop:cfg.morningProp},
+    {key:'resolution', label:'✊ Resolution (오늘의 다짐)', prop:cfg.resolutionProp},
+    {key:'timeline',   label:'⏱ Timeline',                prop:cfg.timelineProp},
+    {key:'accomplishment',label:'🏆 Accomplishment (성취)',prop:cfg.accomplishmentProp},
+    {key:'night',      label:'🙏 Night (저녁 감사)',       prop:cfg.nightProp},
+    {key:'recap',      label:'📝 Recap (하루 회고)',       prop:cfg.recapProp},
   ];
   sections.forEach(function(s){
     var val=entry&&entry[s.key];
     var txt=String(val||'').trim();
     if(!txt) return;
+    /* Skip if this section's value is already going to a writable property.
+       The property carries the data; the body shouldn't duplicate it. */
+    if(sectionGoesToProperty(s.prop)) return;
+    /* Fallback: section has content but no property mapped — keep it in body */
     out.push(_diaryHeadingBlock(s.label));
     txt.split(/\n{2,}/).forEach(function(part){
       if(part.trim()) out.push(_diaryParagraphBlock(part.trim()));
@@ -16593,7 +16641,10 @@ function _diaryBodyBlocks(entry){
      otherwise content written in Notion gets erased on every sync. */
   var blocks=(entry&&entry._blocks)||[];
   if(blocks.length){
-    out.push(_diaryHeadingBlock('📎 본문'));
+    /* Only add the "본문" heading if there's a mix of section fallbacks and
+       free blocks; if we're only writing free blocks, skip the heading so the
+       page stays clean. */
+    if(out.length) out.push(_diaryHeadingBlock('📎 본문'));
     blocks.forEach(function(b){
       if(!b) return;
       if(b.type==='text'&&String(b.content||'').trim()){
@@ -16602,11 +16653,8 @@ function _diaryBodyBlocks(entry){
         });
       } else if(b.type==='image'&&b.content){
         if(/^https?:\/\//i.test(b.content)){
-          /* Re-push the URL. Notion-internal URLs expire after ~1h so we may
-             re-receive a new URL on the next pull — that's OK. */
           out.push(_diaryImageBlock(b.content,b.caption||''));
         } else {
-          /* base64 — Notion can't host it, leave a placeholder note */
           out.push(_diaryParagraphBlock('[로컬 이미지: '+(b.caption||'앱에 저장된 이미지')+'] — base64 이미지는 Notion에 직접 첨부할 수 없어요. Return 앱 내에 보관됩니다.'));
         }
       }
@@ -16620,7 +16668,15 @@ function _diaryBodySignature(blocks){
   try{return JSON.stringify(blocks).slice(0,50000);}catch(e){return String(Date.now());}
 }
 async function _syncDiaryPageBody(pageId, entry, dateKey, force){
-  var blocks=_diaryBodyBlocks(entry);
+  /* Pull cached DB metadata so _diaryBodyBlocks knows which sections are
+     already covered by a writable Notion property. Sections that ARE covered
+     get skipped in the body to avoid the property-AND-body duplication the
+     user reported (heading + paragraph repeated even though the property
+     already holds the same text). */
+  var metaProps={};
+  try { metaProps=await _getDiaryDbMeta(); }
+  catch(e){ console.warn('body sync: meta fetch failed (will write all sections to body)',e); }
+  var blocks=_diaryBodyBlocks(entry, metaProps);
   _diaryNotionCfg.bodyHashes=_diaryNotionCfg.bodyHashes||{};
   var sig=_diaryBodySignature(blocks);
   /* Skip if content hasn't changed since last successful sync.
