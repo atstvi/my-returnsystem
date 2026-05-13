@@ -5525,7 +5525,7 @@ to{opacity:1;transform:translateY(0)}}
                 <button class="set-btn btn-ghost" onclick="pullDiaryFromNotion()">⬇ Notion에서 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="clearDiaryNotionConfig()">연동 해제</button>
               </div>
-              <div class="field-help" id="notion-sync-status" style="margin-top:var(--sp-3)"></div>
+              <div id="notion-sync-status" style="margin-top:var(--sp-3);padding:var(--sp-3) var(--sp-4);background:var(--bg-raised);border-radius:var(--r-md);font-size:var(--text-xs);color:var(--fg-3);min-height:24px;line-height:1.5;word-break:break-word"></div>
             </div>
           </div>
 
@@ -14863,18 +14863,37 @@ async function _diaryNotionApi(method,path,body){
   var base=(cfg.workerUrl||'').replace(/\/+$/,'');
   if(!base) throw new Error('Worker URL이 없어요. 설정 > Notion > Worker URL을 입력해주세요.');
   if(!cfg.token) throw new Error('Notion 토큰이 없어요. 설정 > Notion > Integration Token을 입력해주세요.');
-  /* Ensure /notion prefix on path. Worker must proxy /notion/* → api.notion.com/v1/* */
   var apiPath = path.startsWith('/') ? path : '/'+path;
   var fullPath = apiPath.startsWith('/notion') ? apiPath : '/notion'+apiPath;
-  var res=await fetch(base+fullPath,{
-    method:method,
-    headers:{'Content-Type':'application/json','X-Notion-Token':cfg.token},
-    body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
-  });
-  if(method==='DELETE'&&res.status===200) return {};
-  var text=await res.text(), data={};
-  try{data=text?JSON.parse(text):{};}catch(e){data={message:text};}
-  if(!res.ok) throw new Error(data.message||data.code||('Notion API '+res.status+': '+text.slice(0,200)));
+  var res;
+  try {
+    res=await fetch(base+fullPath,{
+      method:method,
+      headers:{'Content-Type':'application/json','X-Notion-Token':cfg.token},
+      body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+    });
+  } catch(netErr){
+    /* Network-level failure (CORS, DNS, offline). Most common when the
+       Worker URL is wrong or worker isn't deployed. */
+    throw new Error('Worker 연결 실패. URL이 맞는지, /ping 으로 워커가 살아있는지 확인해주세요. ('+(netErr&&netErr.message||'네트워크 오류')+')');
+  }
+  /* Read body as text first. Some endpoints (DELETE, 204) return empty body,
+     and the user's Worker pipes through whatever Notion returns — that may
+     not be valid JSON. Tolerate empty / non-JSON responses gracefully. */
+  var text='';
+  try { text=await res.text(); } catch(e){ text=''; }
+  var data={};
+  if(text){
+    try{ data=JSON.parse(text); }
+    catch(e){ data={message:text.slice(0,500)}; }
+  }
+  if(!res.ok){
+    var msg=data.message||data.code||text.slice(0,200)||('Notion API '+res.status);
+    var err=new Error('Notion '+res.status+': '+msg);
+    err.status=res.status;
+    err.code=data.code;
+    throw err;
+  }
   return data;
 }
 testNotion=async function(){saveNotionConfig();var st=document.getElementById('notion-sync-status');var row=document.getElementById('notion-row');if(st)st.textContent='연결 테스트 중...';if(row)row.setAttribute('data-state','saving');try{await _diaryNotionApi('GET','/users/me');if(st)st.textContent='연결 성공';if(row)row.setAttribute('data-state','ok');showToast('Notion 연결 성공');}catch(e){if(st)st.textContent='연결 실패: '+e.message;if(row)row.setAttribute('data-state','err');showToast('Notion 연결 실패: '+e.message);}};
@@ -14898,7 +14917,48 @@ async function callAI(prompt, maxTokens){
 }
 function _buildTodayTasksText(dateKey){dateKey=dateKey||TK;var lines=[];(tasks||[]).filter(function(t){return t.date===dateKey||t.deadlineDate===dateKey;}).forEach(function(t){lines.push((t.timeStart?t.timeStart+' ':'')+(t.deadlineDate===dateKey?'[마감] ':'')+t.text+(t.done?' (완료)':''));});return lines.join('\n')||'오늘 할일/일정이 없어요.';}
 async function _formatTimelineWithAI(raw){var prompt=(_diaryNotionCfg.prompt||DIARY_DEFAULT_PROMPT).replace('{tasks}',raw);if(typeof callAI==='function')return await callAI(prompt,1200);return raw;}
-async function _findOrCreateDiaryPage(dateKey){var cfg=_diaryNotionCfg,dateProp=cfg.dateProp||'날짜';var found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{filter:{property:dateProp,date:{equals:dateKey}},page_size:1});if(found.results&&found.results[0])return found.results[0].id;var meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);var titleKey=Object.keys(meta.properties||{}).find(function(k){return meta.properties[k].type==='title';});var props={};props[dateProp]={date:{start:dateKey}};if(titleKey)props[titleKey]={title:[{text:{content:dateKey}}]};var page=await _diaryNotionApi('POST','/pages',{parent:{database_id:cfg.dbId},properties:props});return page.id;}
+async function _findOrCreateDiaryPage(dateKey){
+  var cfg=_diaryNotionCfg, dateProp=cfg.dateProp||'날짜';
+  /* 1) Try to find an existing page with this date */
+  var found;
+  try {
+    found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+      filter:{property:dateProp, date:{equals:dateKey}},
+      page_size:1
+    });
+  } catch(e){
+    /* Most common reason: dateProp doesn't exist on the DB. Surface that. */
+    if(e && /property|400/i.test(e.message||'')){
+      throw new Error('"'+dateProp+'" 속성을 찾을 수 없어요. 설정에서 날짜 속성명을 확인하거나 "Notion DB에서 자동 감지"를 눌러주세요.');
+    }
+    throw e;
+  }
+  if(found.results && found.results[0]) return found.results[0].id;
+
+  /* 2) No existing page — create one */
+  var meta;
+  try {
+    meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);
+  } catch(e){
+    throw new Error('DB 정보 조회 실패: '+e.message+' (DB ID와 Integration 연결을 확인해주세요)');
+  }
+  var titleKey=Object.keys(meta.properties||{}).find(function(k){
+    return meta.properties[k].type==='title';
+  });
+  var props={};
+  props[dateProp]={date:{start:dateKey}};
+  if(titleKey) props[titleKey]={title:[{text:{content:dateKey}}]};
+  var page;
+  try {
+    page=await _diaryNotionApi('POST','/pages',{
+      parent:{database_id:cfg.dbId},
+      properties:props
+    });
+  } catch(e){
+    throw new Error('새 페이지 생성 실패: '+e.message);
+  }
+  return page.id;
+}
 
 function _diaryHeadingBlock(text){
   return {object:'block',type:'heading_3',heading_3:{rich_text:[{type:'text',text:{content:String(text||'').slice(0,900)}}]}};
@@ -14961,27 +15021,52 @@ function _diaryBodyBlocks(entry){
 function _diaryBodySignature(blocks){
   try{return JSON.stringify(blocks).slice(0,50000);}catch(e){return String(Date.now());}
 }
-async function _syncDiaryPageBody(pageId, entry, dateKey){
+async function _syncDiaryPageBody(pageId, entry, dateKey, force){
   var blocks=_diaryBodyBlocks(entry);
   _diaryNotionCfg.bodyHashes=_diaryNotionCfg.bodyHashes||{};
   var sig=_diaryBodySignature(blocks);
-  /* Skip if content hasn't changed since last sync */
-  if(dateKey&&_diaryNotionCfg.bodyHashes[dateKey]===sig) return 0;
+  /* Skip if content hasn't changed since last successful sync.
+     `force` (set by manual "지금 동기화" button) overrides this so the user
+     can always force a fresh push if something looks off. */
+  if(!force && dateKey && _diaryNotionCfg.bodyHashes[dateKey]===sig){
+    return 0;
+  }
 
-  /* Step 1: Delete all existing child blocks so we don't accumulate duplicates.
-     Notion's append-children endpoint adds to the end — there is no "replace"
-     endpoint, so we must delete-then-rewrite. */
+  /* Step 1: Archive existing child blocks so they don't accumulate.
+     We PATCH each block with archived:true rather than DELETE because:
+     • PATCH returns the updated block as JSON (consistent response)
+     • DELETE may return 200/204/empty depending on the Notion endpoint and
+       the user's proxy; some Workers don't handle empty responses well
+       (e.g. calling .json() on a 204 throws SyntaxError)
+     • Archived blocks are hidden from the page exactly like deleted ones
+     • Errors on a single block don't abort the whole sync */
+  var existingIds=[];
   try{
     var existing=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
-    var existingIds=(existing.results||[]).map(function(b){return b.id;});
-    /* Delete in small batches — Notion rate-limits deletes */
-    for(var di=0;di<existingIds.length;di++){
-      try{ await _diaryNotionApi('DELETE','/blocks/'+existingIds[di]); }catch(de){ console.warn('block delete',de); }
+    existingIds=(existing.results||[]).map(function(b){return b.id;});
+  }catch(e){
+    console.warn('list existing blocks failed (continuing):',e&&e.message);
+  }
+  var archiveErrors=0;
+  for(var di=0;di<existingIds.length;di++){
+    try{
+      await _diaryNotionApi('PATCH','/blocks/'+existingIds[di], {archived:true});
+    }catch(de){
+      archiveErrors++;
+      console.warn('archive block failed:', existingIds[di], de&&de.message);
     }
-  }catch(e){ console.warn('_syncDiaryPageBody delete step',e); }
+  }
+  if(archiveErrors && archiveErrors === existingIds.length){
+    /* Every archive failed — don't write new blocks because they would
+       duplicate the old ones. Better to surface the error than create chaos. */
+    throw new Error('기존 블록을 정리하지 못했어요. Worker가 PATCH 메서드를 허용하는지 확인해주세요.');
+  }
 
   /* Step 2: Append new blocks in batches of 100 (Notion limit) */
-  if(!blocks.length) return 0;
+  if(!blocks.length){
+    if(dateKey) _diaryNotionCfg.bodyHashes[dateKey]=sig;
+    return 0;
+  }
   for(var i=0;i<blocks.length;i+=100){
     await _diaryNotionApi('PATCH','/blocks/'+pageId+'/children',{children:blocks.slice(i,i+100)});
   }
@@ -15119,7 +15204,102 @@ async function _pullDiaryPageBody(pageId, dateKey){
   return added;
 }
 
-async function syncDiaryToNotion(dateKey){saveNotionConfig();var cfg=_diaryNotionCfg;dateKey=dateKey||currentDate||TK;if(dateKey===currentDate&&typeof commitCurrent==='function'){commitCurrent();if(typeof saveAll==='function')saveAll();}var st=document.getElementById('notion-sync-status');var row=document.getElementById('notion-row');if(st)st.textContent='Notion 동기화 중...';if(row)row.setAttribute('data-state','saving');if(!cfg.workerUrl||!cfg.token||!cfg.dbId){if(row)row.setAttribute('data-state','');showToast('Notion 설정을 먼저 완료해주세요');return;}try{var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));var pageId=await _findOrCreateDiaryPage(dateKey);var pulled=await _pullDiaryPageBody(pageId,dateKey);var props={};props[cfg.timelineProp||'타임라인']={rich_text:[{text:{content:formatted.slice(0,2000)}}]};var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:{};[['sleep','sleepProp'],['morning','morningProp'],['resolution','resolutionProp'],['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']].forEach(function(pair){var key=pair[0], prop=cfg[pair[1]];if(prop&&entry[key])props[prop]={rich_text:[{text:{content:String(entry[key]).slice(0,2000)}}]};});await _diaryNotionApi('PATCH','/pages/'+pageId,{properties:props});var bodyCount=await _syncDiaryPageBody(pageId,entry,dateKey);_diaryNotionCfg.lastSync=Date.now();localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));if(st)st.textContent='동기화 완료: '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})+(pulled?' · 가져옴 '+pulled+'개':'')+(bodyCount?' · 보냄 '+bodyCount+'개':'');if(row)row.setAttribute('data-state','ok');showToast('Notion 동기화 완료'+(pulled?' · 가져옴 '+pulled+'개':''));}catch(e){if(st)st.textContent='동기화 실패: '+e.message;if(row)row.setAttribute('data-state','err');showToast('Notion 실패: '+e.message);}}
+async function syncDiaryToNotion(dateKey){
+  saveNotionConfig();
+  var cfg=_diaryNotionCfg;
+  dateKey=dateKey||currentDate||TK;
+  /* If we're on today's diary screen, commit unsaved input first */
+  if(dateKey===currentDate&&typeof commitCurrent==='function'){
+    commitCurrent();
+    if(typeof saveAll==='function') saveAll();
+  }
+  var st=document.getElementById('notion-sync-status');
+  var row=document.getElementById('notion-row');
+  function setStatus(text, state){
+    if(st) st.textContent=text;
+    if(row) row.setAttribute('data-state', state||'saving');
+  }
+  if(!cfg.workerUrl||!cfg.token||!cfg.dbId){
+    if(row) row.setAttribute('data-state','');
+    showToast('Notion 설정을 먼저 완료해주세요 (Worker URL · Token · DB ID)');
+    return;
+  }
+  setStatus('Notion 페이지 찾는 중...');
+  try{
+    /* 1. Find or create the diary page */
+    var pageId;
+    try {
+      pageId=await _findOrCreateDiaryPage(dateKey);
+    } catch(e){
+      throw new Error('페이지 찾기 실패: '+e.message);
+    }
+
+    /* 2. Pull whatever is currently in Notion FIRST so we don't overwrite
+       changes the user made directly in Notion. */
+    setStatus('Notion에서 가져오는 중...');
+    var pulled=0;
+    try {
+      pulled=await _pullDiaryPageBody(pageId, dateKey);
+    } catch(e){
+      console.warn('pull step failed (continuing):', e&&e.message);
+    }
+
+    /* 3. Build property updates from the (now-merged) entry */
+    setStatus('속성 업데이트 중...');
+    var entry=(typeof entries!=='undefined'&&entries[dateKey])?entries[dateKey]:{};
+    var props={};
+    /* Timeline — AI-formatted summary of today's tasks */
+    try {
+      var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));
+      if(cfg.timelineProp){
+        props[cfg.timelineProp]={rich_text:[{text:{content:String(formatted).slice(0,2000)}}]};
+      }
+    } catch(e){
+      console.warn('timeline format failed:', e&&e.message);
+    }
+    /* Per-section properties */
+    [['sleep','sleepProp'],['morning','morningProp'],['resolution','resolutionProp'],
+     ['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']
+    ].forEach(function(pair){
+      var key=pair[0], prop=cfg[pair[1]];
+      if(prop && entry[key]){
+        props[prop]={rich_text:[{text:{content:String(entry[key]).slice(0,2000)}}]};
+      }
+    });
+    if(Object.keys(props).length){
+      try {
+        await _diaryNotionApi('PATCH','/pages/'+pageId, {properties:props});
+      } catch(e){
+        throw new Error('속성 업데이트 실패: '+e.message);
+      }
+    }
+
+    /* 4. Push body blocks. force=true on manual sync so the user can always
+       overwrite if they think something's stale. */
+    setStatus('본문 보내는 중...');
+    var bodyCount=0;
+    try {
+      bodyCount=await _syncDiaryPageBody(pageId, entry, dateKey, true);
+    } catch(e){
+      throw new Error('본문 업데이트 실패: '+e.message);
+    }
+
+    _diaryNotionCfg.lastSync=Date.now();
+    try{ localStorage.setItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg)); }catch(e){}
+
+    var timeStr=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+    var msg='동기화 완료 '+timeStr
+      + (pulled?' · 가져옴 '+pulled:'')
+      + (bodyCount?' · 보냄 '+bodyCount:'');
+    setStatus(msg, 'ok');
+    showToast('Notion 동기화 완료'+(pulled?' (가져옴 '+pulled+'개)':''));
+  }catch(e){
+    var emsg=e&&e.message||'알 수 없는 오류';
+    setStatus('실패: '+emsg, 'err');
+    showToast('Notion 동기화 실패: '+emsg);
+    console.error('syncDiaryToNotion:', e);
+  }
+}
 async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElementById('notion-preview');if(!el)return;el.style.display='block';el.textContent='정리 중...';try{el.textContent=await _formatTimelineWithAI(_buildTodayTasksText(currentDate||TK));}catch(e){el.textContent='오류: '+e.message;}}
 
 /* Pull-only: fetches the current diary date's page from Notion and refreshes
