@@ -585,6 +585,7 @@ html.focus-mode .page-container.active{height:100vh}
 .htb-vblock {
   position:absolute; left:var(--sp-2); right:var(--sp-2);
   border-radius:var(--r-md); overflow:hidden; cursor:pointer;
+  touch-action:none;
   display:flex; align-items:flex-start;
   padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-6);
   gap:var(--sp-3); z-index:2;
@@ -4301,6 +4302,7 @@ to{opacity:1;transform:translateY(0)}}
           <input type="time" id="modal-ts" style="font-size:var(--text-sm);color:var(--fg);background:var(--bg-raised);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-4)">
           <span style="color:var(--fg-4);font-size:var(--text-xs)">~</span>
           <input type="time" id="modal-te" style="font-size:var(--text-sm);color:var(--fg);background:var(--bg-raised);border-radius:var(--r-md);padding:var(--sp-2) var(--sp-4)">
+          <button class="btn btn-ghost" id="modal-clear-time" type="button" style="white-space:nowrap">시간 없음</button>
         </div>
       </div>
       <div class="modal-row">
@@ -4622,7 +4624,10 @@ to{opacity:1;transform:translateY(0)}}
       <section class="card" aria-label="타임블록 — 오늘 시간 배치">
         <div class="card-head">
           <span class="sec-label">⬛ 타임블록</span>
-          <button class="sec-link" id="htb-now-btn">지금 ›</button>
+          <div style="display:flex;gap:var(--sp-2);align-items:center">
+            <button class="sec-link" id="htb-range-btn">범위</button>
+            <button class="sec-link" id="htb-now-btn">지금 ›</button>
+          </div>
         </div>
 
         <!-- All-day -->
@@ -6512,6 +6517,9 @@ document.querySelectorAll('.tab-btn[data-page]').forEach(function(btn){
   var slots = document.getElementById('htb-slots');
   var body  = document.getElementById('htb-body');
   if (!axis || !slots) return;
+  /* Legacy static demo renderer is intentionally disabled.
+     The live renderer below uses saved tasks/timetable data and current prefs. */
+  return;
 
   var blocks = [
     { id:1, label:'팀 미팅',          cls:'vblk-sched',    fh:10, fm:0,  durMin:60,  badge:'GC'   },
@@ -6768,9 +6776,13 @@ if (csend && cinp) csend.addEventListener('click', function(){
 });
 
 function homeToast(msg){ if(typeof showToast==='function') showToast(msg); else console.log(msg); }
-function homeTodayTasks(){
+function homeTodayKey(){
+  return (typeof dateKey==='function') ? dateKey(new Date()) : new Date().toISOString().slice(0,10);
+}
+function homeTodayTasks(includeSchedule){
   if (typeof tasks === 'undefined') return [];
-  return tasks.filter(function(t){ return t.date === TK && t.catId !== 'schedule'; });
+  var today = homeTodayKey();
+  return tasks.filter(function(t){ return t.date === today && (includeSchedule || t.catId !== 'schedule'); });
 }
 function homeTaskUrgent(t){
   var s = typeof dlState === 'function' ? dlState(t.deadlineDate) : null;
@@ -7651,25 +7663,92 @@ document.getElementById('capture-task-btn') && document.getElementById('capture-
 function scrollHomeTimeBlockToNow(force){
   var body=document.getElementById('htb-body');
   if(!body)return;
-  var START=7, END=22, SLOT_H=48;
+  var pref=getHomeTimeBlockPrefs();
+  var START=pref.start, END=pref.end, SLOT_H=pref.slotH;
   var n=new Date(), mins=n.getHours()*60+n.getMinutes();
   if(mins<START*60||mins>END*60)return;
-  var today=(typeof dateKey==='function') ? dateKey(new Date()) : new Date().toISOString().slice(0,10);
+  var today=homeTodayKey();
   if(!force && body.dataset.autoScrolledFor===today)return;
   body.dataset.autoScrolledFor=today;
   body.scrollTop=Math.max(0,((mins-START*60)/60)*SLOT_H-body.clientHeight/3);
 }
 document.getElementById('htb-now-btn') && document.getElementById('htb-now-btn').addEventListener('click',function(){scrollHomeTimeBlockToNow(true);});
+document.getElementById('modal-clear-time') && document.getElementById('modal-clear-time').addEventListener('click',function(e){
+  e.preventDefault();
+  var ts=document.getElementById('modal-ts');
+  var te=document.getElementById('modal-te');
+  if(ts)ts.value='';
+  if(te)te.value='';
+});
+function getHomeTimeBlockPrefs(){
+  var pref={start:0,end:24,slotH:40};
+  try{pref=Object.assign(pref,JSON.parse(localStorage.getItem('home_timeblock_prefs_v1')||'{}'));}catch(e){}
+  pref.start=Math.max(0,Math.min(23,parseInt(pref.start,10)||0));
+  pref.end=Math.max(pref.start+1,Math.min(24,parseInt(pref.end,10)||24));
+  pref.slotH=Math.max(28,Math.min(56,parseInt(pref.slotH,10)||40));
+  return pref;
+}
+function saveHomeTimeBlockPrefs(pref){
+  try{localStorage.setItem('home_timeblock_prefs_v1',JSON.stringify(pref));}catch(e){}
+}
+function openHomeTimeBlockPrefs(){
+  var pref=getHomeTimeBlockPrefs();
+  if(typeof openFormDialog==='function'){
+    openFormDialog('타임블록 범위',[
+      {key:'start',label:'시작 시각',type:'number',value:pref.start,min:0,max:23},
+      {key:'end',label:'끝 시각',type:'number',value:pref.end,min:1,max:24},
+      {key:'slotH',label:'한 시간 높이',type:'number',value:pref.slotH,min:28,max:56}
+    ],function(v){
+      var next={start:parseInt(v.start,10)||0,end:parseInt(v.end,10)||24,slotH:parseInt(v.slotH,10)||40};
+      if(next.end<=next.start)next.end=next.start+1;
+      saveHomeTimeBlockPrefs(next);
+      renderHomeTimeBlocks();
+      scrollHomeTimeBlockToNow(true);
+    });
+  }else{
+    var start=prompt('시작 시각(0-23)',String(pref.start));
+    if(start==null)return;
+    var end=prompt('끝 시각(1-24)',String(pref.end));
+    if(end==null)return;
+    pref.start=parseInt(start,10)||0; pref.end=parseInt(end,10)||24;
+    saveHomeTimeBlockPrefs(pref); renderHomeTimeBlocks(); scrollHomeTimeBlockToNow(true);
+  }
+}
+document.getElementById('htb-range-btn') && document.getElementById('htb-range-btn').addEventListener('click',openHomeTimeBlockPrefs);
 
 function renderHomeTimeBlocks(){
   if (typeof tasks === 'undefined') return;
   var slots = document.getElementById('htb-slots');
+  var axis = document.getElementById('htb-axis');
   var allday = document.querySelector('.htb-allday-chips');
   if (!slots || !allday) return;
-  slots.querySelectorAll('.htb-vblock').forEach(function(el){ el.remove(); });
+  var pref=getHomeTimeBlockPrefs();
+  var START = pref.start, END = pref.end, SLOT_H = pref.slotH;
+  if(axis)axis.innerHTML='';
+  slots.innerHTML='';
+  for(var hour=START;hour<END;hour++){
+    if(axis){
+      var tick=document.createElement('div');
+      tick.className='htb-hour-tick';
+      tick.style.height=SLOT_H+'px';
+      tick.textContent=(hour<10?'0':'')+hour+':00';
+      axis.appendChild(tick);
+    }
+    var slot=document.createElement('div');
+    slot.className='htb-hour-slot';
+    slot.style.height=SLOT_H+'px';
+    slot.setAttribute('data-hour',hour);
+    slots.appendChild(slot);
+  }
+  var now=new Date(), nowMins=now.getHours()*60+now.getMinutes();
+  if(nowMins>=START*60 && nowMins<=END*60){
+    var line=document.createElement('div');
+    line.className='now-line';
+    line.style.top=((nowMins/60-START)*SLOT_H)+'px';
+    line.innerHTML='<span>'+((now.getHours()<10?'0':'')+now.getHours())+':'+((now.getMinutes()<10?'0':'')+now.getMinutes())+'</span>';
+    slots.appendChild(line);
+  }
   allday.innerHTML = '';
-
-  var START = 7, END = 22, SLOT_H = 48;
   function mins(v){ var p=String(v||'').split(':'); return (parseInt(p[0]||0)*60 + parseInt(p[1]||0)); }
   function fmt(m){ var h=Math.floor(m/60), n=m%60; return (h<10?'0':'')+h+':'+(n<10?'0':'')+n; }
   function addChip(t, cls, label){
@@ -7753,6 +7832,57 @@ function renderHomeTimeBlocks(){
       function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);if(typeof saveTaskData==='function')saveTaskData();}
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
+    el.addEventListener('pointerdown', function(e){
+      if (e.pointerType !== 'touch' || e.target.closest('button') || resize.contains(e.target) || virtual) return;
+      e.preventDefault();
+      var y0=e.clientY, sm0=sm, dur=em-sm, moved=false;
+      el.classList.add('htb-dragging');
+      try{el.setPointerCapture(e.pointerId);}catch(_e){}
+      function mv(ev){
+        var ns=Math.round((sm0+(ev.clientY-y0)/SLOT_H*60)/5)*5;
+        ns=Math.max(START*60,Math.min(ns,END*60-dur));
+        if (Math.abs(ns-sm0) >= 5) moved=true;
+        sm=ns; em=ns+dur;
+        el.style.top=((sm/60-START)*SLOT_H)+'px';
+        time.textContent=fmt(sm)+'-'+fmt(em);
+        if(t.id && !String(t.id).startsWith('tt_')){ t.timeStart=fmt(sm); t.timeEnd=fmt(em); }
+      }
+      function up(ev){
+        el.removeEventListener('pointermove',mv);
+        el.removeEventListener('pointerup',up);
+        el.removeEventListener('pointercancel',up);
+        el.classList.remove('htb-dragging');
+        el._dragMoved=moved;
+        try{el.releasePointerCapture(ev.pointerId);}catch(_e){}
+        if(moved && typeof saveTaskData==='function')saveTaskData();
+      }
+      el.addEventListener('pointermove',mv);
+      el.addEventListener('pointerup',up);
+      el.addEventListener('pointercancel',up);
+    });
+    resize.addEventListener('pointerdown', function(e){
+      if (e.pointerType !== 'touch') return;
+      e.preventDefault(); e.stopPropagation();
+      var y0=e.clientY, em0=em;
+      try{resize.setPointerCapture(e.pointerId);}catch(_e){}
+      function mv(ev){
+        var nem=Math.round((em0+(ev.clientY-y0)/SLOT_H*60)/5)*5;
+        nem=Math.max(sm+15,Math.min(nem,END*60));
+        el.style.height=Math.max(((nem-sm)/60)*SLOT_H-3,22)+'px';
+        time.textContent=fmt(sm)+'-'+fmt(nem);
+        if(t.id && !String(t.id).startsWith('tt_')) t.timeEnd=fmt(nem);
+      }
+      function up(ev){
+        resize.removeEventListener('pointermove',mv);
+        resize.removeEventListener('pointerup',up);
+        resize.removeEventListener('pointercancel',up);
+        try{resize.releasePointerCapture(ev.pointerId);}catch(_e){}
+        if(typeof saveTaskData==='function')saveTaskData();
+      }
+      resize.addEventListener('pointermove',mv);
+      resize.addEventListener('pointerup',up);
+      resize.addEventListener('pointercancel',up);
+    });
     if(!virtual && t.id && !String(t.id).startsWith('tt_')){
       el.setAttribute('draggable','true');
       el.addEventListener('dragstart',function(e){
@@ -7760,19 +7890,20 @@ function renderHomeTimeBlocks(){
         e.dataTransfer.effectAllowed='move';
       });
     }
-    el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); el.appendChild(time); if(!virtual)el.appendChild(clearTime); el.appendChild(resize);
+    el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); el.appendChild(time); el.appendChild(resize);
     slots.appendChild(el);
   }
 
   try {
     var tts = JSON.parse(localStorage.getItem('timetables_v1') || '[]');
-    var jsDow = new Date(TK+'T00:00').getDay();
+    var todayKey = homeTodayKey();
+    var jsDow = new Date(todayKey+'T00:00').getDay();
     var slotDay = jsDow === 0 ? -1 : jsDow - 1;
     tts.forEach(function(tt){
       (tt.slots || []).forEach(function(s){
         if (s.day !== slotDay) return;
-        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:TK,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표'};
-        if (!tasks.some(function(t){return t.date===TK && t.text===s.title && t.timeStart===s.timeStart;})) {
+        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표'};
+        if (!tasks.some(function(t){return t.date===todayKey && t.text===s.title && t.timeStart===s.timeStart;})) {
           makeBlock(pseudo, mins(s.timeStart), mins(s.timeEnd), 'vblk-sched', 'TT');
         }
         if (s.prep) {
@@ -7787,7 +7918,7 @@ function renderHomeTimeBlocks(){
     });
   } catch(e) {}
 
-  homeTodayTasks().forEach(function(t){
+  homeTodayTasks(true).forEach(function(t){
     if (!t.timeStart) {
       if (!t.done) addChip(t, t.deadlineDate ? 'chip-warn' : 'chip-accent', (t.deadlineDate ? '📌 ' : '') + t.text);
       return;
@@ -8755,6 +8886,7 @@ function renderInboxBoard(items){
       + '<div class="board-note-actions">'
       + '<button class="board-mini-btn board-need ' + (item.unread ? 'on' : '') + '" title="처리 필요 토글">처리</button>'
       + '<button class="board-mini-btn board-done ' + (item.done ? 'done-on' : '') + '" title="완료 토글">완료</button>'
+      + '<button class="board-mini-btn board-edit" title="편집">편집</button>'
       + '<button class="icon-btn board-delete" title="삭제">×</button>'
       + '</div></div>';
     note.querySelector('.board-note-text').textContent = item.text;
@@ -8768,6 +8900,7 @@ function renderInboxBoard(items){
     note.querySelector('.item-cat').addEventListener('click', function(e){ e.stopPropagation(); cycleCat(item); });
     note.querySelector('.board-need').addEventListener('click', function(e){ e.stopPropagation(); item.unread=!item.unread; saveInboxItems(); renderFeed(); });
     note.querySelector('.board-done').addEventListener('click', function(e){ e.stopPropagation(); item.done=!item.done; if(item.done)item.unread=false; saveInboxItems(); renderFeed(); });
+    note.querySelector('.board-edit').addEventListener('click', function(e){ e.stopPropagation(); editInboxItem(item); });
     note.querySelector('.board-delete').addEventListener('click', function(e){ e.stopPropagation(); deleteItem(item, note); });
     note.querySelector('.board-note-link-handle').addEventListener('click', function(e){
       e.stopPropagation();
@@ -8926,6 +9059,13 @@ function buildItemEl(item) {
     if (item.done) undoDone(item); else markDone(item, el);
   });
 
+  var editBtn = document.createElement('button');
+  editBtn.className = 'icon-btn';
+  editBtn.style.cssText = 'width:26px;height:26px;font-size:12px';
+  editBtn.title = '편집';
+  editBtn.textContent = '✎';
+  editBtn.addEventListener('click', function(e) { e.stopPropagation(); editInboxItem(item); });
+
   var delBtn = document.createElement('button');
   delBtn.className = 'icon-btn';
   delBtn.style.cssText = 'width:26px;height:26px;font-size:12px';
@@ -8934,6 +9074,7 @@ function buildItemEl(item) {
   delBtn.addEventListener('click', function(e) { e.stopPropagation(); deleteItem(item, el); });
 
   actions.appendChild(doneBtn);
+  actions.appendChild(editBtn);
   actions.appendChild(delBtn);
 
   el.appendChild(dot);
@@ -9004,6 +9145,39 @@ function cycleCat(item) {
 }
 
 /* ── Composer ── */
+function editInboxItem(item) {
+  if (!item) return;
+  var catOptions = (INBOX_CATS || []).map(function(c){ return {value:c.id,label:(c.emoji ? c.emoji + ' ' : '') + c.label}; });
+  if (typeof openFormDialog === 'function') {
+    openFormDialog('인박스 편집', [
+      {key:'text', label:'내용', type:'textarea', rows:5, value:item.text || ''},
+      {key:'cat', label:'카테고리', type:'select', value:item.cat || 'memo', options:catOptions},
+      {key:'unread', label:'처리 필요', type:'select', value:item.unread ? '1' : '0', options:[{value:'1',label:'필요'},{value:'0',label:'해제'}]},
+      {key:'done', label:'완료', type:'select', value:item.done ? '1' : '0', options:[{value:'0',label:'진행'},{value:'1',label:'완료'}]}
+    ], function(data){
+      var text = String(data.text || '').trim();
+      if (!text) return;
+      item.text = text;
+      item.cat = data.cat || item.cat || 'memo';
+      item.unread = data.unread === '1';
+      item.done = data.done === '1';
+      item.updatedAt = Date.now();
+      saveInboxItems();
+      renderFeed();
+      if (typeof renderHomeInbox === 'function') renderHomeInbox();
+    });
+  } else {
+    var next = prompt('내용', item.text || '');
+    if (next == null) return;
+    next = next.trim();
+    if (!next) return;
+    item.text = next;
+    item.updatedAt = Date.now();
+    saveInboxItems();
+    renderFeed();
+  }
+}
+
 var ta = document.getElementById('composer-ta');
 var sendBtn = document.getElementById('composer-send');
 var catPills = document.getElementById('cat-pills');
@@ -9906,7 +10080,7 @@ function renderCal(){
     if(dow===0)cell.classList.add('sun');
     if(dow===6)cell.classList.add('sat');
 
-    var dayTasks=(byDay[dkey]||[]).filter(function(t){return !t._travelOnly && (!hideTt||!t._isTt) && (!hideDoneTasks||!t.done);}); /* hideTt only for calendar */
+    var dayTasks=(byDay[dkey]||[]).filter(function(t){return !t._travelOnly && (!hideTt||!(t._isTt||t.catId==='schedule')) && (!hideDoneTasks||!t.done);}); /* hideTt only for calendar */
     var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done);});
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='today';}))cell.classList.add('has-dl-today');
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='overdue';}))cell.classList.add('has-dl-overdue');
