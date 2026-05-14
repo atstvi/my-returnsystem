@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="ko" data-theme="warm-sand">
 <head>
@@ -5939,7 +5938,8 @@ to{opacity:1;transform:translateY(0)}}
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveFbConfig()">저장 및 연결</button>
                 <button class="set-btn btn-ghost" onclick="fbGoogleLogin()">Google 로그인</button>
-                <button class="set-btn btn-ghost" onclick="fbForceSync()">지금 동기화</button>
+                <button class="set-btn btn-ghost" onclick="fbForceSync()">⬆ 지금 올리기</button>
+                <button class="set-btn btn-ghost" onclick="fbForcePull()">⬇ 지금 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="runFirebaseDiagnostics()">🔬 진단 실행</button>
                 <button class="set-btn btn-ghost" onclick="clearFbConfig()">연결 해제</button>
                 <button class="set-btn btn-ghost" onclick="showFirebaseRulesHelp()">규칙 보기</button>
@@ -11647,6 +11647,16 @@ function saveItemsData(items) {
 var cats   = hobLoadCats();
 var items  = loadItems();
 saveCatsData(cats);
+/* Reload-from-storage hook used by Firebase realtime sync.
+   The module-scoped `cats` and `items` are captured ONCE at init time.
+   When cloud sync writes new values into localStorage, those memory
+   variables stay stale unless we re-read explicitly. fbApplyData calls
+   this so hobby data shows up after a remote sync. */
+function hobReloadFromStorage(){
+  try { cats = hobLoadCats(); } catch(e) {}
+  try { items = loadItems(); } catch(e) {}
+}
+window.hobReloadFromStorage = hobReloadFromStorage;
 var hobMonth     = (function(){ var d=new Date(); return new Date(d.getFullYear(),d.getMonth(),1); })();
 var hobSelDate      = null;
 var filterCatId  = null;
@@ -16510,6 +16520,15 @@ function fbApplyData(data){
   } finally {
     _applyingFbData = false;
   }
+
+  /* Refresh in-memory variables from the freshly-written localStorage.
+     This is the critical step that was MISSING for hobby / checkLogs /
+     memos / metrics / phil / etc. Without it, cloud sync writes the data
+     correctly but module-scoped `var cats = hobLoadCats()` etc. still hold
+     the OLD values from page-load time, so the UI shows stale data and the
+     user sees this as "동기화 안 됨".
+     Each refresh is independently try/catch'd so one stale module doesn't
+     break the others. */
   try {
     var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
     if(Array.isArray(remoteTasks)){
@@ -16518,16 +16537,47 @@ function fbApplyData(data){
       normalizeTaskOrder();
     }
   } catch(e) {}
-  // Re-render whatever happens to be available now. Each call is independently
-  // try/catch'd so one broken tab init does not block the others.
-  var calls = [
-    'loadTaskData','renderCal','renderList','loadInboxItems','renderFeed',
-    'loadProjects','renderProjects','loadDiary','applyTheme','renderGlobalStickers'
+
+  /* Module reload functions — try every known reload entry point.
+     Each is wrapped in its own try so a missing or broken one doesn't stop
+     the others. Order is chosen so data-layer reloads happen first, then
+     render calls fire with the fresh data. */
+  var reloaders = [
+    'loadTaskData',         // tasks + task_cats
+    'loadProjects',         // projects + active project
+    'loadInboxItems',       // inbox feed
+    'loadDiary',            // diary entries + trackers
+    'loadAll',              // records: memos, metrics, phil, checkLogs, diaryTrackers
+    'loadPhilCards',        // philosophy
+    'loadTimetables',       // schedule grid
+    'loadHomeBanner',       // home banner + stickers
+    'loadGlobalStickers',   // page stickers
+    'hobReloadFromStorage', // hobby cats + items (added above)
+    'rechargeLoadData',     // recharge if present
+    'loadRepeats',          // repeat rules
   ];
-  for (var i=0; i<calls.length; i++){
-    var fn = window[calls[i]];
-    if (typeof fn === 'function') { try { fn(); } catch(e){} }
-  }
+  reloaders.forEach(function(fnName){
+    var fn = window[fnName];
+    if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' failed:', e&&e.message); } }
+  });
+
+  /* Re-render any tab the user might be looking at. Same try/catch policy. */
+  var renderers = [
+    'renderCal','renderList',          // tasks
+    'renderFeed',                       // inbox
+    'renderProjects',                   // projects
+    'renderDiary','loadDate',           // diary
+    'applyTheme','renderGlobalStickers',
+    'renderHomeBanner','renderHomeTasks',
+    'hobRenderCal','hobRenderCats',     // hobby
+    'renderTimetable',                  // schedule
+    'renderRecords','renderMemos','renderMetrics', // records
+    'rechargeRender',                   // recharge
+  ];
+  renderers.forEach(function(fnName){
+    var fn = window[fnName];
+    if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' render failed:', e&&e.message); } }
+  });
 }
 function fbStatusTime(prefix){
   return prefix+' · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
@@ -16619,6 +16669,23 @@ async function fbForceSync(){
     clearTimeout(_fbSaveTimer);
     var saved=await fbSaveNow();
     showToast(saved?'Firebase에 지금 저장했어요':'Firebase 동기화에 실패했어요');
+  }catch(e){
+    setFbStatus('Firebase 오류: '+e.message,'err');
+    showToast('Firebase 오류: '+e.message);
+  }
+}
+
+/* Cloud → local force pull. Use when this device feels out-of-date compared
+   to another device (e.g. you edited a project on phone but desktop still
+   shows the old version). This calls the same fbLoadAll() that runs on
+   login, but does so on demand. */
+async function fbForcePull(){
+  try{
+    if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
+    if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
+    setFbStatus('Firebase에서 가져오는 중...','saving');
+    await fbLoadAll();
+    showToast('Firebase에서 다시 가져왔어요. 다른 탭의 변경이 화면에 반영되어야 해요.');
   }catch(e){
     setFbStatus('Firebase 오류: '+e.message,'err');
     showToast('Firebase 오류: '+e.message);
@@ -16720,10 +16787,37 @@ async function runFirebaseDiagnostics(){
     return;
   }
 
-  /* Step 5: Read data subcollection */
+  /* Step 5: Read data subcollection — show full count and key inventory.
+     The user reported only 5 docs synced; we need visibility into what's
+     ACTUALLY in the cloud vs what's in localStorage so we can tell whether
+     the sync is partial or simply chunked into fewer-than-expected docs. */
   try {
-    var qs=await ref.collection('data').limit(5).get();
-    add('users/{uid}/data 서브컬렉션 읽기','ok',qs.size+'개 문서 (총 데이터 키 일부)');
+    var qs=await ref.collection('data').get();
+    var cloudKeys={};
+    qs.forEach(function(doc){
+      var d=doc.data()||{}, key=d.key||doc.id;
+      cloudKeys[key]=(cloudKeys[key]||0)+1; /* count parts per logical key */
+    });
+    var cloudKeyList=Object.keys(cloudKeys);
+    add('users/{uid}/data 서브컬렉션 읽기','ok',
+      qs.size+'개 문서 / '+cloudKeyList.length+'개 키');
+
+    /* Show the key list so we can confirm it includes projects_v1, hobby_*, etc. */
+    add('클라우드 동기화된 키 목록','ok', cloudKeyList.sort().join(', ') || '(없음)');
+
+    /* Compare against what's in this device's localStorage that should sync. */
+    var localKeysShould=[];
+    for(var li=0;li<localStorage.length;li++){
+      var lk=localStorage.key(li);
+      if(typeof shouldFbSyncKey==='function' && shouldFbSyncKey(lk)) localKeysShould.push(lk);
+    }
+    var missingInCloud=localKeysShould.filter(function(k){return !cloudKeys[k];});
+    var extraInCloud=cloudKeyList.filter(function(k){return localKeysShould.indexOf(k)<0;});
+    add('로컬에 있고 클라우드엔 없는 키', missingInCloud.length?'warn':'ok',
+      missingInCloud.length ? missingInCloud.join(', ') : '없음 (이번 기기와 일치)');
+    if(extraInCloud.length){
+      add('클라우드에만 있는 키','warn', extraInCloud.join(', ')+' — 다른 기기에서 동기화한 데이터일 수 있어요');
+    }
   } catch(e){
     if(e&&e.code==='permission-denied'){
       add('users/{uid}/data 읽기','err','권한 거부됨 — data/{docId} 규칙이 누락. 설정 > Firebase > 규칙 보기 참고');
