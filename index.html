@@ -338,7 +338,15 @@ html.focus-mode .page-container.active{height:100vh}
 .home-banner {
   position:absolute; top:0; left:0; right:0; height:180px;
   z-index:0; pointer-events:none; overflow:hidden;
+  /* Mobile: never let the banner image be picked up by native drag,
+     touch-callout long-press, or text selection. Keeps vertical page
+     scroll natural through the area. */
+  touch-action:pan-y;
+  -webkit-user-drag:none; user-drag:none;
+  -webkit-touch-callout:none;
+  -webkit-user-select:none; user-select:none;
 }
+.home-banner img { -webkit-user-drag:none; user-drag:none; pointer-events:none; }
 .banner-bg {
   width:100%; height:100%;
   background:linear-gradient(130deg, var(--a-50) 0%, var(--t-50) 55%, var(--p-50) 100%);
@@ -750,7 +758,7 @@ html.focus-mode .page-container.active{height:100vh}
 .project-card{
   background:var(--bg-card);border-radius:var(--r-lg);
   border:.5px solid var(--border-subtle);
-  padding:var(--sp-4) var(--sp-5);
+  padding:var(--sp-5) var(--sp-5);
   display:flex;gap:var(--sp-4);align-items:flex-start;cursor:pointer;
   transition:transform var(--t-snap),box-shadow var(--t-snap),background var(--t-snap);
   position:relative;
@@ -915,7 +923,7 @@ html.focus-mode .page-container.active{height:100vh}
   background:var(--bg-card);
   border:.5px solid var(--border-subtle);
   border-radius:var(--r-md);
-  padding:var(--sp-3) var(--sp-4);text-align:left;
+  padding:var(--sp-4) var(--sp-5);text-align:left;
   color:var(--fg);transition:border-color var(--t-snap),background var(--t-snap);
 }
 .project-task-pill:hover{border-color:var(--accent);background:var(--bg-raised)}
@@ -933,7 +941,7 @@ html.focus-mode .page-container.active{height:100vh}
   border-radius:var(--r-lg);
   background:var(--bg-card);
   border:.5px solid var(--border-subtle);
-  padding:var(--sp-4);
+  padding:var(--sp-5);
   display:flex;flex-direction:column;gap:var(--sp-3);
   min-height:140px;cursor:pointer;
   transition:transform var(--t-snap),box-shadow var(--t-snap),border-color var(--t-snap);
@@ -971,7 +979,7 @@ html.focus-mode .page-container.active{height:100vh}
 .project-linked-list{display:flex;flex-direction:column;gap:var(--sp-2)}
 .project-linked-item{
   width:100%;display:flex;align-items:center;justify-content:space-between;
-  gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);
+  gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);
   border-radius:var(--r-md);background:var(--bg-card);
   border:.5px solid var(--border-subtle);
   color:var(--fg);text-align:left;
@@ -988,7 +996,7 @@ html.focus-mode .page-container.active{height:100vh}
    the project page look like it was 90% blank placeholders. */
 .project-empty{
   color:var(--fg-4);font-size:var(--text-xs);
-  padding:var(--sp-3) var(--sp-4);
+  padding:var(--sp-4) var(--sp-5);
   border:.5px dashed var(--border);
   border-radius:var(--r-md);
   background:transparent;
@@ -1014,7 +1022,7 @@ html.focus-mode .page-container.active{height:100vh}
 .project-kind.check{background:var(--t-50);color:var(--t-600)}
 .project-kind.diary{background:var(--p-50);color:var(--p-600)}
 .project-open-hint{font-size:var(--text-xs);color:var(--fg-4)}
-.project-mini-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);background:var(--bg-card);border:.5px solid var(--border-subtle);cursor:pointer;transition:background var(--t-snap),border-color var(--t-snap)}
+.project-mini-row{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:var(--sp-3);padding:var(--sp-4) var(--sp-5);border-radius:var(--r-md);background:var(--bg-card);border:.5px solid var(--border-subtle);cursor:pointer;transition:background var(--t-snap),border-color var(--t-snap)}
 .project-mini-row:hover{background:var(--bg-raised);border-color:var(--accent)}
 
 .project-search{width:100%;height:34px;border-radius:var(--r-md);background:var(--bg-raised);padding:0 var(--sp-4);color:var(--fg);margin-bottom:var(--sp-4)}
@@ -16618,14 +16626,18 @@ function fbApplyData(data){
       }
     });
 
-    /* Refresh in-memory variables from the freshly-written localStorage.
-       This is the critical step that was MISSING for hobby / checkLogs /
-       memos / metrics / phil / etc. Without it, cloud sync writes the data
-       correctly but module-scoped `var cats = hobLoadCats()` etc. still hold
-       the OLD values from page-load time, so the UI shows stale data and the
-       user sees this as "동기화 안 됨".
-       Each refresh is independently try/catch'd so one stale module doesn't
-       break the others. */
+    /* ── Refresh in-memory module state ─────────────────────────────────
+       Several modules cache their data in module-scoped variables (tasks,
+       entries, projects, inboxItems, rewardData, reflects, …). Without
+       re-reading those after writing to localStorage, the UI re-renders
+       still see OLD data and the user sees "동기화 안 됨 / 새로고침해야
+       반영됨". Earlier rounds called reloader functions that don't
+       actually exist (loadTaskData, loadDiary, rechargeLoadData, …) so
+       most state stayed stale.
+       Every block below is independently try/catch'd so a broken module
+       doesn't stop the others. */
+
+    /* tasks (inline load; no dedicated reload function) */
     try {
       var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
       if(Array.isArray(remoteTasks)){
@@ -16634,52 +16646,110 @@ function fbApplyData(data){
         normalizeTaskOrder();
       }
     } catch(e) {}
-
-    /* Module reload functions — try every known reload entry point.
-       Each is wrapped in its own try so a missing or broken one doesn't stop
-       the others. Order is chosen so data-layer reloads happen first, then
-       render calls fire with the fresh data. */
-    var reloaders = [
-      'loadTaskData',         // tasks + task_cats
-      'loadProjects',         // projects + active project
-      'loadInboxItems',       // inbox feed
-      'loadDiary',            // diary entries + trackers
-      'loadAll',              // records: memos, metrics, phil, checkLogs, diaryTrackers
-      'loadPhilCards',        // philosophy
-      'loadTimetables',       // schedule grid
-      'loadHomeBanner',       // home banner + stickers
-      'loadGlobalStickers',   // page stickers
-      'hobReloadFromStorage', // hobby cats + items (added above)
-      'rechargeLoadData',     // recharge if present
-      'loadRepeats',          // repeat rules
-    ];
-    reloaders.forEach(function(fnName){
-      var fn = window[fnName];
-      if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' failed:', e&&e.message); } }
-    });
+    /* task categories (inline load; module var: CATS) */
+    try {
+      if(typeof CATS!=='undefined'){
+        var remoteCats=JSON.parse(localStorage.getItem('task_cats_v1')||'null');
+        if(Array.isArray(remoteCats) && remoteCats.length) CATS=remoteCats;
+      }
+    } catch(e) {}
+    /* inbox categories (this is the actual loadCats function — inbox only) */
+    try { if(typeof loadCats==='function') loadCats(); } catch(e){}
+    /* projects */
+    try { if(typeof loadProjects==='function') loadProjects(); } catch(e){}
+    /* inbox */
+    try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){}
+    /* diary entries (inline; _initDiary also reloads trackers + currentDate) */
+    try {
+      if(typeof entries!=='undefined'){
+        var rawDiary=JSON.parse(localStorage.getItem('diary_entries_v1')||'{}');
+        if(rawDiary && typeof rawDiary==='object' && !Array.isArray(rawDiary)) entries=rawDiary;
+      }
+      if(typeof loadTrackers==='function') loadTrackers();
+    } catch(e){}
+    /* records (memos, metrics, phil cards, mood, values) */
+    try { if(typeof loadAll==='function') loadAll(); } catch(e){}
+    /* phil cards (separate load path on settings tab) */
+    try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){}
+    /* schedule / timetable */
+    try { if(typeof loadTimetables==='function') loadTimetables(); } catch(e){}
+    /* home banner + stickers */
+    try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){}
+    try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){}
+    /* hobby */
+    try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){}
+    /* recharge */
+    try { if(typeof loadData==='function') loadData(); } catch(e){}
+    /* settings — theme, focus, notif, profile */
+    try { if(typeof loadThemeMode==='function') loadThemeMode(); } catch(e){}
+    try { if(typeof loadFocusMode==='function') loadFocusMode(); } catch(e){}
+    try { if(typeof loadNotifSettings==='function') loadNotifSettings(); } catch(e){}
+    try { if(typeof loadProfile==='function') loadProfile(); } catch(e){}
+    try { if(typeof loadCalendarPrefs==='function') loadCalendarPrefs(); } catch(e){}
   } finally {
     _applyingFbData = false;
   }
 
-  /* Re-render any tab the user might be looking at. Same try/catch policy.
-     Renderers run with the lock released so any real user edit made during
-     a render still triggers a save. */
-  var renderers = [
-    'renderCal','renderList',          // tasks
-    'renderFeed',                       // inbox
-    'renderProjects',                   // projects
-    'renderDiary','loadDate',           // diary
-    'applyTheme','renderGlobalStickers',
-    'renderHomeBanner','renderHomeTasks',
-    'hobRenderCal','hobRenderCats',     // hobby
-    'renderTimetable',                  // schedule
-    'renderRecords','renderMemos','renderMetrics', // records
-    'rechargeRender',                   // recharge
-  ];
-  renderers.forEach(function(fnName){
-    var fn = window[fnName];
-    if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' render failed:', e&&e.message); } }
-  });
+  /* ── Re-render visible tabs ──────────────────────────────────────────
+     Renderers run with the lock released so any real user edit made
+     during a render still triggers a save. Each call is try/catch'd so
+     a broken render path doesn't take down the rest. */
+  function safeCall(fnName){
+    try {
+      var fn = window[fnName];
+      if (typeof fn === 'function') fn();
+    } catch(e){ console.warn(fnName+' render failed:', e&&e.message); }
+  }
+  /* Home — banner, stickers, top widgets */
+  safeCall('renderHomeBanner');
+  safeCall('renderGlobalStickers');
+  safeCall('renderHomeSituation');
+  safeCall('renderHomeTasks');
+  safeCall('renderHomeOpsPanel');
+  safeCall('renderHomeTimeBlocks');
+  safeCall('renderHomeInbox');
+  /* Tasks tab */
+  safeCall('renderTaskCatFilter');
+  safeCall('renderCatPills');
+  safeCall('renderFilterBar');
+  safeCall('renderCal');
+  safeCall('renderList');
+  /* Inbox tab */
+  safeCall('renderFeed');
+  /* Projects tab */
+  safeCall('renderProjects');
+  /* Diary tab — re-render current date if diary is initialized */
+  try {
+    if(typeof loadDate==='function' && typeof currentDate!=='undefined' && currentDate){
+      loadDate(currentDate);
+    }
+  } catch(e){ console.warn('loadDate render failed:', e&&e.message); }
+  safeCall('renderStripEntries');
+  /* Hobby tab */
+  safeCall('hobRenderCal');
+  safeCall('hobRenderCats');
+  /* Schedule tab */
+  try {
+    if(typeof renderGrid==='function' && typeof getActiveTt==='function'){
+      var activeTt = getActiveTt();
+      if(activeTt){
+        renderGrid(activeTt);
+        if(typeof renderTodayBanner==='function') renderTodayBanner(activeTt);
+        if(typeof renderSlotList==='function') renderSlotList(activeTt);
+      }
+    }
+    if(typeof renderSemList==='function') renderSemList();
+  } catch(e){ console.warn('schedule render failed:', e&&e.message); }
+  /* Records tab */
+  safeCall('renderMemos');
+  safeCall('renderInsights');
+  safeCall('renderTrends');
+  safeCall('renderMoods');
+  safeCall('renderValues');
+  safeCall('renderPhilList');
+  /* Recharge tab */
+  safeCall('renderAll');
+  safeCall('renderReflects');
 }
 function fbStatusTime(prefix){
   return prefix+' · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
