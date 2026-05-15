@@ -1345,7 +1345,7 @@ html.focus-mode .page-container.active{height:100vh}
 .item-content { flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-1); }
 .item-text {
   font-size:var(--text-base); color:var(--fg); line-height:var(--lh-snug);
-  word-break:break-word;
+  word-break:break-word; white-space:pre-wrap;
 }
 .inbox-item.done .item-text { text-decoration:line-through; color:var(--fg-4); }
 
@@ -1414,7 +1414,7 @@ html.focus-mode .page-container.active{height:100vh}
 .board-note.selected { box-shadow:var(--elev-3), var(--focus-ring); }
 .board-note.linking  { box-shadow:var(--elev-3), 0 0 0 2px var(--accent); }
 .board-note-time { font-family:var(--font-mono); font-size:var(--text-xs); color:var(--fg-4); }
-.board-note-text { font-size:var(--text-base); line-height:var(--lh-relaxed); color:var(--fg); word-break:break-word; flex:1; }
+.board-note-text { font-size:var(--text-base); line-height:var(--lh-relaxed); color:var(--fg); word-break:break-word; white-space:pre-wrap; flex:1; }
 .board-note-foot { display:flex; justify-content:space-between; align-items:center; gap:var(--sp-2); }
 .board-note-actions{display:flex;align-items:center;gap:var(--sp-1)}
 .board-mini-btn{height:24px;padding:0 var(--sp-3);border-radius:var(--r-full);background:var(--bg-raised);color:var(--fg-3);font-size:var(--text-2xs);font-weight:var(--fw-semibold);box-shadow:inset 0 0 0 .5px var(--border)}
@@ -6003,8 +6003,7 @@ to{opacity:1;transform:translateY(0)}}
               </div>
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveNotionConfig()">설정 저장</button>
-                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion(null,{pullFirst:false})">비상시 동기화</button>
-                <button class="set-btn btn-ghost" onclick="pullDiaryFromNotion()">⬇ Notion에서 가져오기</button>
+                <button class="set-btn btn-ghost" onclick="syncDiaryToNotion()">⇅ 동기화</button>
                 <button class="set-btn btn-ghost" onclick="runNotionDiagnostics()">🔬 진단 실행</button>
                 <button class="set-btn btn-ghost" onclick="clearDiaryNotionConfig()">연동 해제</button>
               </div>
@@ -16505,6 +16504,11 @@ async function fbReadSplitData(ref){
 }
 function fbApplyData(data){
   if(!data||!data.keys) return;
+  /* Record when we applied a remote snapshot so the next debounced fbSave
+     can decide whether to skip (echo-suppression grace period) and so the
+     last-write-wins check has a baseline. Use the remote-claimed timestamp
+     if present, else now. */
+  _lastRemoteApplyMs = Number(data.updatedAtMs||0) || Date.now();
   /* Hold the apply-lock only across the localStorage writes so the wrapper
      does not echo each write back as a save. Re-renders happen AFTER the
      lock is released, which means any user edit during re-render still
@@ -16604,11 +16608,26 @@ async function fbLoadAll(){
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       if(!s.exists)return;
-      var d=s.data();
+      var d=s.data()||{};
+      /* Skip our own writes — same-device clientId means this snapshot is
+         the echo of a save we just performed. */
       if(d.clientId&&d.clientId===FB_CLIENT_ID)return;
-      if(d.keys){fbApplyData(d);setFbStatus(fbStatusTime('Firebase 원격 변경 반영'),'ok');}
-      var split=await fbReadSplitData(ref);
-      if(Object.keys(split.keys||{}).length){fbApplyData(split);setFbStatus(fbStatusTime('Firebase 원격 변경 반영'),'ok');}
+      /* Apply legacy (non-split) keys first if any present. */
+      if(d.keys){fbApplyData(d);}
+      /* Then read & apply split keys (this is the normal path for split:true
+         docs). Tag the split payload with the header's updatedAtMs so
+         _lastRemoteApplyMs matches the header — important for the
+         last-write-wins check during the next save. */
+      try{
+        var split=await fbReadSplitData(ref);
+        if(Object.keys(split.keys||{}).length){
+          split.updatedAtMs = Number(d.updatedAtMs||0) || Date.now();
+          fbApplyData(split);
+        }
+      }catch(splitErr){
+        console.warn('snapshot split read failed:', splitErr&&splitErr.message);
+      }
+      setFbStatus(fbStatusTime('Firebase 원격 변경 반영'),'ok');
     },function(e){
       var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
       setFbStatus('동기화 오류: '+msg,'err');
@@ -16619,11 +16638,51 @@ async function fbLoadAll(){
   }
 }
 function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
-async function fbSaveNow(){
+/* Timestamp of the last time we applied a remote snapshot. When this is
+   fresh, we skip auto-saves for a brief grace period — otherwise the
+   reloaders/renderers that run after fbApplyData can echo the just-received
+   data back to Firestore (sometimes mixed with the local user's in-flight
+   edit, which then overwrites another device's later write). The manual
+   "지금 올리기" path bypasses this with force:true. */
+var _lastRemoteApplyMs=0;
+async function fbSaveNow(opts){
+  opts=opts||{};
   if(!fbDb||!fbUser||_applyingFbData)return false;
+  /* Grace period after applying a remote snapshot. 1.5s is enough for the
+     reloaders/renderers to settle without losing real user edits — typing
+     restarts the debounce timer anyway. */
+  if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<1500){
+    return false;
+  }
   try{
     setFbStatus('Firebase 저장 중...','saving');
     var ref=fbDb.collection('users').doc(fbUser.uid);
+
+    /* Last-write-wins check. Read remote header first; if remote is newer
+       than what we last saw applied, abort with a clear status. Forcing
+       (manual "지금 올리기") still goes through to honor the user intent. */
+    if(!opts.force){
+      try{
+        var headSnap=await ref.get();
+        if(headSnap.exists){
+          var head=headSnap.data()||{};
+          var remoteMs=Number(head.updatedAtMs||0);
+          var remoteCid=head.clientId||'';
+          /* Only abort if a DIFFERENT device's write is newer than our
+             last-known remote-apply. Same-device writes never lose, and
+             first-write (no _lastRemoteApplyMs yet) is allowed. */
+          if(remoteCid && remoteCid!==FB_CLIENT_ID && remoteMs && _lastRemoteApplyMs && remoteMs>_lastRemoteApplyMs){
+            setFbStatus(fbStatusTime('Firebase 다른 기기 변경이 더 최신이라 저장 보류'),'warn');
+            return false;
+          }
+        }
+      }catch(headErr){
+        /* Header read failed — don't block save on a transient read error.
+           Continue and let the normal write attempt surface the real issue. */
+        console.warn('fb head read failed (continuing):', headErr&&headErr.message);
+      }
+    }
+
     var data=fbCollectData();
     await fbSaveCloudSettings(ref);
     var old=await ref.collection('data').get();
@@ -16654,6 +16713,9 @@ async function fbSaveNow(){
     }
     await commitIfFull(true);
     await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
+    /* Treat our own write as the new "last applied" baseline so subsequent
+       saves don't think they're racing themselves. */
+    _lastRemoteApplyMs=data.updatedAtMs;
     setFbStatus(fbStatusTime('Firebase 저장 완료'),'ok');
     return true;
   }catch(e){
@@ -16666,8 +16728,25 @@ async function fbForceSync(){
   try{
     if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
     if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
+    /* Manual force path. Warn before clobbering, since this can erase another
+       device's more-recent edits. Skip the prompt when there's no risk
+       (first-ever sync, or no recorded remote-apply). */
+    if(_lastRemoteApplyMs){
+      try{
+        var ref=fbDb.collection('users').doc(fbUser.uid);
+        var headSnap=await ref.get();
+        if(headSnap.exists){
+          var head=headSnap.data()||{};
+          var remoteMs=Number(head.updatedAtMs||0);
+          var remoteCid=head.clientId||'';
+          if(remoteCid && remoteCid!==FB_CLIENT_ID && remoteMs>_lastRemoteApplyMs){
+            if(!confirm('다른 기기에 더 최신 변경이 있어요. 이 기기 데이터로 덮어쓸까요?')) return;
+          }
+        }
+      }catch(e){ /* if head read fails, fall through to save */ }
+    }
     clearTimeout(_fbSaveTimer);
-    var saved=await fbSaveNow();
+    var saved=await fbSaveNow({force:true});
     showToast(saved?'Firebase에 지금 저장했어요':'Firebase 동기화에 실패했어요');
   }catch(e){
     setFbStatus('Firebase 오류: '+e.message,'err');
@@ -17007,20 +17086,21 @@ function queueDiaryNotionSave(dateKey){
   },900);
 }
 function simplifySyncSettingsUI(){
+  /* Unified bidirectional sync labels. The previous "비상시 동기화" labeling
+     described the legacy behavior (push-only / one-shot) that has been
+     replaced by an explicit two-way sync. */
   [
-    ['fb-detail','fbForceSync()','비상시 동기화'],
+    ['fb-detail','fbForceSync()','⇅ 동기화'],
     ['fb-detail','clearFbConfig()','연동 해제'],
-    ['notion-detail','syncDiaryToNotion','비상시 동기화'],
+    ['notion-detail','syncDiaryToNotion','⇅ 동기화'],
     ['notion-detail','clearDiaryNotionConfig()','연동 해제'],
-    ['gcal-detail','gcalSync()','비상시 동기화'],
+    ['gcal-detail','gcalSync()','⇅ 동기화'],
     ['gcal-detail','gcalClearConfig()','연동 해제']
   ].forEach(function(item){
     var root=document.getElementById(item[0]); if(!root)return;
     var btn=[].slice.call(root.querySelectorAll('button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf(item[1])>=0;});
     if(btn)btn.textContent=item[2];
   });
-  var pull=[].slice.call(document.querySelectorAll('#notion-detail button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf('pullDiaryFromNotion')>=0;});
-  if(pull)pull.style.display='none';
   var rules=[].slice.call(document.querySelectorAll('#fb-detail button')).find(function(b){return String(b.getAttribute('onclick')||'').indexOf('showFirebaseRulesHelp')>=0;});
   if(rules)rules.style.display='none';
   var aiLabel=document.querySelector('label[for="notion-auto-sync"]');
@@ -17588,12 +17668,60 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
      • Archived blocks are hidden from the page exactly like deleted ones
      • Errors on a single block don't abort the whole sync */
   var existingIds=[];
+  var existingResults=[];
   try{
     var existing=await _diaryNotionApi('GET','/blocks/'+pageId+'/children?page_size=100');
-    existingIds=(existing.results||[]).map(function(b){return b.id;});
+    existingResults=existing.results||[];
+    existingIds=existingResults.map(function(b){return b.id;});
   }catch(e){
     console.warn('list existing blocks failed (continuing):',e&&e.message);
   }
+
+  /* Image-preservation guard. If Notion contains image blocks that the app
+     doesn't yet know about, absorb them into entry._blocks BEFORE archiving.
+     Otherwise the archive+rewrite cycle silently deletes images that were
+     added in Notion (a common user complaint: "노션에서 이미지 넣어놔도
+     동기화 안됨, 도리어 없어지기도함"). The block id is recorded so we don't
+     double-import on the next sync. */
+  if(existingResults.length){
+    entry._blocks=entry._blocks||[];
+    entry._notionBlockIds=entry._notionBlockIds||{};
+    var knownIds={};
+    entry._blocks.forEach(function(b){ if(b && b._notionId) knownIds[b._notionId]=true; });
+    var absorbed=[];
+    existingResults.forEach(function(nb){
+      if(!nb || !nb.id || knownIds[nb.id]) return;
+      if(nb.type==='image'){
+        var img=nb.image||{}, url=(img.external&&img.external.url)||(img.file&&img.file.url)||'';
+        if(!url) return;
+        var cap=(img.caption||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
+        absorbed.push({type:'image', content:url, caption:cap, _notionId:nb.id});
+        entry._notionBlockIds[nb.id]=true;
+      }
+    });
+    if(absorbed.length){
+      /* Splice absorbed images into _blocks. Place them at the start so they
+         appear with other pulled blocks; user-added local blocks remain at
+         their original positions afterwards. */
+      entry._blocks = absorbed.concat(entry._blocks);
+      try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
+      try{ if(typeof loadBlocks==='function' && dateKey===currentDate) loadBlocks(dateKey); }catch(e){}
+      /* Re-render the block list and recompute the outgoing blocks so the
+         absorbed images get written back. The hash check above already
+         decided to proceed, so just rebuild `blocks` here. */
+      blocks=_diaryBodyBlocks(entry, metaProps);
+      sig=_diaryBodySignature(blocks);
+      /* Best-effort: cache image URLs to data URLs in background (same as
+         _pullDiaryPageBody) so they survive Notion's 1-hour URL expiry. */
+      Promise.all(absorbed.map(function(blk){
+        return _notionImageToDataUrl(blk.content).then(function(dataUrl){ blk.content=dataUrl; });
+      })).then(function(){
+        try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
+        if(typeof loadBlocks==='function' && dateKey===currentDate){ try{ loadBlocks(dateKey); }catch(e){} }
+      });
+    }
+  }
+
   var archiveErrors=0;
   for(var di=0;di<existingIds.length;di++){
     try{
@@ -17800,6 +17928,13 @@ function _pullDiaryPageProperties(page, dateKey, cfg){
 
 async function syncDiaryToNotion(dateKey, opts){
   opts=opts||{};
+  /* Default to bidirectional sync. The previous "비상시 동기화" path used
+     pullFirst:false and erased Notion-side edits (especially images added in
+     Notion) because _syncDiaryPageBody archives every existing block before
+     re-writing. Pulling first ensures Notion-side blocks land in entry._blocks
+     and survive the re-write. Callers may still pass pullFirst:false for the
+     rare case where Return must truly clobber Notion. */
+  if(opts.pullFirst==null) opts.pullFirst=true;
   saveNotionConfig(!!opts.silent);
   var cfg=_diaryNotionCfg;
   dateKey=dateKey||currentDate||TK;
