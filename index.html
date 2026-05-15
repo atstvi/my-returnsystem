@@ -619,6 +619,8 @@ html.focus-mode .page-container.active{height:100vh}
   width:36px; flex-shrink:0; text-align:center;
 }
 .htb-allday-chips { display:flex; flex-wrap:wrap; gap:var(--sp-2); flex:1; padding:0 var(--sp-2); }
+.htb-allday-chips.drag-over-date { outline:1px dashed var(--accent); outline-offset:2px; border-radius:var(--r-md); }
+.htb-slots.drag-over-slots { box-shadow:inset 0 0 0 1px var(--accent); }
 .allday-chip {
   height:20px; padding:0 var(--sp-3); border-radius:var(--r-full);
   font-size:var(--text-2xs); font-weight:var(--fw-semibold);
@@ -7741,10 +7743,17 @@ function renderHomeTimeBlocks(){
   }
   var now=new Date(), nowMins=now.getHours()*60+now.getMinutes();
   if(nowMins>=START*60 && nowMins<=END*60){
+    /* Reuse the htb-now-line style so the line actually renders. The earlier
+       `now-line` class had no CSS, so only the inline text inside it was
+       visible — producing the "현재시간 줄 깨짐" the user reported (a stray
+       time label with no horizontal bar). */
     var line=document.createElement('div');
-    line.className='now-line';
+    line.className='htb-now-line';
     line.style.top=((nowMins/60-START)*SLOT_H)+'px';
-    line.innerHTML='<span>'+((now.getHours()<10?'0':'')+now.getHours())+':'+((now.getMinutes()<10?'0':'')+now.getMinutes())+'</span>';
+    var dot=document.createElement('div'); dot.className='htb-now-dot';
+    var tel=document.createElement('span'); tel.className='htb-now-time';
+    tel.textContent=((now.getHours()<10?'0':'')+now.getHours())+':'+((now.getMinutes()<10?'0':'')+now.getMinutes());
+    line.appendChild(dot); line.appendChild(tel);
     slots.appendChild(line);
   }
   allday.innerHTML = '';
@@ -7756,7 +7765,95 @@ function renderHomeTimeBlocks(){
     chip.textContent=label;
     chip.setAttribute('draggable','true');
     chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed='move'; });
-    chip.addEventListener('click', function(){ if (typeof tasksOpenModal === 'function') tasksOpenModal(t); });
+    chip.addEventListener('click', function(){
+      /* Suppress the synthetic click that fires after a touch-drag. */
+      if (chip._touchDragMoved) { chip._touchDragMoved=false; return; }
+      if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
+    });
+
+    /* Touch drag — HTML5 drag-and-drop doesn't work on iOS/Android, so we
+       simulate it. The chip stays in place while a "ghost" tracks the
+       finger. On touchend we pick the element under the finger and route
+       to the same logic the desktop ondrop handlers use.
+       Long-press OR initial movement past a small threshold triggers drag,
+       so quick taps still count as taps and open the task modal. */
+    chip.addEventListener('touchstart', function(e){
+      if (e.touches.length !== 1) return;
+      var touch = e.touches[0];
+      var startX = touch.clientX, startY = touch.clientY;
+      var ghost = null, dragging = false;
+      chip._touchDragMoved = false;
+      var holdTimer = setTimeout(function(){ startDrag(touch); }, 220);
+
+      function startDrag(initial){
+        if (dragging) return;
+        dragging = true;
+        chip._touchDragMoved = true;
+        try { if (navigator.vibrate) navigator.vibrate(10); } catch(_){}
+        var rect = chip.getBoundingClientRect();
+        ghost = chip.cloneNode(true);
+        ghost.style.cssText =
+          'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;'+
+          'width:'+rect.width+'px;height:'+rect.height+'px;'+
+          'pointer-events:none;opacity:.85;z-index:9999;'+
+          'box-shadow:var(--elev-3);transform:scale(1.04);transition:none';
+        document.body.appendChild(ghost);
+        chip.style.opacity = '0.4';
+      }
+      function move(ev){
+        if (!ev.touches || ev.touches.length !== 1) return;
+        var tt = ev.touches[0];
+        if (!dragging) {
+          if (Math.abs(tt.clientX-startX) > 6 || Math.abs(tt.clientY-startY) > 6) {
+            clearTimeout(holdTimer);
+            startDrag(tt);
+          } else return;
+        }
+        ev.preventDefault();
+        if (ghost) {
+          ghost.style.left = (tt.clientX - ghost.offsetWidth/2) + 'px';
+          ghost.style.top  = (tt.clientY - ghost.offsetHeight/2) + 'px';
+        }
+        /* Highlight the drop target the finger is over. */
+        var el = document.elementFromPoint(tt.clientX, tt.clientY);
+        var slotsEl = el && el.closest && el.closest('#htb-slots');
+        var alldayEl = el && el.closest && el.closest('.htb-allday-chips');
+        slots.classList.toggle('drag-over-slots', !!slotsEl);
+        allday.classList.toggle('drag-over-date', !!alldayEl);
+      }
+      function end(ev){
+        clearTimeout(holdTimer);
+        document.removeEventListener('touchmove', move, {passive:false});
+        document.removeEventListener('touchend', end);
+        document.removeEventListener('touchcancel', end);
+        if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+        chip.style.opacity = '';
+        slots.classList.remove('drag-over-slots');
+        allday.classList.remove('drag-over-date');
+        if (!dragging) return;
+        var endTouch = (ev.changedTouches && ev.changedTouches[0]) || null;
+        if (!endTouch) return;
+        var el = document.elementFromPoint(endTouch.clientX, endTouch.clientY);
+        if (!el) return;
+        var slotsEl = el.closest && el.closest('#htb-slots');
+        var alldayEl = el.closest && el.closest('.htb-allday-chips');
+        if (slotsEl) {
+          var rect = slots.getBoundingClientRect();
+          var minsDrop = START*60 + Math.round(((endTouch.clientY-rect.top)/SLOT_H*60)/5)*5;
+          minsDrop = Math.max(START*60, Math.min(minsDrop, END*60-30));
+          t.timeStart = fmt(minsDrop);
+          t.timeEnd = fmt(minsDrop+45);
+          if (typeof saveTaskData === 'function') saveTaskData();
+          renderHomeTimeBlocks();
+        } else if (alldayEl) {
+          /* No-op: chip is already in the allday lane. */
+        }
+      }
+      document.addEventListener('touchmove', move, {passive:false});
+      document.addEventListener('touchend', end);
+      document.addEventListener('touchcancel', end);
+    }, {passive:true});
+
     allday.appendChild(chip);
   }
   function makeBlock(t, sm, em, cls, badge, virtual){
@@ -16505,15 +16602,14 @@ async function fbReadSplitData(ref){
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
-     can decide whether to skip (echo-suppression grace period) and so the
-     last-write-wins check has a baseline. Use the remote-claimed timestamp
-     if present, else now. */
+     can decide whether to skip (echo-suppression grace period). Use the
+     remote-claimed timestamp if present, else now. */
   _lastRemoteApplyMs = Number(data.updatedAtMs||0) || Date.now();
-  /* Hold the apply-lock only across the localStorage writes so the wrapper
-     does not echo each write back as a save. Re-renders happen AFTER the
-     lock is released, which means any user edit during re-render still
-     triggers a normal save. (Previously a 500ms blanket lock could silently
-     drop user edits made while re-rendering.) */
+  /* Hold the apply-lock across BOTH the localStorage writes and the
+     subsequent reloader pass. Reloaders themselves can write to
+     localStorage (e.g. normalizing migrated keys) and we don't want those
+     writes to fire fbSaveAll. The lock is released BEFORE renderers so a
+     user edit made during a render still triggers a normal save. */
   _applyingFbData = true;
   try {
     Object.keys(data.keys).forEach(function(k){
@@ -16521,51 +16617,53 @@ function fbApplyData(data){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
     });
+
+    /* Refresh in-memory variables from the freshly-written localStorage.
+       This is the critical step that was MISSING for hobby / checkLogs /
+       memos / metrics / phil / etc. Without it, cloud sync writes the data
+       correctly but module-scoped `var cats = hobLoadCats()` etc. still hold
+       the OLD values from page-load time, so the UI shows stale data and the
+       user sees this as "동기화 안 됨".
+       Each refresh is independently try/catch'd so one stale module doesn't
+       break the others. */
+    try {
+      var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
+      if(Array.isArray(remoteTasks)){
+        tasks=remoteTasks;
+        if(tasks.some(function(t){return t&&t._order!=null;}))tasks.sort(function(a,b){return taskOrderValue(a,0)-taskOrderValue(b,0);});
+        normalizeTaskOrder();
+      }
+    } catch(e) {}
+
+    /* Module reload functions — try every known reload entry point.
+       Each is wrapped in its own try so a missing or broken one doesn't stop
+       the others. Order is chosen so data-layer reloads happen first, then
+       render calls fire with the fresh data. */
+    var reloaders = [
+      'loadTaskData',         // tasks + task_cats
+      'loadProjects',         // projects + active project
+      'loadInboxItems',       // inbox feed
+      'loadDiary',            // diary entries + trackers
+      'loadAll',              // records: memos, metrics, phil, checkLogs, diaryTrackers
+      'loadPhilCards',        // philosophy
+      'loadTimetables',       // schedule grid
+      'loadHomeBanner',       // home banner + stickers
+      'loadGlobalStickers',   // page stickers
+      'hobReloadFromStorage', // hobby cats + items (added above)
+      'rechargeLoadData',     // recharge if present
+      'loadRepeats',          // repeat rules
+    ];
+    reloaders.forEach(function(fnName){
+      var fn = window[fnName];
+      if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' failed:', e&&e.message); } }
+    });
   } finally {
     _applyingFbData = false;
   }
 
-  /* Refresh in-memory variables from the freshly-written localStorage.
-     This is the critical step that was MISSING for hobby / checkLogs /
-     memos / metrics / phil / etc. Without it, cloud sync writes the data
-     correctly but module-scoped `var cats = hobLoadCats()` etc. still hold
-     the OLD values from page-load time, so the UI shows stale data and the
-     user sees this as "동기화 안 됨".
-     Each refresh is independently try/catch'd so one stale module doesn't
-     break the others. */
-  try {
-    var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
-    if(Array.isArray(remoteTasks)){
-      tasks=remoteTasks;
-      if(tasks.some(function(t){return t&&t._order!=null;}))tasks.sort(function(a,b){return taskOrderValue(a,0)-taskOrderValue(b,0);});
-      normalizeTaskOrder();
-    }
-  } catch(e) {}
-
-  /* Module reload functions — try every known reload entry point.
-     Each is wrapped in its own try so a missing or broken one doesn't stop
-     the others. Order is chosen so data-layer reloads happen first, then
-     render calls fire with the fresh data. */
-  var reloaders = [
-    'loadTaskData',         // tasks + task_cats
-    'loadProjects',         // projects + active project
-    'loadInboxItems',       // inbox feed
-    'loadDiary',            // diary entries + trackers
-    'loadAll',              // records: memos, metrics, phil, checkLogs, diaryTrackers
-    'loadPhilCards',        // philosophy
-    'loadTimetables',       // schedule grid
-    'loadHomeBanner',       // home banner + stickers
-    'loadGlobalStickers',   // page stickers
-    'hobReloadFromStorage', // hobby cats + items (added above)
-    'rechargeLoadData',     // recharge if present
-    'loadRepeats',          // repeat rules
-  ];
-  reloaders.forEach(function(fnName){
-    var fn = window[fnName];
-    if (typeof fn === 'function') { try { fn(); } catch(e){ console.warn(fnName+' failed:', e&&e.message); } }
-  });
-
-  /* Re-render any tab the user might be looking at. Same try/catch policy. */
+  /* Re-render any tab the user might be looking at. Same try/catch policy.
+     Renderers run with the lock released so any real user edit made during
+     a render still triggers a save. */
   var renderers = [
     'renderCal','renderList',          // tasks
     'renderFeed',                       // inbox
@@ -16638,50 +16736,39 @@ async function fbLoadAll(){
   }
 }
 function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
-/* Timestamp of the last time we applied a remote snapshot. When this is
-   fresh, we skip auto-saves for a brief grace period — otherwise the
-   reloaders/renderers that run after fbApplyData can echo the just-received
-   data back to Firestore (sometimes mixed with the local user's in-flight
-   edit, which then overwrites another device's later write). The manual
-   "지금 올리기" path bypasses this with force:true. */
+/* Timestamp of the last time we applied a remote snapshot. A short grace
+   window after applying suppresses the immediate echo from reloaders/
+   renderers writing the just-received data back to localStorage. Real user
+   edits (typing) restart the debounce timer anyway, so the window is kept
+   small (300ms) — large enough to absorb the synchronous reload pass,
+   small enough that simultaneous edits on another device aren't silently
+   dropped. */
 var _lastRemoteApplyMs=0;
 async function fbSaveNow(opts){
   opts=opts||{};
   if(!fbDb||!fbUser||_applyingFbData)return false;
-  /* Grace period after applying a remote snapshot. 1.5s is enough for the
-     reloaders/renderers to settle without losing real user edits — typing
-     restarts the debounce timer anyway. */
-  if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<1500){
+  /* Echo-suppression grace period. Note: this only suppresses saves
+     happening within ~300ms of applying a remote snapshot — long enough to
+     absorb the synchronous reloader/renderer cascade, short enough not to
+     swallow a real edit a user makes right after seeing the remote update.
+     Manual "지금 올리기" still bypasses with force:true. */
+  if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
     return false;
   }
   try{
     setFbStatus('Firebase 저장 중...','saving');
     var ref=fbDb.collection('users').doc(fbUser.uid);
 
-    /* Last-write-wins check. Read remote header first; if remote is newer
-       than what we last saw applied, abort with a clear status. Forcing
-       (manual "지금 올리기") still goes through to honor the user intent. */
-    if(!opts.force){
-      try{
-        var headSnap=await ref.get();
-        if(headSnap.exists){
-          var head=headSnap.data()||{};
-          var remoteMs=Number(head.updatedAtMs||0);
-          var remoteCid=head.clientId||'';
-          /* Only abort if a DIFFERENT device's write is newer than our
-             last-known remote-apply. Same-device writes never lose, and
-             first-write (no _lastRemoteApplyMs yet) is allowed. */
-          if(remoteCid && remoteCid!==FB_CLIENT_ID && remoteMs && _lastRemoteApplyMs && remoteMs>_lastRemoteApplyMs){
-            setFbStatus(fbStatusTime('Firebase 다른 기기 변경이 더 최신이라 저장 보류'),'warn');
-            return false;
-          }
-        }
-      }catch(headErr){
-        /* Header read failed — don't block save on a transient read error.
-           Continue and let the normal write attempt surface the real issue. */
-        console.warn('fb head read failed (continuing):', headErr&&headErr.message);
-      }
-    }
+    /* No last-write-wins abort here. The previous version aborted when
+       another device's updatedAtMs was newer than ours, but that caused
+       silent data loss when two devices were edited at the same time:
+       device B's edit would refuse to push because A had just written.
+       Instead we accept simple last-writer-wins at the storage layer
+       (Firestore set replaces the doc), and rely on the onSnapshot
+       listener on each device to reflect the other's writes back. Both
+       devices' edits propagate; the very last write wins for any
+       overlapping key, which is the natural outcome for this storage
+       model. */
 
     var data=fbCollectData();
     await fbSaveCloudSettings(ref);
@@ -16728,23 +16815,10 @@ async function fbForceSync(){
   try{
     if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
     if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
-    /* Manual force path. Warn before clobbering, since this can erase another
-       device's more-recent edits. Skip the prompt when there's no risk
-       (first-ever sync, or no recorded remote-apply). */
-    if(_lastRemoteApplyMs){
-      try{
-        var ref=fbDb.collection('users').doc(fbUser.uid);
-        var headSnap=await ref.get();
-        if(headSnap.exists){
-          var head=headSnap.data()||{};
-          var remoteMs=Number(head.updatedAtMs||0);
-          var remoteCid=head.clientId||'';
-          if(remoteCid && remoteCid!==FB_CLIENT_ID && remoteMs>_lastRemoteApplyMs){
-            if(!confirm('다른 기기에 더 최신 변경이 있어요. 이 기기 데이터로 덮어쓸까요?')) return;
-          }
-        }
-      }catch(e){ /* if head read fails, fall through to save */ }
-    }
+    /* Manual force path. No prompt — the dialog from the earlier version
+       was tied to a last-write-wins guard that has been removed, since the
+       guard was silently dropping real edits when two devices were used
+       at the same time. */
     clearTimeout(_fbSaveTimer);
     var saved=await fbSaveNow({force:true});
     showToast(saved?'Firebase에 지금 저장했어요':'Firebase 동기화에 실패했어요');
