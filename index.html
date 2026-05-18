@@ -16441,6 +16441,10 @@ function loadScript(src){
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _fbDataUnsubscribe=null, _applyingFbData=false;
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
 var _fbKeyRemoteMs={};
+var _fbUserInteracted=false;
+['pointerdown','keydown','input','change','touchstart'].forEach(function(evt){
+  try{window.addEventListener(evt,function(){_fbUserInteracted=true;},{capture:true,passive:true});}catch(e){}
+});
 var FB_CLIENT_ID=(function(){
   var k='return_fb_session_client_id', v='';
   try{ v=sessionStorage.getItem(k)||''; }catch(e){}
@@ -17001,11 +17005,13 @@ async function fbLoadAll(){
     });
     _fbInitialLoadDone=true;
     _fbLoadingRemote=false;
+    if(fbDirtyKeyList().length) fbSaveAll();
   }catch(e){
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
     setFbStatus('동기화 오류: '+msg,'err');
     _fbInitialLoadDone=true;
     _fbLoadingRemote=false;
+    if(fbDirtyKeyList().length) fbSaveAll();
   }
 }
 function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,160);}
@@ -17694,7 +17700,7 @@ localStorage.setItem = function(k,v){
   if(prev === String(v)) return; // no-op write, skip side effects
   if(_applyingFbData) return;    // remote sync in progress, do not echo back
   if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function'){
-    if(fbUser && _fbInitialLoadDone && !_fbLoadingRemote) fbMarkDirtyKey(k);
+    if(fbUser && ((_fbInitialLoadDone && !_fbLoadingRemote) || _fbUserInteracted)) fbMarkDirtyKey(k);
     fbSaveAll();
   }
   if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
