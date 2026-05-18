@@ -16440,6 +16440,7 @@ function loadScript(src){
 }
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
+var _fbKeyRemoteMs={};
 var FB_CLIENT_ID=(function(){
   var k='return_fb_session_client_id', v='';
   try{ v=sessionStorage.getItem(k)||''; }catch(e){}
@@ -16688,18 +16689,27 @@ function fbSplitValue(v){
   return out.length?out:[''];
 }
 async function fbReadSplitData(ref){
-  var data={keys:{}};
+  var data={keys:{}, keyUpdatedAtMs:{}};
   try{
     var qs=await ref.collection('data').get();
     var chunks={};
     qs.forEach(function(doc){
       var d=doc.data()||{}, id=doc.id;
-      if(d.key&&d.value!=null){data.keys[d.key]=d.value;return;}
-      if(d.key&&d.part!=null){if(!chunks[d.key])chunks[d.key]=[];chunks[d.key][d.part]=d.value||'';}
+      if(d.key&&d.value!=null){
+        data.keys[d.key]=d.value;
+        data.keyUpdatedAtMs[d.key]=Math.max(Number(data.keyUpdatedAtMs[d.key]||0), Number(d.updatedAtMs||0));
+        return;
+      }
+      if(d.key&&d.part!=null){
+        if(!chunks[d.key])chunks[d.key]=[];
+        chunks[d.key][d.part]=d.value||'';
+        data.keyUpdatedAtMs[d.key]=Math.max(Number(data.keyUpdatedAtMs[d.key]||0), Number(d.updatedAtMs||0));
+      }
       else if(id.indexOf('__')>0&&d.value!=null){
         var raw=id.split('__')[0], key=decodeURIComponent(raw);
         var part=parseInt(id.split('__')[1],10)||0;
         if(!chunks[key])chunks[key]=[];chunks[key][part]=d.value||'';
+        data.keyUpdatedAtMs[key]=Math.max(Number(data.keyUpdatedAtMs[key]||0), Number(d.updatedAtMs||0));
       }
     });
     Object.keys(chunks).forEach(function(k){data.keys[k]=chunks[k].join('');});
@@ -16731,6 +16741,8 @@ function fbApplyData(data){
   _applyingFbData = true;
   try {
     var dirtyAtApply = Object.assign({}, _fbDirtyKeys || {});
+    var keyMs = data.keyUpdatedAtMs || {};
+    var snapshotMs = Number(data.updatedAtMs||0) || Date.now();
     Object.keys(data.keys).forEach(function(k){
       if(!shouldFbSyncKey(k)) return;
       /* Do not clobber edits this device has made but not uploaded yet.
@@ -16741,6 +16753,7 @@ function fbApplyData(data){
       try{ _rawSetItem(k, data.keys[k]); }catch(e){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
+      _fbKeyRemoteMs[k]=Number(keyMs[k]||0)||snapshotMs;
     });
 
     /* ── Refresh in-memory module state ─────────────────────────────────
@@ -17042,7 +17055,9 @@ async function fbSaveNow(opts){
     Object.keys(data.keys).forEach(function(k){
       var ours = data.keys[k];
       var cloud = cloudByKey[k];
-      if (!opts.force && cloud && cloud.updatedAtMs > localApplyBaseline && cloud.fullValue !== ours) {
+      var keyBaseline = Number(_fbKeyRemoteMs[k]||0);
+      var localDirtyAt = Number((_fbDirtyKeys||{})[k]||0);
+      if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.updatedAtMs >= localDirtyAt && cloud.fullValue !== ours) {
         /* Cloud is newer for this key (another device changed it). Keep
            cloud, absorb to local. */
         try {
@@ -17053,6 +17068,7 @@ async function fbSaveNow(opts){
             try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
             absorbedToLocal.push(k);
           }
+          _fbKeyRemoteMs[k]=cloud.updatedAtMs||Date.now();
         } catch(e){}
         preservedFromCloud.push(k);
       } else {
@@ -17073,6 +17089,7 @@ async function fbSaveNow(opts){
             try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
             absorbedToLocal.push(k);
           }
+          _fbKeyRemoteMs[k]=cloud.updatedAtMs||Date.now();
         } catch(e){}
         preservedFromCloud.push(k);
       }
@@ -17085,6 +17102,7 @@ async function fbSaveNow(opts){
           preservedFromCloud:preservedFromCloud.length,
           absorbedToLocal:absorbedToLocal.length,
           baseline:localApplyBaseline,
+          keyBaselines:Object.keys(data.keys).reduce(function(acc,k){acc[k]=_fbKeyRemoteMs[k]||0;return acc;},{}),
         });
       }
     } catch(_e){}
@@ -17143,6 +17161,7 @@ async function fbSaveNow(opts){
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
+    Object.keys(ourKeysToWrite).forEach(function(k){_fbKeyRemoteMs[k]=data.updatedAtMs;});
     if(!opts.force) fbClearDirtyKeys(dirtyKeysForSave||[]);
     else _fbDirtyKeys={};
     var msg='Firebase 저장 완료';
