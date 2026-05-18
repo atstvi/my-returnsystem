@@ -5259,8 +5259,6 @@ to{opacity:1;transform:translateY(0)}}
                 <span id="save-text">모두 저장됨</span>
               </div>
               <div class="toolbar-sep"></div>
-              <button class="toolbar-btn" id="btn-sync" title="Notion 동기화">↻ 동기화</button>
-              <div class="toolbar-sep"></div>
               <button class="toolbar-btn" onclick="goToday()" title="오늘로 이동">오늘</button>
             </div>
           </div>
@@ -9287,22 +9285,39 @@ var sendBtn = document.getElementById('composer-send');
 var catPills = document.getElementById('cat-pills');
 var composerImgs = document.getElementById('composer-imgs');
 var pendingImgs = [];
+/* Lazy re-resolver: if any of these came back null at script-eval time (e.g.
+   another script-eval throw earlier in the page kept them at the var-hoisted
+   `undefined`, or the DOM wasn't ready), try again on first use. Diagnostic
+   round captured a real-world
+   `Cannot set properties of undefined (setting 'innerHTML') at renderCatPills`
+   trace, meaning catPills was still undefined at the time _initInbox ran. */
+function _composerEls(){
+  if (!ta) ta = document.getElementById('composer-ta');
+  if (!sendBtn) sendBtn = document.getElementById('composer-send');
+  if (!catPills) catPills = document.getElementById('cat-pills');
+  if (!composerImgs) composerImgs = document.getElementById('composer-imgs');
+  return {ta:ta, sendBtn:sendBtn, catPills:catPills, composerImgs:composerImgs};
+}
 
 /* Auto-grow textarea */
-ta.addEventListener('input', function() {
-  ta.style.height = 'auto';
-  ta.style.height = ta.scrollHeight + 'px';
-  sendBtn.classList.toggle('ready', ta.value.trim().length > 0);
-});
+if (ta) {
+  ta.addEventListener('input', function() {
+    ta.style.height = 'auto';
+    ta.style.height = ta.scrollHeight + 'px';
+    if (sendBtn) sendBtn.classList.toggle('ready', ta.value.trim().length > 0);
+  });
+}
 
 /* Category selection */
-catPills.addEventListener('click', function(e) {
-  var pill = e.target.closest('.cat-pill');
-  if (!pill) return;
-  catPills.querySelectorAll('.cat-pill').forEach(function(p) { p.classList.remove('active'); });
-  pill.classList.add('active');
-  selectedCat = pill.dataset.cat;
-});
+if (catPills) {
+  catPills.addEventListener('click', function(e) {
+    var pill = e.target.closest('.cat-pill');
+    if (!pill) return;
+    catPills.querySelectorAll('.cat-pill').forEach(function(p) { p.classList.remove('active'); });
+    pill.classList.add('active');
+    selectedCat = pill.dataset.cat;
+  });
+}
 
 /* Send */
 function sendItem() {
@@ -9398,6 +9413,10 @@ document.addEventListener('paste', function(e){
 
 /* ── Render composer cat pills ── */
 function renderCatPills() {
+  /* F1 fix: lazy DOM resolve. catPills can be undefined if an earlier
+     script-eval throw kept the var assignment at its hoisted `undefined`. */
+  if (!catPills) catPills = document.getElementById('cat-pills');
+  if (!catPills) return;
   catPills.innerHTML = '';
   INBOX_CATS.forEach(function(cat) {
     var pill = document.createElement('button');
@@ -12877,9 +12896,19 @@ document.getElementById('sync-btn').addEventListener('click', function() {
     txt.textContent = '완료';
   }, 2000);
 });
-document.getElementById('btn-sync').addEventListener('click', function() {
-  document.getElementById('sync-btn').click();
-});
+/* F2 fix: the bottom `↻ 동기화` button was removed from the diary toolbar
+   (auto-sync handles routine pushes; manual force lives in Settings).
+   Keep the listener attempt guarded so its absence can't break the rest
+   of this script block. */
+(function(){
+  var btn = document.getElementById('btn-sync');
+  if (btn) {
+    btn.addEventListener('click', function(){
+      var s = document.getElementById('sync-btn');
+      if (s) s.click();
+    });
+  }
+})();
 
 /* ─────────────────────────────────────────────────────────────
    PAGE BODY BLOCKS
@@ -16876,31 +16905,158 @@ async function fbSaveNow(opts){
        overlapping key, which is the natural outcome for this storage
        model. */
 
+    /* F4 fix — per-key merge instead of blind overwrite.
+       Symptom captured: device A (computer) pushed continuously; device B
+       (pad) changes never showed up on A — every onSnapshot on A was a
+       self-echo. Two cooperating mechanisms caused this:
+       1) fbCollectData reads only localStorage. If onSnapshot did not bring
+          B's change into localStorage before our save, fbCollectData has
+          stale data and we push it.
+       2) fbSaveNow then `batch.delete(oldDocs)` + `batch.set(ourKeys)`. The
+          delete wipes anything B wrote since we last applied — including
+          keys we didn't even touch.
+       New plan:
+       • Read the current cloud split data inline (we already pay for the
+         `get()` to enumerate old docs, so this is free).
+       • For each key cloud has: if cloud's updatedAtMs > _lastRemoteApplyMs
+         AND that key is NOT in our current `data.keys` (or cloud value
+         differs from ours), treat cloud as authoritative — DO NOT overwrite,
+         and ALSO push the cloud value into local memory + localStorage so
+         our next collect carries B's change forward.
+       • For keys only we have: push as before.
+       • Never `batch.delete` old docs. The previous wipe-and-replace was
+         the direct cause of B's writes vanishing.
+       • Force path (manual ⇅ 동기화) bypasses the merge and writes our
+         local state authoritatively, since user explicitly asked. */
     var data=fbCollectData();
     await fbSaveCloudSettings(ref);
-    var old=await ref.collection('data').get();
+
+    /* Inline read of current cloud state. */
+    var cloudSnap = await ref.collection('data').get();
+    var cloudByKey = {}; // key -> {fullValue, updatedAtMs, docIds:[]}
+    cloudSnap.forEach(function(doc){
+      var d = doc.data() || {};
+      var key = d.key; if (!key) return;
+      if (!cloudByKey[key]) cloudByKey[key] = {parts: {}, updatedAtMs: 0, docIds: []};
+      var entry = cloudByKey[key];
+      entry.docIds.push(doc.id);
+      if (d.part != null) entry.parts[d.part] = d.value || '';
+      else entry.parts[0] = d.value || '';
+      var ms = Number(d.updatedAtMs||0);
+      if (ms > entry.updatedAtMs) entry.updatedAtMs = ms;
+    });
+    /* Reassemble full value strings from split parts. */
+    Object.keys(cloudByKey).forEach(function(k){
+      var entry = cloudByKey[k];
+      var partKeys = Object.keys(entry.parts).map(Number).sort(function(a,b){return a-b;});
+      entry.fullValue = partKeys.map(function(p){ return entry.parts[p]; }).join('');
+    });
+
+    /* Conflict resolution. */
+    var preservedFromCloud = []; // keys we did NOT overwrite
+    var absorbedToLocal = [];    // keys we pulled into localStorage
+    var ourKeysToWrite = {};     // final outbound keys -> value
+    var localApplyBaseline = _lastRemoteApplyMs || 0;
+
+    /* For every key we plan to push: if cloud version is newer than our
+       baseline AND cloud differs from ours, accept cloud. Otherwise push
+       ours. Force mode pushes ours unconditionally. */
+    Object.keys(data.keys).forEach(function(k){
+      var ours = data.keys[k];
+      var cloud = cloudByKey[k];
+      if (!opts.force && cloud && cloud.updatedAtMs > localApplyBaseline && cloud.fullValue !== ours) {
+        /* Cloud is newer for this key (another device changed it). Keep
+           cloud, absorb to local. */
+        try {
+          var prev = null;
+          try { prev = localStorage.getItem(k); } catch(e){}
+          if (prev !== cloud.fullValue) {
+            _applyingFbData = true;
+            try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
+            absorbedToLocal.push(k);
+          }
+        } catch(e){}
+        preservedFromCloud.push(k);
+      } else {
+        ourKeysToWrite[k] = ours;
+      }
+    });
+    /* For keys ONLY in cloud (other device created them, we don't have):
+       absorb to local. Do not delete from cloud. */
+    Object.keys(cloudByKey).forEach(function(k){
+      if (data.keys.hasOwnProperty(k)) return;
+      var cloud = cloudByKey[k];
+      if (!opts.force) {
+        try {
+          var prev = null;
+          try { prev = localStorage.getItem(k); } catch(e){}
+          if (prev !== cloud.fullValue) {
+            _applyingFbData = true;
+            try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
+            absorbedToLocal.push(k);
+          }
+        } catch(e){}
+        preservedFromCloud.push(k);
+      }
+    });
+
+    try {
+      if (window.__SYNC_DEBUG) {
+        window.__SYNC_DEBUG.log('fb','per-key merge', {
+          push:Object.keys(ourKeysToWrite).length,
+          preservedFromCloud:preservedFromCloud.length,
+          absorbedToLocal:absorbedToLocal.length,
+          baseline:localApplyBaseline,
+        });
+      }
+    } catch(_e){}
+
+    /* If we absorbed any cloud keys into local, re-render so the user sees
+       them immediately (otherwise the change waits until next onSnapshot). */
+    if (absorbedToLocal.length && typeof window.fbApplyData === 'function') {
+      /* Reuse the reload+render path without going through localStorage
+         writes again. */
+      try { window.fbApplyData({keys:{}, updatedAtMs: Date.now(), __noop:true}); } catch(_e){}
+    }
+
     var batch=fbDb.batch(), ops=0;
     async function commitIfFull(force){
       if(ops && (force || ops>=430)){await batch.commit();batch=fbDb.batch();ops=0;}
     }
-    var oldDocs=[];
-    old.forEach(function(doc){oldDocs.push(doc);});
-    for(var od=0;od<oldDocs.length;od++){
-      batch.delete(oldDocs[od].ref);ops++;
-      await commitIfFull(false);
-    }
-    var dataKeys=Object.keys(data.keys);
-    for(var ki=0;ki<dataKeys.length;ki++){
-      var k=dataKeys[ki], parts=fbSplitValue(data.keys[k]), base=fbDocIdForKey(k);
+
+    /* Per-key write. For each outbound key:
+       • Compute new doc id set from fbSplitValue.
+       • Delete any leftover OLD split-part docs that won't be overwritten
+         (e.g. value shrank from 3 parts to 1). This delete is targeted to
+         the SAME key only, so other-device keys are untouched. */
+    var outKeys = Object.keys(ourKeysToWrite);
+    for(var ki=0;ki<outKeys.length;ki++){
+      var k=outKeys[ki], parts=fbSplitValue(ourKeysToWrite[k]), base=fbDocIdForKey(k);
+      var newDocIds = {};
       if(parts.length===1){
+        newDocIds[base]=true;
         batch.set(ref.collection('data').doc(base),{key:k,value:parts[0],updatedAtMs:data.updatedAtMs});
         ops++;
         await commitIfFull(false);
       }else{
         for(var pi=0;pi<parts.length;pi++){
-          batch.set(ref.collection('data').doc(base+'__'+pi),{key:k,part:pi,value:parts[pi],updatedAtMs:data.updatedAtMs});
+          var docId=base+'__'+pi;
+          newDocIds[docId]=true;
+          batch.set(ref.collection('data').doc(docId),{key:k,part:pi,value:parts[pi],updatedAtMs:data.updatedAtMs});
           ops++;
           await commitIfFull(false);
+        }
+      }
+      /* Cleanup leftover split-part docs for THIS key that aren't in the new set. */
+      var oldEntry = cloudByKey[k];
+      if (oldEntry && oldEntry.docIds.length) {
+        for (var oi=0; oi<oldEntry.docIds.length; oi++){
+          var oldId = oldEntry.docIds[oi];
+          if (!newDocIds[oldId]) {
+            batch.delete(ref.collection('data').doc(oldId));
+            ops++;
+            await commitIfFull(false);
+          }
         }
       }
     }
@@ -16909,7 +17065,9 @@ async function fbSaveNow(opts){
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
-    setFbStatus(fbStatusTime('Firebase 저장 완료'),'ok');
+    var msg='Firebase 저장 완료';
+    if (preservedFromCloud.length) msg += ' (다른 기기 변경 '+preservedFromCloud.length+'건 보존)';
+    setFbStatus(fbStatusTime(msg),'ok');
     return true;
   }catch(e){
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
@@ -17379,7 +17537,15 @@ localStorage.setItem = function(k,v){
 
 var DIARY_DEFAULT_PROMPT='아래 오늘의 할일과 일정을 Notion 타임라인에 넣기 좋게 시간순으로 간결하게 정리해줘. 원문 제목과 이모지는 바꾸지 말고, 새 이모지를 추가하지 마. 빠진 준비나 마감 위험이 보이면 함께 적어줘.\n\n{tasks}';
 var _diaryNotionCfg={};
-function getNotionCfg(){try{return JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}');}catch(e){return{};}}
+function getNotionCfg(){
+  var c={};
+  try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
+  /* F2 fix: auto-sync defaults to ON when the user hasn't set it. The user
+     reported they expected diary edits to sync continuously without having
+     to press a button. We only treat an explicit `false` as off. */
+  if (c.autoSync === undefined) c.autoSync = true;
+  return c;
+}
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
 function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!val;else el.value=val||'';}
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — Worker 비밀 토큰 또는 로컬 토큰으로 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
@@ -17985,10 +18151,22 @@ function _diaryBodyBlocks(entry, metaProps){
           if(part.trim()) out.push(_diaryTextBlock(part.trim()));
         });
       } else if(b.type==='image'&&b.content){
-        if(/^https?:\/\//i.test(b.content)){
-          out.push(_diaryImageBlock(b.content,b.caption||''));
+        /* F3 fix:
+           - Notion-originated images (have `_notionId`) are PRESERVED on the
+             Notion side by the archive step skip. Do NOT re-push them here
+             — pushing the dataURL we cached would either fail (base64 not
+             accepted) or insert a duplicate. Skip silently.
+           - http(s) URLs: push as image block normally.
+           - base64 dataURL with no `_notionId`: this is a Return-only image.
+             We previously inserted a "[로컬 이미지]" paragraph placeholder,
+             which the user found polluting in Notion. Skip it instead —
+             the image lives in Return; Notion just doesn't show it. */
+        if (b._notionId) {
+          // preserved on Notion side, skip
+        } else if (/^https?:\/\//i.test(b.content)) {
+          out.push(_diaryImageBlock(b.content, b.caption||''));
         } else {
-          out.push(_diaryParagraphBlock('[로컬 이미지: '+(b.caption||'앱에 저장된 이미지')+'] — base64 이미지는 Notion에 직접 첨부할 수 없어요. Return 앱 내에 보관됩니다.'));
+          // base64 dataURL — Return-local only, skip push (no placeholder noise)
         }
       }
     });
@@ -18082,13 +18260,31 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
     }
   }
 
+  /* F3 fix: build a set of Notion image-block ids that we already have
+     locally as dataURL (or external URL) copies. Those blocks already
+     represent the image content; archiving them would erase the original
+     image from Notion AND replace it with a base64 placeholder text (since
+     Notion does not accept inline base64). User reported the exact symptom:
+     "노션에서는 ... This image can not be loaded".
+     We exclude these ids from the archive list so the originals stay on the
+     Notion page. We also skip pushing a placeholder for them (handled in
+     _diaryBodyBlocks via `_notionId` skip below). */
+  var preservedNotionImageIds = {};
+  if (entry && Array.isArray(entry._blocks)) {
+    entry._blocks.forEach(function(b){
+      if (b && b.type === 'image' && b._notionId) preservedNotionImageIds[b._notionId] = true;
+    });
+  }
+
   var archiveErrors=0;
   for(var di=0;di<existingIds.length;di++){
+    var bid = existingIds[di];
+    if (preservedNotionImageIds[bid]) continue; // F3: keep Notion-original image
     try{
-      await _diaryNotionApi('PATCH','/blocks/'+existingIds[di], {archived:true});
+      await _diaryNotionApi('PATCH','/blocks/'+bid, {archived:true});
     }catch(de){
       archiveErrors++;
-      console.warn('archive block failed:', existingIds[di], de&&de.message);
+      console.warn('archive block failed:', bid, de&&de.message);
     }
   }
   if(archiveErrors && archiveErrors === existingIds.length){
