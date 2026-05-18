@@ -16441,6 +16441,8 @@ function loadScript(src){
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _fbDataUnsubscribe=null, _applyingFbData=false;
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
 var _fbKeyRemoteMs={};
+var _fbKeyRemoteSig={};
+var _fbDataPollTimer=null, _fbLastDataSeenMs=0, _fbDataPollBusy=false, _fbDataPollTick=0;
 var _fbUserInteracted=false;
 ['pointerdown','keydown','input','change','touchstart'].forEach(function(evt){
   try{window.addEventListener(evt,function(){_fbUserInteracted=true;},{capture:true,passive:true});}catch(e){}
@@ -16470,6 +16472,11 @@ function shouldFbSyncKey(k){
 function fbMarkDirtyKey(k){
   if(!shouldFbSyncKey(k) && ['diary_notion_cfg','gcal_cfg_v1','groq_api_key'].indexOf(k)<0)return;
   _fbDirtyKeys[k]=Date.now();
+}
+function fbValueSig(v){
+  var s=String(v==null?'':v), h=0;
+  for(var i=0;i<s.length;i+=Math.max(1,Math.floor(s.length/64))){h=((h*31)+s.charCodeAt(i))|0;}
+  return s.length+':'+h+':'+s.slice(0,16)+':'+s.slice(-16);
 }
 function fbDirtyKeyList(){return Object.keys(_fbDirtyKeys||{});}
 function fbClearDirtyKeys(keys){
@@ -16532,6 +16539,7 @@ async function initFirebase(){
         _fbLoadingRemote=false;
         _fbDirtyKeys={};
         if(_fbDataUnsubscribe){_fbDataUnsubscribe();_fbDataUnsubscribe=null;}
+        if(_fbDataPollTimer){clearInterval(_fbDataPollTimer);_fbDataPollTimer=null;}
         setFbStatus('설정 저장됨 — Google 로그인이 필요해요','');
       }
     });
@@ -16543,6 +16551,7 @@ clearFbConfig=function(){
   localStorage.removeItem('fb_config');
   if(_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
   if(_fbDataUnsubscribe){_fbDataUnsubscribe();_fbDataUnsubscribe=null;}
+  if(_fbDataPollTimer){clearInterval(_fbDataPollTimer);_fbDataPollTimer=null;}
   try{if(fbAuth)fbAuth.signOut();}catch(e){}
   // Keep the Firebase app/auth instance loaded (they cannot be cleanly removed
   // without page reload) but mark that the auth listener stays bound — we'll
@@ -16812,6 +16821,55 @@ async function fbReadSplitKeys(ref, keys){
   }
   return out;
 }
+function fbStartDataPoll(ref){
+  if(_fbDataPollTimer)clearInterval(_fbDataPollTimer);
+  _fbDataPollTimer=setInterval(async function(){
+    if(!fbDb||!fbUser||_applyingFbData||_fbDataPollBusy)return;
+    _fbDataPollBusy=true;
+    try{
+      var since=Number(_fbLastDataSeenMs||0);
+      var changedKeys={}, maxSeen=since;
+      _fbDataPollTick++;
+      try{
+        var qs=await ref.collection('data').where('updatedAtMs','>',since).get();
+        qs.forEach(function(doc){
+          var d=doc.data()||{};
+          if(d.key&&shouldFbSyncKey(d.key)){
+            changedKeys[d.key]=true;
+            maxSeen=Math.max(maxSeen,Number(d.updatedAtMs||0));
+          }
+        });
+      }catch(qe){
+        try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','data poll query failed: '+qe.message); }catch(_e){}
+      }
+      if(_fbDataPollTick%6===0){
+        var full=await fbReadSplitData(ref);
+        Object.keys(full.keys||{}).forEach(function(k){
+          var sig=fbValueSig(full.keys[k]);
+          if(sig!==_fbKeyRemoteSig[k]&&shouldFbSyncKey(k)){
+            changedKeys[k]=true;
+            maxSeen=Math.max(maxSeen,Number((full.keyUpdatedAtMs||{})[k]||0));
+          }
+        });
+      }
+      var keys=Object.keys(changedKeys);
+      if(keys.length){
+        var split=await fbReadSplitKeys(ref,keys);
+        if(Object.keys(split.keys||{}).length){
+          split.updatedAtMs=maxSeen||Date.now();
+          fbApplyData(split);
+          try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','data poll applied',{keys:Object.keys(split.keys).length,names:Object.keys(split.keys),since:since,maxSeen:maxSeen}); }catch(_e){}
+          setFbStatus(fbStatusTime('Firebase 원격 변경 확인 반영'),'ok');
+        }
+      }
+      if(maxSeen>_fbLastDataSeenMs)_fbLastDataSeenMs=maxSeen;
+    }catch(e){
+      try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','data poll failed: '+e.message); }catch(_e){}
+    }finally{
+      _fbDataPollBusy=false;
+    }
+  },1800);
+}
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
@@ -16845,7 +16903,10 @@ function fbApplyData(data){
       try{ _rawSetItem(k, incoming); }catch(e){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
-      _fbKeyRemoteMs[k]=Number(keyMs[k]||0)||snapshotMs;
+      var appliedMs=Number(keyMs[k]||0)||snapshotMs;
+      _fbKeyRemoteMs[k]=appliedMs;
+      _fbKeyRemoteSig[k]=fbValueSig(incoming);
+      if(appliedMs>_fbLastDataSeenMs)_fbLastDataSeenMs=appliedMs;
     });
 
     /* ── Refresh in-memory module state ─────────────────────────────────
@@ -17060,6 +17121,7 @@ async function fbLoadAll(){
     },function(e){
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','data listener error: '+e.message,{code:e.code}); }catch(_e){}
     });
+    fbStartDataPoll(ref);
     _fbInitialLoadDone=true;
     _fbLoadingRemote=false;
     if(fbDirtyKeyList().length) fbSaveAll();
@@ -17181,7 +17243,8 @@ async function fbSaveNow(opts){
       var cloud = cloudByKey[k];
       var keyBaseline = Number(_fbKeyRemoteMs[k]||0);
       var localDirtyAt = Number((_fbDirtyKeys||{})[k]||0);
-      if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.fullValue !== ours && localDirtyAt) {
+      var cloudChangedByValue = cloud && cloud.fullValue !== ours && fbValueSig(cloud.fullValue)!==_fbKeyRemoteSig[k];
+      if (!opts.force && cloud && cloud.fullValue !== ours && localDirtyAt) {
         var merged=fbMergeJsonValue(k, ours, cloud.fullValue);
         ourKeysToWrite[k]=merged;
         try{
@@ -17189,7 +17252,7 @@ async function fbSaveNow(opts){
           try{_rawSetItem(k, merged);}finally{_applyingFbData=false;}
         }catch(e){}
         absorbedToLocal.push(k);
-      } else if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.updatedAtMs >= localDirtyAt && cloud.fullValue !== ours) {
+      } else if (!opts.force && cloud && cloud.fullValue !== ours && (cloud.updatedAtMs > keyBaseline || cloudChangedByValue)) {
         /* Cloud is newer for this key (another device changed it). Keep
            cloud, absorb to local. */
         try {
@@ -17201,6 +17264,7 @@ async function fbSaveNow(opts){
             absorbedToLocal.push(k);
           }
           _fbKeyRemoteMs[k]=cloud.updatedAtMs||Date.now();
+          _fbKeyRemoteSig[k]=fbValueSig(cloud.fullValue);
         } catch(e){}
         preservedFromCloud.push(k);
       } else {
@@ -17293,7 +17357,7 @@ async function fbSaveNow(opts){
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
-    Object.keys(ourKeysToWrite).forEach(function(k){_fbKeyRemoteMs[k]=data.updatedAtMs;});
+    Object.keys(ourKeysToWrite).forEach(function(k){_fbKeyRemoteMs[k]=data.updatedAtMs;_fbKeyRemoteSig[k]=fbValueSig(ourKeysToWrite[k]);});
     if(!opts.force){
       var pushedKeys=Object.keys(ourKeysToWrite);
       fbClearDirtyKeys(pushedKeys);
