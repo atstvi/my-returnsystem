@@ -16438,7 +16438,7 @@ function loadScript(src){
     document.head.appendChild(sc);
   });
 }
-var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _fbDataUnsubscribe=null, _applyingFbData=false;
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
 var _fbKeyRemoteMs={};
 var FB_CLIENT_ID=(function(){
@@ -16527,6 +16527,7 @@ async function initFirebase(){
         _fbInitialLoadDone=false;
         _fbLoadingRemote=false;
         _fbDirtyKeys={};
+        if(_fbDataUnsubscribe){_fbDataUnsubscribe();_fbDataUnsubscribe=null;}
         setFbStatus('설정 저장됨 — Google 로그인이 필요해요','');
       }
     });
@@ -16537,6 +16538,7 @@ saveFbConfig=async function(){var cfg=readFbInputs();localStorage.setItem('fb_co
 clearFbConfig=function(){
   localStorage.removeItem('fb_config');
   if(_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
+  if(_fbDataUnsubscribe){_fbDataUnsubscribe();_fbDataUnsubscribe=null;}
   try{if(fbAuth)fbAuth.signOut();}catch(e){}
   // Keep the Firebase app/auth instance loaded (they cannot be cleanly removed
   // without page reload) but mark that the auth listener stays bound — we'll
@@ -16726,6 +16728,35 @@ async function fbReadSplitData(ref){
     }
   }
   return data;
+}
+async function fbReadSplitKeys(ref, keys){
+  var wanted={};
+  (keys||[]).forEach(function(k){if(k)wanted[k]=true;});
+  var out={keys:{},keyUpdatedAtMs:{}};
+  var keyList=Object.keys(wanted);
+  if(!keyList.length)return out;
+  try{
+    for(var i=0;i<keyList.length;i++){
+      var k=keyList[i], qs=await ref.collection('data').where('key','==',k).get();
+      var parts={}, latest=0, has=false;
+      qs.forEach(function(doc){
+        var d=doc.data()||{};
+        if(!d.key)return;
+        has=true;
+        if(d.part!=null)parts[d.part]=d.value||'';
+        else parts[0]=d.value||'';
+        latest=Math.max(latest,Number(d.updatedAtMs||0));
+      });
+      if(has){
+        var partKeys=Object.keys(parts).map(Number).sort(function(a,b){return a-b;});
+        out.keys[k]=partKeys.map(function(p){return parts[p];}).join('');
+        out.keyUpdatedAtMs[k]=latest;
+      }
+    }
+  }catch(e){
+    console.warn('fb split key read',e);
+  }
+  return out;
 }
 function fbApplyData(data){
   if(!data||!data.keys) return;
@@ -16939,6 +16970,35 @@ async function fbLoadAll(){
       setFbStatus('동기화 오류: '+msg,'err');
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
     });
+    if(_fbDataUnsubscribe)_fbDataUnsubscribe();
+    var dataFirstSnapshot=true;
+    _fbDataUnsubscribe=ref.collection('data').onSnapshot(async function(qs){
+      if(dataFirstSnapshot){dataFirstSnapshot=false;return;}
+      if(_applyingFbData)return;
+      var changedKeys={};
+      try{
+        qs.docChanges().forEach(function(ch){
+          if(ch.type==='removed')return;
+          var d=ch.doc.data()||{};
+          if(d.key&&shouldFbSyncKey(d.key))changedKeys[d.key]=true;
+        });
+      }catch(e){}
+      var keys=Object.keys(changedKeys);
+      if(!keys.length)return;
+      try{
+        var split=await fbReadSplitKeys(ref,keys);
+        if(Object.keys(split.keys||{}).length){
+          split.updatedAtMs=Date.now();
+          fbApplyData(split);
+          try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','data snapshot applied',{keys:Object.keys(split.keys).length,names:Object.keys(split.keys)}); }catch(_e){}
+          setFbStatus(fbStatusTime('Firebase 원격 변경 즉시 반영'),'ok');
+        }
+      }catch(e){
+        try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','data snapshot apply failed: '+e.message); }catch(_e){}
+      }
+    },function(e){
+      try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','data listener error: '+e.message,{code:e.code}); }catch(_e){}
+    });
     _fbInitialLoadDone=true;
     _fbLoadingRemote=false;
   }catch(e){
@@ -16948,7 +17008,7 @@ async function fbLoadAll(){
     _fbLoadingRemote=false;
   }
 }
-function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
+function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,160);}
 /* Timestamp of the last time we applied a remote snapshot. A short grace
    window after applying suppresses the immediate echo from reloaders/
    renderers writing the just-received data back to localStorage. Real user
