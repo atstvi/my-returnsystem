@@ -5244,7 +5244,6 @@ to{opacity:1;transform:translateY(0)}}
             </div>
             <div class="page-body-add-row">
               <button class="block-add-btn" onclick="addBlock('text')">＋ 텍스트</button>
-              <button class="block-add-btn" onclick="addBlock('image')">🖼 이미지</button>
             </div>
             <div class="block-list" id="block-list">
               <!-- blocks rendered by JS -->
@@ -9396,16 +9395,8 @@ document.addEventListener('paste', function(e){
   if(!files.length)return;
   e.preventDefault();
   if(_currentPage === 'diary' && typeof currentDate !== 'undefined'){
-    files.forEach(function(file){
-      var reader=new FileReader();
-      reader.onload=function(ev){
-        if(!entries[currentDate])entries[currentDate]={};
-        if(!entries[currentDate]._blocks)entries[currentDate]._blocks=[];
-        entries[currentDate]._blocks.push({type:'image',content:ev.target.result,caption:''});
-        reRenderBlocks(); scheduleBlockSave();
-      };
-      reader.readAsDataURL(file);
-    });
+    if(typeof showToast==='function')showToast('일기 본문 이미지는 동기화 안정성을 위해 Return에 저장하지 않아요. 이미지는 Notion에서만 독립적으로 사용해주세요.');
+    return;
   } else {
     files.forEach(addComposerImage);
     if(_currentPage !== 'inbox') goPage('inbox');
@@ -12580,6 +12571,7 @@ function loadDate(dk) {
 
   /* Scroll to top */
   document.getElementById('diary-center').scrollTo({ top:0, behavior:'smooth' });
+  if(_currentPage==='diary' && typeof queueDiaryNotionTabSync==='function')queueDiaryNotionTabSync(dk);
 }
 
 function updateDateHeader(dk) {
@@ -13026,6 +13018,10 @@ function autoGrowBlock(ta) {
 
 function addBlock(type) {
   if (!currentDate) return;
+  if (type === 'image') {
+    if(typeof showToast==='function')showToast('일기 이미지는 동기화 대상에서 제외했어요. 이미지는 Notion에서만 독립적으로 사용해주세요.');
+    return;
+  }
   if (!entries[currentDate]) entries[currentDate] = {};
   if (!entries[currentDate]._blocks) entries[currentDate]._blocks = [];
   var newBlock = { type: type, content: '', caption: '' };
@@ -13088,6 +13084,8 @@ function reRenderBlocks() {
 
 /* Image picker */
 function pickImageForBlock(idx, block) {
+  if(typeof showToast==='function')showToast('일기 이미지는 더 이상 Return 본문에 첨부하지 않아요.');
+  return;
   var input = document.getElementById('img-file-input');
   if (!input) return;
   input.onchange = function() {
@@ -13453,6 +13451,7 @@ function _initDiary(){
     var d = new Date(t+'T00:00');
     stripYear = d.getFullYear(); stripMonth = d.getMonth();
     loadDate(t);
+    if(typeof queueDiaryNotionTabSync==='function')queueDiaryNotionTabSync(t);
   }catch(e){console.warn('diary init:',e);}
 }
 
@@ -16441,7 +16440,16 @@ function loadScript(src){
 }
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
-var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
+var FB_CLIENT_ID=(function(){
+  var k='return_fb_session_client_id', v='';
+  try{ v=sessionStorage.getItem(k)||''; }catch(e){}
+  if(!v){
+    v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    try{ sessionStorage.setItem(k,v); }catch(e){}
+  }
+  try{ localStorage.removeItem('return_fb_client_id'); }catch(e){}
+  return v;
+})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy']).filter(function(k){
@@ -16579,14 +16587,34 @@ function fbCollectData(opts){
   for (var i=0; i<scanKeys.length; i++){
     var k = scanKeys[i];
     if (!shouldFbSyncKey(k)) continue;
-    if (stale[k]) { skipped.push(k); continue; }
+    if (stale[k]) {
+      if(k==='diary_entries_v1' && typeof entries==='object' && entries){
+        try{ data.keys[k]=fbSanitizeDiaryEntriesForCloud(JSON.stringify(entries)); continue; }catch(e){}
+      }
+      skipped.push(k); continue;
+    }
     var v = localStorage.getItem(k);
+    if (k === 'diary_entries_v1') v = fbSanitizeDiaryEntriesForCloud(v);
     if (v != null) data.keys[k] = v;
   }
   if (skipped.length) {
     try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','fbCollectData skipped stale keys', {keys:skipped}); } catch(_){}
   }
   return data;
+}
+function fbSanitizeDiaryEntriesForCloud(raw){
+  try{
+    var obj=JSON.parse(raw||'{}');
+    if(!obj||typeof obj!=='object'||Array.isArray(obj))return raw;
+    var changed=false;
+    Object.keys(obj).forEach(function(dk){
+      var entry=obj[dk];
+      if(!entry||!Array.isArray(entry._blocks))return;
+      var filtered=entry._blocks.filter(function(b){return !(b&&b.type==='image');});
+      if(filtered.length!==entry._blocks.length){entry._blocks=filtered;changed=true;}
+    });
+    return changed?JSON.stringify(obj):raw;
+  }catch(e){return raw;}
 }
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
@@ -16704,6 +16732,7 @@ function fbApplyData(data){
   try {
     var dirtyAtApply = Object.assign({}, _fbDirtyKeys || {});
     Object.keys(data.keys).forEach(function(k){
+      if(!shouldFbSyncKey(k)) return;
       /* Do not clobber edits this device has made but not uploaded yet.
          Remote snapshots carry all split keys, not just the changed key, so
          blindly applying every key can erase a local project/hobby edit while
@@ -17328,7 +17357,7 @@ async function runFirebaseDiagnostics(){
 
   /* Step 8: clientId */
   var myCid='';
-  try { myCid=localStorage.getItem('return_fb_client_id')||''; }catch(e){}
+  try { myCid=FB_CLIENT_ID||''; }catch(e){}
   if(myCid){
     add('이 기기 clientId','ok',myCid);
   } else {
@@ -17650,6 +17679,7 @@ saveNotionConfig=function(silent){
   if(!silent)showToast('Notion 설정 저장됨');
 };
 var _notionSaveTimer=null;
+var _notionTabSyncTimer=null;
 function queueDiaryNotionSave(dateKey){
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
@@ -17664,6 +17694,14 @@ function queueDiaryNotionSave(dateKey){
   _notionSaveTimer=setTimeout(function(){
     syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:false});
   },900);
+}
+function queueDiaryNotionTabSync(dateKey){
+  var cfg=getNotionCfg();
+  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
+  clearTimeout(_notionTabSyncTimer);
+  _notionTabSyncTimer=setTimeout(function(){
+    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:true});
+  },1200);
 }
 function simplifySyncSettingsUI(){
   /* Unified bidirectional sync labels. The previous "비상시 동기화" labeling
@@ -18287,10 +18325,8 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
     existingResults.forEach(function(nb){
       if(!nb || !nb.id || knownIds[nb.id]) return;
       if(nb.type==='image'){
-        var img=nb.image||{}, url=(img.external&&img.external.url)||(img.file&&img.file.url)||'';
-        if(!url) return;
-        var cap=(img.caption||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
-        absorbed.push({type:'image', content:url, caption:cap, _notionId:nb.id});
+        /* Notion images stay Notion-only. We preserve the block on the page
+           but do not import expiring file URLs into Return/localStorage. */
         entry._notionBlockIds[nb.id]=true;
       }
     });
@@ -18421,8 +18457,8 @@ async function _pullDiaryPageBody(pageId, dateKey){
 
   var currentSection=null;
   var sectionTexts={}; /* {sectionKey: [paragraphs...]} */
-  var freeBlocks=[];   /* paragraphs/images outside any known section */
-  var imageJobs=[];    /* deferred image processing */
+  var freeBlocks=[];   /* paragraphs outside any known section */
+  var imageJobs=[];    /* deprecated; images are Notion-only */
 
   (data.results||[]).forEach(function(b){
     if(!b) return;
@@ -18463,16 +18499,10 @@ async function _pullDiaryPageBody(pageId, dateKey){
       return;
     }
     if(b.type==='image'){
-      var img=b.image||{}, url=(img.external&&img.external.url)||(img.file&&img.file.url)||'';
-      if(!url) return;
-      var cap=(img.caption||[]).map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('');
-      var blockObj={type:'image',content:url,caption:cap,_notionId:b.id};
-      freeBlocks.push(blockObj);
+      /* Keep Notion images independent. The original Notion image block is
+         preserved during push; Return imports/saves text only. */
       entry._notionBlockIds[b.id]=true;
-      added++;
-      /* Best-effort cache: Notion file URLs expire, and some external hosts
-         block hotlinking. If browser fetch is allowed we keep a durable data URL. */
-      imageJobs.push(blockObj);
+      return;
     }
   });
 
@@ -18507,19 +18537,6 @@ async function _pullDiaryPageBody(pageId, dateKey){
     else if(typeof saveAllEntries==='function') saveAllEntries();
     else { try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){} }
     try { if(typeof loadBlocks==='function') loadBlocks(dateKey); } catch(e){ console.warn('diary refresh',e); }
-  }
-
-  /* Convert image URLs to base64 in the background so they persist beyond
-     Notion's 1-hour URL expiry. Runs after the initial render. */
-  if(imageJobs.length){
-    Promise.all(imageJobs.map(function(blk){
-      return _notionImageToDataUrl(blk.content).then(function(dataUrl){
-        blk.content=dataUrl;
-      });
-    })).then(function(){
-      try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
-      if(typeof loadBlocks==='function' && dateKey===currentDate) loadBlocks(dateKey);
-    });
   }
 
   return added;
@@ -18815,7 +18832,7 @@ async function diaryAutoDetectProps(){
     showToast('자동 감지 실패: '+e.message);
   }
 }
-var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:true,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:true});},120000);}
+var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:true,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:true});},60000);}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
 /* Google Calendar runtime */
