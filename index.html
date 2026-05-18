@@ -16623,6 +16623,56 @@ function fbSanitizeDiaryEntriesForCloud(raw){
     return changed?JSON.stringify(obj):raw;
   }catch(e){return raw;}
 }
+function fbItemStamp(x){
+  if(!x||typeof x!=='object')return 0;
+  return Number(x.updatedAt||x.modifiedAt||x.ts||x.createdAt||x.dateMs||0)||0;
+}
+function fbItemId(x, idx){
+  if(!x||typeof x!=='object')return 'idx_'+idx;
+  return String(x.id||x._id||x.key||x.date||x.ts||('idx_'+idx));
+}
+function fbMergeArraysById(localArr, cloudArr){
+  var map={}, order=[];
+  function add(item, idx, source){
+    var id=fbItemId(item, idx);
+    if(!map[id]){map[id]={local:null,cloud:null,localIdx:idx,cloudIdx:idx};order.push(id);}
+    map[id][source]=item;
+    map[id][source+'Idx']=idx;
+  }
+  (cloudArr||[]).forEach(function(x,i){add(x,i,'cloud');});
+  (localArr||[]).forEach(function(x,i){add(x,i,'local');});
+  return order.map(function(id){
+    var e=map[id], l=e.local, c=e.cloud;
+    if(l==null)return c;
+    if(c==null)return l;
+    if(l&&c&&typeof l==='object'&&typeof c==='object'&&!Array.isArray(l)&&!Array.isArray(c)){
+      var ls=fbItemStamp(l), cs=fbItemStamp(c);
+      if(ls||cs)return ls>=cs?Object.assign({},c,l):Object.assign({},l,c);
+      return Object.assign({},c,l);
+    }
+    return l;
+  });
+}
+function fbMergeObjectsDeep(localObj, cloudObj){
+  if(!localObj||typeof localObj!=='object'||Array.isArray(localObj))return cloudObj;
+  if(!cloudObj||typeof cloudObj!=='object'||Array.isArray(cloudObj))return localObj;
+  var out=Object.assign({},cloudObj);
+  Object.keys(localObj).forEach(function(k){
+    var l=localObj[k], c=cloudObj[k];
+    if(Array.isArray(l)&&Array.isArray(c))out[k]=fbMergeArraysById(l,c);
+    else if(l&&c&&typeof l==='object'&&typeof c==='object'&&!Array.isArray(l)&&!Array.isArray(c))out[k]=fbMergeObjectsDeep(l,c);
+    else out[k]=l;
+  });
+  return out;
+}
+function fbMergeJsonValue(key, localRaw, cloudRaw){
+  try{
+    var local=JSON.parse(localRaw||'null'), cloud=JSON.parse(cloudRaw||'null');
+    if(Array.isArray(local)&&Array.isArray(cloud))return JSON.stringify(fbMergeArraysById(local,cloud));
+    if(local&&cloud&&typeof local==='object'&&typeof cloud==='object'&&!Array.isArray(local)&&!Array.isArray(cloud))return JSON.stringify(fbMergeObjectsDeep(local,cloud));
+  }catch(e){}
+  return localRaw!=null?String(localRaw):String(cloudRaw||'');
+}
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {
@@ -16784,8 +16834,15 @@ function fbApplyData(data){
          Remote snapshots carry all split keys, not just the changed key, so
          blindly applying every key can erase a local project/hobby edit while
          another device only changed something unrelated. */
-      if(dirtyAtApply[k]) return;
-      try{ _rawSetItem(k, data.keys[k]); }catch(e){
+      var incoming=data.keys[k];
+      if(dirtyAtApply[k]){
+        try{
+          var localRaw=localStorage.getItem(k);
+          incoming=fbMergeJsonValue(k, localRaw, incoming);
+          _fbDirtyKeys[k]=Date.now();
+        }catch(e){return;}
+      }
+      try{ _rawSetItem(k, incoming); }catch(e){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
       _fbKeyRemoteMs[k]=Number(keyMs[k]||0)||snapshotMs;
@@ -17124,7 +17181,15 @@ async function fbSaveNow(opts){
       var cloud = cloudByKey[k];
       var keyBaseline = Number(_fbKeyRemoteMs[k]||0);
       var localDirtyAt = Number((_fbDirtyKeys||{})[k]||0);
-      if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.updatedAtMs >= localDirtyAt && cloud.fullValue !== ours) {
+      if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.fullValue !== ours && localDirtyAt) {
+        var merged=fbMergeJsonValue(k, ours, cloud.fullValue);
+        ourKeysToWrite[k]=merged;
+        try{
+          _applyingFbData=true;
+          try{_rawSetItem(k, merged);}finally{_applyingFbData=false;}
+        }catch(e){}
+        absorbedToLocal.push(k);
+      } else if (!opts.force && cloud && cloud.updatedAtMs > keyBaseline && cloud.updatedAtMs >= localDirtyAt && cloud.fullValue !== ours) {
         /* Cloud is newer for this key (another device changed it). Keep
            cloud, absorb to local. */
         try {
@@ -17229,7 +17294,10 @@ async function fbSaveNow(opts){
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
     Object.keys(ourKeysToWrite).forEach(function(k){_fbKeyRemoteMs[k]=data.updatedAtMs;});
-    if(!opts.force) fbClearDirtyKeys(dirtyKeysForSave||[]);
+    if(!opts.force){
+      var pushedKeys=Object.keys(ourKeysToWrite);
+      fbClearDirtyKeys(pushedKeys);
+    }
     else _fbDirtyKeys={};
     var msg='Firebase 저장 완료';
     if (preservedFromCloud.length) msg += ' (다른 기기 변경 '+preservedFromCloud.length+'건 보존)';
