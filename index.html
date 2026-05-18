@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="ko" data-theme="warm-sand">
 <head>
@@ -16439,6 +16440,7 @@ function loadScript(src){
   });
 }
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
@@ -16451,6 +16453,14 @@ function shouldFbSyncKey(k){
   if(CLOUD_SETTING_KEYS.indexOf(k)>=0)return true;
   if(FB_DATA_KEYS.indexOf(k)>=0)return true;
   return /^(return_|task_|diary_|hobby_|home_|inbox_|project|projects_|memos_|metrics_|phil_|reward_|recharge_|timetables_|global_sticker)/.test(k);
+}
+function fbMarkDirtyKey(k){
+  if(!shouldFbSyncKey(k) && ['diary_notion_cfg','gcal_cfg_v1','groq_api_key'].indexOf(k)<0)return;
+  _fbDirtyKeys[k]=Date.now();
+}
+function fbDirtyKeyList(){return Object.keys(_fbDirtyKeys||{});}
+function fbClearDirtyKeys(keys){
+  (keys||[]).forEach(function(k){delete _fbDirtyKeys[k];});
 }
 function fbConfig(){ try{return Object.assign({},DEFAULT_FB_CONFIG,JSON.parse(localStorage.getItem('fb_config')||'{}'));}catch(e){return Object.assign({},DEFAULT_FB_CONFIG);} }
 function readFbInputs(){var cur=fbConfig();return {apiKey:(document.getElementById('fb-api-key')||{}).value||cur.apiKey||DEFAULT_FB_CONFIG.apiKey,authDomain:(document.getElementById('fb-auth-domain')||{}).value||cur.authDomain||DEFAULT_FB_CONFIG.authDomain,projectId:(document.getElementById('fb-project-id')||{}).value||cur.projectId||DEFAULT_FB_CONFIG.projectId};}
@@ -16499,9 +16509,15 @@ async function initFirebase(){
       updateAuthGate();
       if(typeof updateAuthLockCopy==='function')updateAuthLockCopy();
       if(user){
+        _fbInitialLoadDone=false;
+        _fbLoadingRemote=true;
+        clearTimeout(_fbSaveTimer);
         setFbStatus('연결됨 — '+(user.email||'Google 계정'),'ok');
         fbLoadAll();
       } else {
+        _fbInitialLoadDone=false;
+        _fbLoadingRemote=false;
+        _fbDirtyKeys={};
         setFbStatus('설정 저장됨 — Google 로그인이 필요해요','');
       }
     });
@@ -16544,7 +16560,8 @@ async function fbGoogleLogin(){
     }catch(calErr){console.warn('calendar token from firebase login',calErr);}
   }catch(e){showToast('Google 로그인 실패: '+e.message);}
 }
-function fbCollectData(){
+function fbCollectData(opts){
+  opts=opts||{};
   /* E2 guard: skip any key currently marked stale by the quota recovery
      path. Pushing the stale local value would overwrite the (newer) cloud
      copy. The skipped keys remain unchanged in Firestore and other devices
@@ -16552,8 +16569,15 @@ function fbCollectData(){
   var stale = window.__staleQuotaKeys || {};
   var skipped = [];
   var data = {updatedAtMs:Date.now(), keys:{}};
-  for (var i=0; i<localStorage.length; i++){
-    var k = localStorage.key(i);
+  var explicitKeys = opts.force ? null : (opts.keys || fbDirtyKeyList());
+  if(!opts.force && explicitKeys && explicitKeys.length===0) return data;
+  var scanKeys = explicitKeys || null;
+  if(!scanKeys){
+    scanKeys=[];
+    for (var si=0; si<localStorage.length; si++) scanKeys.push(localStorage.key(si));
+  }
+  for (var i=0; i<scanKeys.length; i++){
+    var k = scanKeys[i];
     if (!shouldFbSyncKey(k)) continue;
     if (stale[k]) { skipped.push(k); continue; }
     var v = localStorage.getItem(k);
@@ -16678,7 +16702,13 @@ function fbApplyData(data){
      user edit made during a render still triggers a normal save. */
   _applyingFbData = true;
   try {
+    var dirtyAtApply = Object.assign({}, _fbDirtyKeys || {});
     Object.keys(data.keys).forEach(function(k){
+      /* Do not clobber edits this device has made but not uploaded yet.
+         Remote snapshots carry all split keys, not just the changed key, so
+         blindly applying every key can erase a local project/hobby edit while
+         another device only changed something unrelated. */
+      if(dirtyAtApply[k]) return;
       try{ _rawSetItem(k, data.keys[k]); }catch(e){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
@@ -16814,6 +16844,8 @@ function fbStatusTime(prefix){
 }
 async function fbLoadAll(){
   if(!fbDb||!fbUser)return;
+  _fbLoadingRemote=true;
+  clearTimeout(_fbSaveTimer);
   var ref=fbDb.collection('users').doc(fbUser.uid);
   setFbStatus('Firebase에서 불러오는 중...','saving');
   try{
@@ -16865,12 +16897,16 @@ async function fbLoadAll(){
       setFbStatus('동기화 오류: '+msg,'err');
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
     });
+    _fbInitialLoadDone=true;
+    _fbLoadingRemote=false;
   }catch(e){
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
     setFbStatus('동기화 오류: '+msg,'err');
+    _fbInitialLoadDone=true;
+    _fbLoadingRemote=false;
   }
 }
-function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
+function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
 /* Timestamp of the last time we applied a remote snapshot. A short grace
    window after applying suppresses the immediate echo from reloaders/
    renderers writing the just-received data back to localStorage. Real user
@@ -16881,7 +16917,7 @@ function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbS
 var _lastRemoteApplyMs=0;
 async function fbSaveNow(opts){
   opts=opts||{};
-  if(!fbDb||!fbUser||_applyingFbData)return false;
+  if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return false;
   /* Echo-suppression grace period. Note: this only suppresses saves
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
@@ -16928,8 +16964,21 @@ async function fbSaveNow(opts){
          the direct cause of B's writes vanishing.
        • Force path (manual ⇅ 동기화) bypasses the merge and writes our
          local state authoritatively, since user explicitly asked. */
-    var data=fbCollectData();
-    await fbSaveCloudSettings(ref);
+    var dirtyKeysForSave = opts.force ? null : fbDirtyKeyList();
+    var data=fbCollectData({force:!!opts.force, keys:dirtyKeysForSave});
+    var dataKeyCount=Object.keys(data.keys||{}).length;
+    var settingsDirty = opts.force || (dirtyKeysForSave||[]).some(function(k){
+      return CLOUD_SETTING_KEYS.indexOf(k)>=0 || ['diary_notion_cfg','gcal_cfg_v1','groq_api_key'].indexOf(k)>=0;
+    });
+    if(!opts.force && dataKeyCount===0){
+      if(settingsDirty){
+        await fbSaveCloudSettings(ref);
+        fbClearDirtyKeys(dirtyKeysForSave||[]);
+        setFbStatus(fbStatusTime('Firebase 설정 저장 완료'),'ok');
+      }
+      return true;
+    }
+    if(settingsDirty) await fbSaveCloudSettings(ref);
 
     /* Inline read of current cloud state. */
     var cloudSnap = await ref.collection('data').get();
@@ -17061,10 +17110,12 @@ async function fbSaveNow(opts){
       }
     }
     await commitIfFull(true);
-    await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
+    await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:dataKeyCount},{merge:false});
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
+    if(!opts.force) fbClearDirtyKeys(dirtyKeysForSave||[]);
+    else _fbDirtyKeys={};
     var msg='Firebase 저장 완료';
     if (preservedFromCloud.length) msg += ' (다른 기기 변경 '+preservedFromCloud.length+'건 보존)';
     setFbStatus(fbStatusTime(msg),'ok');
@@ -17530,7 +17581,10 @@ localStorage.setItem = function(k,v){
   }
   if(prev === String(v)) return; // no-op write, skip side effects
   if(_applyingFbData) return;    // remote sync in progress, do not echo back
-  if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function') fbSaveAll();
+  if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function'){
+    if(fbUser && _fbInitialLoadDone && !_fbLoadingRemote) fbMarkDirtyKey(k);
+    fbSaveAll();
+  }
   if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
   if(k==='task_items_v1' && typeof gcalQueueAutoSync==='function') gcalQueueAutoSync();
 };
@@ -18094,6 +18148,9 @@ function _diaryTextParts(txt){
 function _diaryImageBlock(src, caption){
   return {object:'block',type:'image',image:{type:'external',external:{url:src},caption:caption?[{type:'text',text:{content:String(caption).slice(0,1900)}}]:[]}};
 }
+function _notionBlockIdKey(id){
+  return String(id||'').replace(/-/g,'').toLowerCase();
+}
 /* Build the page body block list.
    IMPORTANT: A diary section (sleep / morning / etc.) should NOT be duplicated
    in the page body if its value already syncs to a writable Notion property.
@@ -18166,7 +18223,7 @@ function _diaryBodyBlocks(entry, metaProps){
         } else if (/^https?:\/\//i.test(b.content)) {
           out.push(_diaryImageBlock(b.content, b.caption||''));
         } else {
-          // base64 dataURL — Return-local only, skip push (no placeholder noise)
+          // base64/blob/file dataURL — Return-local only, skip push (no placeholder noise)
         }
       }
     });
@@ -18272,14 +18329,21 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
   var preservedNotionImageIds = {};
   if (entry && Array.isArray(entry._blocks)) {
     entry._blocks.forEach(function(b){
-      if (b && b.type === 'image' && b._notionId) preservedNotionImageIds[b._notionId] = true;
+      if (b && b.type === 'image' && b._notionId) preservedNotionImageIds[_notionBlockIdKey(b._notionId)] = true;
     });
   }
+  /* Stronger safety rule: never archive image blocks already present in
+     Notion. Notion-hosted file URLs expire when copied into Return, but the
+     original image block in Notion remains valid if we leave it alone. This
+     also avoids id-format mismatches causing "This image can not be loaded". */
+  existingResults.forEach(function(nb){
+    if(nb && nb.id && nb.type === 'image') preservedNotionImageIds[_notionBlockIdKey(nb.id)] = true;
+  });
 
   var archiveErrors=0;
   for(var di=0;di<existingIds.length;di++){
     var bid = existingIds[di];
-    if (preservedNotionImageIds[bid]) continue; // F3: keep Notion-original image
+    if (preservedNotionImageIds[_notionBlockIdKey(bid)]) continue; // keep Notion-original image
     try{
       await _diaryNotionApi('PATCH','/blocks/'+bid, {archived:true});
     }catch(de){
