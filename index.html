@@ -5946,8 +5946,8 @@ to{opacity:1;transform:translateY(0)}}
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveFbConfig()">저장 및 연결</button>
                 <button class="set-btn btn-ghost" onclick="fbGoogleLogin()">Google 로그인</button>
-                <button class="set-btn btn-ghost" onclick="fbForceSync()">⬆ 지금 올리기</button>
-                <button class="set-btn btn-ghost" onclick="fbForcePull()">⬇ 지금 가져오기</button>
+                <button class="set-btn btn-ghost" onclick="fbForceSync()">⇅ 안전 동기화</button>
+                <button class="set-btn btn-ghost" onclick="fbForcePull()" style="display:none">⬇ 지금 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="runFirebaseDiagnostics()">🔬 진단 실행</button>
                 <button class="set-btn btn-ghost" onclick="clearFbConfig()">연결 해제</button>
                 <button class="set-btn btn-ghost" onclick="showFirebaseRulesHelp()">규칙 보기</button>
@@ -16964,7 +16964,8 @@ async function fbSaveNow(opts){
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
      swallow a real edit a user makes right after seeing the remote update.
-     Manual "지금 올리기" still bypasses with force:true. */
+     Manual sync also uses this guarded merge path; force upload is no
+     longer exposed from the settings UI. */
   if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
     return false;
   }
@@ -17178,13 +17179,16 @@ async function fbForceSync(){
   try{
     if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
     if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
-    /* Manual force path. No prompt — the dialog from the earlier version
-       was tied to a last-write-wins guard that has been removed, since the
-       guard was silently dropping real edits when two devices were used
-       at the same time. */
+    /* Manual sync is not a force-upload. It finishes pending safe merges,
+       then pulls the current cloud state so another device's changes are
+       never erased just because the user pressed the settings sync button. */
     clearTimeout(_fbSaveTimer);
-    var saved=await fbSaveNow({force:true});
-    showToast(saved?'Firebase에 지금 저장했어요':'Firebase 동기화에 실패했어요');
+    setFbStatus('Firebase 안전 동기화 중...','saving');
+    var dirty=fbDirtyKeyList();
+    var saved=true;
+    if(dirty.length) saved=await fbSaveNow({manual:true});
+    await fbLoadAll();
+    showToast(saved?'Firebase 안전 동기화를 완료했어요':'Firebase 동기화 중 일부 저장에 실패했어요. 원격 데이터는 다시 확인했어요.');
   }catch(e){
     setFbStatus('Firebase 오류: '+e.message,'err');
     showToast('Firebase 오류: '+e.message);
@@ -17727,7 +17731,7 @@ function simplifySyncSettingsUI(){
      described the legacy behavior (push-only / one-shot) that has been
      replaced by an explicit two-way sync. */
   [
-    ['fb-detail','fbForceSync()','⇅ 동기화'],
+    ['fb-detail','fbForceSync()','⇅ 안전 동기화'],
     ['fb-detail','clearFbConfig()','연동 해제'],
     ['notion-detail','syncDiaryToNotion','⇅ 동기화'],
     ['notion-detail','clearDiaryNotionConfig()','연동 해제'],
