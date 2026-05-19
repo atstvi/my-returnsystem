@@ -17854,6 +17854,12 @@ var _diaryNotionCfg={};
 function getNotionCfg(){
   var c={};
   try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
+  if(!c.token){
+    try{
+      var hidden=JSON.parse(localStorage.getItem('_hidden_notion_config')||'{}');
+      c.token=hidden.token||hidden.notionToken||hidden.integrationToken||c.token||'';
+    }catch(e){}
+  }
   /* F2 fix: auto-sync defaults to ON when the user hasn't set it. The user
      reported they expected diary edits to sync continuously without having
      to press a button. We only treat an explicit `false` as off. */
@@ -19957,7 +19963,7 @@ function showToast(msg) {
   }
   function sanitizeForCloud(k, v){
     if(k==='diary_notion_cfg'){
-      try{ var cfg=JSON.parse(v||'{}'); delete cfg.token; return JSON.stringify(cfg); }catch(e){ return String(v); }
+      try{ var cfg=JSON.parse(v||'{}'); return JSON.stringify(cfg); }catch(e){ return String(v); }
     }
     if(k==='gcal_cfg_v1'){
       try{ var gc=JSON.parse(v||'{}'); delete gc._savedToken; delete gc._savedTokenExp; delete gc.eventIds; return JSON.stringify(gc); }catch(e){ return String(v); }
@@ -19974,6 +19980,13 @@ function showToast(msg) {
   function parseJson(v){ try{return JSON.parse(v);}catch(e){return null;} }
   function mergeJsonValue(k, localVal, cloudVal){
     if(localVal===cloudVal) return localVal;
+    if(k==='diary_notion_cfg'){
+      var nl=parseJson(localVal)||{}, nc=parseJson(cloudVal)||{};
+      var nm=Object.assign({}, nc, nl);
+      if(!nm.token && nc.token) nm.token=nc.token;
+      if(!nm.token && nl.token) nm.token=nl.token;
+      return JSON.stringify(nm);
+    }
     if(typeof fbMergeJsonValue === 'function'){
       try{return fbMergeJsonValue(k, localVal, cloudVal);}catch(e){}
     }
@@ -20112,7 +20125,10 @@ function showToast(msg) {
     var merged={}, upload={};
     uniq(Object.keys(localData||{}).concat(Object.keys(cloudData||{}))).forEach(function(k){
       var lv=localData[k], cv=cloudData[k];
-      if(cloudAuthoritative && cv!=null) merged[k]=cv;
+      if(cloudAuthoritative && cv!=null){
+        merged[k]=(k==='diary_notion_cfg' && lv!=null) ? mergeJsonValue(k, lv, cv) : cv;
+        if(k==='diary_notion_cfg' && merged[k]!==cv && !isEmptyValue(merged[k])) upload[k]=merged[k];
+      }
       else if(cv!=null && (lv==null || isEmptyValue(lv))) merged[k]=cv;
       else if(lv!=null && cv==null){ merged[k]=lv; if(!isEmptyValue(lv)) upload[k]=lv; }
       else if(lv!=null && cv!=null){
