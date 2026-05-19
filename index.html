@@ -16427,7 +16427,10 @@ var DATA_KEYS = [
 ];
 
 
-/* Firebase and Notion runtime restored */
+/* LEGACY SYNC RUNTIME.
+   This block is kept for compatibility with existing UI call sites and old
+   cloud data. New cross-device app data sync is routed through SyncManager
+   below; do not add new Firebase/Notion/Google responsibilities here. */
 function _lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
 function _lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
 function loadScript(src){
@@ -16442,10 +16445,10 @@ var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsub
 var _fbLoadingRemote=false, _fbInitialLoadDone=false, _fbDirtyKeys={};
 var _fbKeyRemoteMs={};
 var _fbKeyRemoteSig={};
-var _fbDataPollTimer=null, _fbLastDataSeenMs=0, _fbDataPollBusy=false, _fbDataPollTick=0;
-var _fbUserInteracted=false;
+var _fbDataPollTimer=null, _fbLastDataSeenMs=0, _fbDataPollBusy=false, _fbDataPollTick=0, _fbRemoteApplyHoldUntil=0, _fbRemoteApplyAt=0;
+var _fbUserInteracted=false, _fbLastUserInteractionAt=0;
 ['pointerdown','keydown','input','change','touchstart'].forEach(function(evt){
-  try{window.addEventListener(evt,function(){_fbUserInteracted=true;},{capture:true,passive:true});}catch(e){}
+  try{window.addEventListener(evt,function(){_fbUserInteracted=true;_fbLastUserInteractionAt=Date.now();},{capture:true,passive:true});}catch(e){}
 });
 var FB_CLIENT_ID=(function(){
   var k='return_fb_session_client_id', v='';
@@ -16732,7 +16735,7 @@ function fbApplyCloudSettings(doc){
 }
 async function fbLoadCloudSettings(ref){
   var sref=ref.collection('settings').doc('main');
-  var snap=await sref.get();
+  var snap=await sref.get({source:'server'}).catch(function(){return sref.get();});
   if(snap.exists){
     var count=fbApplyCloudSettings(snap.data());
     return {exists:true,count:count};
@@ -16756,7 +16759,7 @@ function fbSplitValue(v){
 async function fbReadSplitData(ref){
   var data={keys:{}, keyUpdatedAtMs:{}};
   try{
-    var qs=await ref.collection('data').get();
+    var qs=await ref.collection('data').get({source:'server'}).catch(function(){return ref.collection('data').get();});
     var chunks={};
     qs.forEach(function(doc){
       var d=doc.data()||{}, id=doc.id;
@@ -16800,7 +16803,7 @@ async function fbReadSplitKeys(ref, keys){
   if(!keyList.length)return out;
   try{
     for(var i=0;i<keyList.length;i++){
-      var k=keyList[i], qs=await ref.collection('data').where('key','==',k).get();
+      var k=keyList[i], qs=await ref.collection('data').where('key','==',k).get({source:'server'}).catch(function(){return ref.collection('data').where('key','==',k).get();});
       var parts={}, latest=0, has=false;
       qs.forEach(function(doc){
         var d=doc.data()||{};
@@ -16831,7 +16834,7 @@ function fbStartDataPoll(ref){
       var changedKeys={}, maxSeen=since;
       _fbDataPollTick++;
       try{
-        var qs=await ref.collection('data').where('updatedAtMs','>',since).get();
+        var qs=await ref.collection('data').where('updatedAtMs','>',since).get({source:'server'}).catch(function(){return ref.collection('data').where('updatedAtMs','>',since).get();});
         qs.forEach(function(doc){
           var d=doc.data()||{};
           if(d.key&&shouldFbSyncKey(d.key)){
@@ -16872,6 +16875,8 @@ function fbStartDataPoll(ref){
 }
 function fbApplyData(data){
   if(!data||!data.keys) return;
+  _fbRemoteApplyAt=Date.now();
+  _fbRemoteApplyHoldUntil=_fbRemoteApplyAt+1200;
   /* Record when we applied a remote snapshot so the next debounced fbSave
      can decide whether to skip (echo-suppression grace period). Use the
      remote-claimed timestamp if present, else now. */
@@ -17052,7 +17057,7 @@ async function fbLoadAll(){
       console.warn('cloud settings load',se);
       setFbStatus('설정 동기화 오류: '+(se&&se.message||se),'err');
     }
-    var snap=await ref.get();
+    var snap=await ref.get({source:'server'}).catch(function(){return ref.get();});
     if(snap.exists&&snap.data()&&snap.data().keys){fbApplyData(snap.data());applied+=Object.keys(snap.data().keys||{}).length;}
     var splitData=await fbReadSplitData(ref);
     var splitCount=Object.keys(splitData.keys||{}).length;
@@ -17133,7 +17138,12 @@ async function fbLoadAll(){
     if(fbDirtyKeyList().length) fbSaveAll();
   }
 }
-function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,160);}
+function fbSaveAll(){
+  if(!fbDb||!fbUser||_applyingFbData||_fbLoadingRemote||!_fbInitialLoadDone)return;
+  if(_fbRemoteApplyHoldUntil && Date.now()<_fbRemoteApplyHoldUntil && _fbLastUserInteractionAt<_fbRemoteApplyAt)return;
+  clearTimeout(_fbSaveTimer);
+  _fbSaveTimer=setTimeout(fbSaveNow,160);
+}
 /* Timestamp of the last time we applied a remote snapshot. A short grace
    window after applying suppresses the immediate echo from reloaders/
    renderers writing the just-received data back to localStorage. Real user
@@ -17209,7 +17219,7 @@ async function fbSaveNow(opts){
     if(settingsDirty) await fbSaveCloudSettings(ref);
 
     /* Inline read of current cloud state. */
-    var cloudSnap = await ref.collection('data').get();
+    var cloudSnap = await ref.collection('data').get({source:'server'}).catch(function(){return ref.collection('data').get();});
     var cloudByKey = {}; // key -> {fullValue, updatedAtMs, docIds:[]}
     cloudSnap.forEach(function(doc){
       var d = doc.data() || {};
@@ -17488,7 +17498,7 @@ async function runFirebaseDiagnostics(){
   /* Step 4: Read user doc (tests rules + connectivity) */
   var ref=fbDb.collection('users').doc(fbUser.uid);
   try {
-    var snap=await ref.get();
+    var snap=await ref.get({source:'server'}).catch(function(){return ref.get();});
     if(snap.exists){
       var data=snap.data()||{};
       var ts=data.updatedAtMs?new Date(data.updatedAtMs).toLocaleString('ko-KR'):'없음';
@@ -17510,7 +17520,7 @@ async function runFirebaseDiagnostics(){
      ACTUALLY in the cloud vs what's in localStorage so we can tell whether
      the sync is partial or simply chunked into fewer-than-expected docs. */
   try {
-    var qs=await ref.collection('data').get();
+    var qs=await ref.collection('data').get({source:'server'}).catch(function(){return ref.collection('data').get();});
     var cloudKeys={};
     qs.forEach(function(doc){
       var d=doc.data()||{}, key=d.key||doc.id;
@@ -17566,7 +17576,7 @@ async function runFirebaseDiagnostics(){
   /* Step 7: Settings doc */
   try {
     var sref=ref.collection('settings').doc('main');
-    var ssnap=await sref.get();
+    var ssnap=await sref.get({source:'server'}).catch(function(){return sref.get();});
     add('users/{uid}/settings/main 읽기','ok',ssnap.exists?'문서 존재':'문서 없음 (정상 — 동기화 시 생성)');
   } catch(e){
     if(e&&e.code==='permission-denied'){
@@ -17833,7 +17843,7 @@ localStorage.setItem = function(k,v){
   if(_applyingFbData) return;    // remote sync in progress, do not echo back
   if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function'){
     if(fbUser && ((_fbInitialLoadDone && !_fbLoadingRemote) || _fbUserInteracted)) fbMarkDirtyKey(k);
-    fbSaveAll();
+    fbSaveAll(k);
   }
   if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
   if(k==='task_items_v1' && typeof gcalQueueAutoSync==='function') gcalQueueAutoSync();
@@ -19874,6 +19884,451 @@ function showToast(msg) {
     localStorageKeys: localStorage.length,
   });
   setInterval(function(){ if (state.__panel && state.__panel.visible) renderPanel(); }, 1500);
+})();
+
+/* SyncManager v2.
+   Clean boundary for account-scoped app data sync. It supersedes the legacy
+   Firebase save/load routines above without deleting them, so old data can
+   still be read safely during migration. Notion and Google Calendar remain
+   external integrations and are not part of this core source of truth. */
+(function installSyncManagerV2(){
+  if(window.SyncManager && window.SyncManager.version === 'sync-v2') return;
+
+  var CLIENT_ID = (function(){
+    var k='return_sync_v2_client_id', v='';
+    try{ v=sessionStorage.getItem(k)||''; }catch(e){}
+    if(!v){
+      v='syncv2_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+      try{ sessionStorage.setItem(k,v); }catch(e){}
+    }
+    return v;
+  })();
+
+  var CORE_EXTRA_KEYS = [
+    'return_inbox_cats','task_prefs','task_sec_collapsed','repeat_items_v1',
+    'home_banner_v1','home_timeblock_prefs_v1','hobby_banner_v1','hobby_banner_pos_v1','hobby_cal_full',
+    'recharge_reflects','recharge_energy','real_need_v1',
+    'home_skipped_deadline_links','home_task_view','tg_hide_schedule',
+    'gc_memos','gc_rule_notes','_deletedRepeatDates','_deleted_task_ids','_rule_deleted_keys',
+    'return_theme_color','return_theme_mode','return_theme_palette',
+    'focus_mode','notif_interval','global_sticker_edit_visible',
+    'eisen_cfg_v1','question_set','rpg_obs_v1','subscriptions_v1',
+    'diary_notion_cfg','gcal_cfg_v1'
+  ];
+  var NEVER_SYNC = {
+    app_password:1, app_pw:1, notion_config:1, groq_api_key:1, groq_key:1,
+    gemini_key:1, gcal_oauth_msg:1, fb_config:1, return_fb_client_id:1,
+    return_last_clear_backup:1, _backups_meta:1
+  };
+
+  function log(cat, msg, data){
+    try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log(cat||'syncv2', msg, data); }catch(e){}
+    try{ console.log('[syncv2:'+cat+'] '+msg, data||''); }catch(e){}
+  }
+  function uniq(arr){
+    var seen={}, out=[];
+    (arr||[]).forEach(function(k){ if(k && !seen[k]){seen[k]=1;out.push(k);} });
+    return out;
+  }
+  function syncKeys(){
+    var keys = [];
+    try{ keys = keys.concat(Array.isArray(DATA_KEYS)?DATA_KEYS:[]); }catch(e){}
+    keys = keys.concat(CORE_EXTRA_KEYS);
+    return uniq(keys).filter(function(k){ return isSyncKey(k); });
+  }
+  function isSyncKey(k){
+    if(!k || NEVER_SYNC[k]) return false;
+    if(/^_bk_/.test(k)) return false;
+    if(/^firestore_/.test(k)) return false;
+    if(/^today(charge|drain)_/.test(k)) return false;
+    if(/^notion_ai_daily_/.test(k)) return false;
+    if(k.indexOf('/')>=0) return false;
+    if(k.indexOf('token')>=0 || k.indexOf('secret')>=0) return false;
+    try{
+      if(typeof shouldFbSyncKey === 'function' && shouldFbSyncKey(k)) return true;
+    }catch(e){}
+    return CORE_EXTRA_KEYS.indexOf(k)>=0;
+  }
+  function docId(k){ return encodeURIComponent(k).replace(/\./g,'%2E').slice(0,1400); }
+  function isEmptyValue(v){
+    if(v==null) return true;
+    var s=String(v).trim();
+    return s==='' || s==='[]' || s==='{}' || s==='null' || s==='undefined';
+  }
+  function sanitizeForCloud(k, v){
+    if(k==='diary_notion_cfg'){
+      try{ var cfg=JSON.parse(v||'{}'); delete cfg.token; return JSON.stringify(cfg); }catch(e){ return String(v); }
+    }
+    if(k==='gcal_cfg_v1'){
+      try{ var gc=JSON.parse(v||'{}'); delete gc._savedToken; delete gc._savedTokenExp; delete gc.eventIds; return JSON.stringify(gc); }catch(e){ return String(v); }
+    }
+    return String(v);
+  }
+  function readLocal(keys){
+    var out={};
+    (keys||syncKeys()).forEach(function(k){
+      try{ var v=localStorage.getItem(k); if(v!=null) out[k]=sanitizeForCloud(k,v); }catch(e){}
+    });
+    return out;
+  }
+  function parseJson(v){ try{return JSON.parse(v);}catch(e){return null;} }
+  function mergeJsonValue(k, localVal, cloudVal){
+    if(localVal===cloudVal) return localVal;
+    if(typeof fbMergeJsonValue === 'function'){
+      try{return fbMergeJsonValue(k, localVal, cloudVal);}catch(e){}
+    }
+    var l=parseJson(localVal), c=parseJson(cloudVal);
+    if(Array.isArray(l) && Array.isArray(c)){
+      var byId={}, out=[];
+      c.concat(l).forEach(function(item){
+        var id=item && (item.id!=null?String(item.id):null);
+        if(id) byId[id]=Object.assign({}, byId[id]||{}, item);
+        else out.push(item);
+      });
+      Object.keys(byId).forEach(function(id){out.push(byId[id]);});
+      return JSON.stringify(out);
+    }
+    if(l && c && typeof l==='object' && typeof c==='object' && !Array.isArray(l) && !Array.isArray(c)){
+      return JSON.stringify(Object.assign({}, c, l));
+    }
+    if(isEmptyValue(localVal) && !isEmptyValue(cloudVal)) return cloudVal;
+    return localVal;
+  }
+  function applyLocal(keys, reason){
+    var names=Object.keys(keys||{});
+    if(!names.length) return;
+    _applyingFbData=true;
+    try{
+      names.forEach(function(k){
+        try{
+          if(typeof _rawSetItem === 'function') _rawSetItem(k, keys[k]);
+          else localStorage.setItem(k, keys[k]);
+        }catch(e){}
+      });
+    }finally{ _applyingFbData=false; }
+    try{
+      if(typeof fbApplyData === 'function') fbApplyData({keys:{}, updatedAtMs:Date.now(), __syncManager:true, reason:reason||''});
+      else if(typeof goPage === 'function') goPage(_currentPage || window.__returnInitialPage || 'home');
+    }catch(e){
+      try{ if(typeof goPage === 'function') goPage(_currentPage || window.__returnInitialPage || 'home'); }catch(_){}
+    }
+    try{
+      if(typeof loadDiaryNotionConfig === 'function') loadDiaryNotionConfig();
+      if(typeof gcalLoadConfig === 'function') gcalLoadConfig();
+      if(typeof loadThemeMode === 'function') loadThemeMode();
+      if(typeof loadFocusMode === 'function') loadFocusMode();
+      if(typeof loadApiKeys === 'function') loadApiKeys();
+    }catch(e){}
+  }
+
+  var state = {
+    version:'sync-v2', authStatus:'idle', uid:null, email:null,
+    hydrated:false, localLoaded:false, cloudLoaded:false, writeLocked:true,
+    dirty:{}, pendingWrites:0, keyRemoteMs:{}, saveTimer:null, unsubscribe:null,
+    lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false
+  };
+
+  function updateStatus(text, cls){
+    state.lastSyncStatus=text||state.lastSyncStatus;
+    try{ setFbStatus(text, cls||''); }catch(e){}
+    renderMiniPanel();
+  }
+  function setError(e, label){
+    state.lastError = (label?label+': ':'') + ((e&&e.message)||String(e||'unknown'));
+    updateStatus('동기화 오류: '+state.lastError, 'err');
+    log('err', state.lastError);
+  }
+  function userRef(){ return (fbDb && fbUser) ? fbDb.collection('users').doc(fbUser.uid) : null; }
+  function dataCol(){ var ref=userRef(); return ref ? ref.collection('syncData') : null; }
+  function metaRef(){ var ref=userRef(); return ref ? ref.collection('syncMeta').doc('main') : null; }
+  async function readCloudV2(){
+    var col=dataCol(), out={};
+    if(!col) return out;
+    var snap=await col.get({source:'server'}).catch(function(){return col.get();});
+    snap.forEach(function(doc){
+      var d=doc.data()||{}, k=d.key;
+      if(k && isSyncKey(k) && d.value!=null){
+        out[k]=String(d.value);
+        state.keyRemoteMs[k]=Number(d.updatedAtMs||0)||Date.now();
+      }
+    });
+    return out;
+  }
+  async function readLegacyCloud(){
+    var ref=userRef(), out={};
+    if(!ref) return out;
+    try{
+      if(typeof fbReadSplitData === 'function'){
+        var split=await fbReadSplitData(ref);
+        Object.keys(split.keys||{}).forEach(function(k){ if(isSyncKey(k)) out[k]=String(split.keys[k]); });
+      }
+    }catch(e){ log('syncv2','legacy split read failed',{msg:e.message}); }
+    try{
+      var snap=await ref.get({source:'server'}).catch(function(){return ref.get();});
+      if(snap.exists){
+        var d=snap.data()||{};
+        Object.keys(d.keys||{}).forEach(function(k){ if(isSyncKey(k) && out[k]==null) out[k]=String(d.keys[k]); });
+      }
+    }catch(e){ log('syncv2','legacy header read failed',{msg:e.message}); }
+    return out;
+  }
+  function buildMerged(localData, cloudData, cloudAuthoritative){
+    var merged={}, upload={};
+    uniq(Object.keys(localData||{}).concat(Object.keys(cloudData||{}))).forEach(function(k){
+      var lv=localData[k], cv=cloudData[k];
+      if(cloudAuthoritative && cv!=null) merged[k]=cv;
+      else if(cv!=null && (lv==null || isEmptyValue(lv))) merged[k]=cv;
+      else if(lv!=null && cv==null){ merged[k]=lv; if(!isEmptyValue(lv)) upload[k]=lv; }
+      else if(lv!=null && cv!=null){
+        var mv=mergeJsonValue(k, lv, cv);
+        merged[k]=mv;
+        if(mv!==cv && !isEmptyValue(mv)) upload[k]=mv;
+      }
+    });
+    return {merged:merged, upload:upload};
+  }
+  async function hydrate(){
+    if(!fbUser || !fbDb) return false;
+    state.writeLocked=true;
+    state.hydrated=false;
+    state.localLoaded=false;
+    state.cloudLoaded=false;
+    updateStatus('동기화 준비 중...', 'saving');
+    try{
+      var localData=readLocal();
+      state.localLoaded=true;
+      var cloudData=await readCloudV2();
+      state.cloudLoaded=true;
+      state.cloudEmpty=Object.keys(cloudData).length===0;
+      if(state.cloudEmpty){
+        var legacy=await readLegacyCloud();
+        if(Object.keys(legacy).length){ cloudData=legacy; state.legacyMigrated=true; }
+      }
+      var hasCloudData=Object.keys(cloudData).length>0;
+      var pack=buildMerged(localData, cloudData, hasCloudData);
+      applyLocal(pack.merged, 'hydrate');
+      state.hydrated=true;
+      state.writeLocked=false;
+      updateStatus(state.legacyMigrated?'동기화 완료 · 기존 클라우드 데이터 이전됨':'동기화 완료', 'ok');
+      listen();
+      if(Object.keys(pack.upload).length) queueSave(Object.keys(pack.upload), {reason:'hydrate-upload'});
+      return true;
+    }catch(e){
+      state.hydrated=true;
+      state.writeLocked=false;
+      setError(e, '초기 동기화');
+      return false;
+    }
+  }
+  function markDirty(keys){
+    if(!Array.isArray(keys)) keys=keys?[keys]:syncKeys();
+    keys.forEach(function(k){ if(isSyncKey(k)) state.dirty[k]=Date.now(); });
+    state.pendingWrites=Object.keys(state.dirty).length;
+  }
+  function queueSave(keys, opts){
+    opts=opts||{};
+    if(state.writeLocked || !state.hydrated){
+      if(_fbUserInteracted || opts.reason==='hydrate-upload') markDirty(keys);
+      renderMiniPanel();
+      return false;
+    }
+    if(!fbDb || !fbUser){ renderMiniPanel(); return false; }
+    markDirty(keys);
+    clearTimeout(state.saveTimer);
+    state.saveTimer=setTimeout(function(){ flush(opts); }, opts.immediate?40:180);
+    renderMiniPanel();
+    return true;
+  }
+  async function flush(opts){
+    opts=opts||{};
+    clearTimeout(state.saveTimer);
+    if(state.writeLocked || !state.hydrated || !fbDb || !fbUser) return false;
+    var keys=Object.keys(state.dirty);
+    if(!keys.length && !opts.force) return true;
+    updateStatus('동기화 중...', 'saving');
+    try{
+      var col=dataCol(), meta=metaRef();
+      var now=Date.now();
+      var batch=fbDb.batch(), ops=0, wrote=0;
+      for(var i=0;i<keys.length;i++){
+        var k=keys[i];
+        if(!isSyncKey(k)) continue;
+        var v=null;
+        try{ v=localStorage.getItem(k); }catch(e){}
+        if(v==null || (isEmptyValue(v) && state.keyRemoteMs[k])){ delete state.dirty[k]; continue; }
+        v=sanitizeForCloud(k, v);
+        batch.set(col.doc(docId(k)), {key:k,value:String(v),updatedAtMs:now,clientId:CLIENT_ID}, {merge:false});
+        ops++; wrote++;
+        delete state.dirty[k];
+        state.keyRemoteMs[k]=now;
+        if(ops>=430){ await batch.commit(); batch=fbDb.batch(); ops=0; }
+      }
+      if(ops) await batch.commit();
+      await meta.set({schema:'sync-v2',updatedAtMs:now,clientId:CLIENT_ID,keyCount:wrote},{merge:true});
+      state.lastSaveTime=now;
+      state.pendingWrites=Object.keys(state.dirty).length;
+      updateStatus(wrote?'동기화 완료':'동기화 대기 없음', 'ok');
+      return true;
+    }catch(e){
+      keys.forEach(function(k){ if(isSyncKey(k)) state.dirty[k]=state.dirty[k]||Date.now(); });
+      state.pendingWrites=Object.keys(state.dirty).length;
+      setError(e, '저장');
+      return false;
+    }
+  }
+  function listen(){
+    var col=dataCol();
+    if(!col) return;
+    if(state.unsubscribe){ try{state.unsubscribe();}catch(e){} state.unsubscribe=null; }
+    var first=true;
+    state.unsubscribe=col.onSnapshot(function(qs){
+      if(first){ first=false; return; }
+      var incoming={};
+      qs.docChanges().forEach(function(ch){
+        if(ch.type==='removed') return;
+        var d=ch.doc.data()||{};
+        if(!d.key || !isSyncKey(d.key) || d.clientId===CLIENT_ID) return;
+        incoming[d.key]=String(d.value==null?'':d.value);
+        state.keyRemoteMs[d.key]=Number(d.updatedAtMs||0)||Date.now();
+      });
+      var names=Object.keys(incoming);
+      if(!names.length) return;
+      var applied={};
+      names.forEach(function(k){
+        var local=null;
+        try{ local=localStorage.getItem(k); }catch(e){}
+        applied[k]=state.dirty[k] ? mergeJsonValue(k, local, incoming[k]) : incoming[k];
+        delete state.dirty[k];
+      });
+      state.pendingWrites=Object.keys(state.dirty).length;
+      applyLocal(applied, 'remote');
+      updateStatus('다른 기기 변경 반영됨', 'ok');
+      log('syncv2','remote applied', {keys:names});
+    }, function(e){ setError(e, '실시간 수신'); });
+  }
+  async function init(){
+    state.authStatus='initializing';
+    updateStatus('Firebase 초기화 중...', 'saving');
+    var cfg=fbConfig();
+    if(!cfg.apiKey||!cfg.authDomain||!cfg.projectId){ updateStatus('Firebase 설정 필요', ''); return false; }
+    try{
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+      try{fbApp=firebase.app();}catch(e){fbApp=firebase.initializeApp(cfg);}
+      fbAuth=firebase.auth();
+      fbDb=firebase.firestore();
+      if(!state._authBound){
+        state._authBound=true;
+        fbAuth.onAuthStateChanged(function(user){
+          fbUser=user||null;
+          state.uid=user&&user.uid||null;
+          state.email=user&&user.email||null;
+          state.authStatus=user?'signed-in':'signed-out';
+          updateAuthGate();
+          if(typeof updateAuthLockCopy==='function') updateAuthLockCopy();
+          if(user) hydrate();
+          else{
+            state.writeLocked=true;
+            state.hydrated=false;
+            if(state.unsubscribe){try{state.unsubscribe();}catch(e){} state.unsubscribe=null;}
+            updateStatus('Google 로그인 필요', '');
+          }
+        });
+      }
+      return true;
+    }catch(e){ setError(e, 'Firebase 초기화'); return false; }
+  }
+  async function login(){
+    if(!fbAuth){ var ok=await init(); if(!ok) return; }
+    try{
+      var provider=new firebase.auth.GoogleAuthProvider();
+      provider.addScope('profile');
+      provider.addScope('email');
+      await fbAuth.signInWithPopup(provider);
+    }catch(e){ setError(e, 'Google 로그인'); }
+  }
+  async function retry(){
+    if(!fbUser){
+      if(!fbAuth) await init();
+      if(!fbUser){ await login(); return; }
+    }
+    await hydrate();
+    await flush({force:true});
+  }
+  function snapshot(){
+    return {
+      version:state.version, authStatus:state.authStatus, uid:state.uid, email:state.email,
+      hydrated:state.hydrated, localLoaded:state.localLoaded, cloudLoaded:state.cloudLoaded,
+      writeLocked:state.writeLocked, pendingWrites:Object.keys(state.dirty),
+      lastSaveTime:state.lastSaveTime, lastSyncStatus:state.lastSyncStatus,
+      lastError:state.lastError, keyCount:syncKeys().length, clientId:CLIENT_ID
+    };
+  }
+  function renderMiniPanel(){
+    var el=document.getElementById('sync-manager-panel');
+    if(!el || el.style.display==='none') return;
+    var s=snapshot();
+    el.querySelector('[data-sync-body]').textContent=[
+      'auth: '+s.authStatus,
+      'uid: '+(s.uid||'-'),
+      'hydrated: '+s.hydrated,
+      'local loaded: '+s.localLoaded,
+      'cloud loaded: '+s.cloudLoaded,
+      'pending writes: '+s.pendingWrites.length,
+      'last save: '+(s.lastSaveTime?new Date(s.lastSaveTime).toLocaleString():'-'),
+      'status: '+s.lastSyncStatus,
+      'error: '+(s.lastError||'-')
+    ].join('\n');
+  }
+  function showPanel(){
+    var el=document.getElementById('sync-manager-panel');
+    if(!el){
+      el=document.createElement('div');
+      el.id='sync-manager-panel';
+      el.style.cssText='position:fixed;right:16px;bottom:16px;z-index:99998;width:min(360px,calc(100vw - 32px));background:var(--bg-card);color:var(--fg-1);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);padding:var(--sp-4);font:12px/1.5 var(--font-mono);white-space:pre-wrap';
+      el.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px"><strong>SyncManager</strong><button class="set-btn btn-ghost" data-close-sync-manager>닫기</button></div><div data-sync-body></div><div style="display:flex;gap:8px;margin-top:10px"><button class="set-btn btn-primary" data-sync-retry>재시도</button><button class="set-btn btn-ghost" data-sync-copy>복사</button></div>';
+      document.body.appendChild(el);
+      el.querySelector('[data-close-sync-manager]').onclick=function(){el.style.display='none';};
+      el.querySelector('[data-sync-retry]').onclick=function(){retry();};
+      el.querySelector('[data-sync-copy]').onclick=function(){try{navigator.clipboard.writeText(JSON.stringify(snapshot(),null,2));}catch(e){}};
+    }
+    el.style.display='block';
+    renderMiniPanel();
+  }
+
+  window.__legacySync = {
+    initFirebase:initFirebase, fbGoogleLogin:fbGoogleLogin, fbLoadAll:fbLoadAll,
+    fbSaveAll:fbSaveAll, fbSaveNow:fbSaveNow, fbForceSync:fbForceSync, fbForcePull:fbForcePull
+  };
+  var api = window.SyncManager = {
+    version:'sync-v2', state:state, init:init, login:login, hydrate:hydrate,
+    retry:retry, flush:flush, queueSave:queueSave, isSyncKey:isSyncKey,
+    showDiagnostics:showPanel, snapshot:snapshot
+  };
+  initFirebase=function(){return api.init();};
+  fbGoogleLogin=function(){return api.login();};
+  fbLoadAll=function(){return api.hydrate();};
+  fbSaveAll=function(k){return api.queueSave(k);};
+  fbSaveNow=function(opts){return api.flush(opts);};
+  fbForceSync=function(){return api.retry();};
+  fbForcePull=function(){return api.hydrate();};
+  window.initFirebase=initFirebase;
+  window.fbGoogleLogin=fbGoogleLogin;
+  window.fbLoadAll=fbLoadAll;
+  window.fbSaveAll=fbSaveAll;
+  window.fbSaveNow=fbSaveNow;
+  window.fbForceSync=fbForceSync;
+  window.fbForcePull=fbForcePull;
+  try{
+    document.addEventListener('keydown', function(ev){
+      if(ev.ctrlKey && ev.shiftKey && (ev.key==='S' || ev.key==='s')){
+        ev.preventDefault();
+        showPanel();
+      }
+    });
+  }catch(e){}
+  log('syncv2','installed', {keys:syncKeys().length, clientId:CLIENT_ID});
 })();
 
 /* ── INIT ── */
