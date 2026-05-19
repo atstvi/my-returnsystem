@@ -20039,15 +20039,23 @@ function showToast(msg) {
     log('err', state.lastError);
   }
   function userRef(){ return (fbDb && fbUser) ? fbDb.collection('users').doc(fbUser.uid) : null; }
-  function dataCol(){ var ref=userRef(); return ref ? ref.collection('syncData') : null; }
-  function metaRef(){ var ref=userRef(); return ref ? ref.collection('syncMeta').doc('main') : null; }
+  function dataCol(){
+    var ref=userRef();
+    /* Use the existing legacy-compatible `data` subcollection. Some deployed
+       Firestore rules only allow users/{uid} and users/{uid}/data/{doc}. The
+       first SyncManager draft used new `syncData/syncMeta` collections, which
+       produced "Missing or insufficient permissions" on real accounts. v2
+       docs are isolated by schema + v2__ doc ids instead. */
+    return ref ? ref.collection('data') : null;
+  }
+  function metaRef(){ return userRef(); }
   async function readCloudV2(){
     var col=dataCol(), out={};
     if(!col) return out;
     var snap=await col.get({source:'server'}).catch(function(){return col.get();});
     snap.forEach(function(doc){
       var d=doc.data()||{}, k=d.key;
-      if(k && isSyncKey(k) && d.value!=null){
+      if(d.schema === 'sync-v2' && k && isSyncKey(k) && d.value!=null){
         out[k]=String(d.value);
         state.keyRemoteMs[k]=Number(d.updatedAtMs||0)||Date.now();
       }
@@ -20157,14 +20165,14 @@ function showToast(msg) {
         try{ v=localStorage.getItem(k); }catch(e){}
         if(v==null || (isEmptyValue(v) && state.keyRemoteMs[k])){ delete state.dirty[k]; continue; }
         v=sanitizeForCloud(k, v);
-        batch.set(col.doc(docId(k)), {key:k,value:String(v),updatedAtMs:now,clientId:CLIENT_ID}, {merge:false});
+        batch.set(col.doc('v2__'+docId(k)), {schema:'sync-v2',key:k,value:String(v),updatedAtMs:now,clientId:CLIENT_ID}, {merge:false});
         ops++; wrote++;
         delete state.dirty[k];
         state.keyRemoteMs[k]=now;
         if(ops>=430){ await batch.commit(); batch=fbDb.batch(); ops=0; }
       }
       if(ops) await batch.commit();
-      await meta.set({schema:'sync-v2',updatedAtMs:now,clientId:CLIENT_ID,keyCount:wrote},{merge:true});
+      await meta.set({syncV2:{schema:'sync-v2',updatedAtMs:now,clientId:CLIENT_ID,keyCount:wrote}},{merge:true});
       state.lastSaveTime=now;
       state.pendingWrites=Object.keys(state.dirty).length;
       updateStatus(wrote?'동기화 완료':'동기화 대기 없음', 'ok');
