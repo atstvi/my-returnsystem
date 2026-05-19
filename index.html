@@ -19913,7 +19913,7 @@ function showToast(msg) {
     'return_theme_color','return_theme_mode','return_theme_palette',
     'focus_mode','notif_interval','global_sticker_edit_visible',
     'eisen_cfg_v1','question_set','rpg_obs_v1','subscriptions_v1',
-    'diary_notion_cfg','gcal_cfg_v1'
+    'diary_notion_cfg','gcal_cfg_v1','sync_probe_v1'
   ];
   var NEVER_SYNC = {
     app_password:1, app_pw:1, notion_config:1, groq_api_key:1, groq_key:1,
@@ -20026,7 +20026,8 @@ function showToast(msg) {
     hydrated:false, localLoaded:false, cloudLoaded:false, writeLocked:true,
     dirty:{}, pendingWrites:0, keyRemoteMs:{}, saveTimer:null, unsubscribe:null,
     lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false,
-    storageBridgeInstalled:false, lastLocalWriteKey:null, lastLocalWriteAt:0
+    storageBridgeInstalled:false, lastLocalWriteKey:null, lastLocalWriteAt:0,
+    lastProbe:null
   };
 
   function updateStatus(text, cls){
@@ -20322,6 +20323,23 @@ function showToast(msg) {
     await hydrate();
     await flush({force:true});
   }
+  async function runProbe(){
+    var probe={at:Date.now(), clientId:CLIENT_ID, ua:(navigator.userAgent||'').slice(0,120)};
+    state.lastProbe={stage:'local-write', value:probe};
+    updateStatus('동기화 테스트 중...', 'saving');
+    try{
+      localStorage.setItem('sync_probe_v1', JSON.stringify(probe));
+      markDirty('sync_probe_v1');
+      var ok=await flush({force:true, probe:true});
+      state.lastProbe.stage=ok?'saved':'save-failed';
+      renderMiniPanel();
+      return ok;
+    }catch(e){
+      state.lastProbe={stage:'error', error:(e&&e.message)||String(e)};
+      setError(e, '쓰기 테스트');
+      return false;
+    }
+  }
   function snapshot(){
     return {
       version:state.version, authStatus:state.authStatus, uid:state.uid, email:state.email,
@@ -20331,7 +20349,8 @@ function showToast(msg) {
       lastError:state.lastError, keyCount:syncKeys().length, clientId:CLIENT_ID,
       storageBridgeInstalled:state.storageBridgeInstalled,
       lastLocalWriteKey:state.lastLocalWriteKey,
-      lastLocalWriteAt:state.lastLocalWriteAt
+      lastLocalWriteAt:state.lastLocalWriteAt,
+      lastProbe:state.lastProbe
     };
   }
   function renderMiniPanel(){
@@ -20348,7 +20367,8 @@ function showToast(msg) {
       'last local write: '+(s.lastLocalWriteKey||'-'),
       'last save: '+(s.lastSaveTime?new Date(s.lastSaveTime).toLocaleString():'-'),
       'status: '+s.lastSyncStatus,
-      'error: '+(s.lastError||'-')
+      'error: '+(s.lastError||'-'),
+      'probe: '+(s.lastProbe?JSON.stringify(s.lastProbe).slice(0,220):'-')
     ].join('\n');
   }
   function showPanel(){
@@ -20357,10 +20377,11 @@ function showToast(msg) {
       el=document.createElement('div');
       el.id='sync-manager-panel';
       el.style.cssText='position:fixed;right:16px;bottom:16px;z-index:99998;width:min(360px,calc(100vw - 32px));background:var(--bg-card);color:var(--fg-1);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);padding:var(--sp-4);font:12px/1.5 var(--font-mono);white-space:pre-wrap';
-      el.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px"><strong>SyncManager</strong><button class="set-btn btn-ghost" data-close-sync-manager>닫기</button></div><div data-sync-body></div><div style="display:flex;gap:8px;margin-top:10px"><button class="set-btn btn-primary" data-sync-retry>재시도</button><button class="set-btn btn-ghost" data-sync-copy>복사</button></div>';
+      el.innerHTML='<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:8px"><strong>SyncManager</strong><button class="set-btn btn-ghost" data-close-sync-manager>닫기</button></div><div data-sync-body></div><div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="set-btn btn-primary" data-sync-probe>쓰기 테스트</button><button class="set-btn btn-ghost" data-sync-retry>재시도</button><button class="set-btn btn-ghost" data-sync-copy>복사</button></div>';
       document.body.appendChild(el);
       el.querySelector('[data-close-sync-manager]').onclick=function(){el.style.display='none';};
       el.querySelector('[data-sync-retry]').onclick=function(){retry();};
+      el.querySelector('[data-sync-probe]').onclick=function(){runProbe();};
       el.querySelector('[data-sync-copy]').onclick=function(){try{navigator.clipboard.writeText(JSON.stringify(snapshot(),null,2));}catch(e){}};
     }
     el.style.display='block';
@@ -20374,7 +20395,7 @@ function showToast(msg) {
   var api = window.SyncManager = {
     version:'sync-v2', state:state, init:init, login:login, hydrate:hydrate,
     retry:retry, flush:flush, queueSave:queueSave, isSyncKey:isSyncKey,
-    showDiagnostics:showPanel, snapshot:snapshot
+    showDiagnostics:showPanel, snapshot:snapshot, runProbe:runProbe
   };
   initFirebase=function(){return api.init();};
   fbGoogleLogin=function(){return api.login();};
