@@ -20019,6 +20019,7 @@ function showToast(msg) {
       if(typeof loadFocusMode === 'function') loadFocusMode();
       if(typeof loadApiKeys === 'function') loadApiKeys();
     }catch(e){}
+    Object.keys(keys||{}).forEach(function(k){ state.localMirror[k]=String(keys[k]); });
   }
 
   var state = {
@@ -20027,7 +20028,7 @@ function showToast(msg) {
     dirty:{}, pendingWrites:0, keyRemoteMs:{}, saveTimer:null, unsubscribe:null,
     lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false,
     storageBridgeInstalled:false, lastLocalWriteKey:null, lastLocalWriteAt:0,
-    lastProbe:null
+    lastProbe:null, localMirror:{}, localWatchTimer:null
   };
 
   function updateStatus(text, cls){
@@ -20150,6 +20151,7 @@ function showToast(msg) {
       var hasCloudData=cloudOk && Object.keys(cloudData).length>0;
       var pack=buildMerged(localData, cloudData, hasCloudData);
       applyLocal(pack.merged, 'hydrate');
+      state.localMirror=readLocal();
       state.hydrated=true;
       state.writeLocked=false;
       updateStatus(cloudOk ? (state.legacyMigrated?'동기화 완료 · 기존 클라우드 데이터 이전됨':'동기화 완료') : '로컬 준비 완료 · 변경 시 저장 재시도', cloudOk?'ok':'saving');
@@ -20215,6 +20217,37 @@ function showToast(msg) {
         return ret;
       };
     }catch(e){ log('err','storage remove bridge failed: '+e.message); }
+    installLocalWatcher();
+  }
+  function installLocalWatcher(){
+    if(state.localWatchTimer) return;
+    state.localMirror=readLocal();
+    state.localWatchTimer=setInterval(function(){
+      if(_applyingFbData || state.writeLocked || !state.hydrated || !fbUser || !fbDb) return;
+      var changed=[];
+      var keys=syncKeys();
+      for(var i=0;i<keys.length;i++){
+        var k=keys[i], v=null;
+        try{ v=localStorage.getItem(k); }catch(e){}
+        if(v==null){
+          if(state.localMirror[k]!=null){
+            state.localMirror[k]=null;
+            changed.push(k);
+          }
+          continue;
+        }
+        v=String(sanitizeForCloud(k,v));
+        if(state.localMirror[k]!==v){
+          state.localMirror[k]=v;
+          changed.push(k);
+        }
+      }
+      if(changed.length){
+        state.lastLocalWriteKey=changed[0]+(changed.length>1?' +'+(changed.length-1):'');
+        state.lastLocalWriteAt=Date.now();
+        queueSave(changed,{reason:'local-watch', immediate:true});
+      }
+    },700);
   }
   async function flush(opts){
     opts=opts||{};
@@ -20238,6 +20271,7 @@ function showToast(msg) {
         ops++; wrote++;
         delete state.dirty[k];
         state.keyRemoteMs[k]=now;
+        state.localMirror[k]=String(v);
         if(ops>=430){ await batch.commit(); batch=fbDb.batch(); ops=0; }
       }
       if(ops) await batch.commit();
@@ -20364,6 +20398,8 @@ function showToast(msg) {
     try{
       if(!state.hydrated && fbUser && fbDb) await hydrate();
       localStorage.setItem('sync_probe_v1', JSON.stringify(probe));
+      state.lastLocalWriteKey='sync_probe_v1';
+      state.lastLocalWriteAt=Date.now();
       markDirty('sync_probe_v1');
       var ok=await flush({force:true, probe:true});
       state.lastProbe.stage=ok?'saved':'save-failed';
@@ -20385,6 +20421,7 @@ function showToast(msg) {
       storageBridgeInstalled:state.storageBridgeInstalled,
       lastLocalWriteKey:state.lastLocalWriteKey,
       lastLocalWriteAt:state.lastLocalWriteAt,
+      localWatchActive:!!state.localWatchTimer,
       lastProbe:state.lastProbe
     };
   }
@@ -20399,6 +20436,7 @@ function showToast(msg) {
       'local loaded: '+s.localLoaded,
       'cloud loaded: '+s.cloudLoaded,
       'pending writes: '+s.pendingWrites.length,
+      'local watcher: '+s.localWatchActive,
       'last local write: '+(s.lastLocalWriteKey||'-'),
       'last save: '+(s.lastSaveTime?new Date(s.lastSaveTime).toLocaleString():'-'),
       'status: '+s.lastSyncStatus,
