@@ -13142,7 +13142,7 @@ function scheduleBlockSave() {
 
 var trackers = [];
 var trackerValues = {};
-function diaryTrackers(){
+function getDiaryTrackerList(){
   return Array.isArray(trackers) ? trackers : [];
 }
 
@@ -13191,10 +13191,10 @@ function renderTrackerRow(dk) {
   var row = document.getElementById('tracker-row');
   if (!row) return;
   row.innerHTML = '';
-  if (!diaryTrackers().length) return;
+  if (!getDiaryTrackerList().length) return;
 
   var values = trackerValues[dk] || {};
-  var activeTrackers = diaryTrackers().filter(function(tr) { return trackerActiveOnDate(tr, dk); });
+  var activeTrackers = getDiaryTrackerList().filter(function(tr) { return trackerActiveOnDate(tr, dk); });
 
   activeTrackers.forEach(function(tr) {
     var val = values[tr.id] != null ? values[tr.id] : '';
@@ -13263,7 +13263,7 @@ function renderRightTrackers(dk) {
   if (!el) return;
   el.innerHTML = '';
   var values = trackerValues[dk] || {};
-  diaryTrackers().forEach(function(tr) {
+  getDiaryTrackerList().forEach(function(tr) {
     var active = trackerActiveOnDate(tr, dk);
     var val = values[tr.id];
     var row = document.createElement('div');
@@ -13320,11 +13320,11 @@ function openTrackerManager() {
   function rebuildList() {
     listWrap.innerHTML = '';
 
-    if (!diaryTrackers().length) {
+    if (!getDiaryTrackerList().length) {
       listWrap.innerHTML = '<p style="font-size:var(--text-sm);color:var(--fg-4);text-align:center;padding:var(--sp-8)">트래커가 없어요. 아래에서 추가하세요.</p>';
     }
 
-    diaryTrackers().forEach(function(tr, idx) {
+    getDiaryTrackerList().forEach(function(tr, idx) {
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-4) 0;border-bottom:.5px solid var(--border-subtle)';
 
@@ -17863,7 +17863,7 @@ localStorage.setItem = function(k,v){
     if(fbUser && ((_fbInitialLoadDone && !_fbLoadingRemote) || _fbUserInteracted)) fbMarkDirtyKey(k);
     fbSaveAll(k);
   }
-  if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
+  if(k==='diary_entries_v1' && !_applyingNotionData && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
   if(k==='task_items_v1' && typeof gcalQueueAutoSync==='function') gcalQueueAutoSync();
 };
 
@@ -17940,8 +17940,10 @@ var _notionTabSyncTimer=null;
 var _notionLivePullTimer=null;
 var _notionLivePullBusy=false;
 var _lastDiaryLocalEditAt=0;
+var _applyingNotionData=false;
 function queueDiaryNotionSave(dateKey, opts){
   opts=opts||{};
+  if(_applyingNotionData)return;
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
   /* E2 guard: if diary is in stale-quota state, do not push to Notion either.
@@ -18808,6 +18810,7 @@ function _readNotionRichTextProp(prop){
   return rt.map(function(r){return r.plain_text||((r.text||{}).content)||'';}).join('').trim();
 }
 function _applyPulledDiaryEntry(dateKey){
+  _applyingNotionData=true;
   try{ localStorage.setItem('diary_entries_v1', JSON.stringify(entries)); }catch(e){}
   try{
     if(typeof loadDate==='function' && dateKey===currentDate) loadDate(dateKey);
@@ -18817,6 +18820,7 @@ function _applyPulledDiaryEntry(dateKey){
       if(typeof renderRightTrackers==='function') renderRightTrackers(dateKey);
     }
   }catch(e){ console.warn('diary refresh', e); }
+  finally{ setTimeout(function(){_applyingNotionData=false;},1200); }
 }
 function _pullDiaryPageProperties(page, dateKey, cfg){
   if(!page||!dateKey||typeof entries==='undefined')return 0;
