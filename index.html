@@ -20028,7 +20028,7 @@ function showToast(msg) {
     dirty:{}, pendingWrites:0, keyRemoteMs:{}, saveTimer:null, unsubscribe:null,
     lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false,
     storageBridgeInstalled:false, lastLocalWriteKey:null, lastLocalWriteAt:0,
-    lastProbe:null, localMirror:{}, localWatchTimer:null
+    lastProbe:null, localMirror:{}, localWatchTimer:null, cloudReadDegraded:false
   };
 
   function updateStatus(text, cls){
@@ -20139,10 +20139,12 @@ function showToast(msg) {
         cloudOk=true;
       }catch(cloudErr){
         state.lastError='클라우드 읽기 지연: '+((cloudErr&&cloudErr.message)||cloudErr);
+        state.cloudReadDegraded=true;
         log('err', state.lastError);
         updateStatus('클라우드 읽기 지연 · 로컬 모드로 계속', 'saving');
       }
       state.cloudLoaded=cloudOk;
+      if(cloudOk) state.cloudReadDegraded=false;
       state.cloudEmpty=Object.keys(cloudData).length===0;
       if(cloudOk && state.cloudEmpty){
         var legacy=await readLegacyCloud();
@@ -20277,6 +20279,8 @@ function showToast(msg) {
       if(ops) await batch.commit();
       await meta.set({syncV2:{schema:'sync-v2',updatedAtMs:now,clientId:CLIENT_ID,keyCount:wrote}},{merge:true});
       state.lastSaveTime=now;
+      if(state.lastError && String(state.lastError).indexOf('cloud read timeout')>=0) state.lastError=null;
+      if(wrote) state.cloudReadDegraded=false;
       state.pendingWrites=Object.keys(state.dirty).length;
       updateStatus(wrote?'동기화 완료':'동기화 대기 없음', 'ok');
       return true;
@@ -20313,6 +20317,8 @@ function showToast(msg) {
       });
       state.pendingWrites=Object.keys(state.dirty).length;
       applyLocal(applied, 'remote');
+      state.lastError=null;
+      state.cloudReadDegraded=false;
       updateStatus('다른 기기 변경 반영됨', 'ok');
       log('syncv2','remote applied', {keys:names});
     }, function(e){ setError(e, '실시간 수신'); });
@@ -20418,6 +20424,7 @@ function showToast(msg) {
       writeLocked:state.writeLocked, pendingWrites:Object.keys(state.dirty),
       lastSaveTime:state.lastSaveTime, lastSyncStatus:state.lastSyncStatus,
       lastError:state.lastError, keyCount:syncKeys().length, clientId:CLIENT_ID,
+      cloudReadDegraded:state.cloudReadDegraded,
       storageBridgeInstalled:state.storageBridgeInstalled,
       lastLocalWriteKey:state.lastLocalWriteKey,
       lastLocalWriteAt:state.lastLocalWriteAt,
@@ -20435,6 +20442,7 @@ function showToast(msg) {
       'hydrated: '+s.hydrated,
       'local loaded: '+s.localLoaded,
       'cloud loaded: '+s.cloudLoaded,
+      'cloud read degraded: '+s.cloudReadDegraded,
       'pending writes: '+s.pendingWrites.length,
       'local watcher: '+s.localWatchActive,
       'last local write: '+(s.lastLocalWriteKey||'-'),
