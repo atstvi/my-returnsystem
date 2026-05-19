@@ -12666,6 +12666,7 @@ function saveAll() {
 }
 
 function diaryAutoSave(key, el) {
+  _lastDiaryLocalEditAt = Date.now();
   /* Mark section dirty */
   var sec = document.getElementById('ds-'+key);
   if (sec && el.value) sec.classList.add('dirty');
@@ -12690,6 +12691,8 @@ function diaryAutoSave(key, el) {
 
     if (saveDot) saveDot.className = 'save-dot';
     if (saveText) saveText.textContent = '모두 저장됨';
+
+    saveTimer = null;
 
     /* Update strip */
     renderStripEntries();
@@ -17916,10 +17919,14 @@ saveNotionConfig=function(silent){
   localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
   if(document.getElementById('notion-worker-url'))loadDiaryNotionConfig();
   scheduleDiaryAutoSync();
+  if(typeof startNotionLiveSync==='function')startNotionLiveSync();
   if(!silent)showToast('Notion 설정 저장됨');
 };
 var _notionSaveTimer=null;
 var _notionTabSyncTimer=null;
+var _notionLivePullTimer=null;
+var _notionLivePullBusy=false;
+var _lastDiaryLocalEditAt=0;
 function queueDiaryNotionSave(dateKey, opts){
   opts=opts||{};
   var cfg=getNotionCfg();
@@ -19001,6 +19008,37 @@ async function pullDiaryFromNotion(dateKey){
     showToast('Notion 가져오기 실패: '+e.message);
   }
 }
+async function pullDiaryFromNotionSilent(dateKey){
+  var cfg=getNotionCfg();
+  dateKey=dateKey||currentDate||TK;
+  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId||!dateKey)return 0;
+  try{
+    var dateProp=cfg.dateProp||'날짜';
+    var found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+      filter:{property:dateProp,date:{equals:dateKey}},
+      page_size:1
+    });
+    var page=(found.results||[])[0];
+    if(!page)return 0;
+    var propPulled=_pullDiaryPageProperties(page, dateKey, cfg);
+    var pulled=await _pullDiaryPageBody(page.id, dateKey);
+    if((propPulled||pulled) && dateKey===currentDate){
+      try{
+        if(typeof loadEntry==='function') loadEntry(dateKey);
+        if(typeof loadBlocks==='function') loadBlocks(dateKey);
+        if(typeof renderDiary==='function') renderDiary();
+      }catch(e){}
+      var st=document.getElementById('notion-sync-status');
+      if(st)st.textContent='Notion 자동 반영 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+      var row=document.getElementById('notion-row');
+      if(row)row.setAttribute('data-state','ok');
+    }
+    return propPulled+pulled;
+  }catch(e){
+    try{console.warn('Notion live pull skipped:',e&&e.message);}catch(_){}
+    return 0;
+  }
+}
 async function diaryAutoDetectProps(){
   saveNotionConfig();
   try {
@@ -19073,7 +19111,19 @@ async function diaryAutoDetectProps(){
     showToast('자동 감지 실패: '+e.message);
   }
 }
-var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:false,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:false});},60000);}
+var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;startNotionLiveSync();_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:false,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:false});},60000);}
+function startNotionLiveSync(){
+  clearInterval(_notionLivePullTimer);
+  var cfg=getNotionCfg();
+  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
+  _notionLivePullTimer=setInterval(function(){
+    if(_notionLivePullBusy)return;
+    if(_currentPage!=='diary')return;
+    if(Date.now()-(_lastDiaryLocalEditAt||0)<8000)return;
+    _notionLivePullBusy=true;
+    pullDiaryFromNotionSilent(currentDate||TK).finally(function(){_notionLivePullBusy=false;});
+  },12000);
+}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
 /* Google Calendar runtime */
