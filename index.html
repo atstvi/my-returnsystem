@@ -20025,7 +20025,8 @@ function showToast(msg) {
     version:'sync-v2', authStatus:'idle', uid:null, email:null,
     hydrated:false, localLoaded:false, cloudLoaded:false, writeLocked:true,
     dirty:{}, pendingWrites:0, keyRemoteMs:{}, saveTimer:null, unsubscribe:null,
-    lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false
+    lastSaveTime:0, lastSyncStatus:'idle', lastError:null, cloudEmpty:false, legacyMigrated:false,
+    storageBridgeInstalled:false, lastLocalWriteKey:null, lastLocalWriteAt:0
   };
 
   function updateStatus(text, cls){
@@ -20146,6 +20147,39 @@ function showToast(msg) {
     state.saveTimer=setTimeout(function(){ flush(opts); }, opts.immediate?40:180);
     renderMiniPanel();
     return true;
+  }
+  function installStorageBridge(){
+    if(state.storageBridgeInstalled) return;
+    state.storageBridgeInstalled=true;
+    try{
+      var origSet=localStorage.setItem.bind(localStorage);
+      localStorage.setItem=function(k,v){
+        var before=null;
+        try{ before=localStorage.getItem(k); }catch(e){}
+        var ret=origSet(k,v);
+        var after=String(v);
+        if(!_applyingFbData && before!==after && isSyncKey(k)){
+          state.lastLocalWriteKey=k;
+          state.lastLocalWriteAt=Date.now();
+          queueSave(k,{reason:'storage-set', immediate:true});
+        }
+        return ret;
+      };
+    }catch(e){ log('err','storage set bridge failed: '+e.message); }
+    try{
+      var origRemove=localStorage.removeItem.bind(localStorage);
+      localStorage.removeItem=function(k){
+        var had=false;
+        try{ had=localStorage.getItem(k)!=null; }catch(e){}
+        var ret=origRemove(k);
+        if(!_applyingFbData && had && isSyncKey(k)){
+          state.lastLocalWriteKey=k;
+          state.lastLocalWriteAt=Date.now();
+          queueSave(k,{reason:'storage-remove', immediate:true});
+        }
+        return ret;
+      };
+    }catch(e){ log('err','storage remove bridge failed: '+e.message); }
   }
   async function flush(opts){
     opts=opts||{};
@@ -20294,7 +20328,10 @@ function showToast(msg) {
       hydrated:state.hydrated, localLoaded:state.localLoaded, cloudLoaded:state.cloudLoaded,
       writeLocked:state.writeLocked, pendingWrites:Object.keys(state.dirty),
       lastSaveTime:state.lastSaveTime, lastSyncStatus:state.lastSyncStatus,
-      lastError:state.lastError, keyCount:syncKeys().length, clientId:CLIENT_ID
+      lastError:state.lastError, keyCount:syncKeys().length, clientId:CLIENT_ID,
+      storageBridgeInstalled:state.storageBridgeInstalled,
+      lastLocalWriteKey:state.lastLocalWriteKey,
+      lastLocalWriteAt:state.lastLocalWriteAt
     };
   }
   function renderMiniPanel(){
@@ -20308,6 +20345,7 @@ function showToast(msg) {
       'local loaded: '+s.localLoaded,
       'cloud loaded: '+s.cloudLoaded,
       'pending writes: '+s.pendingWrites.length,
+      'last local write: '+(s.lastLocalWriteKey||'-'),
       'last save: '+(s.lastSaveTime?new Date(s.lastSaveTime).toLocaleString():'-'),
       'status: '+s.lastSyncStatus,
       'error: '+(s.lastError||'-')
@@ -20352,6 +20390,7 @@ function showToast(msg) {
   window.fbSaveNow=fbSaveNow;
   window.fbForceSync=fbForceSync;
   window.fbForcePull=fbForcePull;
+  installStorageBridge();
   try{
     document.addEventListener('keydown', function(ev){
       if(ev.ctrlKey && ev.shiftKey && (ev.key==='S' || ev.key==='s')){
