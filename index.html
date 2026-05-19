@@ -12492,6 +12492,11 @@ var entries = {};
 var currentDate = null;
 var saveTimer = null;
 var SECTIONS = ['sleep','morning','resolution','timeline','accomplishment','night','recap'];
+function diarySections(){
+  return Array.isArray(SECTIONS) && SECTIONS.length
+    ? SECTIONS
+    : ['sleep','morning','resolution','timeline','accomplishment','night','recap'];
+}
 var SECTION_META = {
   sleep:         { icon:'🛏️', label:'Sleep Journal' },
   morning:       { icon:'🍀', label:'Morning Thanks' },
@@ -12535,7 +12540,7 @@ function loadDate(dk) {
   var entry = entries[dk] || {};
 
   /* Fill sections */
-  SECTIONS.forEach(function(key) {
+  diarySections().forEach(function(key) {
     var el = document.getElementById('diary_'+key);
     if (!el) return;
     el.value = entry[key] || '';
@@ -12635,7 +12640,7 @@ function autoGrow(el) {
 function commitCurrent() {
   if (!currentDate) return;
   if (!entries[currentDate]) entries[currentDate] = {};
-  SECTIONS.forEach(function(key) {
+  diarySections().forEach(function(key) {
     var el = document.getElementById('diary_'+key);
     if (el) entries[currentDate][key] = el.value;
   });
@@ -12684,7 +12689,7 @@ function diaryAutoSave(key, el) {
     saveAll();
 
     /* Clear dirty indicators */
-    SECTIONS.forEach(function(k) {
+    diarySections().forEach(function(k) {
       var s = document.getElementById('ds-'+k);
       if (s) s.classList.remove('dirty');
     });
@@ -12704,7 +12709,7 @@ function diaryAutoSave(key, el) {
 }
 
 /* Bind auto-save to all section textareas */
-SECTIONS.forEach(function(key) {
+diarySections().forEach(function(key) {
   var el = document.getElementById('diary_'+key);
   if (!el) return;
   el.addEventListener('input', function() { diaryAutoSave(key, el); });
@@ -12727,9 +12732,10 @@ function updateRightMeta(dk) {
     el.appendChild(row1);
   }
 
-  var filled = SECTIONS.filter(function(k){ return entry[k] && entry[k].trim(); }).length;
+  var sections = diarySections();
+  var filled = sections.filter(function(k){ return entry[k] && entry[k].trim(); }).length;
   var row2 = document.createElement('div'); row2.className = 'diary-right-entry';
-  row2.innerHTML = '<div class="diary-right-key">작성 섹션</div><div class="diary-right-val">'+filled+' / '+SECTIONS.length+'</div>';
+  row2.innerHTML = '<div class="diary-right-key">작성 섹션</div><div class="diary-right-val">'+filled+' / '+sections.length+'</div>';
   el.appendChild(row2);
 
   if (entry._mood) {
@@ -12749,7 +12755,7 @@ function updateSectionChecklist(dk) {
   if (!el) return;
   var entry = entries[dk] || {};
   el.innerHTML = '';
-  SECTIONS.forEach(function(key) {
+  diarySections().forEach(function(key) {
     var filled = entry[key] && entry[key].trim();
     var meta = SECTION_META[key];
     var item = document.createElement('div');
@@ -12802,9 +12808,10 @@ function renderStripDays() {
 function renderStripEntries() {
   var container = document.getElementById('strip-entries');
   container.innerHTML = '';
+  var sections = diarySections();
   var keys = Object.keys(entries).filter(function(k) {
     var e = entries[k];
-    return SECTIONS.some(function(s){ return e[s] && e[s].trim(); });
+    return sections.some(function(s){ return e[s] && e[s].trim(); });
   }).sort().reverse().slice(0,15);
 
   keys.forEach(function(dk) {
@@ -12820,9 +12827,9 @@ function renderStripEntries() {
 
     /* Preview from first filled section */
     var preview = '';
-    for (var i = 0; i < SECTIONS.length; i++) {
-      if (entry[SECTIONS[i]] && entry[SECTIONS[i]].trim()) {
-        preview = entry[SECTIONS[i]].trim().slice(0,40);
+    for (var i = 0; i < sections.length; i++) {
+      if (entry[sections[i]] && entry[sections[i]].trim()) {
+        preview = entry[sections[i]].trim().slice(0,40);
         break;
       }
     }
@@ -12832,7 +12839,7 @@ function renderStripEntries() {
     prevEl.textContent = preview || '(내용 없음)';
 
     /* Dot indicators for filled sections */
-    var filled = SECTIONS.filter(function(s){ return entry[s] && entry[s].trim(); }).length;
+    var filled = sections.filter(function(s){ return entry[s] && entry[s].trim(); }).length;
     var dotsEl = document.createElement('div');
     dotsEl.className = 'strip-entry-dots';
     for (var j = 0; j < filled; j++) {
@@ -13135,9 +13142,13 @@ function scheduleBlockSave() {
 
 var trackers = [];
 var trackerValues = {};
+function diaryTrackers(){
+  return Array.isArray(trackers) ? trackers : [];
+}
 
 function loadTrackers() {
   try { trackers = JSON.parse(localStorage.getItem('diary_trackers_v1') || 'null') || []; } catch(e) { trackers = []; }
+  if (!Array.isArray(trackers)) trackers = [];
   /* Default trackers if empty (mirrors original) */
   if (!trackers.length) {
     trackers = [
@@ -13153,6 +13164,7 @@ function loadTrackers() {
     saveTrackers();
   }
   try { trackerValues = JSON.parse(localStorage.getItem('diary_tracker_values_v1') || '{}'); } catch(e) { trackerValues = {}; }
+  if (!trackerValues || typeof trackerValues !== 'object' || Array.isArray(trackerValues)) trackerValues = {};
 }
 
 function saveTrackers() {
@@ -13179,10 +13191,10 @@ function renderTrackerRow(dk) {
   var row = document.getElementById('tracker-row');
   if (!row) return;
   row.innerHTML = '';
-  if (!trackers.length) return;
+  if (!diaryTrackers().length) return;
 
   var values = trackerValues[dk] || {};
-  var activeTrackers = trackers.filter(function(tr) { return trackerActiveOnDate(tr, dk); });
+  var activeTrackers = diaryTrackers().filter(function(tr) { return trackerActiveOnDate(tr, dk); });
 
   activeTrackers.forEach(function(tr) {
     var val = values[tr.id] != null ? values[tr.id] : '';
@@ -13251,7 +13263,7 @@ function renderRightTrackers(dk) {
   if (!el) return;
   el.innerHTML = '';
   var values = trackerValues[dk] || {};
-  trackers.forEach(function(tr) {
+  diaryTrackers().forEach(function(tr) {
     var active = trackerActiveOnDate(tr, dk);
     var val = values[tr.id];
     var row = document.createElement('div');
@@ -13308,11 +13320,11 @@ function openTrackerManager() {
   function rebuildList() {
     listWrap.innerHTML = '';
 
-    if (!trackers.length) {
+    if (!diaryTrackers().length) {
       listWrap.innerHTML = '<p style="font-size:var(--text-sm);color:var(--fg-4);text-align:center;padding:var(--sp-8)">트래커가 없어요. 아래에서 추가하세요.</p>';
     }
 
-    trackers.forEach(function(tr, idx) {
+    diaryTrackers().forEach(function(tr, idx) {
       var row = document.createElement('div');
       row.style.cssText = 'display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-4) 0;border-bottom:.5px solid var(--border-subtle)';
 
@@ -19012,7 +19024,7 @@ async function pullDiaryFromNotion(dateKey){
 async function pullDiaryFromNotionSilent(dateKey){
   var cfg=getNotionCfg();
   dateKey=dateKey||currentDate||TK;
-  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId||!dateKey)return 0;
+  if(!cfg.workerUrl||!cfg.dbId||!dateKey)return 0;
   try{
     var dateProp=cfg.dateProp||'날짜';
     var found=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
@@ -19150,7 +19162,7 @@ function startNotionLiveSync(){
   function diarySig(){try{return localStorage.getItem('diary_entries_v1')||'';}catch(e){return '';}}
   function commitIfCurrent(dateKey){if(dateKey===(currentDate||TK)&&typeof commitCurrent==='function'){commitCurrent();if(typeof saveAll==='function')saveAll();}}
   function queuePush(dateKey, opts){opts=opts||{};var c=cfg();if(!ready(c,false)){state.lastSkip='notion not configured';return false;}if(state.busyPull){state.lastSkip='pull applying';return false;}dateKey=dateKey||currentDate||TK;clearTimeout(state.pushTimer);state.pushTimer=setTimeout(function(){push(dateKey,{silent:true,auto:true,skipAI:true});},opts.fast?900:1600);state.lastStatus='push queued';return true;}
-  async function push(dateKey, opts){opts=opts||{};dateKey=dateKey||currentDate||TK;var c=readVisibleSettings();if(!ready(c,false)){state.lastSkip='notion not configured';if(!opts.silent)showToast('Notion 설정을 먼저 완료해주세요 (Worker URL · DB ID).');return false;}if(state.busyPush){state.lastSkip='push busy';return false;}state.busyPush=true;state.lastError=null;try{commitIfCurrent(dateKey);setStatus('Notion으로 보내는 중...','saving');await legacy.syncDiaryToNotion(dateKey,{silent:!!opts.silent,auto:!!opts.auto,skipAI:opts.skipAI!==false,pullFirst:false,withAI:!!opts.withAI});state.lastPushAt=Date.now();state.lastLocalDiarySig=diarySig();state.lastStatus='push ok';setStatus('Notion 저장 완료 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),'ok');return true;}catch(e){state.lastError=(e&&e.message)||String(e);setStatus('Notion 저장 실패: '+state.lastError,'err');return false;}finally{state.busyPush=false;}}
+  async function push(dateKey, opts){opts=opts||{};dateKey=dateKey||currentDate||TK;var c=readVisibleSettings();if(!ready(c,false)){state.lastSkip='notion not configured';if(!opts.silent)showToast('Notion 설정을 먼저 완료해주세요 (Worker URL · DB ID).');return false;}if(state.busyPush){state.lastSkip='push busy';return false;}state.busyPush=true;state.lastError=null;try{commitIfCurrent(dateKey);setStatus('Notion으로 보내는 중...','saving');await legacy.syncDiaryToNotion(dateKey,{silent:!!opts.silent,auto:!!opts.auto,skipAI:opts.skipAI!==false,pullFirst:opts.pullFirst!=null?!!opts.pullFirst:!opts.auto,withAI:!!opts.withAI});state.lastPushAt=Date.now();state.lastLocalDiarySig=diarySig();state.lastStatus='push ok';setStatus('Notion 저장 완료 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),'ok');return true;}catch(e){state.lastError=(e&&e.message)||String(e);setStatus('Notion 저장 실패: '+state.lastError,'err');return false;}finally{state.busyPush=false;}}
   async function pull(dateKey, opts){opts=opts||{};dateKey=dateKey||currentDate||TK;var c=readVisibleSettings();if(!ready(c,false)){state.lastSkip='notion not configured';return 0;}if(state.busyPull){state.lastSkip='pull busy';return 0;}if(!opts.force&&Date.now()-(_lastDiaryLocalEditAt||0)<8000){state.lastSkip='recent local edit';return 0;}state.busyPull=true;state.lastError=null;try{var before=diarySig();var changed=await legacy.pullDiaryFromNotionSilent(dateKey);var after=diarySig();if(changed||before!==after){state.lastPullAt=Date.now();state.lastLocalDiarySig=after;state.lastStatus='pull ok';setStatus('Notion 변경 반영 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),'ok');}return changed||0;}catch(e){state.lastError=(e&&e.message)||String(e);if(!opts.silent)setStatus('Notion 가져오기 실패: '+state.lastError,'err');return 0;}finally{state.busyPull=false;}}
   function start(){clearInterval(state.pullTimer);clearInterval(state.watchTimer);if(!ready(null,false))return;state.lastLocalDiarySig=diarySig();state.pullTimer=setInterval(function(){if(_currentPage!=='diary')return;pull(currentDate||TK,{silent:true});},10000);state.watchTimer=setInterval(function(){if(state.busyPull)return;var sig=diarySig();if(sig&&state.lastLocalDiarySig!==null&&sig!==state.lastLocalDiarySig){state.lastLocalDiarySig=sig;queuePush(currentDate||TK,{fast:true});}},1000);}
   function stop(){clearTimeout(state.pushTimer);clearInterval(state.pullTimer);clearInterval(state.watchTimer);}
@@ -19164,6 +19176,7 @@ function startNotionLiveSync(){
   queueDiaryNotionTabSync=function(dateKey){return pull(dateKey,{silent:true,force:true});};
   scheduleDiaryAutoSync=function(){start();clearInterval(_diaryAutoTimer);var c=cfg();if(!ready(c,false)||!c.autoSync)return;_diaryAutoTimer=setInterval(function(){var c=cfg(),now=new Date(),t=(c.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');push(today,{silent:true,auto:true,withAI:true,skipAI:false});}},60000);};
   startNotionLiveSync=start;
+  clearInterval(_diaryAutoTimer);
   start();
 })();
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
