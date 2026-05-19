@@ -19124,6 +19124,46 @@ function startNotionLiveSync(){
     pullDiaryFromNotionSilent(currentDate||TK).finally(function(){_notionLivePullBusy=false;});
   },12000);
 }
+/* NotionSyncManager v2.
+   Notion has no browser-side realtime listener, so this manager uses two
+   separate flows: Return -> Notion push on local diary changes, and
+   Notion -> Return polling while the diary tab is open. Images are excluded
+   from app-originated push; existing Notion image blocks are preserved by
+   the legacy body helper. */
+(function installNotionSyncManager(){
+  if(window.NotionSyncManager && window.NotionSyncManager.version==='notion-v2')return;
+  var legacy={
+    syncDiaryToNotion:syncDiaryToNotion,
+    pullDiaryFromNotion:pullDiaryFromNotion,
+    pullDiaryFromNotionSilent:pullDiaryFromNotionSilent,
+    queueDiaryNotionSave:queueDiaryNotionSave,
+    queueDiaryNotionTabSync:queueDiaryNotionTabSync,
+    scheduleDiaryAutoSync:scheduleDiaryAutoSync,
+    startNotionLiveSync:startNotionLiveSync
+  };
+  var state={version:'notion-v2',pushTimer:null,pullTimer:null,watchTimer:null,busyPush:false,busyPull:false,lastPushAt:0,lastPullAt:0,lastLocalDiarySig:null,lastStatus:'idle',lastError:null,lastSkip:null};
+  function cfg(){return getNotionCfg();}
+  function ready(c){c=c||cfg();return !!(c.autoSync&&c.workerUrl&&c.dbId);}
+  function setStatus(text, cls){state.lastStatus=text||state.lastStatus;var st=document.getElementById('notion-sync-status');if(st)st.textContent=text||'';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state',cls||'');}
+  function diarySig(){try{return localStorage.getItem('diary_entries_v1')||'';}catch(e){return '';}}
+  function commitIfCurrent(dateKey){if(dateKey===(currentDate||TK)&&typeof commitCurrent==='function'){commitCurrent();if(typeof saveAll==='function')saveAll();}}
+  function queuePush(dateKey, opts){opts=opts||{};if(!ready()){state.lastSkip='notion not configured';return false;}if(state.busyPull){state.lastSkip='pull applying';return false;}dateKey=dateKey||currentDate||TK;clearTimeout(state.pushTimer);state.pushTimer=setTimeout(function(){push(dateKey,{silent:true,auto:true,skipAI:true});},opts.fast?900:1600);state.lastStatus='push queued';return true;}
+  async function push(dateKey, opts){opts=opts||{};dateKey=dateKey||currentDate||TK;if(!ready()){state.lastSkip='notion not configured';if(!opts.silent)showToast('Notion 설정을 먼저 완료해주세요.');return false;}if(state.busyPush){state.lastSkip='push busy';return false;}state.busyPush=true;state.lastError=null;try{commitIfCurrent(dateKey);setStatus('Notion으로 보내는 중...','saving');await legacy.syncDiaryToNotion(dateKey,{silent:!!opts.silent,auto:!!opts.auto,skipAI:opts.skipAI!==false,pullFirst:false,withAI:!!opts.withAI});state.lastPushAt=Date.now();state.lastLocalDiarySig=diarySig();state.lastStatus='push ok';setStatus('Notion 저장 완료 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),'ok');return true;}catch(e){state.lastError=(e&&e.message)||String(e);setStatus('Notion 저장 실패: '+state.lastError,'err');return false;}finally{state.busyPush=false;}}
+  async function pull(dateKey, opts){opts=opts||{};dateKey=dateKey||currentDate||TK;if(!ready()){state.lastSkip='notion not configured';return 0;}if(state.busyPull){state.lastSkip='pull busy';return 0;}if(!opts.force&&Date.now()-(_lastDiaryLocalEditAt||0)<8000){state.lastSkip='recent local edit';return 0;}state.busyPull=true;state.lastError=null;try{var before=diarySig();var changed=await legacy.pullDiaryFromNotionSilent(dateKey);var after=diarySig();if(changed||before!==after){state.lastPullAt=Date.now();state.lastLocalDiarySig=after;state.lastStatus='pull ok';setStatus('Notion 변경 반영 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),'ok');}return changed||0;}catch(e){state.lastError=(e&&e.message)||String(e);if(!opts.silent)setStatus('Notion 가져오기 실패: '+state.lastError,'err');return 0;}finally{state.busyPull=false;}}
+  function start(){clearInterval(state.pullTimer);clearInterval(state.watchTimer);if(!ready())return;state.lastLocalDiarySig=diarySig();state.pullTimer=setInterval(function(){if(_currentPage!=='diary')return;pull(currentDate||TK,{silent:true});},10000);state.watchTimer=setInterval(function(){if(state.busyPull)return;var sig=diarySig();if(sig&&state.lastLocalDiarySig!==null&&sig!==state.lastLocalDiarySig){state.lastLocalDiarySig=sig;queuePush(currentDate||TK,{fast:true});}},1000);}
+  function stop(){clearTimeout(state.pushTimer);clearInterval(state.pullTimer);clearInterval(state.watchTimer);}
+  function snapshot(){return {version:state.version,ready:ready(),busyPush:state.busyPush,busyPull:state.busyPull,lastPushAt:state.lastPushAt,lastPullAt:state.lastPullAt,lastStatus:state.lastStatus,lastError:state.lastError,lastSkip:state.lastSkip};}
+  window.__legacyNotionSync=legacy;
+  window.NotionSyncManager={version:'notion-v2',state:state,start:start,stop:stop,push:push,pull:pull,queuePush:queuePush,snapshot:snapshot};
+  syncDiaryToNotion=function(dateKey, opts){return push(dateKey,opts||{});};
+  pullDiaryFromNotion=function(dateKey){return pull(dateKey,{silent:false,force:true});};
+  pullDiaryFromNotionSilent=function(dateKey){return pull(dateKey,{silent:true});};
+  queueDiaryNotionSave=function(dateKey, opts){return queuePush(dateKey,Object.assign({fast:true},opts||{}));};
+  queueDiaryNotionTabSync=function(dateKey){return pull(dateKey,{silent:true,force:true});};
+  scheduleDiaryAutoSync=function(){start();clearInterval(_diaryAutoTimer);if(!ready())return;_diaryAutoTimer=setInterval(function(){var c=cfg(),now=new Date(),t=(c.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');push(today,{silent:true,auto:true,withAI:true,skipAI:false});}},60000);};
+  startNotionLiveSync=start;
+  start();
+})();
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
 /* Google Calendar runtime */
