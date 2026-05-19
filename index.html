@@ -20051,10 +20051,35 @@ function showToast(msg) {
     return ref ? ref.collection('data') : null;
   }
   function metaRef(){ return userRef(); }
+  function withTimeout(promise, ms, label){
+    return new Promise(function(resolve, reject){
+      var done=false;
+      var timer=setTimeout(function(){
+        if(done) return;
+        done=true;
+        reject(new Error((label||'operation')+' timeout'));
+      }, ms);
+      Promise.resolve(promise).then(function(v){
+        if(done) return;
+        done=true;
+        clearTimeout(timer);
+        resolve(v);
+      }, function(e){
+        if(done) return;
+        done=true;
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
+  }
   async function readCloudV2(){
     var col=dataCol(), out={};
     if(!col) return out;
-    var snap=await col.get({source:'server'}).catch(function(){return col.get();});
+    var snap=await withTimeout(
+      col.get({source:'server'}).catch(function(){return col.get();}),
+      4500,
+      'cloud read'
+    );
     snap.forEach(function(doc){
       var d=doc.data()||{}, k=d.key;
       if(d.schema === 'sync-v2' && k && isSyncKey(k) && d.value!=null){
@@ -20069,12 +20094,12 @@ function showToast(msg) {
     if(!ref) return out;
     try{
       if(typeof fbReadSplitData === 'function'){
-        var split=await fbReadSplitData(ref);
+        var split=await withTimeout(fbReadSplitData(ref), 3500, 'legacy cloud read');
         Object.keys(split.keys||{}).forEach(function(k){ if(isSyncKey(k)) out[k]=String(split.keys[k]); });
       }
     }catch(e){ log('syncv2','legacy split read failed',{msg:e.message}); }
     try{
-      var snap=await ref.get({source:'server'}).catch(function(){return ref.get();});
+      var snap=await withTimeout(ref.get({source:'server'}).catch(function(){return ref.get();}), 2500, 'legacy header read');
       if(snap.exists){
         var d=snap.data()||{};
         Object.keys(d.keys||{}).forEach(function(k){ if(isSyncKey(k) && out[k]==null) out[k]=String(d.keys[k]); });
@@ -20107,21 +20132,30 @@ function showToast(msg) {
     try{
       var localData=readLocal();
       state.localLoaded=true;
-      var cloudData=await readCloudV2();
-      state.cloudLoaded=true;
+      var cloudData={}, cloudOk=false;
+      try{
+        cloudData=await readCloudV2();
+        cloudOk=true;
+      }catch(cloudErr){
+        state.lastError='클라우드 읽기 지연: '+((cloudErr&&cloudErr.message)||cloudErr);
+        log('err', state.lastError);
+        updateStatus('클라우드 읽기 지연 · 로컬 모드로 계속', 'saving');
+      }
+      state.cloudLoaded=cloudOk;
       state.cloudEmpty=Object.keys(cloudData).length===0;
-      if(state.cloudEmpty){
+      if(cloudOk && state.cloudEmpty){
         var legacy=await readLegacyCloud();
         if(Object.keys(legacy).length){ cloudData=legacy; state.legacyMigrated=true; }
       }
-      var hasCloudData=Object.keys(cloudData).length>0;
+      var hasCloudData=cloudOk && Object.keys(cloudData).length>0;
       var pack=buildMerged(localData, cloudData, hasCloudData);
       applyLocal(pack.merged, 'hydrate');
       state.hydrated=true;
       state.writeLocked=false;
-      updateStatus(state.legacyMigrated?'동기화 완료 · 기존 클라우드 데이터 이전됨':'동기화 완료', 'ok');
+      updateStatus(cloudOk ? (state.legacyMigrated?'동기화 완료 · 기존 클라우드 데이터 이전됨':'동기화 완료') : '로컬 준비 완료 · 변경 시 저장 재시도', cloudOk?'ok':'saving');
       listen();
-      if(Object.keys(pack.upload).length) queueSave(Object.keys(pack.upload), {reason:'hydrate-upload'});
+      if(cloudOk && Object.keys(pack.upload).length) queueSave(Object.keys(pack.upload), {reason:'hydrate-upload'});
+      if(Object.keys(state.dirty).length) queueSave(Object.keys(state.dirty), {reason:'post-hydrate-dirty', immediate:true});
       return true;
     }catch(e){
       state.hydrated=true;
@@ -20328,6 +20362,7 @@ function showToast(msg) {
     state.lastProbe={stage:'local-write', value:probe};
     updateStatus('동기화 테스트 중...', 'saving');
     try{
+      if(!state.hydrated && fbUser && fbDb) await hydrate();
       localStorage.setItem('sync_probe_v1', JSON.stringify(probe));
       markDirty('sync_probe_v1');
       var ok=await flush({force:true, probe:true});
