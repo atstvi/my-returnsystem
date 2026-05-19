@@ -12695,6 +12695,9 @@ function diaryAutoSave(key, el) {
     renderStripEntries();
     renderStripDays();
   }, 4000);
+  if (typeof queueDiaryNotionSave === 'function') {
+    queueDiaryNotionSave(currentDate || TK, {soon:true});
+  }
 }
 
 /* Bind auto-save to all section textareas */
@@ -17917,7 +17920,8 @@ saveNotionConfig=function(silent){
 };
 var _notionSaveTimer=null;
 var _notionTabSyncTimer=null;
-function queueDiaryNotionSave(dateKey){
+function queueDiaryNotionSave(dateKey, opts){
+  opts=opts||{};
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
   /* E2 guard: if diary is in stale-quota state, do not push to Notion either.
@@ -17930,7 +17934,7 @@ function queueDiaryNotionSave(dateKey){
   clearTimeout(_notionSaveTimer);
   _notionSaveTimer=setTimeout(function(){
     syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:false});
-  },900);
+  },opts.soon?1200:900);
 }
 function queueDiaryNotionTabSync(dateKey){
   var cfg=getNotionCfg();
@@ -18819,7 +18823,7 @@ async function syncDiaryToNotion(dateKey, opts){
      re-writing. Pulling first ensures Notion-side blocks land in entry._blocks
      and survive the re-write. Callers may still pass pullFirst:false for the
      rare case where Return must truly clobber Notion. */
-  if(opts.pullFirst==null) opts.pullFirst=true;
+  if(opts.pullFirst==null) opts.pullFirst=false;
   saveNotionConfig(!!opts.silent);
   var cfg=_diaryNotionCfg;
   dateKey=dateKey||currentDate||TK;
@@ -19069,7 +19073,7 @@ async function diaryAutoDetectProps(){
     showToast('자동 감지 실패: '+e.message);
   }
 }
-var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:true,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:true});},60000);}
+var _diaryAutoTimer=null;function scheduleDiaryAutoSync(){clearInterval(_diaryAutoTimer);var cfg=getNotionCfg();if(!cfg.autoSync)return;_diaryAutoTimer=setInterval(function(){var now=new Date(),t=(cfg.autoTime||'23:00').split(':'),today=TK;var dailyKey='notion_ai_daily_'+today;if(now.getHours()===Number(t[0])&&now.getMinutes()===Number(t[1]||0)&&localStorage.getItem(dailyKey)!=='1'){localStorage.setItem(dailyKey,'1');syncDiaryToNotion(today,{silent:true,auto:true,pullFirst:false,withAI:true});return;}syncDiaryToNotion(currentDate||today,{silent:true,auto:true,skipAI:true,pullFirst:false});},60000);}
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
 /* Google Calendar runtime */
