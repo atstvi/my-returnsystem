@@ -18058,7 +18058,8 @@ function loadScript(src){
     document.head.appendChild(sc);
   });
 }
-var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false, _fbLoadInFlight=null;
+var _fbHydrating=false, _fbPendingSaveAfterHydrate=false;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
@@ -18242,6 +18243,7 @@ async function fbLoadCloudSettings(ref){
   if(fbHasLocalCloudSettings()){
     var ok=confirm('이 계정에 저장된 설정이 아직 없어요. 이 기기의 설정을 계정에 업로드할까요?');
     if(ok){await fbSaveCloudSettings(ref);return {exists:false,uploaded:true,count:0};}
+    return {exists:false,declined:true,count:0};
   }
   return {exists:false,count:0};
 }
@@ -18434,14 +18436,27 @@ function fbStatusTime(prefix){
 }
 async function fbLoadAll(){
   if(!fbDb||!fbUser)return;
+  if(_fbLoadInFlight){
+    try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','fbLoadAll joined in-flight load'); }catch(_e){}
+    return _fbLoadInFlight;
+  }
+  _fbLoadInFlight=(async function(){
+  _fbHydrating=true;
+  _fbPendingSaveAfterHydrate=false;
   var ref=fbDb.collection('users').doc(fbUser.uid);
+  var cloudDataReadOk=false;
+  var cloudSettingsReadOk=false;
+  var loadError=null;
+  var settingsError=null;
   setFbStatus('Firebase에서 불러오는 중...','saving');
   try{
     var applied=0;
     try{
       var cloudSettings=await fbLoadCloudSettings(ref);
+      cloudSettingsReadOk=!(cloudSettings&&cloudSettings.declined);
       if(cloudSettings&&cloudSettings.count)applied+=cloudSettings.count;
     }catch(se){
+      settingsError=se;
       console.warn('cloud settings load',se);
       setFbStatus('설정 동기화 오류: '+(se&&se.message||se),'err');
     }
@@ -18450,6 +18465,7 @@ async function fbLoadAll(){
     var splitData=await fbReadSplitData(ref);
     var splitCount=Object.keys(splitData.keys||{}).length;
     if(splitCount){fbApplyData(splitData);applied+=splitCount;}
+    cloudDataReadOk=true;
     setFbStatus(applied?fbStatusTime('Firebase 동기화됨'):fbStatusTime('Firebase 연결됨 · 아직 클라우드 데이터 없음'),'ok');
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
@@ -18486,11 +18502,34 @@ async function fbLoadAll(){
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
     });
   }catch(e){
+    loadError=e;
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
     setFbStatus('동기화 오류: '+msg,'err');
+  }finally{
+    _fbHydrating=false;
+    if(_fbPendingSaveAfterHydrate){
+      var shouldFlushPending=cloudDataReadOk&&cloudSettingsReadOk;
+      _fbPendingSaveAfterHydrate=false;
+      if(shouldFlushPending){
+        setTimeout(function(){ fbSaveAll(); }, 250);
+      }else{
+        try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','pending save held after failed cloud load',{data:cloudDataReadOk,settings:cloudSettingsReadOk}); }catch(_e){}
+      }
+    }
+  }
+  return {ok:cloudDataReadOk&&cloudSettingsReadOk,dataOk:cloudDataReadOk,settingsOk:cloudSettingsReadOk,error:loadError||settingsError||null};
+  })();
+  try{
+    return await _fbLoadInFlight;
+  }finally{
+    _fbLoadInFlight=null;
   }
 }
-function fbSaveAll(){if(!fbDb||!fbUser||_applyingFbData)return;clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);}
+function fbSaveAll(){
+  if(!fbDb||!fbUser||_applyingFbData)return;
+  if(_fbHydrating){_fbPendingSaveAfterHydrate=true;return;}
+  clearTimeout(_fbSaveTimer);_fbSaveTimer=setTimeout(fbSaveNow,450);
+}
 /* Timestamp of the last time we applied a remote snapshot. A short grace
    window after applying suppresses the immediate echo from reloaders/
    renderers writing the just-received data back to localStorage. Real user
@@ -18502,6 +18541,10 @@ var _lastRemoteApplyMs=0;
 async function fbSaveNow(opts){
   opts=opts||{};
   if(!fbDb||!fbUser||_applyingFbData)return false;
+  if(_fbHydrating){
+    _fbPendingSaveAfterHydrate=true;
+    return false;
+  }
   /* Echo-suppression grace period. Note: this only suppresses saves
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
@@ -18721,8 +18764,13 @@ async function fbForcePull(){
     if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
     if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
     setFbStatus('Firebase에서 가져오는 중...','saving');
-    await fbLoadAll();
-    showToast('Firebase에서 다시 가져왔어요. 다른 탭의 변경이 화면에 반영되어야 해요.');
+    var result=await fbLoadAll();
+    if(result&&result.ok){
+      showToast('Firebase에서 다시 가져왔어요. 다른 탭의 변경이 화면에 반영되어야 해요.');
+    }else{
+      var detail=result&&result.error?(result.error.message||result.error):'클라우드 읽기 또는 설정 동기화를 완료하지 못했어요.';
+      showToast('Firebase 가져오기를 완전히 완료하지 못했어요: '+detail);
+    }
   }catch(e){
     setFbStatus('Firebase 오류: '+e.message,'err');
     showToast('Firebase 오류: '+e.message);
