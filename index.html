@@ -18561,11 +18561,12 @@ function themeStudioRender(){
     var keys=['app'].concat(Object.keys(THEME_STUDIO_TAB_LABELS),['done','rest','skip']);
     map.innerHTML=keys.map(function(k){
       var label=THEME_STUDIO_TAB_LABELS[k]||({app:'App icon',avatar:'Situation avatar',done:'Completed',rest:'Rest',skip:'Skipped'}[k]||k);
-      return '<label><span>'+themeStudioEsc(label)+'</span><input data-theme-icon-key="'+themeStudioEsc(k)+'" value="'+themeStudioEsc((cur.icons||{})[k]||'')+'"><input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" data-theme-icon-file="'+themeStudioEsc(k)+'"><span class="theme-icon-actions"><button class="set-btn btn-ghost" type="button" data-theme-icon-clear="'+themeStudioEsc(k)+'">Remove</button></span></label>';
+      return '<label><span>'+themeStudioEsc(label)+'</span><input data-theme-icon-key="'+themeStudioEsc(k)+'" value="'+themeStudioEsc((cur.icons||{})[k]||'')+'"><input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" data-theme-icon-file="'+themeStudioEsc(k)+'"><span class="theme-icon-actions"><button class="set-btn btn-ghost" type="button" data-theme-icon-pick="'+themeStudioEsc(k)+'">Assets</button><button class="set-btn btn-ghost" type="button" data-theme-icon-clear="'+themeStudioEsc(k)+'">Remove</button></span></label>';
     }).join('');
     map.querySelectorAll('[data-theme-icon-key]').forEach(function(input){input.addEventListener('input',themeStudioUpdateIconsFromControls);});
     map.querySelectorAll('[data-theme-icon-file]').forEach(function(input){input.addEventListener('change',themeStudioUploadIconFromControl);});
     map.querySelectorAll('[data-theme-icon-clear]').forEach(function(btn){btn.addEventListener('click',themeStudioClearIconControl);});
+    map.querySelectorAll('[data-theme-icon-pick]').forEach(function(btn){btn.addEventListener('click',themeStudioPickIconAssetControl);});
   }
   themeStudioRenderAssets();
 }
@@ -18651,6 +18652,62 @@ function themeStudioApplyAssetRole(role){
   themeStudioMarkAssetRole(asset.id,role);
   themeStudioRenderAssets();
 }
+function themeStudioAssetRoleLabels(asset){
+  var roles=(asset&&asset.roles)||[];
+  var labels={pageBackground:'Background',pageBanner:'Banner',stickerAsset:'Sticker',appLogo:'App icon',situationAvatar:'Avatar',cardBackground:'Card bg',cardFrame:'Frame',cardCornerDecoration:'Corners'};
+  return roles.map(function(r){return labels[r]||r;});
+}
+function themeStudioAssetInCurrentTheme(asset){
+  if(!asset||!asset.url) return false;
+  var cur=themeStudioGetCurrent();
+  var card=(((cur.componentSkins||{}).resources||{}).card)||{};
+  return (cur.background&&cur.background.image===asset.url)
+    || (cur.icons&&Object.keys(cur.icons).some(function(k){return cur.icons[k]===asset.url;}))
+    || Object.keys(card).some(function(k){return card[k]===asset.url;});
+}
+var themeStudioAssetFilter='all';
+function themeStudioSetAssetFilter(filter){
+  themeStudioAssetFilter=filter||'all';
+  themeStudioRenderAssets();
+}
+function themeStudioAssetMatchesFilter(asset,filter){
+  filter=filter||'all';
+  if(filter==='all') return true;
+  if(filter==='unused') return !themeStudioAssetRoleLabels(asset).length&&!themeStudioAssetInCurrentTheme(asset);
+  if(filter==='used') return themeStudioAssetInCurrentTheme(asset);
+  if(filter==='stickers') return (asset.roles||[]).indexOf('stickerAsset')>=0 || /sticker|emoji|emot|deco/i.test(asset.name||'');
+  if(filter==='backgrounds') return (asset.roles||[]).indexOf('pageBackground')>=0 || /background|wallpaper|bg|room/i.test(asset.name||'');
+  if(filter==='icons') return (asset.roles||[]).indexOf('appLogo')>=0 || (asset.roles||[]).indexOf('situationAvatar')>=0 || /icon|avatar|profile|btn|menu/i.test(asset.name||'');
+  if(filter==='frames') return (asset.roles||[]).indexOf('cardFrame')>=0 || /frame|bubble|balloon|border|\.9\.png/i.test(asset.name||'');
+  if(filter==='imported') return /import/i.test(asset.category||asset.type||'') || !!asset.sourceTheme;
+  return true;
+}
+function themeStudioRenderAssetActions(asset){
+  var wrap=document.getElementById('theme-asset-actions');
+  if(!wrap) return;
+  if(!asset){
+    wrap.innerHTML='<span class="theme-preset-meta">Select an asset to choose a role.</span>';
+    return;
+  }
+  var actions=[
+    ['pageBackground','Use as background'],
+    ['pageBanner','Use as banner'],
+    ['stickerAsset','Place as sticker'],
+    ['appLogo','Use as app icon'],
+    ['situationAvatar','Use as avatar'],
+    ['cardBackground','Use as card bg'],
+    ['cardFrame','Use as card frame'],
+    ['cardCornerDecoration','Use as corners']
+  ];
+  wrap.innerHTML=actions.map(function(action){
+    return '<button class="set-btn btn-ghost" type="button" data-theme-asset-role="'+themeStudioEsc(action[0])+'">'+themeStudioEsc(action[1])+'</button>';
+  }).join('');
+  wrap.querySelectorAll('[data-theme-asset-role]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      themeStudioApplyAssetRole(this.dataset.themeAssetRole);
+    });
+  });
+}
 function themeStudioApplyAssetToSkin(assetId,slot){
   var asset=themeStudioBoard().find(function(a){return a.id===assetId;});
   if(!asset) return;
@@ -18709,6 +18766,18 @@ function themeStudioClearIconControl(ev){
   themeStudioSetCurrent(cur,true);
   themeStudioRender();
   themeStudioApplyIcons(cur);
+}
+function themeStudioPickIconAssetControl(ev){
+  var key=ev&&ev.currentTarget&&ev.currentTarget.dataset&&ev.currentTarget.dataset.themeIconPick;
+  if(!key) return;
+  themeStudioOpenStickerBoardPicker(function(asset){
+    var cur=themeStudioGetCurrent();
+    cur.icons[key]=asset.url;
+    themeStudioSetCurrent(cur,true);
+    themeStudioMarkAssetRole(asset.id,key==='app'?'appLogo':(key==='avatar'?'situationAvatar':'sidebarIcon'));
+    themeStudioRender();
+    themeStudioApplyIcons(cur);
+  },null);
 }
 function themeStudioIncludeFromPrompts(){
   return THEME_STUDIO_CATEGORIES.filter(function(cat){
@@ -19212,17 +19281,30 @@ function themeStudioCreateImportedPresetFromAsset(asset){
 function themeStudioRenderAssets(){
   var wrap=document.getElementById('theme-studio-assets');
   if(!wrap) return;
+  var filters=document.getElementById('theme-asset-filters');
+  if(filters){
+    var items=[['all','All'],['unused','Unused'],['used','Used now'],['stickers','Stickers'],['backgrounds','Backgrounds'],['icons','Icons'],['frames','Frames'],['imported','Imported']];
+    filters.innerHTML=items.map(function(pair){return '<button type="button" class="'+(themeStudioAssetFilter===pair[0]?'active':'')+'" data-theme-asset-filter="'+pair[0]+'">'+pair[1]+'</button>';}).join('');
+    filters.querySelectorAll('[data-theme-asset-filter]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioSetAssetFilter(this.dataset.themeAssetFilter);});});
+  }
   var board=themeStudioBoard();
-  wrap.innerHTML=board.length?board.map(function(a){
+  var visible=board.filter(function(a){return themeStudioAssetMatchesFilter(a,themeStudioAssetFilter);});
+  wrap.innerHTML=visible.length?visible.map(function(a){
     var media=(typeof mediaPreviewMarkup==='function')?mediaPreviewMarkup(a.url,a.name):'<img class="theme-asset-thumb" src="'+themeStudioEsc(a.url)+'" alt="">';
-    return '<div class="theme-asset-card" data-theme-asset-card="'+themeStudioEsc(a.id)+'">'+media+'<span class="theme-preset-name">'+themeStudioEsc(a.name)+'</span><span class="theme-preset-meta">'+themeStudioEsc(a.category||a.type||'Asset')+'</span></div>';
-  }).join(''):'<div class="theme-preset-meta">No sticker assets yet.</div>';
+    var roles=themeStudioAssetRoleLabels(a);
+    var used=themeStudioAssetInCurrentTheme(a);
+    var inferred=roles[0]||(used?'Used asset':(a.sourceTheme?'Imported asset':'Reusable asset'));
+    var badges=(roles.length?roles:[used?'Used':'Unused']).map(function(r){return '<span class="theme-role-badge">'+themeStudioEsc(r)+'</span>';}).join('');
+    return '<div class="theme-asset-card" data-theme-asset-card="'+themeStudioEsc(a.id)+'">'+media+'<span class="theme-preset-name">'+themeStudioEsc(inferred)+'</span><span class="theme-preset-meta">'+themeStudioEsc(a.category||a.type||'Asset')+' · '+themeStudioEsc(a.name||'file')+'</span><span class="theme-role-badges">'+badges+'</span></div>';
+  }).join(''):'<div class="theme-preset-meta">No assets match this filter.</div>';
   wrap.querySelectorAll('[data-theme-asset-card]').forEach(function(card){
     card.addEventListener('click',function(){
       wrap.querySelectorAll('[data-theme-asset-card]').forEach(function(x){x.classList.remove('active');});
       card.classList.add('active');
+      themeStudioRenderAssetActions(themeStudioSelectedAsset());
     });
   });
+  themeStudioRenderAssetActions(themeStudioSelectedAsset());
   if(typeof resolveMediaRefs==='function') resolveMediaRefs(wrap);
 }
 function themeStudioAddBoardSelectionToPage(){
