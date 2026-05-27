@@ -3941,6 +3941,9 @@ to{opacity:1;transform:translateY(0)}}
 .theme-choice-card{border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-3);text-align:left;cursor:pointer;min-height:116px}
 .theme-choice-card:hover,.theme-choice-card.active{border-color:var(--accent);box-shadow:var(--elev-1)}
 .theme-choice-preview{height:42px;border-radius:var(--r-md);border:.5px solid var(--border-subtle);background:linear-gradient(120deg,var(--accent-light),var(--bg-card));box-shadow:var(--elev-inset)}
+.theme-choice-preview{position:relative;overflow:hidden}
+.theme-preset-swatches{position:absolute;left:var(--sp-2);right:var(--sp-2);bottom:var(--sp-2);display:flex;gap:var(--sp-1)}
+.theme-preset-swatch{height:8px;flex:1;border-radius:var(--r-full);border:.5px solid rgba(0,0,0,.08);box-shadow:0 1px 2px rgba(0,0,0,.08)}
 .theme-color-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:var(--sp-3);margin-top:var(--sp-4)}
 .theme-color-card{border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);padding:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-2)}
 .theme-color-card input{width:100%;height:36px;border:none;background:transparent;padding:0}
@@ -19933,6 +19936,7 @@ function themeStudioRoleMeta(role){
   var map={
     pageBackground:['Page background','Changes app wallpaper'],
     pageBanner:['Home banner','Changes Home banner'],
+    hobbyBanner:['Hobby banner','Changes Hobby banner'],
     stickerAsset:['Sticker','Reusable or placed sticker'],
     appLogo:['App logo','Sidebar R mark'],
     icon:['Icon','Icon resource'],
@@ -19943,6 +19947,16 @@ function themeStudioRoleMeta(role){
     cardCornerDecoration:['Card corners','Hero card corner accents']
   };
   return map[role]||[role,'Asset role'];
+}
+function themeStudioPresetPreview(p){
+  var snap=(p&&p.snapshot)||{};
+  var colors=themeStudioMerge(THEME_STUDIO_DEFAULT.colors,snap.colors||{});
+  var skin=(snap.componentSkins&&snap.componentSkins.card)||'';
+  var bg='background:linear-gradient(120deg,'+themeStudioEsc(colors.page)+','+themeStudioEsc(colors.card)+')';
+  var swatches=['accent','page','card','sidebar','border'].map(function(k){
+    return '<span class="theme-preset-swatch" style="background:'+themeStudioEsc(colors[k]||THEME_STUDIO_DEFAULT.colors[k]||'#fff')+'"></span>';
+  }).join('');
+  return '<div class="theme-choice-preview '+themeStudioEsc(skin)+'" style="'+bg+'"><span class="theme-preset-swatches">'+swatches+'</span></div>';
 }
 function themeStudioApplyPreset(id){
   var preset=themeStudioAllPresets().find(function(p){return p.id===id;});
@@ -20020,7 +20034,7 @@ function themeStudioUpdatePreset(id){
   if(!confirm('Update this preset with the current appearance using its included categories?'))return;
   themeStudioReplacePresetInStore(id,function(next){var cats=themeStudioPresetCategories(next);next.include=cats;next.includedCategories=cats;next.snapshot=themeStudioSnapshot(cats);next.updatedAt=new Date().toISOString();return next;});
 }
-function themeStudioReset(){themeStudioSet(themeStudioClone(THEME_STUDIO_DEFAULT));themeStudioClearHomeBannerImage();}
+function themeStudioReset(){themeStudioSet(themeStudioClone(THEME_STUDIO_DEFAULT));themeStudioClearHomeBannerImage();themeStudioClearHobbyBannerImage();}
 function themeStudioApply(state){
   state=themeStudioNormalizeState(state||themeStudioGet());
   var root=document.documentElement, body=document.body;
@@ -20049,6 +20063,7 @@ function themeStudioApply(state){
   themeStudioApplySkinSlots(state);
   themeStudioApplyBackground(state);
   themeStudioApplyBanner(state);
+  themeStudioApplyHobbyBanner(state);
   themeStudioApplyIcons(state);
   themeStudioApplyPreview(state);
 }
@@ -20082,10 +20097,25 @@ function themeStudioApplyBanner(state){
     if(typeof hbState==='object'){hbState.imgUrl=img;saveHomeBanner();renderHomeBanner();}
   }catch(e){}
 }
+function themeStudioApplyHobbyBanner(state){
+  var img=(state.banner&&state.banner.hobbyImage)||'';
+  if(!img)return;
+  try{
+    localStorage.setItem('hobby_banner_v1',img);
+    if(!localStorage.getItem('hobby_banner_pos_v1'))localStorage.setItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
+    if(typeof initHobbyBanner==='function')initHobbyBanner();
+  }catch(e){}
+}
 function themeStudioClearHomeBannerImage(){
   try{
     if(typeof loadHomeBanner==='function')loadHomeBanner();
     if(typeof hbState==='object'){hbState.imgUrl='';saveHomeBanner();renderHomeBanner();}
+  }catch(e){}
+}
+function themeStudioClearHobbyBannerImage(){
+  try{
+    localStorage.removeItem('hobby_banner_v1');
+    if(typeof initHobbyBanner==='function')initHobbyBanner();
   }catch(e){}
 }
 function themeStudioIconMarkup(value,fallback){
@@ -20146,6 +20176,7 @@ function themeStudioMarkRolesFromState(state,cats){
   var pairs=[], icons=(state&&state.icons)||{}, res=((((state||{}).componentSkins||{}).resources||{}).card)||{};
   if(cats.indexOf('background')>=0&&state.background&&state.background.image)pairs.push([state.background.image,'pageBackground']);
   if(cats.indexOf('banner')>=0&&state.banner&&state.banner.image)pairs.push([state.banner.image,'pageBanner']);
+  if(cats.indexOf('banner')>=0&&state.banner&&state.banner.hobbyImage)pairs.push([state.banner.hobbyImage,'hobbyBanner']);
   if(cats.indexOf('icons')>=0)Object.keys(icons).forEach(function(k){if(icons[k])pairs.push([icons[k],k==='app'?'appLogo':(k==='avatar'?'situationAvatar':'icon')]);});
   if(cats.indexOf('componentSkins')>=0){
     if(res.background)pairs.push([res.background,'cardBackground']);
@@ -20171,6 +20202,7 @@ function themeStudioApplyAssetRole(role){
   var cur=themeStudioGet();
   if(role==='pageBackground')cur.background=Object.assign({},cur.background,{image:asset.url});
   if(role==='pageBanner')cur.banner=Object.assign({},cur.banner,{image:asset.url});
+  if(role==='hobbyBanner')cur.banner=Object.assign({},cur.banner,{hobbyImage:asset.url});
   if(role==='stickerAsset')themeStudioPlaceSticker(asset);
   var icons=themeStudioEnsureIconsState(cur);
   if(role==='appLogo')icons.app=asset.url;
@@ -20217,7 +20249,7 @@ function themeStudioAssetMatchesFilter(asset,filter){
   if(filter==='unused')return !roles.length;
   if(filter==='used')return roles.length>0;
   if(filter==='stickers')return roles.indexOf('stickerAsset')>=0;
-  if(filter==='backgrounds')return roles.indexOf('pageBackground')>=0||roles.indexOf('pageBanner')>=0||roles.indexOf('cardBackground')>=0;
+  if(filter==='backgrounds')return roles.indexOf('pageBackground')>=0||roles.indexOf('pageBanner')>=0||roles.indexOf('hobbyBanner')>=0||roles.indexOf('cardBackground')>=0;
   if(filter==='icons')return roles.indexOf('icon')>=0||roles.indexOf('avatarIcon')>=0||roles.indexOf('appLogo')>=0||roles.indexOf('situationAvatar')>=0;
   if(filter==='frames')return roles.indexOf('cardFrame')>=0||roles.indexOf('cardCornerDecoration')>=0;
   if(filter==='imported')return !!asset.sourceTheme&&asset.sourceTheme!=='Icon Upload';
@@ -20239,6 +20271,7 @@ function themeStudioRenderAssetActions(asset){
   var actions=[
     ['pageBackground','Use as page background','Changes the app wallpaper behind content',''],
     ['pageBanner','Use as home banner','Changes only the Home top banner','banner'],
+    ['hobbyBanner','Use as hobby banner','Changes only the Hobby top banner','banner'],
     ['stickerAsset','Place as page sticker','Adds one movable sticker to this page','sticker'],
     ['appLogo','Use as app logo','Changes the sidebar R mark','icon'],
     ['situationAvatar','Use as situation avatar','Changes the face in Today situation','avatar'],
@@ -20246,7 +20279,7 @@ function themeStudioRenderAssetActions(asset){
     ['cardFrame','Use as card frame','Frames selected hero-style cards safely','frame'],
     ['cardCornerDecoration','Use as card corners','Adds small corner accents to hero cards','corners']
   ];
-  wrap.innerHTML='<div class="field-hint">Selected asset: '+themeStudioEsc(asset.kind||'Asset')+' - '+themeStudioEsc(asset.name||'file')+'</div>'+actions.map(function(a){var bg=(a[0]==='pageBackground'||a[0]==='pageBanner'||a[0]==='cardBackground'||a[0]==='cardFrame'||a[0]==='cardCornerDecoration'||a[0]==='situationAvatar'||a[0]==='stickerAsset')?' style="background-image:url('+themeStudioEsc(asset.url)+')"':'';var cls='theme-role-preview '+a[3]+(bg?' with-asset':'');return '<button class="theme-role-action" type="button" data-role="'+a[0]+'"><span class="'+cls+'"'+bg+'>'+(a[3]==='icon'?'R':'')+'</span><strong>'+a[1]+'</strong><span class="theme-choice-note">'+a[2]+'</span></button>';}).join('');
+  wrap.innerHTML='<div class="field-hint">Selected asset: '+themeStudioEsc(asset.kind||'Asset')+' - '+themeStudioEsc(asset.name||'file')+'</div>'+actions.map(function(a){var bg=(a[0]==='pageBackground'||a[0]==='pageBanner'||a[0]==='hobbyBanner'||a[0]==='cardBackground'||a[0]==='cardFrame'||a[0]==='cardCornerDecoration'||a[0]==='situationAvatar'||a[0]==='stickerAsset')?' style="background-image:url('+themeStudioEsc(asset.url)+')"':'';var cls='theme-role-preview '+a[3]+(bg?' with-asset':'');return '<button class="theme-role-action" type="button" data-role="'+a[0]+'"><span class="'+cls+'"'+bg+'>'+(a[3]==='icon'?'R':'')+'</span><strong>'+a[1]+'</strong><span class="theme-choice-note">'+a[2]+'</span></button>';}).join('');
   wrap.querySelectorAll('[data-role]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioApplyAssetRole(btn.dataset.role);});});
 }
 function themeStudioOpenIconPicker(key){
@@ -20510,23 +20543,26 @@ function themeStudioSetMedia(kind,url){
   var cur=themeStudioGet();
   if(kind==='background')cur.background=Object.assign({},cur.background||{}, {image:url||''});
   if(kind==='banner')cur.banner=Object.assign({},cur.banner||{}, {image:url||''});
+  if(kind==='hobbyBanner')cur.banner=Object.assign({},cur.banner||{}, {hobbyImage:url||''});
   themeStudioSet(cur);
   if(kind==='banner'&&!url)themeStudioClearHomeBannerImage();
+  if(kind==='hobbyBanner'&&!url)themeStudioClearHobbyBannerImage();
 }
 async function themeStudioUploadMedia(kind,file){
   if(!file)return;
-  var asset=await themeStudioAssetFromBlob(file,file.name,kind==='banner'?'Banner Upload':'Background Upload');
+  var asset=await themeStudioAssetFromBlob(file,file.name,kind==='banner'?'Banner Upload':(kind==='hobbyBanner'?'Hobby Banner Upload':'Background Upload'));
   if(!asset)return;
   var list=themeStudioAssets();list.push(asset);themeStudioSaveAssets(list);
   themeStudioSetMedia(kind,asset.url);
-  themeStudioMarkRole(asset.id,kind==='banner'?'pageBanner':'pageBackground');
+  themeStudioMarkRole(asset.id,kind==='banner'?'pageBanner':(kind==='hobbyBanner'?'hobbyBanner':'pageBackground'));
 }
 function themeStudioRenderMediaControls(){
   var grid=document.getElementById('theme-media-grid');if(!grid)return;
   var cur=themeStudioGet();
   var bg=(cur.background&&cur.background.image)||'';
   var banner=(cur.banner&&cur.banner.image)||'';
-  var items=[['background','Page background',bg],['banner','Home banner',banner]];
+  var hobbyBanner=(cur.banner&&cur.banner.hobbyImage)||localStorage.getItem('hobby_banner_v1')||'';
+  var items=[['background','Page background',bg],['banner','Home banner',banner],['hobbyBanner','Hobby banner',hobbyBanner]];
   grid.innerHTML=items.map(function(x){return '<div class="theme-choice-card"><div class="theme-choice-preview with-asset" style="'+(x[2]?'background-image:url('+themeStudioEsc(x[2])+');background-size:cover;background-position:center':'')+'"></div><div class="theme-choice-name">'+x[1]+'</div><div class="theme-choice-note">'+(x[2]?'Image applied':'No image')+'</div><div class="theme-tools"><label class="set-btn btn-ghost">Upload<input type="file" accept="image/*" data-theme-media-file="'+x[0]+'" hidden></label><button class="set-btn btn-ghost" type="button" data-theme-media-clear="'+x[0]+'">Remove</button></div></div>';}).join('');
   grid.querySelectorAll('[data-theme-media-file]').forEach(function(inp){inp.addEventListener('change',function(){var file=inp.files&&inp.files[0];themeStudioUploadMedia(inp.dataset.themeMediaFile,file);inp.value='';});});
   grid.querySelectorAll('[data-theme-media-clear]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioSetMedia(btn.dataset.themeMediaClear,'');});});
@@ -20546,7 +20582,7 @@ function themeStudioRender(){
   themeStudioRenderIntensityControls();
   themeStudioRenderSkinResources();
   var pg=document.getElementById('theme-preset-grid');
-  if(pg){pg.innerHTML=themeStudioAllPresets().map(function(p){var cats=themeStudioPresetCategories(p);return '<div class="theme-preset-card"><div class="theme-choice-preview '+((p.snapshot&&p.snapshot.componentSkins&&p.snapshot.componentSkins.card)||'')+'"></div><strong>'+themeStudioEsc(p.name)+'</strong><span class="theme-choice-note">'+themeStudioEsc(p.mood||p.type||'theme')+'</span><span class="theme-chip-row">'+cats.map(function(c){return '<span class="theme-chip">'+themeStudioEsc(themeStudioCategoryMeta(c)[0])+'</span>';}).join('')+'</span><div class="theme-tools"><button class="set-btn btn-primary" type="button" data-preset-apply="'+themeStudioEsc(p.id)+'">Apply</button><button class="set-btn btn-ghost" type="button" data-preset-duplicate="'+themeStudioEsc(p.id)+'">Duplicate</button>'+(p.locked?'':'<button class="set-btn btn-ghost" type="button" data-preset-rename="'+themeStudioEsc(p.id)+'">Rename</button><button class="set-btn btn-ghost" type="button" data-preset-update="'+themeStudioEsc(p.id)+'">Update</button><button class="set-btn btn-ghost" type="button" data-preset-delete="'+themeStudioEsc(p.id)+'">Delete</button>')+'</div></div>';}).join('');pg.querySelectorAll('[data-preset-apply]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioApplyPreset(btn.dataset.presetApply);});});pg.querySelectorAll('[data-preset-duplicate]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioDuplicatePreset(btn.dataset.presetDuplicate);});});pg.querySelectorAll('[data-preset-rename]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioRenamePreset(btn.dataset.presetRename);});});pg.querySelectorAll('[data-preset-update]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioUpdatePreset(btn.dataset.presetUpdate);});});pg.querySelectorAll('[data-preset-delete]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioDeletePreset(btn.dataset.presetDelete);});});}
+  if(pg){pg.innerHTML=themeStudioAllPresets().map(function(p){var cats=themeStudioPresetCategories(p);return '<div class="theme-preset-card">'+themeStudioPresetPreview(p)+'<strong>'+themeStudioEsc(p.name)+'</strong><span class="theme-choice-note">'+themeStudioEsc(p.mood||p.type||'theme')+'</span><span class="theme-chip-row">'+cats.map(function(c){return '<span class="theme-chip">'+themeStudioEsc(themeStudioCategoryMeta(c)[0])+'</span>';}).join('')+'</span><div class="theme-tools"><button class="set-btn btn-primary" type="button" data-preset-apply="'+themeStudioEsc(p.id)+'">Apply</button><button class="set-btn btn-ghost" type="button" data-preset-duplicate="'+themeStudioEsc(p.id)+'">Duplicate</button>'+(p.locked?'':'<button class="set-btn btn-ghost" type="button" data-preset-rename="'+themeStudioEsc(p.id)+'">Rename</button><button class="set-btn btn-ghost" type="button" data-preset-update="'+themeStudioEsc(p.id)+'">Update</button><button class="set-btn btn-ghost" type="button" data-preset-delete="'+themeStudioEsc(p.id)+'">Delete</button>')+'</div></div>';}).join('');pg.querySelectorAll('[data-preset-apply]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioApplyPreset(btn.dataset.presetApply);});});pg.querySelectorAll('[data-preset-duplicate]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioDuplicatePreset(btn.dataset.presetDuplicate);});});pg.querySelectorAll('[data-preset-rename]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioRenamePreset(btn.dataset.presetRename);});});pg.querySelectorAll('[data-preset-update]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioUpdatePreset(btn.dataset.presetUpdate);});});pg.querySelectorAll('[data-preset-delete]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioDeletePreset(btn.dataset.presetDelete);});});}
   var ig=document.getElementById('theme-icon-grid');
   if(ig){var keys=['app','avatar','home','inbox','diary','routine','tasks','projects','schedule','hobby','recharge','records','settings'];ig.innerHTML=keys.map(function(k){var val=(cur.icons||{})[k]||'';return '<div class="theme-choice-card"><strong>'+themeStudioEsc(themeStudioIconLabel(k))+'</strong><div class="theme-preview-logo">'+themeStudioIconMarkup(val,THEME_STUDIO_DEFAULT.icons[k]||'')+'</div><input class="set-inp" data-theme-icon="'+k+'" value="'+themeStudioEsc(val)+'"><div class="theme-tools"><button class="set-btn btn-ghost" type="button" data-icon-pick="'+k+'">Assets</button><label class="set-btn btn-ghost">Upload<input type="file" accept="image/*" data-icon-file="'+k+'" hidden></label><button class="set-btn btn-ghost" type="button" data-icon-clear="'+k+'">Remove</button></div></div>';}).join('');ig.querySelectorAll('[data-theme-icon]').forEach(function(inp){inp.addEventListener('change',function(){var s=themeStudioGet();themeStudioEnsureIconsState(s)[inp.dataset.themeIcon]=inp.value;themeStudioSet(s);});});ig.querySelectorAll('[data-icon-clear]').forEach(function(btn){btn.addEventListener('click',function(){var s=themeStudioGet();themeStudioEnsureIconsState(s)[btn.dataset.iconClear]=THEME_STUDIO_DEFAULT.icons[btn.dataset.iconClear]||'';themeStudioSet(s);});});ig.querySelectorAll('[data-icon-pick]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioOpenIconPicker(btn.dataset.iconPick);});});ig.querySelectorAll('[data-icon-file]').forEach(function(inp){inp.addEventListener('change',async function(){var f=inp.files&&inp.files[0];if(!f)return;var asset=await themeStudioAssetFromBlob(f,f.name,'Icon Upload');if(!asset)return;var list=themeStudioAssets();list.push(asset);themeStudioSaveAssets(list);var s=themeStudioGet();themeStudioEnsureIconsState(s)[inp.dataset.iconFile]=asset.url;themeStudioMarkRole(asset.id,inp.dataset.iconFile==='avatar'?'avatarIcon':'icon');themeStudioSet(s);inp.value='';});});}
   var file=document.getElementById('theme-import-file');
