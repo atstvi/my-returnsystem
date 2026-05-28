@@ -3963,6 +3963,8 @@ to{opacity:1;transform:translateY(0)}}
 .theme-preset-card,.theme-asset-card{border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);padding:var(--sp-4);display:flex;flex-direction:column;gap:var(--sp-2);text-align:left;min-height:118px}
 .theme-asset-card.active,.theme-preset-card.active{border-color:var(--accent);background:var(--accent-light)}
 .theme-asset-card img,.theme-asset-thumb{width:100%;aspect-ratio:1;object-fit:contain;background:var(--bg-card);border-radius:var(--r-md);border:.5px solid var(--border-subtle)}
+.theme-asset-card-inner{display:flex;flex-direction:column;gap:var(--sp-2);text-align:left;width:100%}
+.theme-asset-card img.is-missing-media{background:repeating-linear-gradient(45deg,var(--bg-card),var(--bg-card) 8px,var(--border-subtle) 9px,var(--border-subtle) 10px)}
 .theme-role-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:var(--sp-3)}
 .theme-role-action{height:auto;min-height:86px;padding:var(--sp-3);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);display:flex;flex-direction:column;gap:var(--sp-2);align-items:flex-start;text-align:left}
 .theme-role-action:hover,.theme-role-action.active{border-color:var(--accent);box-shadow:var(--elev-1)}
@@ -4013,10 +4015,10 @@ body[data-theme-skin] .sit-card>*,body[data-theme-skin] .home-card>*,body[data-t
 body[data-theme-skin] .sit-card::before,body[data-theme-skin] .home-card::before,body[data-theme-skin] #page-home .home-content>section.card::before{content:'';position:absolute;inset:0;pointer-events:none;background-image:var(--theme-card-bg);background-size:cover;background-position:center;opacity:var(--theme-card-bg-opacity,0);z-index:0}
 body[data-theme-skin="frame"] .sit-card::after,body[data-theme-skin="frame"] .home-card::after,body[data-theme-skin="frame"] #page-home .home-content>section.card::after{content:'';position:absolute;inset:8px;pointer-events:none;border-radius:inherit;border:var(--theme-card-frame-border,0) solid transparent;background-image:var(--theme-card-frame);background-size:100% 100%;background-repeat:no-repeat;z-index:0}
 body[data-theme-skin] .sit-card .theme-corner,body[data-theme-skin] .home-card .theme-corner,body[data-theme-skin] #page-home .home-content>section.card .theme-corner{position:absolute;width:42px;height:42px;background-size:contain;background-repeat:no-repeat;background-position:center;pointer-events:none;z-index:2}
-body[data-theme-skin] .theme-corner.tl{top:8px;left:8px;background-image:var(--theme-card-corner-tl)}
-body[data-theme-skin] .theme-corner.tr{top:8px;right:8px;background-image:var(--theme-card-corner-tr)}
-body[data-theme-skin] .theme-corner.bl{bottom:8px;left:8px;background-image:var(--theme-card-corner-bl)}
-body[data-theme-skin] .theme-corner.br{bottom:8px;right:8px;background-image:var(--theme-card-corner-br)}
+body[data-theme-skin] .theme-corner.tl{top:-12px;left:-12px;background-image:var(--theme-card-corner-tl)}
+body[data-theme-skin] .theme-corner.tr{top:-12px;right:-12px;background-image:var(--theme-card-corner-tr)}
+body[data-theme-skin] .theme-corner.bl{bottom:-12px;left:-12px;background-image:var(--theme-card-corner-bl)}
+body[data-theme-skin] .theme-corner.br{bottom:-12px;right:-12px;background-image:var(--theme-card-corner-br)}
 body[data-theme-intensity="minimal"] .theme-corner{display:none}
 body[data-theme-intensity="expressive"] .sit-card .theme-corner,body[data-theme-intensity="expressive"] .home-card .theme-corner{width:56px;height:56px}
 body[data-theme-density="compact"]{--sp-4:10px;--sp-5:14px;--sp-6:18px}
@@ -7568,13 +7570,20 @@ function cleanupInvalidRepeatGeneratedTasks(skipSave){
   var removed=0, seen={};
   tasks=tasks.filter(function(t){
     if(!t||!t._repeatId)return true;
+    var generatedLike=!!(t._generationKey||t._repeatOccurrence||t._repeat||String(t.note||'').indexOf('반복')>=0);
     var rep=byId[t._repeatId];
-    if(!rep)return true;
-    var occurrence=taskDateKeyLocal(t._repeatOccurrence||t.date);
+    if(!rep){
+      if(generatedLike&&!t.done){removed++;return false;}
+      return true;
+    }
+    var keyDate='';
+    if(t._generationKey&&String(t._generationKey).indexOf('|')>=0)keyDate=String(t._generationKey).split('|').pop();
+    var occurrence=taskDateKeyLocal(t._repeatOccurrence||keyDate||t.date);
     var key=t._generationKey||String(t._repeatId)+'|'+occurrence;
-    if(seen[key]&&!t.done){removed++;return false;}
+    if(seen[key]&&!t.done&&!t._repeatMoved){removed++;return false;}
     seen[key]=true;
-    if(!t.done&&occurrence&&t.date===occurrence&&!repeatMatchesDate(rep,occurrence)){removed++;return false;}
+    if(!t.done&&generatedLike&&!t._repeatMoved&&occurrence&&taskDateKeyLocal(t.date)!==occurrence){removed++;return false;}
+    if(!t.done&&generatedLike&&occurrence&&!repeatMatchesDate(rep,occurrence)){removed++;return false;}
     t._repeatOccurrence=occurrence||t.date;
     t._generationKey=key;
     return true;
@@ -9063,7 +9072,7 @@ function renderGlobalStickers(){
     el.style.width = (s.w || 72) + 'px';
     el.style.height = (s.w || 72) + 'px';
     el.style.setProperty('--rot', (s.r || 0) + 'deg');
-    el.innerHTML = '<img src="' + s.url + '" alt=""><button class="gs-page-sticker-del" type="button">×</button><button class="gs-sticker-resize" type="button">↘</button><button class="gs-sticker-rotate" type="button">↻</button>';
+    el.innerHTML = (typeof themeStudioImgTag==='function'?themeStudioImgTag(s.url,s.syncDataUrl):'<img src="' + s.url + '" alt="">') + '<button class="gs-page-sticker-del" type="button">×</button><button class="gs-sticker-resize" type="button">↘</button><button class="gs-sticker-rotate" type="button">↻</button>';
     el.querySelector('.gs-page-sticker-del').addEventListener('click', function(e){
       e.stopPropagation();
       globalStickerState[_currentPage] = (globalStickerState[_currentPage] || []).filter(function(x){ return x.id !== s.id; });
@@ -9082,14 +9091,15 @@ function renderGlobalStickers(){
   });
   // Attach the layer inside the scrolling host so stickers move with the page content.
   host.appendChild(layer);
+  if(typeof themeStudioResolveMediaPreviews==='function')themeStudioResolveMediaPreviews(layer);
 }
-function placeGlobalStickerFromUrl(url){
+function placeGlobalStickerFromUrl(url,syncDataUrl){
   if(!_currentPage||!url)return;
   loadGlobalStickers();
   var key=_currentPage;
   if(!globalStickerState[key])globalStickerState[key]=[];
   localStorage.setItem('global_sticker_edit_visible','1');
-  globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,x:48,y:140,w:72,r:0,opacity:1});
+  globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,syncDataUrl:syncDataUrl||themeStudioMediaFallbackForUrl(url)||'',x:48,y:140,w:72,r:0,opacity:1});
   saveGlobalStickers();
   renderGlobalStickers();
 }
@@ -9104,11 +9114,11 @@ function openGlobalStickerBoard(){
   var modal=document.createElement('div');
   modal.id='global-sticker-board';
   modal.className='sticker-board-modal';
-  modal.innerHTML='<div class="sticker-board-sheet"><div class="theme-tools"><strong>Sticker board</strong><button class="set-btn btn-ghost" type="button" data-sticker-upload>Upload image</button><button class="set-btn btn-ghost" type="button" data-sticker-close>Close</button></div><div class="field-hint">Choose an imported or uploaded asset to place it on the current page.</div><div class="sticker-board-grid">'+assets.map(function(a){return '<button class="sticker-board-item" type="button" data-sticker-asset="'+themeStudioEsc(a.id)+'">'+(typeof themeStudioImgTag==='function'?themeStudioImgTag(a.url):'<img src="'+themeStudioEsc(a.url)+'" alt="">')+'</button>';}).join('')+'</div></div>';
+  modal.innerHTML='<div class="sticker-board-sheet"><div class="theme-tools"><strong>Sticker board</strong><button class="set-btn btn-ghost" type="button" data-sticker-upload>Upload image</button><button class="set-btn btn-ghost" type="button" data-sticker-close>Close</button></div><div class="field-hint">Choose an imported or uploaded asset to place it on the current page.</div><div class="sticker-board-grid">'+assets.map(function(a){return '<button class="sticker-board-item" type="button" data-sticker-asset="'+themeStudioEsc(a.id)+'">'+(typeof themeStudioImgTag==='function'?themeStudioImgTag(a.url,a.syncDataUrl):'<img src="'+themeStudioEsc(a.url)+'" alt="">')+'</button>';}).join('')+'</div></div>';
   modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
   modal.querySelector('[data-sticker-close]').addEventListener('click',function(){modal.remove();});
   modal.querySelector('[data-sticker-upload]').addEventListener('click',function(){modal.remove();if(input)input.click();});
-  modal.querySelectorAll('[data-sticker-asset]').forEach(function(btn){btn.addEventListener('click',function(){var a=assets.find(function(x){return x.id===btn.dataset.stickerAsset;});if(a)placeGlobalStickerFromUrl(a.url);modal.remove();});});
+  modal.querySelectorAll('[data-sticker-asset]').forEach(function(btn){btn.addEventListener('click',function(){var a=assets.find(function(x){return x.id===btn.dataset.stickerAsset;});if(a)placeGlobalStickerFromUrl(a.url,a.syncDataUrl);modal.remove();});});
   document.body.appendChild(modal);
   if(typeof themeStudioResolveMediaPreviews==='function')themeStudioResolveMediaPreviews(modal);
 }
@@ -11056,6 +11066,7 @@ function setupCalDragDrop(){
       if(!dragSrcId)return;
       var task=tasks.find(function(t){return t.id===dragSrcId;});
       if(!task||task.date===dk2)return;
+      if(task._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(task);task._repeatMoved=true;}
       task.date=dk2;task.updatedAt=Date.now();
       saveTaskData();
       dragSrcId=null;
@@ -11419,7 +11430,7 @@ bulkMoveDate=function(){
     {key:'date', label:'이동할 날짜', type:'date', value:TK}
   ], function(data){
     if(!data.date)return;
-    tasks.forEach(function(t){if(selIds.has(t.id))t.date=data.date;});
+    tasks.forEach(function(t){if(selIds.has(t.id)){if(t._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(t);t._repeatMoved=true;}t.date=data.date;}});
     if(typeof saveTaskData==='function')saveTaskData();
     exitSelMode();renderCal();
   });
@@ -20609,6 +20620,51 @@ function themeStudioIconLabel(key){
   };
   return map[key]||key;
 }
+function themeStudioSetFaviconHref(href){
+  if(!href)return;
+  var link=document.querySelector('link[rel="icon"]')||document.createElement('link');
+  link.rel='icon';
+  link.href=href;
+  if(/^data:image\/svg/.test(href))link.type='image/svg+xml';
+  else if(/^data:image\/png/.test(href))link.type='image/png';
+  else link.type='image/png';
+  document.head.appendChild(link);
+  var apple=document.querySelector('link[rel="apple-touch-icon"]')||document.createElement('link');
+  apple.rel='apple-touch-icon';
+  apple.href=href;
+  document.head.appendChild(apple);
+}
+function themeStudioApplyFavicon(value){
+  value=value||'R';
+  function drawTextIcon(text){
+    var c=document.createElement('canvas');c.width=128;c.height=128;
+    var ctx=c.getContext('2d');
+    ctx.fillStyle=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#C2433D';
+    ctx.beginPath();
+    if(ctx.roundRect)ctx.roundRect(0,0,128,128,28);else ctx.rect(0,0,128,128);
+    ctx.fill();
+    ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.font=/[\uD800-\uDBFF\u2600-\u27BF]/.test(text)?'72px system-ui':'700 72px system-ui,Pretendard,sans-serif';
+    ctx.fillText(String(text||'R').slice(0,2),64,68);
+    themeStudioSetFaviconHref(c.toDataURL('image/png'));
+  }
+  function drawImageIcon(url){
+    var img=new Image();
+    img.onload=function(){
+      try{
+        var c=document.createElement('canvas');c.width=128;c.height=128;
+        var ctx=c.getContext('2d');ctx.clearRect(0,0,128,128);
+        ctx.drawImage(img,0,0,128,128);
+        themeStudioSetFaviconHref(c.toDataURL('image/png'));
+      }catch(e){themeStudioSetFaviconHref(url);}
+    };
+    img.onerror=function(){drawTextIcon('R');};
+    img.src=url;
+  }
+  if(isReturnMediaRef(value))returnMediaResolveUrlWithFallback(value,themeStudioMediaFallbackForUrl(value)).then(function(url){if(url)drawImageIcon(url);else drawTextIcon('R');});
+  else if(isReturnDisplayableImageUrl(value))drawImageIcon(value);
+  else drawTextIcon(value);
+}
 function themeStudioApplyIcons(state){
   var icons=(state&&state.icons)||{};
   var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routine',tasks:'tab-tasks',projects:'tab-projects',schedule:'tab-schedule',hobby:'tab-hobby',recharge:'tab-recharge',records:'tab-records',settings:'tab-settings'};
@@ -20619,6 +20675,7 @@ function themeStudioApplyIcons(state){
   document.querySelectorAll('.auth-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,'R');});
   document.querySelectorAll('.sb-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,'R');});
   document.querySelectorAll('.sit-avatar').forEach(function(el){if(icons.avatar)el.innerHTML=themeStudioIconMarkup(icons.avatar,icons.avatar);});
+  themeStudioApplyFavicon(icons.app||'R');
   themeStudioResolveMediaPreviews(document.body);
 }
 function themeStudioApplyPreview(state){
@@ -20641,29 +20698,41 @@ function themeStudioAddMediaAssetRef(ref,name,kind,role,sourceTheme){
     if(role&&found.roles.indexOf(role)<0)found.roles.push(role);
     return themeStudioSaveAssets(list);
   }
-  var asset={id:themeStudioUid('asset'),name:name||'Media asset',kind:kind||'Asset',url:ref,size:0,sourceTheme:sourceTheme||'Local media',roles:role?[role]:[],createdAt:new Date().toISOString()};
+  var asset={id:themeStudioUid('asset'),name:name||'Media asset',kind:kind||'Asset',url:ref,syncDataUrl:'',size:0,sourceTheme:sourceTheme||'Local media',roles:role?[role]:[],createdAt:new Date().toISOString()};
   list.push(asset);
-  return themeStudioSaveAssets(list);
+  var saved=themeStudioSaveAssets(list);
+  returnMediaResolveUrl(ref).then(function(url){if(!url)return;var next=themeStudioAssets(), changed=false;next.forEach(function(a){if(a.url===ref&&!a.syncDataUrl){a.syncDataUrl=url;changed=true;}});if(changed)themeStudioSaveAssets(next);});
+  return saved;
 }
 function themeStudioResolveMediaPreviews(root){
   if(!root)return;
   root.querySelectorAll('[data-return-media-src]').forEach(function(img){
     var ref=img.getAttribute('data-return-media-src')||'';
-    returnMediaResolveUrl(ref).then(function(url){if(url)img.src=url;});
+    var fallback=img.getAttribute('data-return-media-fallback')||themeStudioMediaFallbackForUrl(ref)||'';
+    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else img.classList.add('is-missing-media');});
   });
   root.querySelectorAll('[data-return-media-bg]').forEach(function(el){
     var ref=el.getAttribute('data-return-media-bg')||'';
-    returnMediaResolveUrl(ref).then(function(url){if(url)el.style.backgroundImage='url('+themeStudioEsc(url)+')';});
+    var fallback=el.getAttribute('data-return-media-fallback')||themeStudioMediaFallbackForUrl(ref)||'';
+    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)el.style.backgroundImage='url('+themeStudioEsc(url)+')';else el.classList.add('is-missing-media');});
   });
 }
-function themeStudioImgTag(url){
+function themeStudioMediaFallbackForUrl(url){
+  if(!isReturnMediaRef(url))return '';
+  var found=null;
+  try{found=themeStudioAssets().find(function(a){return a.url===url;});}catch(e){}
+  return found&&(found.syncDataUrl||found.dataUrl)||'';
+}
+function themeStudioImgTag(url,fallback){
   url=String(url||'');
-  if(isReturnMediaRef(url))return '<img data-return-media-src="'+themeStudioEsc(url)+'" alt="">';
+  fallback=fallback||themeStudioMediaFallbackForUrl(url);
+  if(isReturnMediaRef(url))return '<img data-return-media-src="'+themeStudioEsc(url)+'"'+(fallback?' data-return-media-fallback="'+themeStudioEsc(fallback)+'"':'')+' alt="">';
   return '<img src="'+themeStudioEsc(url)+'" alt="">';
 }
-function themeStudioBgAttr(url){
+function themeStudioBgAttr(url,fallback){
   url=String(url||'');
-  if(isReturnMediaRef(url))return ' data-return-media-bg="'+themeStudioEsc(url)+'"';
+  fallback=fallback||themeStudioMediaFallbackForUrl(url);
+  if(isReturnMediaRef(url))return ' data-return-media-bg="'+themeStudioEsc(url)+'"'+(fallback?' data-return-media-fallback="'+themeStudioEsc(fallback)+'"':'');
   return url?' style="background-image:url('+themeStudioEsc(url)+')"':'';
 }
 function themeStudioSelectedAsset(){
@@ -20677,6 +20746,48 @@ function themeStudioMarkRole(id,role){
   list.forEach(function(a){if(a.id===id){a.roles=a.roles||[];if(a.roles.indexOf(role)<0)a.roles.push(role);}});
   themeStudioSaveAssets(list);
 }
+function themeStudioCollectUsedAssetUrls(){
+  var used={};
+  function mark(v){if(v)used[String(v)]=true;}
+  function walk(v){
+    if(!v)return;
+    if(typeof v==='string'){if(isReturnMediaRef(v)||isReturnDisplayableImageUrl(v))mark(v);return;}
+    if(Array.isArray(v)){v.forEach(walk);return;}
+    if(typeof v==='object')Object.keys(v).forEach(function(k){walk(v[k]);});
+  }
+  try{walk(themeStudioGet());}catch(e){}
+  try{themeStudioAllPresets().forEach(function(p){walk(p&&p.snapshot);});}catch(e){}
+  try{walk(themeStudioReadJSON('global_stickers_v1',{}));}catch(e){}
+  try{var hb=JSON.parse(localStorage.getItem('home_banner_v1')||'{}')||{};walk(hb);}catch(e){}
+  try{mark(localStorage.getItem('hobby_banner_v1'));}catch(e){}
+  return used;
+}
+function themeStudioAssetIsUsed(asset,used){
+  used=used||themeStudioCollectUsedAssetUrls();
+  return !!(asset&&asset.url&&used[asset.url]);
+}
+function themeStudioDeleteSelectedAssets(){
+  var selected=Array.from(window._themeAssetSelectedIds||[]);
+  if(!selected.length){if(typeof showToast==='function')showToast('Select assets to delete first.');return;}
+  var list=themeStudioAssets(), used=themeStudioCollectUsedAssetUrls();
+  var selectedAssets=list.filter(function(a){return selected.indexOf(a.id)>=0;});
+  var inUse=selectedAssets.filter(function(a){return themeStudioAssetIsUsed(a,used);});
+  if(inUse.length&&!confirm(inUse.length+' selected asset(s) are still used by a theme, preset, sticker, or banner. Delete only unused selected assets?'))return;
+  var deleteIds=selectedAssets.filter(function(a){return !themeStudioAssetIsUsed(a,used);}).map(function(a){return a.id;});
+  if(!deleteIds.length){if(typeof showToast==='function')showToast('No unused selected assets to delete.');return;}
+  if(!confirm('Delete '+deleteIds.length+' unused asset(s) from the library?'))return;
+  themeStudioSaveAssets(list.filter(function(a){return deleteIds.indexOf(a.id)<0;}));
+  window._themeAssetSelectedIds=new Set();
+  window._themeSelectedAssetId='';
+  themeStudioRenderAssets();
+  if(typeof showToast==='function')showToast('Unused assets deleted.');
+}
+function themeStudioSelectUnusedAssets(){
+  var used=themeStudioCollectUsedAssetUrls();
+  window._themeAssetSelectedIds=new Set(themeStudioAssets().filter(function(a){return !themeStudioAssetIsUsed(a,used);}).map(function(a){return a.id;}));
+  themeStudioRenderAssets();
+}
+function themeStudioClearAssetSelection(){window._themeAssetSelectedIds=new Set();themeStudioRenderAssets();}
 function themeStudioMarkRolesFromState(state,cats){
   cats=cats||[];
   var pairs=[], icons=(state&&state.icons)||{}, res=((((state||{}).componentSkins||{}).resources||{}).card)||{};
@@ -20734,7 +20845,7 @@ function themeStudioApplyAssetRole(role){
   var card=themeStudioEnsureSkinState(cur);
   if(role==='cardBackground'){cur.componentSkins.enabled=true;cur.componentSkins.card='bubble';card.background=asset.url;}
   if(role==='cardFrame'){cur.componentSkins.enabled=true;cur.componentSkins.card='frame';card.frame=asset.url;}
-  if(role==='cardCornerDecoration'){cur.componentSkins.enabled=true;cur.componentSkins.card='frame';card.cornerTopLeft=asset.url;card.cornerBottomRight=asset.url;}
+  if(role==='cardCornerDecoration'){cur.componentSkins.enabled=true;cur.componentSkins.card='frame';card.cornerBottomLeft=asset.url;card.cornerBottomRight=asset.url;}
   themeStudioMarkRole(asset.id,role);
   themeStudioSet(cur);
   themeStudioAttachAssetFallback(role,asset.url);
@@ -20770,9 +20881,10 @@ function themeStudioDeletePack(pack){
 function themeStudioAssetMatchesFilter(asset,filter){
   filter=filter||'all';
   var roles=asset.roles||[];
+  var realUsed=themeStudioAssetIsUsed(asset);
   if(filter==='all')return true;
-  if(filter==='unused')return !roles.length;
-  if(filter==='used')return roles.length>0;
+  if(filter==='unused')return !realUsed;
+  if(filter==='used')return realUsed;
   if(filter==='stickers')return roles.indexOf('stickerAsset')>=0;
   if(filter==='backgrounds')return roles.indexOf('pageBackground')>=0||roles.indexOf('pageBanner')>=0||roles.indexOf('hobbyBanner')>=0||roles.indexOf('cardBackground')>=0;
   if(filter==='icons')return roles.indexOf('icon')>=0||roles.indexOf('avatarIcon')>=0||roles.indexOf('appLogo')>=0||roles.indexOf('situationAvatar')>=0;
@@ -20816,18 +20928,21 @@ function themeStudioOpenIconPicker(key){
 function themeStudioRenderAssets(){
   var grid=document.getElementById('theme-asset-grid');if(!grid)return;
   var list=themeStudioAssets();
+  if(!window._themeAssetSelectedIds)window._themeAssetSelectedIds=new Set();
   var activeFilter=window._themeAssetFilter||'all';
+  var usedMap=themeStudioCollectUsedAssetUrls();
   var packs=[];
   list.forEach(function(a){if(a.sourceTheme&&packs.indexOf(a.sourceTheme)<0)packs.push(a.sourceTheme);});
   var packTools=document.getElementById('theme-asset-pack-tools');
   if(packTools)packTools.innerHTML=packs.map(function(p){var n=list.filter(function(a){return a.sourceTheme===p;}).length;return '<button class="set-btn btn-ghost" type="button" data-pack="'+themeStudioEsc(p)+'">Remove from library: '+themeStudioEsc(p.replace(/\.[^.]+$/,''))+' ('+n+')</button>';}).join('');
   if(packTools)packTools.querySelectorAll('[data-pack]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioDeletePack(btn.dataset.pack);});});
   var filterTools=document.getElementById('theme-asset-filters');
-  if(filterTools){var filters=[['all','All'],['unused','Unused'],['used','Used'],['stickers','Stickers'],['backgrounds','Backgrounds'],['icons','Icons'],['frames','Frames'],['imported','Imported']];filterTools.innerHTML=filters.map(function(f){return '<button class="set-btn '+(activeFilter===f[0]?'btn-primary':'btn-ghost')+'" type="button" data-asset-filter="'+f[0]+'">'+f[1]+'</button>';}).join('');filterTools.querySelectorAll('[data-asset-filter]').forEach(function(btn){btn.addEventListener('click',function(){window._themeAssetFilter=btn.dataset.assetFilter;themeStudioRenderAssets();});});}
+  if(filterTools){var selectedCount=window._themeAssetSelectedIds.size||0;var filters=[['all','All'],['unused','Unused'],['used','Used'],['stickers','Stickers'],['backgrounds','Backgrounds'],['icons','Icons'],['frames','Frames'],['imported','Imported']];filterTools.innerHTML=filters.map(function(f){return '<button class="set-btn '+(activeFilter===f[0]?'btn-primary':'btn-ghost')+'" type="button" data-asset-filter="'+f[0]+'">'+f[1]+'</button>';}).join('')+'<button class="set-btn btn-ghost" type="button" data-select-unused>Select unused</button><button class="set-btn btn-ghost" type="button" data-clear-asset-selection>Clear selection</button><button class="set-btn btn-ghost" type="button" data-delete-selected-assets>Delete selected'+(selectedCount?' ('+selectedCount+')':'')+'</button>';filterTools.querySelectorAll('[data-asset-filter]').forEach(function(btn){btn.addEventListener('click',function(){window._themeAssetFilter=btn.dataset.assetFilter;themeStudioRenderAssets();});});var su=filterTools.querySelector('[data-select-unused]');if(su)su.addEventListener('click',themeStudioSelectUnusedAssets);var cs=filterTools.querySelector('[data-clear-asset-selection]');if(cs)cs.addEventListener('click',themeStudioClearAssetSelection);var ds=filterTools.querySelector('[data-delete-selected-assets]');if(ds)ds.addEventListener('click',themeStudioDeleteSelectedAssets);}
   var shown=list.filter(function(a){return themeStudioAssetMatchesFilter(a,activeFilter);});
-  grid.innerHTML=shown.length?shown.map(function(a){var roles=(a.roles||[]).slice(0,4).map(function(r){return '<span class="theme-chip">'+themeStudioEsc(themeStudioRoleMeta(r)[0])+'</span>';}).join('');var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';var used=(a.roles&&a.roles.length)?'Used':'Unused';var dim=(a.width&&a.height)?(' - '+a.width+'x'+a.height):'';var active=window._themeSelectedAssetId===a.id?' active':'';return '<button class="theme-asset-card'+active+'" type="button" data-asset="'+themeStudioEsc(a.id)+'">'+themeStudioImgTag(a.url)+'<strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(used)+' - '+themeStudioEsc(a.sourceTheme||'Local asset')+themeStudioEsc(dim)+'</span><span class="theme-chip-row">'+color+roles+'</span></button>';}).join(''):'<div class="field-hint">'+(list.length?'No assets match this filter.':'No assets yet. Import a Kakao theme or upload images.')+'</div>';
+  grid.innerHTML=shown.length?shown.map(function(a){var roles=(a.roles||[]).slice(0,4).map(function(r){return '<span class="theme-chip">'+themeStudioEsc(themeStudioRoleMeta(r)[0])+'</span>';}).join('');var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';var used=themeStudioAssetIsUsed(a,usedMap)?'Used':'Unused';var dim=(a.width&&a.height)?(' - '+a.width+'x'+a.height):'';var active=window._themeSelectedAssetId===a.id?' active':'';var selected=window._themeAssetSelectedIds.has(a.id)?' checked':'';return '<div class="theme-asset-card'+active+'" data-asset-card="'+themeStudioEsc(a.id)+'"><label class="theme-chip"><input type="checkbox" data-asset-select="'+themeStudioEsc(a.id)+'"'+selected+'> Select</label><button class="theme-asset-card-inner" type="button" data-asset="'+themeStudioEsc(a.id)+'">'+themeStudioImgTag(a.url,a.syncDataUrl)+'<strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(used)+' - '+themeStudioEsc(a.sourceTheme||'Local asset')+themeStudioEsc(dim)+'</span><span class="theme-chip-row">'+color+roles+'</span></button></div>';}).join(''):'<div class="field-hint">'+(list.length?'No assets match this filter.':'No assets yet. Import a Kakao theme or upload images.')+'</div>';
   themeStudioResolveMediaPreviews(grid);
-  grid.querySelectorAll('[data-asset]').forEach(function(btn){btn.addEventListener('click',function(){window._themeSelectedAssetId=btn.dataset.asset;grid.querySelectorAll('[data-asset]').forEach(function(x){x.classList.remove('active');});btn.classList.add('active');themeStudioRenderAssetActions(themeStudioSelectedAsset());});});
+  grid.querySelectorAll('[data-asset-select]').forEach(function(chk){chk.addEventListener('change',function(e){if(chk.checked)window._themeAssetSelectedIds.add(chk.dataset.assetSelect);else window._themeAssetSelectedIds.delete(chk.dataset.assetSelect);themeStudioRenderAssets();});});
+  grid.querySelectorAll('[data-asset]').forEach(function(btn){btn.addEventListener('click',function(){window._themeSelectedAssetId=btn.dataset.asset;grid.querySelectorAll('[data-asset-card]').forEach(function(x){x.classList.remove('active');});var card=btn.closest('[data-asset-card]');if(card)card.classList.add('active');themeStudioRenderAssetActions(themeStudioSelectedAsset());});});
   themeStudioRenderAssetActions(themeStudioSelectedAsset());
 }
 function themeStudioBlobToDataUrl(blob){return new Promise(function(resolve){var r=new FileReader();r.onload=function(e){resolve(e.target.result);};r.readAsDataURL(blob);});}
@@ -20918,13 +21033,13 @@ async function themeStudioAssetFromBlob(blob,name,pack){
   var color=await themeStudioDominantColor(url);
   var meta=await themeStudioAnalyzeImage(url);
   var ref=await returnMediaStoreDataUrl(url,{role:'themeAsset',name:name,type:blob.type||'image'});
-  return {id:themeStudioUid('asset'),name:name,type:blob.type||'image',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),size:blob.size||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
+  return {id:themeStudioUid('asset'),name:name,type:blob.type||'image',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:url,size:blob.size||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
 }
 async function themeStudioAssetFromDataUrl(url,name,pack){
   var color=await themeStudioDominantColor(url);
   var meta=await themeStudioAnalyzeImage(url);
   var ref=await returnMediaStoreDataUrl(url,{role:'themeAsset',name:name,type:'image/jpeg'});
-  return {id:themeStudioUid('asset'),name:name,type:'image/jpeg',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),size:url.length||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
+  return {id:themeStudioUid('asset'),name:name,type:'image/jpeg',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:url,size:url.length||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
 }
 function themeStudioInferKind(name,meta){
   name=String(name||'').toLowerCase();
