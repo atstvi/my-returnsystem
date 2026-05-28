@@ -8563,23 +8563,36 @@ function bannerDebugLog(tag,data){
     console.log('[BannerDebug]['+tag+']',data||{});
   }catch(e){}
 }
+function isReturnDisplayableImageUrl(url){
+  return /^data:image|^blob:|^https?:/.test(String(url||''));
+}
 function loadHomeBanner(){
   try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { hbState = {}; }
   if (!hbState.stickers) hbState.stickers = [];
   bannerDebugLog('home:load',{hasImage:!!hbState.imgUrl,imgLength:hbState.imgUrl?hbState.imgUrl.length:0,stickers:hbState.stickers.length,pos:hbState.bgPos||null});
 }
 function setReturnStorageItem(key,value){
+  value=String(value==null?'':value);
   var old=null;
-  try { localStorage.setItem(key,value); bannerDebugLog('storage:set-ok',{key:key,length:String(value||'').length}); return true; }
+  function verifiedWrite(){
+    var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
+    writer(key,value);
+    return localStorage.getItem(key)===value;
+  }
+  try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); return true; } }
   catch(e){
     bannerDebugLog('storage:set-failed-once',{key:key,length:String(value||'').length,error:String(e&&e.message||e)});
-    try { old=localStorage.getItem(key); localStorage.removeItem(key); localStorage.setItem(key,value); return true; }
+    try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } }
     catch(err){
       bannerDebugLog('storage:set-failed-final',{key:key,length:String(value||'').length,error:String(err&&err.message||err),oldLength:old?old.length:0});
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
-      return false;
     }
   }
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){}
+  try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
+  if(typeof __markStaleQuota==='function')__markStaleQuota(key);
+  bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
+  return false;
 }
 function saveHomeBanner(){ if(setReturnStorageItem('home_banner_v1', JSON.stringify(hbState))) return true; if(typeof homeToast==='function')homeToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.'); return false; }
 function renderHomeBanner(){
@@ -8588,7 +8601,7 @@ function renderHomeBanner(){
   var bg = document.querySelector('.banner-bg');
   var wrap = document.getElementById('home-banner-stickers');
   if (!banner || !bg || !wrap) { bannerDebugLog('home:render-missing-dom',{banner:!!banner,bg:!!bg,wrap:!!wrap}); return; }
-  if (hbState.imgUrl) {
+  if (hbState.imgUrl && isReturnDisplayableImageUrl(hbState.imgUrl)) {
     bg.style.backgroundImage = 'url(\"' + hbState.imgUrl + '\")';
     bg.style.backgroundSize = 'cover';
     bg.style.backgroundRepeat = 'no-repeat';
@@ -8596,7 +8609,7 @@ function renderHomeBanner(){
     banner.classList.add('has-image');
     bannerDebugLog('home:render-applied',{imgLength:hbState.imgUrl.length,bgImageSet:!!bg.style.backgroundImage,bgPosition:bg.style.backgroundPosition,hasClass:banner.classList.contains('has-image')});
   }
-  else { bg.style.backgroundImage = ''; bg.style.backgroundSize = ''; bg.style.backgroundRepeat = ''; bg.style.backgroundPosition = ''; banner.classList.remove('has-image'); bannerDebugLog('home:render-empty',{}); }
+  else { bg.style.backgroundImage = ''; bg.style.backgroundSize = ''; bg.style.backgroundRepeat = ''; bg.style.backgroundPosition = ''; banner.classList.remove('has-image'); bannerDebugLog('home:render-empty',{hadInvalidUrl:!!hbState.imgUrl,imgValue:String(hbState.imgUrl||'').slice(0,40)}); }
   wrap.innerHTML = '';
   hbState.stickers.forEach(function(s){
     var el = document.createElement('div');
@@ -12756,7 +12769,7 @@ function initHobbyBanner(){
   try {
     var url = localStorage.getItem('hobby_banner_v1');
     var pos = JSON.parse(localStorage.getItem('hobby_banner_pos_v1') || '{"x":50,"y":50}') || {x:50,y:50};
-    if (url) {
+    if (url && isReturnDisplayableImageUrl(url)) {
       banner.style.backgroundImage = 'linear-gradient(120deg, rgba(253,240,239,.74), rgba(235,245,242,.68)), url(\"' + url + '\")';
       banner.style.backgroundSize = 'cover';
       banner.style.backgroundRepeat = 'no-repeat';
@@ -12771,7 +12784,7 @@ function initHobbyBanner(){
       banner.style.backgroundPosition = '';
       banner.classList.remove('has-image');
       banner.title = '';
-      bannerDebugLog('hobby:render-empty',{});
+      bannerDebugLog('hobby:render-empty',{hadInvalidUrl:!!url,imgValue:String(url||'').slice(0,40)});
     }
   } catch(e) { bannerDebugLog('hobby:render-error',{error:String(e&&e.message||e)}); }
   var btn = document.getElementById('btn-banner');
@@ -19972,7 +19985,13 @@ var THEME_STUDIO_DEFAULT={
 };
 function themeStudioClone(v){return JSON.parse(JSON.stringify(v));}
 function themeStudioReadJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'')||fallback;}catch(e){return fallback;}}
-function themeStudioWriteJSON(key,value){try{localStorage.setItem(key,JSON.stringify(value));bannerDebugLog('theme:write-ok',{key:key,length:JSON.stringify(value).length});return true;}catch(e){bannerDebugLog('theme:write-failed',{key:key,error:String(e&&e.message||e),length:JSON.stringify(value).length});if(typeof showToast==='function')showToast('Theme storage is full. Use smaller assets.');return false;}}
+function themeStudioWriteJSON(key,value){
+  var json=JSON.stringify(value);
+  if(setReturnStorageItem(key,json)){bannerDebugLog('theme:write-ok',{key:key,length:json.length});return true;}
+  bannerDebugLog('theme:write-failed',{key:key,length:json.length});
+  if(typeof showToast==='function')showToast('Theme storage is full. Use smaller assets.');
+  return false;
+}
 function themeStudioUid(prefix){return prefix+'_'+Date.now()+'_'+Math.floor(Math.random()*99999);}
 function themeStudioEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function themeStudioMerge(base,extra){
@@ -20214,7 +20233,7 @@ function themeStudioApplyBackground(state){
 function themeStudioApplyBanner(state){
   var img=(state.banner&&state.banner.image)||(state.background&&state.background.banner)||'';
   bannerDebugLog('theme:apply-home-banner',{hasImage:!!img,imgLength:img?img.length:0});
-  if(!img)return;
+  if(!img||!isReturnDisplayableImageUrl(img)){bannerDebugLog('theme:apply-home-banner-invalid',{value:String(img||'').slice(0,40)});return;}
   try{
     if(typeof loadHomeBanner==='function')loadHomeBanner();
     if(typeof hbState==='object'){hbState.imgUrl=img;hbState.bgPos=(state.banner&&state.banner.position)||hbState.bgPos||{x:50,y:50};if(saveHomeBanner())renderHomeBanner();}
@@ -20223,7 +20242,7 @@ function themeStudioApplyBanner(state){
 function themeStudioApplyHobbyBanner(state){
   var img=(state.banner&&state.banner.hobbyImage)||'';
   bannerDebugLog('theme:apply-hobby-banner',{hasImage:!!img,imgLength:img?img.length:0});
-  if(!img)return;
+  if(!img||!isReturnDisplayableImageUrl(img)){bannerDebugLog('theme:apply-hobby-banner-invalid',{value:String(img||'').slice(0,40)});return;}
   try{
     if(!setReturnStorageItem('hobby_banner_v1',img)){if(typeof homeToast==='function')homeToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.');return;}
     if(!localStorage.getItem('hobby_banner_pos_v1'))setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
@@ -20677,6 +20696,25 @@ function themeStudioSetMedia(kind,url){
   if(kind==='banner'&&!url)themeStudioClearHomeBannerImage();
   if(kind==='hobbyBanner'&&!url)themeStudioClearHobbyBannerImage();
 }
+function themeStudioStoreBannerMedia(kind,url){
+  if(!isReturnDisplayableImageUrl(url))return false;
+  if(kind==='banner'){
+    if(typeof loadHomeBanner==='function')loadHomeBanner();
+    if(typeof hbState==='object'){
+      hbState.imgUrl=url;
+      hbState.bgPos=hbState.bgPos||{x:50,y:50};
+      if(!saveHomeBanner())return false;
+      if(typeof renderHomeBanner==='function')renderHomeBanner();
+    }
+  }else if(kind==='hobbyBanner'){
+    if(!setReturnStorageItem('hobby_banner_v1',url))return false;
+    if(!localStorage.getItem('hobby_banner_pos_v1'))setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
+    if(typeof initHobbyBanner==='function')initHobbyBanner();
+  }else{
+    themeStudioSetMedia(kind,url);
+  }
+  return true;
+}
 async function themeStudioUploadMedia(kind,file){
   if(!file)return;
   bannerDebugLog('theme-media:file-selected',{kind:kind,name:file.name,size:file.size,type:file.type});
@@ -20685,6 +20723,13 @@ async function themeStudioUploadMedia(kind,file){
   if(kind==='banner'||kind==='hobbyBanner'||kind==='background'){
     var url=await new Promise(function(resolve){fileToBannerDataUrl(file,resolve);});
     bannerDebugLog('theme-media:compressed',{kind:kind,urlLength:url?url.length:0});
+    if(kind==='banner'||kind==='hobbyBanner'){
+      var applied=themeStudioStoreBannerMedia(kind,url);
+      bannerDebugLog('theme-media:direct-banner-apply',{kind:kind,applied:applied,urlLength:url?url.length:0});
+      if(applied){if(typeof showToast==='function')showToast('배너 사진을 적용했어요');themeStudioRenderMediaControls();return;}
+      if(typeof showToast==='function')showToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.');
+      return;
+    }
     asset=await themeStudioAssetFromDataUrl(url,file.name,pack);
   }else{
     asset=await themeStudioAssetFromBlob(file,file.name,pack);
