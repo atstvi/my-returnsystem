@@ -8557,16 +8557,25 @@ async function homeCaptureAI(raw){
 }
 
 var hbState = {};
+function bannerDebugLog(tag,data){
+  try{
+    if(!window.RETURN_BANNER_DEBUG)return;
+    console.log('[BannerDebug]['+tag+']',data||{});
+  }catch(e){}
+}
 function loadHomeBanner(){
   try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { hbState = {}; }
   if (!hbState.stickers) hbState.stickers = [];
+  bannerDebugLog('home:load',{hasImage:!!hbState.imgUrl,imgLength:hbState.imgUrl?hbState.imgUrl.length:0,stickers:hbState.stickers.length,pos:hbState.bgPos||null});
 }
 function setReturnStorageItem(key,value){
   var old=null;
-  try { localStorage.setItem(key,value); return true; }
+  try { localStorage.setItem(key,value); bannerDebugLog('storage:set-ok',{key:key,length:String(value||'').length}); return true; }
   catch(e){
+    bannerDebugLog('storage:set-failed-once',{key:key,length:String(value||'').length,error:String(e&&e.message||e)});
     try { old=localStorage.getItem(key); localStorage.removeItem(key); localStorage.setItem(key,value); return true; }
     catch(err){
+      bannerDebugLog('storage:set-failed-final',{key:key,length:String(value||'').length,error:String(err&&err.message||err),oldLength:old?old.length:0});
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
       return false;
     }
@@ -8578,15 +8587,16 @@ function renderHomeBanner(){
   var banner = document.querySelector('.home-banner');
   var bg = document.querySelector('.banner-bg');
   var wrap = document.getElementById('home-banner-stickers');
-  if (!banner || !bg || !wrap) return;
+  if (!banner || !bg || !wrap) { bannerDebugLog('home:render-missing-dom',{banner:!!banner,bg:!!bg,wrap:!!wrap}); return; }
   if (hbState.imgUrl) {
     bg.style.backgroundImage = 'url(\"' + hbState.imgUrl + '\")';
     bg.style.backgroundSize = 'cover';
     bg.style.backgroundRepeat = 'no-repeat';
     bg.style.backgroundPosition=((hbState.bgPos&&hbState.bgPos.x)||50)+'% '+((hbState.bgPos&&hbState.bgPos.y)||50)+'%';
     banner.classList.add('has-image');
+    bannerDebugLog('home:render-applied',{imgLength:hbState.imgUrl.length,bgImageSet:!!bg.style.backgroundImage,bgPosition:bg.style.backgroundPosition,hasClass:banner.classList.contains('has-image')});
   }
-  else { bg.style.backgroundImage = ''; bg.style.backgroundSize = ''; bg.style.backgroundRepeat = ''; bg.style.backgroundPosition = ''; banner.classList.remove('has-image'); }
+  else { bg.style.backgroundImage = ''; bg.style.backgroundSize = ''; bg.style.backgroundRepeat = ''; bg.style.backgroundPosition = ''; banner.classList.remove('has-image'); bannerDebugLog('home:render-empty',{}); }
   wrap.innerHTML = '';
   hbState.stickers.forEach(function(s){
     var el = document.createElement('div');
@@ -8602,6 +8612,7 @@ function renderHomeBanner(){
 }
 function fileToDataUrl(file, cb){ var r = new FileReader(); r.onload = function(e){ cb(e.target.result); }; r.readAsDataURL(file); }
 function fileToBannerDataUrl(file, cb){
+  bannerDebugLog('compress:start',{name:file&&file.name,size:file&&file.size,type:file&&file.type});
   var r = new FileReader();
   r.onload = function(e){
     var img = new Image();
@@ -8613,10 +8624,12 @@ function fileToBannerDataUrl(file, cb){
         canvas.width = Math.max(1, Math.round(w * scale));
         canvas.height = Math.max(1, Math.round(h * scale));
         canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        cb(canvas.toDataURL('image/jpeg', .72));
-      } catch(err) { cb(e.target.result); }
+        var out=canvas.toDataURL('image/jpeg', .72);
+        bannerDebugLog('compress:success',{name:file&&file.name,sourceLength:String(e.target.result||'').length,resultLength:out.length,width:canvas.width,height:canvas.height});
+        cb(out);
+      } catch(err) { bannerDebugLog('compress:fallback',{name:file&&file.name,error:String(err&&err.message||err),resultLength:String(e.target.result||'').length}); cb(e.target.result); }
     };
-    img.onerror = function(){ cb(e.target.result); };
+    img.onerror = function(){ bannerDebugLog('compress:image-load-failed',{name:file&&file.name,resultLength:String(e.target.result||'').length}); cb(e.target.result); };
     img.src = e.target.result;
   };
   r.readAsDataURL(file);
@@ -8624,9 +8637,10 @@ function fileToBannerDataUrl(file, cb){
 document.getElementById('home-banner-btn') && document.getElementById('home-banner-btn').addEventListener('click', function(){ document.getElementById('home-banner-file').click(); });
 document.getElementById('home-banner-file') && document.getElementById('home-banner-file').addEventListener('change', function(){
   var file = this.files && this.files[0]; if (!file) return;
+  bannerDebugLog('home-upload:file-selected',{name:file.name,size:file.size,type:file.type});
   fileToBannerDataUrl(file, function(url){
     loadHomeBanner();
-    hbState.imgUrl = url; hbState.bgPos = hbState.bgPos || {x:50,y:50}; if(!saveHomeBanner())return; renderHomeBanner();
+    hbState.imgUrl = url; hbState.bgPos = hbState.bgPos || {x:50,y:50}; var saved=saveHomeBanner(); bannerDebugLog('home-upload:storage',{saved:saved,urlLength:url.length}); if(!saved)return; renderHomeBanner();
     try {
       if (typeof themeStudioGet === 'function' && typeof themeStudioSet === 'function') {
         var ts = themeStudioGet();
@@ -8635,6 +8649,7 @@ document.getElementById('home-banner-file') && document.getElementById('home-ban
         if (typeof themeStudioRender === 'function') themeStudioRender();
       }
     } catch(e) {}
+    bannerDebugLog('home-upload:done',{hasDom:!!document.querySelector('.banner-bg'),storedLength:(localStorage.getItem('home_banner_v1')||'').length});
     homeToast('배너 사진을 적용했어요');
   });
   this.value = '';
@@ -12748,6 +12763,7 @@ function initHobbyBanner(){
       banner.style.backgroundPosition = (pos.x||50) + '% ' + (pos.y||50) + '%';
       banner.classList.add('has-image');
       banner.title = '드래그해서 배너 위치를 조정할 수 있어요';
+      bannerDebugLog('hobby:render-applied',{imgLength:url.length,backgroundSet:!!banner.style.backgroundImage,position:banner.style.backgroundPosition,hasClass:banner.classList.contains('has-image')});
     } else {
       banner.style.backgroundImage = '';
       banner.style.backgroundSize = '';
@@ -12755,8 +12771,9 @@ function initHobbyBanner(){
       banner.style.backgroundPosition = '';
       banner.classList.remove('has-image');
       banner.title = '';
+      bannerDebugLog('hobby:render-empty',{});
     }
-  } catch(e) {}
+  } catch(e) { bannerDebugLog('hobby:render-error',{error:String(e&&e.message||e)}); }
   var btn = document.getElementById('btn-banner');
   if (btn) btn.innerHTML = '&#128444;&#65039;';
   if (btn && !btn._hobBannerHooked) {
@@ -12766,6 +12783,7 @@ function initHobbyBanner(){
       inp.type = 'file'; inp.accept = 'image/*';
       inp.addEventListener('change', function(){
         var file = inp.files && inp.files[0]; if (!file) return;
+        bannerDebugLog('hobby-upload:file-selected',{name:file.name,size:file.size,type:file.type});
         fileToBannerDataUrl(file, function(url){
           if(!setReturnStorageItem('hobby_banner_v1', url)){ if(typeof homeToast==='function')homeToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.'); return; }
           try {
@@ -12777,6 +12795,7 @@ function initHobbyBanner(){
             }
           } catch(e) {}
           initHobbyBanner();
+          bannerDebugLog('hobby-upload:done',{storedLength:(localStorage.getItem('hobby_banner_v1')||'').length,hasDom:!!document.querySelector('.hobby-banner')});
           if(typeof homeToast==='function')homeToast('배너 사진을 적용했어요');
         });
       });
@@ -19953,7 +19972,7 @@ var THEME_STUDIO_DEFAULT={
 };
 function themeStudioClone(v){return JSON.parse(JSON.stringify(v));}
 function themeStudioReadJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'')||fallback;}catch(e){return fallback;}}
-function themeStudioWriteJSON(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true;}catch(e){if(typeof showToast==='function')showToast('Theme storage is full. Use smaller assets.');return false;}}
+function themeStudioWriteJSON(key,value){try{localStorage.setItem(key,JSON.stringify(value));bannerDebugLog('theme:write-ok',{key:key,length:JSON.stringify(value).length});return true;}catch(e){bannerDebugLog('theme:write-failed',{key:key,error:String(e&&e.message||e),length:JSON.stringify(value).length});if(typeof showToast==='function')showToast('Theme storage is full. Use smaller assets.');return false;}}
 function themeStudioUid(prefix){return prefix+'_'+Date.now()+'_'+Math.floor(Math.random()*99999);}
 function themeStudioEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function themeStudioMerge(base,extra){
@@ -20194,20 +20213,22 @@ function themeStudioApplyBackground(state){
 }
 function themeStudioApplyBanner(state){
   var img=(state.banner&&state.banner.image)||(state.background&&state.background.banner)||'';
+  bannerDebugLog('theme:apply-home-banner',{hasImage:!!img,imgLength:img?img.length:0});
   if(!img)return;
   try{
     if(typeof loadHomeBanner==='function')loadHomeBanner();
     if(typeof hbState==='object'){hbState.imgUrl=img;hbState.bgPos=(state.banner&&state.banner.position)||hbState.bgPos||{x:50,y:50};if(saveHomeBanner())renderHomeBanner();}
-  }catch(e){}
+  }catch(e){bannerDebugLog('theme:apply-home-banner-error',{error:String(e&&e.message||e)});}
 }
 function themeStudioApplyHobbyBanner(state){
   var img=(state.banner&&state.banner.hobbyImage)||'';
+  bannerDebugLog('theme:apply-hobby-banner',{hasImage:!!img,imgLength:img?img.length:0});
   if(!img)return;
   try{
     if(!setReturnStorageItem('hobby_banner_v1',img)){if(typeof homeToast==='function')homeToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.');return;}
     if(!localStorage.getItem('hobby_banner_pos_v1'))setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
     if(typeof initHobbyBanner==='function')initHobbyBanner();
-  }catch(e){}
+  }catch(e){bannerDebugLog('theme:apply-hobby-banner-error',{error:String(e&&e.message||e)});}
 }
 function themeStudioClearHomeBannerImage(){
   try{
@@ -20658,16 +20679,18 @@ function themeStudioSetMedia(kind,url){
 }
 async function themeStudioUploadMedia(kind,file){
   if(!file)return;
+  bannerDebugLog('theme-media:file-selected',{kind:kind,name:file.name,size:file.size,type:file.type});
   var pack=kind==='banner'?'Banner Upload':(kind==='hobbyBanner'?'Hobby Banner Upload':'Background Upload');
   var asset=null;
   if(kind==='banner'||kind==='hobbyBanner'||kind==='background'){
     var url=await new Promise(function(resolve){fileToBannerDataUrl(file,resolve);});
+    bannerDebugLog('theme-media:compressed',{kind:kind,urlLength:url?url.length:0});
     asset=await themeStudioAssetFromDataUrl(url,file.name,pack);
   }else{
     asset=await themeStudioAssetFromBlob(file,file.name,pack);
   }
   if(!asset)return;
-  var list=themeStudioAssets();list.push(asset);themeStudioSaveAssets(list);
+  var list=themeStudioAssets();list.push(asset);var assetsSaved=themeStudioSaveAssets(list);bannerDebugLog('theme-media:asset-save',{kind:kind,saved:assetsSaved,assetId:asset.id,urlLength:asset.url?asset.url.length:0});
   themeStudioSetMedia(kind,asset.url);
   themeStudioMarkRole(asset.id,kind==='banner'?'pageBanner':(kind==='hobbyBanner'?'hobbyBanner':'pageBackground'));
 }
