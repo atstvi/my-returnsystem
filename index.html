@@ -7171,6 +7171,60 @@ function loadTaskRules(){ try{return JSON.parse(localStorage.getItem('task_rules
 function saveTaskRules(rules){ try{localStorage.setItem('task_rules_v1',JSON.stringify(rules));}catch(e){} }
 function loadRepeatItems(){ try{return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]');}catch(e){return [];} }
 function saveRepeatItems(items){ try{localStorage.setItem('repeat_items_v1',JSON.stringify(items));}catch(e){} }
+function taskDateFromKey(key){
+  var m=String(key||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if(!m)return null;
+  return new Date(Number(m[1]),Number(m[2])-1,Number(m[3]));
+}
+function taskDateKeyLocal(value){
+  if(value instanceof Date && !isNaN(value))return value.getFullYear()+'-'+tPad(value.getMonth()+1)+'-'+tPad(value.getDate());
+  var d=taskDateFromKey(value);
+  return d?taskDateKeyLocal(d):'';
+}
+function taskAddDaysKey(key,days){
+  var d=taskDateFromKey(key);
+  if(!d)return '';
+  d.setDate(d.getDate()+(parseInt(days,10)||0));
+  return taskDateKeyLocal(d);
+}
+function taskDaysBetweenKeys(a,b){
+  var da=taskDateFromKey(a), db=taskDateFromKey(b);
+  if(!da||!db)return 0;
+  return Math.round((db.getTime()-da.getTime())/86400000);
+}
+function taskTodayKeyLocal(){
+  var now=new Date();
+  var key=taskDateKeyLocal(now);
+  try{
+    if(typeof TODAY!=='undefined')TODAY=taskDateFromKey(key);
+    if(typeof TK!=='undefined')TK=key;
+  }catch(e){}
+  return key;
+}
+function repeatWeekdays(rep){
+  return String((rep&&rep.weekdays)||'').split(/[, ]+/).filter(Boolean).map(function(x){return parseInt(x,10);}).filter(function(n){return n>=0&&n<=6;});
+}
+function repeatGenerationKey(rep,dkey){return String((rep&&rep.id)||'')+'|'+taskDateKeyLocal(dkey);}
+function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){return {};}}
+function saveRepeatSuppressions(map){try{localStorage.setItem('repeat_suppressions_v1',JSON.stringify(map||{}));}catch(e){}}
+function suppressRepeatOccurrence(task){
+  if(!task||!task._repeatId)return;
+  var occurrence=taskDateKeyLocal(task._repeatOccurrence||task.date);
+  if(!occurrence)return;
+  var key=task._generationKey||String(task._repeatId)+'|'+occurrence;
+  var map=loadRepeatSuppressions();
+  map[key]={repeatId:task._repeatId,occurrence:occurrence,reason:'deleted',at:Date.now()};
+  saveRepeatSuppressions(map);
+}
+function isRepeatSuppressed(rep,dkey){
+  var key=repeatGenerationKey(rep,dkey);
+  return !!loadRepeatSuppressions()[key];
+}
+function repeatDebugLog(label,data){
+  try{
+    if(window.RETURN_REPEAT_DEBUG||localStorage.getItem('return_repeat_debug')==='1')console.log('[RepeatGen] '+label,data||{});
+  }catch(e){}
+}
 function openFormDialog(title, fields, onSave){
   var old = document.getElementById('simple-form-dialog');
   if (old) old.remove();
@@ -20419,6 +20473,43 @@ function themeStudioApplyPreview(state){
 }
 function themeStudioAssets(){return themeStudioReadJSON(THEME_STUDIO_ASSETS_KEY,[]).filter(function(a){return a&&a.id&&a.url;});}
 function themeStudioSaveAssets(list){return themeStudioWriteJSON(THEME_STUDIO_ASSETS_KEY,list);}
+function themeStudioAddMediaAssetRef(ref,name,kind,role,sourceTheme){
+  if(!isReturnMediaRef(ref))return false;
+  var list=themeStudioAssets();
+  var found=list.find(function(a){return a.url===ref;});
+  if(found){
+    found.name=found.name||name||'Media asset';
+    found.kind=found.kind||kind||'Asset';
+    found.sourceTheme=found.sourceTheme||sourceTheme||'Local media';
+    found.roles=found.roles||[];
+    if(role&&found.roles.indexOf(role)<0)found.roles.push(role);
+    return themeStudioSaveAssets(list);
+  }
+  var asset={id:themeStudioUid('asset'),name:name||'Media asset',kind:kind||'Asset',url:ref,size:0,sourceTheme:sourceTheme||'Local media',roles:role?[role]:[],createdAt:new Date().toISOString()};
+  list.push(asset);
+  return themeStudioSaveAssets(list);
+}
+function themeStudioResolveMediaPreviews(root){
+  if(!root)return;
+  root.querySelectorAll('[data-return-media-src]').forEach(function(img){
+    var ref=img.getAttribute('data-return-media-src')||'';
+    returnMediaResolveUrl(ref).then(function(url){if(url)img.src=url;});
+  });
+  root.querySelectorAll('[data-return-media-bg]').forEach(function(el){
+    var ref=el.getAttribute('data-return-media-bg')||'';
+    returnMediaResolveUrl(ref).then(function(url){if(url)el.style.backgroundImage='url('+themeStudioEsc(url)+')';});
+  });
+}
+function themeStudioImgTag(url){
+  url=String(url||'');
+  if(isReturnMediaRef(url))return '<img data-return-media-src="'+themeStudioEsc(url)+'" alt="">';
+  return '<img src="'+themeStudioEsc(url)+'" alt="">';
+}
+function themeStudioBgAttr(url){
+  url=String(url||'');
+  if(isReturnMediaRef(url))return ' data-return-media-bg="'+themeStudioEsc(url)+'"';
+  return url?' style="background-image:url('+themeStudioEsc(url)+')"':'';
+}
 function themeStudioSelectedAsset(){
   var active=document.querySelector('#theme-asset-grid [data-asset].active');
   var id=active?active.dataset.asset:window._themeSelectedAssetId;
@@ -20517,14 +20608,8 @@ function themeStudioAssetMatchesFilter(asset,filter){
 function themeStudioRenderAssetActions(asset){
   var wrap=document.getElementById('theme-asset-actions');if(!wrap)return;
   if(!asset){
-    wrap.innerHTML='<div class="field-hint">Select an asset above, then choose exactly where it should be used.</div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview"></span><strong>Background</strong><span class="theme-choice-note">Large wallpaper behind pages.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview banner"></span><strong>Banner</strong><span class="theme-choice-note">Home top image only.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview sticker"></span><strong>Sticker</strong><span class="theme-choice-note">Placed movable decoration.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview icon">R</span><strong>Icon</strong><span class="theme-choice-note">App, tab, or avatar icon.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview"></span><strong>Card texture</strong><span class="theme-choice-note">Subtle hero card surface.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview frame"></span><strong>Frame</strong><span class="theme-choice-note">Controlled card border slot.</span></div>'+
-      '<div class="theme-role-action"><span class="theme-role-preview corners"></span><strong>Corners</strong><span class="theme-choice-note">Small card corner accents.</span></div>';
+    wrap.innerHTML='<div class="field-hint">Select one asset card above. Then the role buttons appear here, so the file changes only the slot you choose.</div>'+
+      '<div class="theme-chip-row"><span class="theme-chip">Background</span><span class="theme-chip">Home banner</span><span class="theme-chip">Hobby banner</span><span class="theme-chip">Sticker</span><span class="theme-chip">App/icon/avatar</span><span class="theme-chip">Card texture</span><span class="theme-chip">Frame</span><span class="theme-chip">Corners</span></div>';
     return;
   }
   var actions=[
@@ -20538,7 +20623,8 @@ function themeStudioRenderAssetActions(asset){
     ['cardFrame','Use as card frame','Frames selected hero-style cards safely','frame'],
     ['cardCornerDecoration','Use as card corners','Adds small corner accents to hero cards','corners']
   ];
-  wrap.innerHTML='<div class="field-hint">Selected asset: '+themeStudioEsc(asset.kind||'Asset')+' - '+themeStudioEsc(asset.name||'file')+'</div>'+actions.map(function(a){var bg=(a[0]==='pageBackground'||a[0]==='pageBanner'||a[0]==='hobbyBanner'||a[0]==='cardBackground'||a[0]==='cardFrame'||a[0]==='cardCornerDecoration'||a[0]==='situationAvatar'||a[0]==='stickerAsset')?' style="background-image:url('+themeStudioEsc(asset.url)+')"':'';var cls='theme-role-preview '+a[3]+(bg?' with-asset':'');return '<button class="theme-role-action" type="button" data-role="'+a[0]+'"><span class="'+cls+'"'+bg+'>'+(a[3]==='icon'?'R':'')+'</span><strong>'+a[1]+'</strong><span class="theme-choice-note">'+a[2]+'</span></button>';}).join('');
+  wrap.innerHTML='<div class="field-hint">Selected asset: '+themeStudioEsc(asset.kind||'Asset')+' - '+themeStudioEsc(asset.name||'file')+'</div>'+actions.map(function(a){var usesBg=(a[0]==='pageBackground'||a[0]==='pageBanner'||a[0]==='hobbyBanner'||a[0]==='cardBackground'||a[0]==='cardFrame'||a[0]==='cardCornerDecoration'||a[0]==='situationAvatar'||a[0]==='stickerAsset');var cls='theme-role-preview '+a[3]+(usesBg?' with-asset':'');return '<button class="theme-role-action" type="button" data-role="'+a[0]+'"><span class="'+cls+'"'+(usesBg?themeStudioBgAttr(asset.url):'')+'>'+(a[3]==='icon'?'R':'')+'</span><strong>'+a[1]+'</strong><span class="theme-choice-note">'+a[2]+'</span></button>';}).join('');
+  themeStudioResolveMediaPreviews(wrap);
   wrap.querySelectorAll('[data-role]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioApplyAssetRole(btn.dataset.role);});});
 }
 function themeStudioOpenIconPicker(key){
@@ -20546,7 +20632,8 @@ function themeStudioOpenIconPicker(key){
   var list=themeStudioAssets();
   box.classList.add('open');
   box.innerHTML='<div class="theme-tools"><strong>Choose asset for '+themeStudioEsc(themeStudioIconLabel(key))+'</strong><label class="set-btn btn-ghost">Upload image<input type="file" accept="image/*" data-icon-picker-upload hidden></label><button class="set-btn btn-ghost" type="button" data-icon-picker-close>Close</button></div>'+
-    (list.length?'<div class="theme-icon-picker-grid">'+list.map(function(a){return '<button class="theme-icon-asset" type="button" data-icon-asset="'+themeStudioEsc(a.id)+'"><img src="'+themeStudioEsc(a.url)+'" alt=""><span class="theme-choice-note">'+themeStudioEsc(a.kind||'Asset')+'</span></button>';}).join('')+'</div>':'<div class="field-hint">No assets yet. Import a Kakao theme or upload an image first.</div>');
+    (list.length?'<div class="theme-icon-picker-grid">'+list.map(function(a){return '<button class="theme-icon-asset" type="button" data-icon-asset="'+themeStudioEsc(a.id)+'">'+themeStudioImgTag(a.url)+'<span class="theme-choice-note">'+themeStudioEsc(a.kind||'Asset')+'</span></button>';}).join('')+'</div>':'<div class="field-hint">No assets yet. Import a Kakao theme or upload an image first.</div>');
+  themeStudioResolveMediaPreviews(box);
   box.querySelectorAll('[data-icon-asset]').forEach(function(btn){btn.addEventListener('click',function(){var asset=themeStudioAssets().find(function(a){return a.id===btn.dataset.iconAsset;});if(!asset)return;var s=themeStudioGet();themeStudioEnsureIconsState(s)[key]=asset.url;themeStudioMarkRole(asset.id,key==='avatar'?'avatarIcon':'icon');themeStudioSet(s);themeStudioOpenIconPicker(key);});});
   var upload=box.querySelector('[data-icon-picker-upload]');
   if(upload)upload.addEventListener('change',async function(){var f=upload.files&&upload.files[0];if(!f)return;var asset=await themeStudioAssetFromBlob(f,f.name,'Icon Upload');if(!asset){upload.value='';return;}var list=themeStudioAssets();list.push(asset);themeStudioSaveAssets(list);var s=themeStudioGet();themeStudioEnsureIconsState(s)[key]=asset.url;themeStudioMarkRole(asset.id,key==='avatar'?'avatarIcon':'icon');themeStudioSet(s);upload.value='';themeStudioOpenIconPicker(key);});
@@ -20564,7 +20651,8 @@ function themeStudioRenderAssets(){
   var filterTools=document.getElementById('theme-asset-filters');
   if(filterTools){var filters=[['all','All'],['unused','Unused'],['used','Used'],['stickers','Stickers'],['backgrounds','Backgrounds'],['icons','Icons'],['frames','Frames'],['imported','Imported']];filterTools.innerHTML=filters.map(function(f){return '<button class="set-btn '+(activeFilter===f[0]?'btn-primary':'btn-ghost')+'" type="button" data-asset-filter="'+f[0]+'">'+f[1]+'</button>';}).join('');filterTools.querySelectorAll('[data-asset-filter]').forEach(function(btn){btn.addEventListener('click',function(){window._themeAssetFilter=btn.dataset.assetFilter;themeStudioRenderAssets();});});}
   var shown=list.filter(function(a){return themeStudioAssetMatchesFilter(a,activeFilter);});
-  grid.innerHTML=shown.length?shown.map(function(a){var roles=(a.roles||[]).slice(0,4).map(function(r){return '<span class="theme-chip">'+themeStudioEsc(themeStudioRoleMeta(r)[0])+'</span>';}).join('');var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';var used=(a.roles&&a.roles.length)?'Used':'Unused';var dim=(a.width&&a.height)?(' - '+a.width+'x'+a.height):'';var active=window._themeSelectedAssetId===a.id?' active':'';return '<button class="theme-asset-card'+active+'" type="button" data-asset="'+themeStudioEsc(a.id)+'"><img src="'+themeStudioEsc(a.url)+'" alt=""><strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(used)+' - '+themeStudioEsc(a.sourceTheme||'Local asset')+themeStudioEsc(dim)+'</span><span class="theme-chip-row">'+color+roles+'</span></button>';}).join(''):'<div class="field-hint">'+(list.length?'No assets match this filter.':'No assets yet. Import a Kakao theme or upload images.')+'</div>';
+  grid.innerHTML=shown.length?shown.map(function(a){var roles=(a.roles||[]).slice(0,4).map(function(r){return '<span class="theme-chip">'+themeStudioEsc(themeStudioRoleMeta(r)[0])+'</span>';}).join('');var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';var used=(a.roles&&a.roles.length)?'Used':'Unused';var dim=(a.width&&a.height)?(' - '+a.width+'x'+a.height):'';var active=window._themeSelectedAssetId===a.id?' active':'';return '<button class="theme-asset-card'+active+'" type="button" data-asset="'+themeStudioEsc(a.id)+'">'+themeStudioImgTag(a.url)+'<strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(used)+' - '+themeStudioEsc(a.sourceTheme||'Local asset')+themeStudioEsc(dim)+'</span><span class="theme-chip-row">'+color+roles+'</span></button>';}).join(''):'<div class="field-hint">'+(list.length?'No assets match this filter.':'No assets yet. Import a Kakao theme or upload images.')+'</div>';
+  themeStudioResolveMediaPreviews(grid);
   grid.querySelectorAll('[data-asset]').forEach(function(btn){btn.addEventListener('click',function(){window._themeSelectedAssetId=btn.dataset.asset;grid.querySelectorAll('[data-asset]').forEach(function(x){x.classList.remove('active');});btn.classList.add('active');themeStudioRenderAssetActions(themeStudioSelectedAsset());});});
   themeStudioRenderAssetActions(themeStudioSelectedAsset());
 }
@@ -20585,17 +20673,20 @@ async function themeStudioImportFiles(files){
   var totalSize=imported.reduce(function(sum,a){return sum+(a.size||0);},0);
   if(totalSize>2500000&&!confirm('This import contains '+imported.length+' images and may use a lot of local storage. Save this asset pack?'))return;
   var list=themeStudioAssets().concat(imported);
-  themeStudioSaveAssets(list);
-  themeStudioCreateImportedPreset(imported,pack);
+  var assetsSaved=themeStudioSaveAssets(list);
+  var presetSaved=themeStudioCreateImportedPreset(imported,pack);
   themeStudioRenderImportPreview(imported);
   themeStudioRender();
   if(failed.length&&typeof showToast==='function')showToast('Some theme files could not be opened.');
-  if(typeof showToast==='function')showToast(imported.length+' asset(s) imported.');
+  if(!assetsSaved&&typeof showToast==='function')showToast('Assets were extracted, but the library could not be saved. Storage is full.');
+  if(!presetSaved&&typeof showToast==='function')showToast('Assets were imported, but the preset could not be saved.');
+  if(typeof showToast==='function')showToast(imported.length+' asset(s) imported.'+(presetSaved?' Preset created.':''));
 }
 function themeStudioRenderImportPreview(assets){
   var grid=document.getElementById('theme-import-preview');if(!grid)return;
   assets=assets||[];
-  grid.innerHTML=assets.length?'<div class="field-hint">Imported images were saved as reusable assets. Nothing is applied automatically here; open Components > Asset Library to assign each file as a banner, icon, sticker, card texture, frame, or corner decoration.</div>'+assets.slice(0,24).map(function(a){var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';return '<div class="theme-asset-card"><img src="'+themeStudioEsc(a.url)+'" alt=""><strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(a.name||'file')+'</span><span class="theme-chip-row">'+color+'</span></div>';}).join('')+'<div class="field-hint">Showing '+Math.min(assets.length,24)+' of '+assets.length+' imported assets. All saved assets are in Components > Asset Library.</div>':'';
+  grid.innerHTML=assets.length?'<div class="field-hint">Imported images were saved as reusable assets and an imported preset is created when storage allows it. Open Presets to apply the full suggestion, or Components > Asset Library to assign one file to one role.</div>'+assets.slice(0,24).map(function(a){var color=a.color?'<span class="theme-chip"><span style="width:12px;height:12px;border-radius:50%;background:'+themeStudioEsc(a.color)+';display:inline-block;margin-right:6px"></span>'+themeStudioEsc(a.color)+'</span>':'';return '<div class="theme-asset-card">'+themeStudioImgTag(a.url)+'<strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(a.name||'file')+'</span><span class="theme-chip-row">'+color+'</span></div>';}).join('')+'<div class="field-hint">Showing '+Math.min(assets.length,24)+' of '+assets.length+' imported assets. All saved assets are in Components > Asset Library.</div>':'';
+  themeStudioResolveMediaPreviews(grid);
 }
 function themeStudioRgbToHex(r,g,b){
   return '#'+[r,g,b].map(function(v){v=Math.max(0,Math.min(255,Math.round(v)));return v.toString(16).padStart(2,'0');}).join('');
@@ -20716,7 +20807,7 @@ function themeStudioCreateImportedPreset(assets,name){
   if(icon)include.push('icons');
   var list=themeStudioImportedPresets();
   list.push({id:themeStudioUid('import'),type:'imported',name:(name||'Imported').replace(/\.[^.]+$/,'')+' Theme',mood:'Imported assets',include:include,includedCategories:include,snapshot:snap,sourceTheme:name||'',createdAt:new Date().toISOString()});
-  themeStudioWriteJSON(THEME_STUDIO_IMPORTS_KEY,list);
+  return themeStudioWriteJSON(THEME_STUDIO_IMPORTS_KEY,list);
 }
 function themeStudioToggleSkins(on){var cur=themeStudioGet();themeStudioEnsureSkinState(cur);cur.componentSkins.enabled=!!on;themeStudioSet(cur);}
 function themeStudioClearSkinAssets(){var cur=themeStudioGet();cur.componentSkins=themeStudioClone(THEME_STUDIO_DEFAULT.componentSkins);themeStudioSet(cur);}
@@ -20753,6 +20844,7 @@ function themeStudioRenderSkinResources(){
     var url=s[0]==='corners'?(card.cornerTopLeft||card.cornerTopRight||card.cornerBottomLeft||card.cornerBottomRight||''):(card[s[0]]||'');
     return '<div class="theme-role-action"><span class="theme-role-preview with-asset" style="'+(url?'background-image:url('+themeStudioEsc(url)+')':'')+'"></span><strong>'+s[1]+'</strong><span class="theme-choice-note">'+(url?'Mapped':'Empty')+' · '+s[2]+'</span>'+(url?'<button class="set-btn btn-ghost" type="button" data-clear-skin-slot="'+s[0]+'">Remove</button>':'')+'</div>';
   }).join('') || '<div class="field-hint">No skin resources mapped.</div>';
+  themeStudioResolveMediaPreviews(wrap);
   wrap.querySelectorAll('[data-clear-skin-slot]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioClearSkinSlot(btn.dataset.clearSkinSlot);});});
 }
 function themeStudioRenderIntensityControls(){
