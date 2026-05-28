@@ -1049,7 +1049,7 @@ html.focus-mode .page-container.active{height:100vh}
   cursor:text; border-top:.5px solid var(--border-subtle);
   font-size:var(--text-base); color:var(--fg-4);
 }
-#home-more-tasks,#home-quick-add{display:none!important}
+#home-more-tasks{display:none!important}
 
 /* ── INBOX ── */
 .inbox-list { padding:0 var(--sp-4) var(--sp-4); display:flex; flex-direction:column; }
@@ -5312,6 +5312,7 @@ to{opacity:1;transform:translateY(0)}}
               <span class="ds-label">Timeline</span>
               <span class="ds-dirty">저장 중...</span>
               <span class="ds-auto-note" style="margin-left:auto;font-size:var(--text-2xs);color:var(--fg-4)">자동 채움</span>
+              <button class="block-add-btn" type="button" onclick="addDiaryTimelineManual()">+ 추가</button>
             </div>
             <textarea class="ds-body" id="diary_timeline" placeholder="오늘 있었던 일들을 시간 순서대로..." rows="4"></textarea>
           </div>
@@ -6960,7 +6961,7 @@ if (cinp) {
   });
 }
 var qa = document.getElementById('home-quick-add');
-if (qa && cinp) qa.addEventListener('click', function() { cinp.focus(); });
+if (qa && cinp) qa.addEventListener('click', function() { setHomeCaptureType('task'); cinp.focus(); });
 var csend = document.querySelector('.capture-send');
 if (csend && cinp) csend.addEventListener('click', function(){
   var val = cinp.value.trim();
@@ -8551,12 +8552,26 @@ function renderHomeInbox(){
     text.textContent = item.text;
     var action = document.createElement('button');
     action.className = 'inbox-action';
-    action.textContent = '열기';
-    action.addEventListener('click', function(e){ e.stopPropagation(); goPage('inbox'); });
-    row.addEventListener('click', function(){ goPage('inbox'); });
+    action.textContent = '처리';
+    action.addEventListener('click', function(e){ e.stopPropagation(); openInboxItemFromHome(item.id); });
+    row.addEventListener('click', function(){ openInboxItemFromHome(item.id); });
     row.appendChild(dot); row.appendChild(text); row.appendChild(action);
     list.appendChild(row);
   });
+}
+function openInboxItemFromHome(id){
+  goPage('inbox');
+  try{ activeFilter='unread'; }catch(e){}
+  if(typeof setInboxView==='function')setInboxView('feed');
+  else if(typeof renderFeed==='function')renderFeed();
+  if(typeof renderFilterBar==='function')renderFilterBar();
+  setTimeout(function(){
+    var el=document.querySelector('#inbox-feed [data-id="'+String(id).replace(/"/g,'\\"')+'"]');
+    if(!el)return;
+    el.scrollIntoView({block:'center',behavior:'smooth'});
+    el.style.boxShadow='var(--focus-ring), var(--elev-1)';
+    setTimeout(function(){el.style.boxShadow='';},1600);
+  },80);
 }
 
 function homeCapture(raw){
@@ -13425,6 +13440,31 @@ function pickContextCycle(field, pool, btn) {
   entries[currentDate][field] = pool[(idx+1) % pool.length];
   saveAll();
   renderContextChips(currentDate);
+}
+function addDiaryTimelineManual(){
+  var target=document.getElementById('diary_timeline');
+  if(!target)return;
+  var now=new Date();
+  var hh=dPad(now.getHours())+':'+dPad(now.getMinutes());
+  function appendLine(time,text){
+    text=String(text||'').trim();
+    if(!text)return;
+    var line=(time||hh)+' '+text;
+    target.value=(target.value.trim()?target.value.trim()+'\n':'')+line;
+    autoGrow(target);
+    diaryAutoSave('timeline',target);
+    commitCurrent();
+    saveAll();
+  }
+  if(typeof openFormDialog==='function'){
+    openFormDialog('Timeline 추가',[
+      {key:'time',label:'시간',value:hh},
+      {key:'text',label:'내용',type:'textarea',rows:3,value:''}
+    ],function(data){appendLine(data.time,data.text);});
+  }else{
+    var text=prompt('Timeline에 추가할 내용');
+    appendLine(hh,text);
+  }
 }
 
 /* ── AUTO-GROW ── */
