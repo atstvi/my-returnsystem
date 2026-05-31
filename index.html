@@ -1278,13 +1278,13 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   .home-banner{height:260px}
   .home-content{
     max-width:1280px;
-    padding:var(--sp-8) clamp(32px,5vw,80px) 104px;
+    padding:calc(260px + var(--sp-6)) clamp(32px,5vw,80px) 104px;
     display:grid;
     grid-template-columns:minmax(360px,.9fr) minmax(520px,1.1fr);
     gap:var(--sp-6);
     align-items:start;
   }
-  .home-content > .ctx-bar{grid-column:1 / -1;padding:var(--sp-3) 0}
+  .home-content > .ctx-bar{grid-column:1 / -1;grid-row:1;padding:var(--sp-3) 0}
   .home-content > .sit-card{grid-column:1;grid-row:2}
   .home-content > .home-timeblock-card{grid-column:2;grid-row:2 / span 2}
   .home-content > .home-tasks-card{grid-column:1;grid-row:3}
@@ -2393,6 +2393,16 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .routine-state.skip{background:#f0ecff;color:#7a5ac8}
 .routine-state.rest{background:#fff4e4;color:#9a5a00}
 .routine-state.clear{background:#fff0f2;color:#d43a42}
+.routine-state-wrap{position:relative;display:inline-flex;align-items:center}
+.routine-state-pick{width:42px;height:42px}
+.routine-state-menu{
+  position:absolute;right:0;top:calc(100% + 8px);z-index:35;
+  display:none;gap:var(--sp-2);padding:var(--sp-2);
+  border:.5px solid var(--border-subtle);border-radius:var(--r-full);
+  background:var(--bg-card);box-shadow:var(--elev-3);
+}
+.routine-state-wrap.open .routine-state-menu{display:flex}
+.routine-state-option{flex:0 0 auto}
 .routine-library{display:flex;flex-direction:column;gap:var(--sp-2)}
 .routine-lib-item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--sp-2);align-items:center;border:.5px solid var(--border-subtle);border-radius:var(--r-md);background:var(--bg-raised);padding:var(--sp-3)}
 .routine-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp-3)}
@@ -6073,6 +6083,10 @@ to{opacity:1;transform:translateY(0)}}
                 <div class="theme-choice-grid" id="theme-typography-grid"></div>
                 <div class="theme-color-grid" id="theme-color-grid"></div>
                 <div class="theme-choice-grid" id="theme-media-grid"></div>
+                <div class="theme-component-section">
+                  <div class="theme-component-section-head"><div><div class="theme-component-eyebrow">Timetable</div><div class="theme-component-title">Schedule color palette</div><div class="theme-component-sub">Theme Studio suggests these colors from the current theme. You can still tune each timetable color directly here.</div></div></div>
+                  <div class="tt-palette-editor open" id="theme-tt-palette-editor" aria-label="Theme Studio timetable palette"></div>
+                </div>
               </div>
               <div class="theme-studio-panel" id="theme-panel-presets">
                 <div class="theme-tools"><button class="set-btn btn-primary" type="button" onclick="themeStudioSavePresetDialog()">Save current state</button><button class="set-btn btn-ghost" type="button" onclick="themeStudioReset()">Return default</button></div>
@@ -7571,6 +7585,20 @@ function openFormDialog(title, fields, onSave){
     triggerSel.addEventListener('change',syncTriggerFields);
     syncTriggerFields();
   }
+  var freqSel=ov.querySelector('[data-key="freq"]')||ov.querySelector('[data-key="kind"]');
+  if(freqSel){
+    function syncRepeatFields(){
+      var freq=freqSel.value||'daily';
+      var weekdays=ov.querySelector('[data-key="weekdays"]');
+      var monthDay=ov.querySelector('[data-key="monthDay"]');
+      var weekdayField=weekdays&&weekdays.closest('.field');
+      var monthField=monthDay&&monthDay.closest('.field');
+      if(weekdayField)weekdayField.style.display=(freq==='weekly'||freq==='biweekly')?'':'none';
+      if(monthField)monthField.style.display=freq==='monthly'?'':'none';
+    }
+    freqSel.addEventListener('change',syncRepeatFields);
+    syncRepeatFields();
+  }
   var first = ov.querySelector('[data-key]');
   if (first) setTimeout(function(){ first.focus(); }, 30);
 }
@@ -7621,7 +7649,7 @@ function openHomeRepeatModal(){
     {key:'text', label:'반복 할일 이름', value:''},
     {key:'catId', label:'카테고리', type:'select', value:'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:'', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'반복 주기', type:'select', value:'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'monthly',label:'매월'}]},
+    {key:'freq', label:'반복 주기', type:'select', value:'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
     {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:''},
     {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(new Date().getDate())},
     {key:'endDate', label:'반복 종료일', type:'date', value:''}
@@ -7876,13 +7904,42 @@ function generatedTaskKeyFromTask(t){
 }
 function expectedActiveRuleDate(rule,t,sourceById){
   if(!rule||!t)return '';
-  var sourceId=String(t.sourceTaskId||t._ruleSourceId||'');
+  var sourceId=String(t.sourceTaskId||t._ruleSourceId||t.deadlineId||'');
   if(sourceId.indexOf('weekday:')===0)return taskDateKeyLocal(t.triggerDate||t.occurrenceDate||sourceId.slice(8)||t.date);
   var src=sourceById[sourceId];
   if(!src)return taskDateKeyLocal(t.occurrenceDate||t.date);
   var anchor=taskDateKeyLocal(src.deadlineDate||src.date);
   if(!anchor)return '';
   return taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
+}
+function generatedDateManuallyModified(t){
+  return !!(t&&t.userModifiedDate);
+}
+function inferActiveRuleSourceId(rule,t,sourceById){
+  var direct=String((t&&(t.sourceTaskId||t._ruleSourceId||t.deadlineId))||'');
+  if(direct&&sourceById[direct])return direct;
+  if(direct.indexOf('weekday:')===0)return direct;
+  if(!rule||!t)return direct;
+  var triggerType=rule.triggerType||(rule.weekdays?'weekday':'keyword');
+  if(triggerType==='weekday')return 'weekday:'+(taskDateKeyLocal(t.triggerDate||t.occurrenceDate||t.date)||taskTodayKeyLocal());
+  var key=String(rule.matchText||'').trim();
+  var offset=parseInt(rule.offsetDays,10)||0;
+  var actual=taskDateKeyLocal(t.date);
+  var best='';
+  Object.keys(sourceById||{}).some(function(id){
+    var src=sourceById[id];
+    if(!src||src._ruleGen||src.sourceType==='activeRule'||src._repeatId||src.sourceType==='repeat'||src._travelOnly)return false;
+    if(key&&String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return false;
+    var anchor=taskDateKeyLocal(src.deadlineDate||src.date);
+    if(!anchor)return false;
+    var expected=taskAddDaysKey(anchor,-offset);
+    if((actual&&expected===actual)||String(t.deadlineId||'')===String(src.id)||String(t.deadlineDate||'')===String(src.deadlineDate||src.date||'')){
+      best=String(src.id);
+      return true;
+    }
+    return false;
+  });
+  return best||direct;
 }
 function mergeGeneratedTaskInto(target,dup){
   if(!target||!dup)return;
@@ -7925,14 +7982,14 @@ function repairGeneratedTasks(opts){
       var keyDate='';
       if((t.generationKey||t._generationKey)&&String(t.generationKey||t._generationKey).indexOf('|')>=0)keyDate=String(t.generationKey||t._generationKey).split('|').pop();
       expected=taskDateKeyLocal(t.occurrenceDate||t._repeatOccurrence||keyDate||t.date);
-      if(!rep&&!(t.userModifiedDate||t._repeatMoved)&&!t.done){
+      if(!rep&&!generatedDateManuallyModified(t)&&!t.done){
         changed++;
         action='removed missing repeat rule';
         generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
         return;
       }
       if(rep&&expected&&!repeatMatchesDate(rep,expected)){
-        if(!(t.userModifiedDate||t._repeatMoved)&&!t.done){
+        if(!generatedDateManuallyModified(t)&&!t.done){
           changed++;
           action='removed invalid occurrence';
           generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
@@ -7940,16 +7997,16 @@ function repairGeneratedTasks(opts){
         }
       }
       key=repeatGenerationKey({id:rid},expected);
-      if((suppressions[key]||generatedSuppressions[key])&&!t.done&&!(t.userModifiedDate||t._repeatMoved)){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!(t.userModifiedDate||t._repeatMoved),action:action});return;}
+      if((suppressions[key]||generatedSuppressions[key])&&!t.done&&!generatedDateManuallyModified(t)){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:action});return;}
       t.sourceType='repeat';t.repeatRuleId=rid;t.occurrenceDate=expected;t.generationKey=key;t._repeatId=rid;t._repeatOccurrence=expected;t._generationKey=key;t._repeat=t._repeat||{kind:rep&&rep.freq};
-      if(expected&&taskDateKeyLocal(t.date)!==expected&&!(t.userModifiedDate||t._repeatMoved)){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
+      if(expected&&taskDateKeyLocal(t.date)!==expected&&!generatedDateManuallyModified(t)){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
     }else if(isRule){
       var ruleId=String(t.activeRuleId||t._ruleId||'');
       var rule=ruleById[ruleId];
-      var sourceId=String(t.sourceTaskId||t._ruleSourceId||'');
+      var sourceId=inferActiveRuleSourceId(rule,t,sourceById);
       var sourceIsWeekday=sourceId.indexOf('weekday:')===0;
       var sourceTask=sourceIsWeekday?null:sourceById[sourceId];
-      if((!rule||(!sourceIsWeekday&&!sourceTask))&&!t.userModifiedDate&&!t.done){
+      if((!rule||(!sourceIsWeekday&&!sourceTask))&&!generatedDateManuallyModified(t)&&!t.done){
         changed++;
         action=!rule?'removed missing active rule':'removed missing source task';
         generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:'',actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
@@ -7959,7 +8016,7 @@ function repairGeneratedTasks(opts){
         var matchText=String(rule.matchText||'').trim();
         var stillMatches=!matchText||String(sourceTask.text||'').indexOf(matchText)>=0||String(sourceTask.note||'').indexOf(matchText)>=0;
         var hasAnchor=!!(sourceTask.deadlineDate||sourceTask.date);
-        if((!stillMatches||!hasAnchor)&&!t.userModifiedDate&&!t.done){
+        if((!stillMatches||!hasAnchor)&&!generatedDateManuallyModified(t)&&!t.done){
           changed++;
           action=!stillMatches?'removed source no longer matches':'removed source missing date';
           generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:'',actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
@@ -7969,20 +8026,20 @@ function repairGeneratedTasks(opts){
       expected=expectedActiveRuleDate(rule,t,sourceById);
       if(!expected)expected=taskDateKeyLocal(t.occurrenceDate||t.date);
       key=activeRuleGenerationKey(ruleId,sourceId,expected);
-      if(generatedSuppressions[key]&&!t.userModifiedDate&&!t.done){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:false,action:action});return;}
+      if(generatedSuppressions[key]&&!generatedDateManuallyModified(t)&&!t.done){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:false,action:action});return;}
       t.sourceType='activeRule';t.activeRuleId=ruleId;t.sourceTaskId=sourceId;t.occurrenceDate=expected;t.triggerDate=t.triggerDate||expected;t.generationKey=key;t._ruleId=ruleId;t._ruleGen=true;t._ruleSourceId=sourceId;
-      if(expected&&taskDateKeyLocal(t.date)!==expected&&!t.userModifiedDate){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
+      if(expected&&taskDateKeyLocal(t.date)!==expected&&!generatedDateManuallyModified(t)){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
     }
     var mergeKey=key;
-    if((t.userModifiedDate||t._repeatMoved)&&expected&&taskDateKeyLocal(t.date)!==expected)mergeKey=key+'|manual:'+taskDateKeyLocal(t.date);
+    if(generatedDateManuallyModified(t)&&expected&&taskDateKeyLocal(t.date)!==expected)mergeKey=key+'|manual:'+taskDateKeyLocal(t.date);
     if(mergeKey&&seen[mergeKey]){
       mergeGeneratedTaskInto(seen[mergeKey],t);
       changed++;
-      generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!(t.userModifiedDate||t._repeatMoved),action:'merged duplicate'});
+      generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:'merged duplicate'});
       return;
     }
     if(mergeKey)seen[mergeKey]=t;
-    generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!(t.userModifiedDate||t._repeatMoved),action:action});
+    generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:action});
     repaired.push(t);
   });
   if(changed){
@@ -8051,7 +8108,7 @@ function editHomeRepeat(id){
     {key:'text', label:'반복 할일 이름', value:r.text || ''},
     {key:'catId', label:'카테고리', type:'select', value:r.catId || 'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:r.priority || '', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'반복 주기', type:'select', value:r.freq || 'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'monthly',label:'매월'}]},
+    {key:'freq', label:'반복 주기', type:'select', value:r.freq || 'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
     {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:r.weekdays || ''},
     {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(r.monthDay || new Date().getDate())},
     {key:'endDate', label:'반복 종료일', type:'date', value:r.endDate || ''}
@@ -15269,9 +15326,27 @@ function ttReadPalette(){
   }catch(e){}
   return [];
 }
+function ttColorToHex(value,fallback){
+  var s=String(value||'').trim();
+  if(/^#[0-9a-f]{6}$/i.test(s)) return s;
+  var m=s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if(!m) return fallback;
+  return '#'+[m[1],m[2],m[3]].map(function(v){var h=Math.max(0,Math.min(255,Number(v)||0)).toString(16);return h.length<2?'0'+h:h;}).join('');
+}
+function ttResolveThemePaletteColor(index,fallback){
+  try{
+    if(!document.body)return fallback;
+    var probe=document.createElement('span');
+    probe.style.cssText='position:absolute;left:-9999px;color:var(--tt-palette-'+index+');';
+    document.body.appendChild(probe);
+    var color=getComputedStyle(probe).color;
+    probe.remove();
+    return ttColorToHex(color,fallback);
+  }catch(e){return fallback;}
+}
 function ttFallbackPalette(){
   var saved = ttReadPalette();
-  return TT_DEFAULT_PALETTE.map(function(c,i){ return saved[i] || c; });
+  return TT_DEFAULT_PALETTE.map(function(c,i){ return saved[i] || ttResolveThemePaletteColor(i,c); });
 }
 function applyTtPalette(){
   var style = document.getElementById('tt-palette-override');
@@ -15312,6 +15387,27 @@ function renderTtPaletteEditor(){
   });
   var reset = document.getElementById('tt-palette-reset');
   if(reset) reset.addEventListener('click', resetTtPalette);
+}
+function themeStudioRenderTimetablePalette(){
+  var box = document.getElementById('theme-tt-palette-editor');
+  if(!box || typeof ttFallbackPalette!=='function') return;
+  var colors = ttFallbackPalette();
+  box.innerHTML = '<span class="tt-palette-note">Schedule colors</span>' + colors.map(function(c,i){
+    return '<label class="tt-palette-chip"><span>'+(i+1)+'</span><input type="color" data-theme-tt-palette="'+i+'" value="'+c+'"></label>';
+  }).join('') + '<button class="tb-btn tb-btn-ghost" type="button" id="theme-tt-palette-reset">Use theme colors</button>';
+  box.querySelectorAll('[data-theme-tt-palette]').forEach(function(inp){
+    inp.addEventListener('change', function(){
+      var next = ttFallbackPalette();
+      next[Number(inp.dataset.themeTtPalette)] = inp.value;
+      saveTtPalette(next);
+      themeStudioRenderTimetablePalette();
+    });
+  });
+  var reset = document.getElementById('theme-tt-palette-reset');
+  if(reset) reset.addEventListener('click', function(){
+    resetTtPalette();
+    themeStudioRenderTimetablePalette();
+  });
 }
 function bindTtPaletteToggle(){
   var btn = document.getElementById('tt-palette-toggle');
@@ -17935,6 +18031,24 @@ function routineSelectedPlanText(h, diff){
   if(!diff)return '';
   return String((h&&h[diff])||'').trim();
 }
+/* Routine UX recovery pass 5: show one current state cell, reveal choices on click. */
+function routineStateMeta(key){
+  var map={
+    done:{key:'done',icon:'\uD83E\uDDD8',label:'\uc644\ub8cc'},
+    skip:{key:'skip',icon:'\uD83D\uDCAC',label:'\uac74\ub108\ub700'},
+    rest:{key:'rest',icon:'\u2192',label:'\uc270'},
+    clear:{key:'clear',icon:'\u00d7',label:'\uc120\ud0dd \uc548 \ud568'}
+  };
+  return map[key]||map.clear;
+}
+routineStateButtonsHtml=function(state){
+  var current=routineStateMeta(state||'clear');
+  var items=['done','skip','rest','clear'].map(routineStateMeta);
+  return '<div class="routine-state-wrap" data-routine-state-wrap><button class="routine-state routine-state-pick '+routineEsc(current.key)+' '+(state?'active':'')+'" type="button" data-routine-state-pick aria-label="'+routineEsc(current.label)+'" title="'+routineEsc(current.label)+'">'+routineEsc(current.icon)+'</button><div class="routine-state-menu">'+items.map(function(o){
+    var active=(o.key!=='clear'&&state===o.key);
+    return '<button class="routine-state routine-state-option '+routineEsc(o.key)+' '+(active?'active':'')+'" type="button" data-routine-state-option="'+routineEsc(o.key)+'" aria-label="'+routineEsc(o.label)+'" title="'+routineEsc(o.label)+'">'+routineEsc(o.icon)+'</button>';
+  }).join('')+'</div></div>';
+};
 renderRoutineBundles=function(){
   var root=document.getElementById('routine-bundles');if(!root)return;
   if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}
@@ -18070,6 +18184,14 @@ function routineStateButtonsHtml(state){
     return '<button class="routine-state '+routineEsc(o.key)+' '+(active?'active':'')+'" type="button" data-routine-state="'+routineEsc(o.key)+'" aria-label="'+routineEsc(o.label)+'" title="'+routineEsc(o.label)+'">'+routineEsc(o.icon)+'</button>';
   }).join('');
 }
+routineStateButtonsHtml=function(state){
+  var current=routineStateMeta(state||'clear');
+  var items=['done','skip','rest','clear'].map(routineStateMeta);
+  return '<div class="routine-state-wrap" data-routine-state-wrap><button class="routine-state routine-state-pick '+routineEsc(current.key)+' '+(state?'active':'')+'" type="button" data-routine-state-pick aria-label="'+routineEsc(current.label)+'" title="'+routineEsc(current.label)+'">'+routineEsc(current.icon)+'</button><div class="routine-state-menu">'+items.map(function(o){
+    var active=(o.key!=='clear'&&state===o.key);
+    return '<button class="routine-state routine-state-option '+routineEsc(o.key)+' '+(active?'active':'')+'" type="button" data-routine-state-option="'+routineEsc(o.key)+'" aria-label="'+routineEsc(o.label)+'" title="'+routineEsc(o.label)+'">'+routineEsc(o.icon)+'</button>';
+  }).join('')+'</div></div>';
+};
 renderRoutineBundles=function(){
   var root=document.getElementById('routine-bundles');if(!root)return;
   if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}
@@ -18085,10 +18207,12 @@ renderRoutineBundles=function(){
   }).join('');
   root.querySelectorAll('[data-routine-difficulty-pick]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var wrap=btn.closest('.routine-difficulty-wrap');root.querySelectorAll('.routine-difficulty-wrap.open').forEach(function(w){if(w!==wrap)w.classList.remove('open');});if(wrap)wrap.classList.toggle('open');});});
   root.querySelectorAll('[data-routine-difficulty]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};log[id].difficulty=btn.getAttribute('data-routine-difficulty')||'';log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
+  root.querySelectorAll('[data-routine-state-pick]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var wrap=btn.closest('[data-routine-state-wrap]');root.querySelectorAll('[data-routine-state-wrap].open').forEach(function(w){if(w!==wrap)w.classList.remove('open');});if(wrap)wrap.classList.toggle('open');});});
+  root.querySelectorAll('[data-routine-state-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};var next=btn.getAttribute('data-routine-state-option');log[id].state=(next==='clear'||log[id].state===next)?'':next;log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
   root.querySelectorAll('[data-routine-state]').forEach(function(btn){btn.addEventListener('click',function(){var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};var next=btn.getAttribute('data-routine-state');log[id].state=(next==='clear'||log[id].state===next)?'':next;log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
   root.querySelectorAll('[data-routine-edit-bundle]').forEach(function(btn){btn.addEventListener('click',function(){openRoutineBundleEditor(routineBundles.find(function(b){return String(b.id)===String(btn.getAttribute('data-routine-edit-bundle'));}));});});
   root.querySelectorAll('[data-routine-delete-bundle]').forEach(function(btn){btn.addEventListener('click',function(){deleteRoutineBundle(btn.getAttribute('data-routine-delete-bundle'));});});
-  document.addEventListener('click',function closeRoutineDifficultyMenus(){root.querySelectorAll('.routine-difficulty-wrap.open').forEach(function(w){w.classList.remove('open');});},{once:true});
+  document.addEventListener('click',function closeRoutineDifficultyMenus(){root.querySelectorAll('.routine-difficulty-wrap.open,[data-routine-state-wrap].open').forEach(function(w){w.classList.remove('open');});},{once:true});
 };
 
 var DATA_KEYS = [
@@ -22554,6 +22678,7 @@ function themeStudioRender(){
   var colorGrid=document.getElementById('theme-color-grid');
   if(colorGrid){var colorItems=[['accent','Accent'],['page','Page'],['card','Cards'],['text','Text'],['border','Lines'],['sidebar','Left bar'],['sidebarText','Left text'],['sidebarActive','Left active']];colorGrid.innerHTML=colorItems.map(function(x){var v=(cur.colors&&cur.colors[x[0]])||THEME_STUDIO_DEFAULT.colors[x[0]]||'#ffffff';return '<label class="theme-color-card"><span class="theme-choice-note">'+x[1]+'</span><input type="color" data-theme-color="'+x[0]+'" value="'+themeStudioEsc(v)+'"></label>';}).join('');colorGrid.querySelectorAll('[data-theme-color]').forEach(function(inp){inp.addEventListener('input',function(){themeStudioSetColor(inp.dataset.themeColor,inp.value);});});}
   themeStudioRenderMediaControls();
+  if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();
   var cg=document.getElementById('theme-component-grid');
   if(cg){cg.innerHTML=[['minimal','Clean Cards','No decorative images. Best for dense task screens.','','No image layer'],['bubble','Bubble Cards','Soft message-bubble surface. Can use one texture image gently.','bubble','Texture slot'],['frame','Framed Cards','Adds safe frame/corner decoration to hero-style cards.','frame','Frame + corners']].map(function(x){var active=(((cur.componentSkins||{}).card||'minimal')===x[0])?' active':'';return '<button class="theme-choice-card theme-skin-card'+active+'" type="button" data-skin="'+x[0]+'"><div class="theme-choice-preview '+x[3]+'"></div><div class="theme-choice-name">'+x[1]+'</div><div class="theme-choice-note">'+x[2]+'</div><span class="theme-chip-row"><span class="theme-chip">'+x[4]+'</span></span></button>';}).join('');cg.querySelectorAll('[data-skin]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioPickAppearance('skin',btn.dataset.skin);});});}
   themeStudioRenderComponentGuide();
