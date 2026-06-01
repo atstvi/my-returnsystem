@@ -466,13 +466,13 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   font-size:20px; flex-shrink:0; line-height:1;
 }
 .sit-body { flex:1; min-width:0; }
-.sit-greet { font-size:var(--text-xs); font-weight:var(--fw-semibold); color:var(--fg-4); letter-spacing:.5px; text-transform:uppercase; margin-bottom:var(--sp-2); }
-.sit-msg { font-size:var(--text-md); font-weight:var(--fw-medium); color:var(--fg); line-height:var(--lh-snug); margin-bottom:var(--sp-4); }
+.sit-greet { font-size:var(--text-xs); font-weight:var(--fw-semibold); color:var(--fg-4); letter-spacing:.5px; text-transform:uppercase; margin-bottom:var(--sp-1); }
+.sit-msg { font-size:var(--text-md); font-weight:var(--fw-medium); color:var(--fg); line-height:var(--lh-snug); margin-bottom:var(--sp-3); }
 .sit-signals { display:flex; flex-wrap:wrap; gap:var(--sp-2); }
-.home-routine-quick{display:none;margin-top:var(--sp-4);padding-top:var(--sp-3);border-top:.5px solid var(--border-subtle);align-items:start;gap:var(--sp-3)}
+.home-routine-quick{display:none;margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:.5px solid var(--border-subtle);align-items:start;gap:var(--sp-2)}
 .home-routine-quick.open{display:grid;grid-template-columns:auto minmax(0,1fr)}
-.home-routine-label{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);padding-top:7px;white-space:nowrap}
-.home-routine-grid{display:flex;flex-wrap:wrap;gap:var(--sp-2);align-items:flex-start}
+.home-routine-label{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);padding-top:6px;white-space:nowrap}
+.home-routine-grid{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start}
 .home-routine-item{position:relative;display:inline-flex;align-items:center;gap:var(--sp-1);min-height:32px;padding:2px;border-radius:var(--r-full);background:var(--bg-raised);border:.5px solid var(--border-subtle)}
 .home-routine-item.done,.home-routine-item.skip{background:var(--t-50);border-color:var(--t-200);color:var(--t-600)}
 .home-routine-item.rest{background:var(--p-50);border-color:var(--p-100);color:var(--p-600)}
@@ -1344,9 +1344,10 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   .home-content > .home-ops-card{grid-column:1 / -1;grid-row:5}
   .home-content > div[aria-hidden="true"]{grid-column:1 / -1;height:0!important}
   .card-head{padding:var(--sp-5) var(--sp-6) var(--sp-3)}
-  .sit-card{padding:var(--sp-6) var(--sp-7)}
+  .sit-card{padding:var(--sp-5) var(--sp-6);align-self:start;min-height:0}
   .sit-msg{font-size:var(--text-base)}
-  .home-content > .sit-card,.home-content > .home-timegrid-card{align-self:stretch;min-height:220px;box-sizing:border-box}
+  .home-content > .home-timegrid-card{align-self:stretch;min-height:220px;box-sizing:border-box}
+  .home-content > .sit-card .home-routine-quick{margin-top:var(--sp-2);padding-top:var(--sp-2)}
   .home-timegrid-card{max-height:none;display:flex;flex-direction:column}
   .home-timegrid-card .tg-card-body{flex:1;display:flex;flex-direction:column}
   .home-timeblock-card .htb-body{max-height:480px;min-height:340px}
@@ -5324,6 +5325,16 @@ to{opacity:1;transform:translateY(0)}}
             <option value="undone">미완료</option>
             <option value="done">완료</option>
           </select>
+          <select class="task-filter-select" id="task-search-kind" aria-label="유형 필터">
+            <option value="all">전체 유형</option>
+            <option value="task">할일</option>
+            <option value="schedule">일정</option>
+            <option value="deadline">마감 있음</option>
+            <option value="timed">시간 있음</option>
+            <option value="generated">자동 생성</option>
+          </select>
+          <input class="task-filter-select" id="task-search-from" type="date" aria-label="시작 날짜">
+          <input class="task-filter-select" id="task-search-to" type="date" aria-label="끝 날짜">
           <button class="task-search-select" id="task-select-filtered" type="button" disabled>결과 선택</button>
           <span class="task-search-note" id="task-search-count"></span>
         </div>
@@ -7393,7 +7404,9 @@ function renderHomeSituation(){
   var weekDeadlines = deadlines.filter(function(x){ return x.days >= 0 && x.days <= 7; });
   var urgent = deadlines.filter(function(x){ return x.days <= 2; });
   var skippedLinks = homeSkippedDeadlineLinks();
-  var scheduleLinks = openTasks.filter(function(t){return !t._travelOnly && (t.catId==='schedule'||t._isTt) && t.date;}).map(function(t){
+  var scheduleLinks = openTasks.filter(function(t){
+    return !t._travelOnly && !t._isTt && t.sourceType!=='timetable' && !t._ttKey && t.catId==='schedule' && t.date;
+  }).map(function(t){
     return {task:t, days:Math.round((new Date(t.date+'T00:00') - now) / 86400000)};
   }).sort(function(a,b){return a.days-b.days;});
   function hasLinkedTask(target){
@@ -11743,8 +11756,10 @@ function reconcileTimetableTasks(opts){
     next.push(exp);
     changed++;
   });
+  tasks=next;
+  var cleanupChanged=cleanupLegacyTimetableTaskConflicts(ttList, expected);
+  if(cleanupChanged)changed+=cleanupChanged;
   if(changed){
-    tasks=next;
     normalizeTimetableTaskCategories();
     try{localStorage.setItem('task_items_v1',JSON.stringify(tasks));}catch(e){}
     if(!opts.silent){
@@ -11754,6 +11769,31 @@ function reconcileTimetableTasks(opts){
       try{if(typeof window.homeRenderTimeGrid==='function')window.homeRenderTimeGrid();}catch(e){}
     }
   }
+  return changed;
+}
+function cleanupLegacyTimetableTaskConflicts(ttList, expected){
+  if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
+  expected=expected||buildTimetableExpectedTasks(ttList);
+  var expectedList=Object.keys(expected||{}).map(function(k){return expected[k];});
+  var changed=0;
+  var ttNames=(ttList||[]).map(function(tt){return String(tt&&tt.name||'');}).filter(Boolean);
+  function looksLikeLegacyTt(t){
+    if(!t||!t._isTt||t._ttKey||t.userModifiedDate||t.done)return false;
+    if(t._travelOnly)return true;
+    var note=String(t.note||'');
+    if(note.indexOf('시간표')>=0)return true;
+    return ttNames.some(function(name){return name&&note.indexOf(name)>=0;});
+  }
+  function hasExpectedTwin(t){
+    return expectedList.some(function(exp){
+      return t.date===exp.date&&t.text===exp.text&&t.timeStart===exp.timeStart&&t.timeEnd===exp.timeEnd;
+    });
+  }
+  tasks=tasks.filter(function(t){
+    if(!looksLikeLegacyTt(t))return true;
+    if(t._travelOnly||hasExpectedTwin(t)){changed++;return false;}
+    return true;
+  });
   return changed;
 }
 try{reconcileTimetableTasks({silent:true,source:'taskLoad'});}catch(e){}
@@ -11819,6 +11859,9 @@ var weekStart = 0;          /* 0 Sunday, 1 Monday */
 var taskSearchQuery = '';
 var taskSearchScope = 'current';
 var taskFilteredIds = [];
+var taskSearchKind = 'all';
+var taskSearchDateFrom = '';
+var taskSearchDateTo = '';
 var selMode   = false;
 var selIds    = new Set();
 var editId    = null;
@@ -12028,6 +12071,24 @@ function taskMatchesSearch(t,q){
   ].join(' ').toLowerCase();
   return hay.indexOf(q)!==-1;
 }
+function taskDateInRange(t, from, to){
+  if(!from&&!to)return true;
+  var dates=[t.date,t.deadlineDate].filter(Boolean);
+  if(!dates.length)return false;
+  return dates.some(function(d){
+    return (!from||d>=from)&&(!to||d<=to);
+  });
+}
+function taskMatchesKind(t, kind){
+  kind=kind||'all';
+  if(kind==='all')return true;
+  if(kind==='task')return !(t.catId==='schedule'||t._isTt);
+  if(kind==='schedule')return t.catId==='schedule'||t._isTt;
+  if(kind==='deadline')return !!t.deadlineDate;
+  if(kind==='timed')return !!(t.timeStart||t.deadlineTime);
+  if(kind==='generated')return !!(t.sourceType||t._repeatId||t._ruleGen||t._isTt);
+  return true;
+}
 function filteredTaskList(base){
   var q=String(taskSearchQuery||'').trim().toLowerCase();
   var scope=taskSearchScope||'current';
@@ -12035,9 +12096,11 @@ function filteredTaskList(base){
   if(scope==='all')src=tasks.filter(function(t){return !t._travelOnly&&(activeCat==='all'||t.catId===activeCat);});
   else if(scope==='undone')src=tasks.filter(function(t){return !t._travelOnly&&!t.done&&(activeCat==='all'||t.catId===activeCat);});
   else if(scope==='done')src=tasks.filter(function(t){return !t._travelOnly&&t.done&&(activeCat==='all'||t.catId===activeCat);});
-  src=(src||[]).filter(function(t){return taskMatchesSearch(t,q);});
+  src=(src||[]).filter(function(t){
+    return taskMatchesSearch(t,q) && taskMatchesKind(t,taskSearchKind) && taskDateInRange(t,taskSearchDateFrom,taskSearchDateTo);
+  });
   taskFilteredIds=src.map(function(t){return t.id;});
-  updateTaskSearchUi(src.length,!!q||scope!=='current');
+  updateTaskSearchUi(src.length,!!q||scope!=='current'||taskSearchKind!=='all'||!!taskSearchDateFrom||!!taskSearchDateTo);
   return orderTaskSubset(src);
 }
 function updateTaskSearchUi(count,active){
@@ -12049,6 +12112,9 @@ function updateTaskSearchUi(count,active){
 function bindTaskSearchControls(){
   var inp=document.getElementById('task-search-input');
   var scope=document.getElementById('task-search-scope');
+  var kind=document.getElementById('task-search-kind');
+  var from=document.getElementById('task-search-from');
+  var to=document.getElementById('task-search-to');
   var btn=document.getElementById('task-select-filtered');
   if(inp&&!inp.dataset.bound){
     inp.dataset.bound='1';
@@ -12058,6 +12124,18 @@ function bindTaskSearchControls(){
   if(scope&&!scope.dataset.bound){
     scope.dataset.bound='1';
     scope.addEventListener('change',function(){taskSearchScope=scope.value||'current';renderList();});
+  }
+  if(kind&&!kind.dataset.bound){
+    kind.dataset.bound='1';
+    kind.addEventListener('change',function(){taskSearchKind=kind.value||'all';renderList();});
+  }
+  if(from&&!from.dataset.bound){
+    from.dataset.bound='1';
+    from.addEventListener('change',function(){taskSearchDateFrom=from.value||'';renderList();});
+  }
+  if(to&&!to.dataset.bound){
+    to.dataset.bound='1';
+    to.addEventListener('change',function(){taskSearchDateTo=to.value||'';renderList();});
   }
   if(btn&&!btn.dataset.bound){
     btn.dataset.bound='1';
@@ -12071,6 +12149,9 @@ function bindTaskSearchControls(){
   }
   if(inp&&inp.value!==taskSearchQuery)inp.value=taskSearchQuery||'';
   if(scope&&scope.value!==taskSearchScope)scope.value=taskSearchScope||'current';
+  if(kind&&kind.value!==taskSearchKind)kind.value=taskSearchKind||'all';
+  if(from&&from.value!==taskSearchDateFrom)from.value=taskSearchDateFrom||'';
+  if(to&&to.value!==taskSearchDateTo)to.value=taskSearchDateTo||'';
 }
 function openTaskSearchModal(){
   var old=document.getElementById('task-search-modal');
@@ -12080,17 +12161,36 @@ function openTaskSearchModal(){
   ov.id='task-search-modal';
   ov.innerHTML='<div class="modal" style="max-width:760px"><div class="modal-head"><div class="modal-title">전 날짜 할일 검색</div><button class="modal-close" type="button" id="tsm-x">×</button></div><div class="modal-body"><div class="field-row"><input class="field-inp" id="tsm-q" type="search" placeholder="할일, 메모, 카테고리, 날짜 검색" style="flex:1"><select class="field-select" id="tsm-scope" style="width:140px"><option value="all">전체</option><option value="undone">미완료</option><option value="done">완료</option></select></div><div class="field-help" id="tsm-count">검색어를 입력하세요.</div><div class="task-search-modal-list" id="tsm-list"></div></div><div class="modal-foot"><button class="btn btn-ghost" id="tsm-select">결과 선택</button><button class="btn btn-primary" id="tsm-close">닫기</button></div></div>';
   document.body.appendChild(ov);
+  var modalBody=ov.querySelector('.modal-body');
+  var firstRow=modalBody&&modalBody.querySelector('.field-row');
+  if(modalBody&&firstRow&&!ov.querySelector('#tsm-kind')){
+    var filterRow=document.createElement('div');
+    filterRow.className='field-row';
+    filterRow.style.cssText='margin-top:var(--sp-3);flex-wrap:wrap';
+    filterRow.innerHTML='<select class="field-select" id="tsm-kind" style="width:140px"><option value="all">전체 유형</option><option value="task">할일</option><option value="schedule">일정</option><option value="deadline">마감 있음</option><option value="timed">시간 있음</option><option value="generated">자동 생성</option></select><select class="field-select" id="tsm-cat" style="width:150px"></select><input class="field-inp" id="tsm-from" type="date" style="width:150px" aria-label="시작 날짜"><input class="field-inp" id="tsm-to" type="date" style="width:150px" aria-label="끝 날짜">';
+    firstRow.parentNode.insertBefore(filterRow, firstRow.nextSibling);
+  }
+  var catFilter=ov.querySelector('#tsm-cat');
+  if(catFilter){
+    catFilter.innerHTML='<option value="all">전체 카테고리</option>'+(CATS||[]).map(function(c){return '<option value="'+tEscHtml(c.id)+'">'+tEscHtml((c.emoji?c.emoji+' ':'')+c.label)+'</option>';}).join('');
+  }
   var qEl=ov.querySelector('#tsm-q'), scopeEl=ov.querySelector('#tsm-scope'), listEl=ov.querySelector('#tsm-list'), countEl=ov.querySelector('#tsm-count');
+  var kindEl=ov.querySelector('#tsm-kind'), catEl=ov.querySelector('#tsm-cat'), fromEl=ov.querySelector('#tsm-from'), toEl=ov.querySelector('#tsm-to');
   var current=[];
   function close(){ov.remove();}
   function paint(){
     var q=(qEl.value||'').trim().toLowerCase();
     var scope=scopeEl.value||'all';
+    var kind=(kindEl&&kindEl.value)||'all';
+    var cat=(catEl&&catEl.value)||'all';
+    var from=(fromEl&&fromEl.value)||'';
+    var to=(toEl&&toEl.value)||'';
     current=(tasks||[]).filter(function(t){
       if(t._travelOnly)return false;
       if(scope==='undone'&&t.done)return false;
       if(scope==='done'&&!t.done)return false;
-      return taskMatchesSearch(t,q);
+      if(cat!=='all'&&String(t.catId||'')!==String(cat))return false;
+      return taskMatchesSearch(t,q)&&taskMatchesKind(t,kind)&&taskDateInRange(t,from,to);
     }).sort(function(a,b){
       var ad=a.date||a.deadlineDate||'9999-99-99', bd=b.date||b.deadlineDate||'9999-99-99';
       if(ad!==bd)return ad.localeCompare(bd);
@@ -12108,6 +12208,7 @@ function openTaskSearchModal(){
   ov.querySelector('#tsm-close').addEventListener('click',close);
   qEl.addEventListener('input',paint);
   scopeEl.addEventListener('change',paint);
+  [kindEl,catEl,fromEl,toEl].forEach(function(el){if(el)el.addEventListener('change',paint);});
   listEl.addEventListener('click',function(e){
     var row=e.target.closest('[data-id]');
     if(!row)return;
@@ -16820,7 +16921,19 @@ function generateTasks() {
   var end   = new Date(tt.endDate   + 'T00:00');
   if (start > end) { alert('시작일이 종료일보다 늦습니다'); return; }
   var dayDiff = Math.round((end - start) / 86400000);
-  if (dayDiff > 365) { alert('기간이 너무 깁니다 (최대 1년)'); return; }
+  if (dayDiff > 365) { alert('기간이 너무 깁니다. 최대 1년까지만 생성할 수 있어요.'); return; }
+  try {
+    var changed = typeof reconcileTimetableTasks === 'function'
+      ? reconcileTimetableTasks({timetables:timetables,source:'manualGenerate'})
+      : 0;
+    if (typeof renderHomeTimeBlocks === 'function') renderHomeTimeBlocks();
+    if (typeof renderList === 'function') renderList();
+    if (typeof renderCal === 'function') renderCal();
+    alert('시간표 일정을 정리했어요. 변경 ' + changed + '개');
+  } catch(e) {
+    alert('시간표 일정 정리 중 오류가 발생했어요: ' + e.message);
+  }
+  return;
 
   var ttNote = '📅 시간표: ' + (tt.name || '');
   var toCreate = [];
@@ -21998,16 +22111,56 @@ function gcalTaskStableKey(t){
   if((t._ruleId||t.activeRuleId)&&typeof activeRuleGenerationKey==='function')return activeRuleGenerationKey(t.activeRuleId||t._ruleId, t.sourceTaskId||t._ruleSourceId||'', t.occurrenceDate||t.triggerDate||t.date);
   return String(t.id||((t.text||'')+'|'+(t.date||'')+'|'+(t.deadlineDate||'')));
 }
+function gcalTaskTargetCalId(t){
+  if(!_gcalCfg)return 'primary';
+  return (t&&(t.catId==='schedule'||t._isTt)) ? (_gcalCfg.calendarId||'primary') : (_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary');
+}
 function gcalEventStartValue(ev){return ev&&ev.start&&(ev.start.dateTime||ev.start.date)||'';}
 function gcalEventEndValue(ev){return ev&&ev.end&&(ev.end.dateTime||ev.end.date)||'';}
-async function gcalFindExistingEvent(taskKey, calId){
-  if(!taskKey)return null;
-  var path='?privateExtendedProperty='+encodeURIComponent('returnTaskKey='+String(taskKey))+'&showDeleted=false&singleEvents=true&maxResults=10';
+function gcalIsReturnOwnedEvent(ev, taskKey){
+  var p=ev&&ev.extendedProperties&&ev.extendedProperties.private;
+  return !!(p&&p.returnSyncSource==='return'&&(!taskKey||p.returnTaskKey===String(taskKey)));
+}
+async function gcalFindExistingEvents(taskKey, calId){
+  if(!taskKey)return [];
+  var path='?privateExtendedProperty='+encodeURIComponent('returnTaskKey='+String(taskKey))+'&showDeleted=false&singleEvents=true&maxResults=20';
   var data=await gcalApiCal('GET',path,null,calId);
   var items=(data&&data.items)||[];
-  return items.find(function(ev){
-    return ev&&ev.status!=='cancelled'&&ev.extendedProperties&&ev.extendedProperties.private&&ev.extendedProperties.private.returnTaskKey===String(taskKey);
-  })||null;
+  return items.filter(function(ev){
+    return ev&&ev.status!=='cancelled'&&gcalIsReturnOwnedEvent(ev,taskKey);
+  });
+}
+async function gcalFindExistingEvent(taskKey, calId){
+  var items=await gcalFindExistingEvents(taskKey,calId);
+  return items[0]||null;
+}
+async function gcalDeleteReturnEvent(eventId, calId, taskKey){
+  if(!eventId||!calId)return false;
+  try{
+    var ev=await gcalApiCal('GET','/'+encodeURIComponent(eventId),null,calId);
+    if(!gcalIsReturnOwnedEvent(ev,taskKey))return false;
+    await gcalApiCal('DELETE','/'+encodeURIComponent(eventId),null,calId);
+    return true;
+  }catch(e){
+    if((e&&e.message||'').indexOf('404')>=0)return false;
+    console.warn('gcal return-owned delete skipped:',e&&e.message);
+    return false;
+  }
+}
+async function gcalDeleteDuplicateReturnEvents(items, keepId, calId, taskKey){
+  if(!items||items.length<2)return 0;
+  var removed=0;
+  for(var i=0;i<items.length;i++){
+    var ev=items[i];
+    if(!ev||!ev.id||ev.id===keepId)continue;
+    try{
+      await gcalApiCal('DELETE','/'+encodeURIComponent(ev.id),null,calId);
+      removed++;
+    }catch(e){
+      if((e&&e.message||'').indexOf('404')<0)console.warn('gcal duplicate delete skipped:',e&&e.message);
+    }
+  }
+  return removed;
 }
 function gcalEventEquivalent(a,b){
   if(!a||!b)return false;
@@ -22025,7 +22178,7 @@ function gcalQueueTaskEventDeletion(t){
   var meta=_gcalCfg.eventMeta[taskKey]||{};
   var eventId=t.google_event_id||meta.eventId||_gcalCfg.eventIds[String(t.id)];
   if(eventId&&!_gcalCfg.deletedEvents.some(function(x){return x&&x.eventId===eventId;})){
-    _gcalCfg.deletedEvents.push({eventId:eventId,calId:meta.calId||_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary',taskKey:taskKey,taskId:String(t.id||''),queuedAt:Date.now()});
+    _gcalCfg.deletedEvents.push({eventId:eventId,calId:meta.calId||gcalTaskTargetCalId(t),taskKey:taskKey,taskId:String(t.id||''),queuedAt:Date.now()});
   }
   if(taskKey)delete _gcalCfg.eventMeta[taskKey];
   if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
@@ -22118,24 +22271,34 @@ async function gcalSync(opts){
   var taskChanged=false;
   for(var i=0;i<list.length;i++){
     var t=list[i];
-    var isScheduleForGcal=(t.catId==='schedule'||t._isTt);
-    var calId=(isScheduleForGcal?(_gcalCfg.calendarId||'primary'):(_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary'));
+    var calId=gcalTaskTargetCalId(t);
     try{
       var taskKey=gcalTaskStableKey(t);
       var ev=gcalEventFromTask(t,taskKey);
       var metaForKey=_gcalCfg.eventMeta[taskKey]||{};
       var id=t.google_event_id||metaForKey.eventId||_gcalCfg.eventIds[String(t.id)];
       var r=null;
+      if(id&&metaForKey.calId&&metaForKey.calId!==calId){
+        await gcalDeleteReturnEvent(id,metaForKey.calId,taskKey);
+        if(t.google_event_id===id){t.google_event_id='';taskChanged=true;}
+        if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
+        delete _gcalCfg.eventMeta[taskKey];
+        id='';
+      }
       if(id){
         try{
           r=await gcalApiCal('PATCH','/'+id,ev,calId);
         }catch(patchErr){
           if((patchErr&&patchErr.message||'').indexOf('404')<0)throw patchErr;
+          if(t.google_event_id===id){t.google_event_id='';taskChanged=true;}
+          if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
           id='';
         }
       }
+      var existingItems=null;
       if(!r){
-        var existing=await gcalFindExistingEvent(taskKey,calId);
+        existingItems=await gcalFindExistingEvents(taskKey,calId);
+        var existing=existingItems[0]||null;
         if(existing&&existing.id){
           r=gcalEventEquivalent(existing,ev)?existing:await gcalApiCal('PATCH','/'+existing.id,ev,calId);
         }else{
@@ -22143,6 +22306,8 @@ async function gcalSync(opts){
         }
       }
       if(r&&r.id){
+        if(!existingItems)existingItems=await gcalFindExistingEvents(taskKey,calId);
+        await gcalDeleteDuplicateReturnEvents(existingItems,r.id,calId,taskKey);
         _gcalCfg.eventIds[String(t.id)]=r.id;
         _gcalCfg.eventMeta[taskKey]={eventId:r.id,calId:calId,taskId:String(t.id),updatedAt:Date.now()};
         if(t.google_event_id!==r.id){t.google_event_id=r.id;taskChanged=true;}
