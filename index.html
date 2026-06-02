@@ -1895,10 +1895,11 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 /* ── DEADLINE CANVAS VIEW ── */
 /* Canvas overlays the calendar grid to draw arrows task→deadline */
 .cal-canvas-container{position:relative}
-#dl-canvas{position:absolute;top:0;left:0;pointer-events:none;z-index:4;display:none}
+#dl-canvas{position:absolute;top:0;left:0;pointer-events:none;z-index:1;display:none}
 #dl-canvas.visible{display:block}
+.cal-days{position:relative;z-index:2}
 .cal-day-num,.cal-day-dots,.cal-day-events,.cal-event-pill,.cal-day-dl-chip{position:relative;z-index:3}
-.cal-event-pill,.cal-day-dl-chip{box-shadow:0 0 0 2px color-mix(in srgb,var(--bg-card) 82%,transparent)}
+.cal-event-pill,.cal-day-dl-chip{box-shadow:0 0 0 3px color-mix(in srgb,var(--bg-card) 88%,transparent)}
 
 /* Deadline pill chips on calendar cells (full-view) */
 .cal-day-dl-chip{
@@ -2130,6 +2131,22 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 
 /* ── RESPONSIVE ── */
 @media(max-width:959px){.cal-panel{width:240px}}
+@media(max-width:899px){
+  .task-page{flex-direction:column;overflow:hidden}
+  .cal-panel,
+  .cal-panel.full-view-active{
+    width:100%;
+    max-height:48vh;
+    min-height:260px;
+    border-right:none;
+    border-bottom:.5px solid var(--border-subtle);
+  }
+  .cal-header{padding:var(--sp-5) var(--sp-5) var(--sp-3)}
+  .cal-grid-outer{overflow:auto;padding:var(--sp-3) var(--sp-4) var(--sp-5)}
+  .cal-panel.full-view-active .cal-dow-row,
+  .cal-panel.full-view-active .cal-days{min-width:620px}
+  .list-panel{flex:1;min-height:0}
+}
 
 
 
@@ -6693,6 +6710,7 @@ to{opacity:1;transform:translateY(0)}}
                 <button class="set-btn btn-primary" onclick="gcalSaveConfig()">설정 저장</button>
                 <button class="set-btn btn-ghost" onclick="gcalAuth()">Google 로그인</button>
                 <button class="set-btn btn-ghost" onclick="gcalSync()">지금 동기화</button>
+                <button class="set-btn btn-ghost" onclick="gcalRepairDuplicates()">중복 정리</button>
                 <button class="set-btn btn-ghost" onclick="gcalClearConfig()">연동 해제</button>
               </div>
               <div class="field-help" id="gcal-sync-status" style="margin-top:var(--sp-3)"></div>
@@ -10413,7 +10431,7 @@ function placeGlobalStickerFromUrl(url,syncDataUrl){
   var key=_currentPage;
   if(!globalStickerState[key])globalStickerState[key]=[];
   localStorage.setItem('global_sticker_edit_visible','1');
-  var fallback = isReturnMediaRef(url) ? '' : (syncDataUrl||themeStudioMediaFallbackForUrl(url)||'');
+  var fallback = syncDataUrl||themeStudioMediaFallbackForUrl(url)||'';
   globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,syncDataUrl:fallback,x:48,y:140,w:72,r:0,opacity:1});
   if(!saveGlobalStickers() && typeof showToast==='function')showToast('스티커 저장 공간이 부족해요. 사용하지 않는 에셋을 정리해 주세요.');
   renderGlobalStickers();
@@ -10430,13 +10448,15 @@ async function placeGlobalStickerFromFile(file){
         themeStudioSaveAssets(list);
         themeStudioMarkRole(asset.id,'stickerAsset');
       }catch(e){}
-      placeGlobalStickerFromUrl(asset.url,'');
+      placeGlobalStickerFromUrl(asset.url,asset.syncDataUrl||'');
       return;
     }
   }catch(e){}
   fileToDataUrl(file,function(url){
     returnMediaStoreDataUrl(url,{role:'sticker',name:file.name||'Sticker'}).then(function(ref){
-      placeGlobalStickerFromUrl(ref,'');
+      themeStudioCloudFallbackDataUrl(url,{alphaRatio:1}).then(function(fallback){
+        placeGlobalStickerFromUrl(ref,fallback||url);
+      });
     });
   });
 }
@@ -10448,7 +10468,7 @@ function migrateGlobalStickerDataUrls(){
     (globalStickerState[page]||[]).forEach(function(s){
       if(s&&/^data:image/.test(String(s.url||''))){
         jobs.push(returnMediaStoreDataUrl(s.url,{role:'sticker',name:'Migrated sticker'}).then(function(ref){
-          if(isReturnMediaRef(ref)){s.url=ref;delete s.syncDataUrl;}
+          if(isReturnMediaRef(ref)){s.syncDataUrl=s.syncDataUrl||s.url;s.url=ref;}
         }));
       }
     });
@@ -20326,7 +20346,7 @@ function loadScript(src){
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
-var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','return_theme_studio_state_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','theme_palette_presets_v1','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
+var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','return_theme_studio_state_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','return_theme_studio_assets_v1','theme_palette_presets_v1','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;
 });
@@ -20413,16 +20433,16 @@ var SyncManager=(function(){
       host.className='set-card';
       parent.insertBefore(host,parent.firstChild);
     }
-    host.innerHTML='<div class="set-row" style="align-items:flex-start"><div><div class="set-row-label">SyncManager</div><div class="set-row-desc">Firebase 앱 데이터 동기화 경계. Notion/Google은 별도 외부 연동으로 유지돼요.</div></div><button class="set-btn btn-ghost" type="button" id="sync-manager-retry">Retry</button></div>'+
-      '<div class="field-grid two" style="margin-top:var(--sp-3)">'+
-      '<div class="field-help">Auth<br><strong>'+esc(state.authStatus)+'</strong></div>'+
-      '<div class="field-help">UID<br><strong>'+esc(state.uid?state.uid.slice(0,12)+'...':'-')+'</strong></div>'+
-      '<div class="field-help">Hydration<br><strong>'+(state.hydrationComplete?'complete':state.hydrating?'loading':'blocked')+'</strong></div>'+
-      '<div class="field-help">Local / Cloud<br><strong>'+(state.localLoaded?'loaded':'-')+' / '+(state.cloudLoaded?'loaded':'-')+'</strong></div>'+
-      '<div class="field-help">Pending writes<br><strong>'+state.pendingWrites+'</strong></div>'+
-      '<div class="field-help">Last save<br><strong>'+esc(state.lastSaveTime||'-')+'</strong></div>'+
-      '<div class="field-help">Status<br><strong>'+esc(state.lastSyncStatus||'-')+'</strong></div>'+
-      '<div class="field-help">Last error<br><strong>'+esc(state.lastError||'-')+'</strong></div>'+
+    host.innerHTML='<div class="set-row" style="align-items:flex-start;gap:var(--sp-4)"><div style="min-width:0;flex:1"><div class="set-row-label">SyncManager</div><div class="set-row-desc">Firebase 앱 데이터 동기화 경계. Notion/Google은 별도 외부 연동으로 유지돼요.</div></div><button class="set-btn btn-ghost" type="button" id="sync-manager-retry">Retry</button></div>'+
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:var(--sp-3);margin-top:var(--sp-3)">'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Auth<br><strong>'+esc(state.authStatus)+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">UID<br><strong>'+esc(state.uid?state.uid.slice(0,12)+'...':'-')+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Hydration<br><strong>'+(state.hydrationComplete?'complete':state.hydrating?'loading':'blocked')+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Local / Cloud<br><strong>'+(state.localLoaded?'loaded':'-')+' / '+(state.cloudLoaded?'loaded':'-')+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Pending writes<br><strong>'+state.pendingWrites+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Last save<br><strong>'+esc(state.lastSaveTime||'-')+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Status<br><strong>'+esc(state.lastSyncStatus||'-')+'</strong></div>'+
+      '<div class="field-help" style="padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--r-sm);background:var(--bg-raised)">Last error<br><strong>'+esc(state.lastError||'-')+'</strong></div>'+
       '</div>';
     var btn=host.querySelector('#sync-manager-retry');
     if(btn)btn.onclick=retry;
@@ -21631,7 +21651,7 @@ function queueDiaryNotionSave(dateKey){
   }
   clearTimeout(_notionSaveTimer);
   _notionSaveTimer=setTimeout(function(){
-    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:false});
+    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:true});
   },900);
 }
 function queueDiaryNotionPull(dateKey, reason, delay){
@@ -23095,6 +23115,67 @@ async function gcalDeleteDuplicateReturnEvents(items, keepId, calId, taskKey){
   }
   return removed;
 }
+async function gcalListReturnOwnedEvents(calId){
+  var now=new Date();
+  var min=new Date(now.getFullYear()-1,0,1).toISOString();
+  var max=new Date(now.getFullYear()+2,11,31).toISOString();
+  var path='?timeMin='+encodeURIComponent(min)+'&timeMax='+encodeURIComponent(max)+'&showDeleted=false&singleEvents=true&maxResults=2500&privateExtendedProperty='+encodeURIComponent('returnSyncSource=return');
+  var data=await gcalApiCal('GET',path,null,calId);
+  return ((data&&data.items)||[]).filter(function(ev){return ev&&ev.status!=='cancelled'&&gcalIsReturnOwnedEvent(ev);});
+}
+async function gcalRepairDuplicates(){
+  gcalSaveConfig(true);
+  if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
+    var renewed=await gcalEnsureToken(true);
+    if(!renewed){gcalStatus('Google 로그인이 필요해요 — 중복 정리 전 다시 로그인해주세요','err');return;}
+  }
+  gcalStatus('Return 소유 Google 중복 이벤트 확인 중...','saving');
+  var calendars=[_gcalCfg.calendarId||'primary'];
+  if(_gcalCfg.taskCalendarId&&calendars.indexOf(_gcalCfg.taskCalendarId)<0)calendars.push(_gcalCfg.taskCalendarId);
+  var removed=0, scanned=0, errors=0;
+  _gcalCfg.eventMeta=_gcalCfg.eventMeta||{};
+  for(var ci=0;ci<calendars.length;ci++){
+    var calId=calendars[ci];
+    try{
+      var items=await gcalListReturnOwnedEvents(calId);
+      scanned+=items.length;
+      var groups={};
+      items.forEach(function(ev){
+        var p=(ev.extendedProperties&&ev.extendedProperties.private)||{};
+        var key=p.returnTaskKey||('id:'+p.returnTaskId)||('summary:'+String(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev));
+        if(!groups[key])groups[key]=[];
+        groups[key].push(ev);
+      });
+      var keys=Object.keys(groups);
+      for(var gi=0;gi<keys.length;gi++){
+        var key=keys[gi], group=groups[key];
+        if(group.length<2)continue;
+        var meta=_gcalCfg.eventMeta[key]||{};
+        group.sort(function(a,b){
+          if(meta.eventId===a.id)return -1;
+          if(meta.eventId===b.id)return 1;
+          return String(b.updated||'').localeCompare(String(a.updated||''));
+        });
+        var keep=group[0];
+        removed+=await gcalDeleteDuplicateReturnEvents(group,keep.id,calId,key);
+        if(key&&key.indexOf('summary:')!==0&&key.indexOf('id:')!==0){
+          _gcalCfg.eventMeta[key]=Object.assign({},_gcalCfg.eventMeta[key]||{},{eventId:keep.id,calId:calId,updatedAt:Date.now()});
+        }
+      }
+    }catch(e){
+      errors++;
+      console.warn('gcal duplicate repair failed:',calId,e&&e.message);
+    }
+  }
+  try{localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));}catch(e){}
+  if(errors){
+    gcalStatus('중복 정리 부분 완료: '+removed+'개 삭제, 오류 '+errors+'개','err');
+    showToast('Google 중복 정리 부분 완료: '+removed+'개 삭제');
+  }else{
+    gcalStatus('중복 정리 완료: Return 소유 이벤트 '+scanned+'개 확인, '+removed+'개 삭제','ok');
+    showToast('Google 중복 정리 완료 ('+removed+'개 삭제)');
+  }
+}
 function gcalEventEquivalent(a,b){
   if(!a||!b)return false;
   return (a.summary||'')===(b.summary||'') &&
@@ -23861,6 +23942,7 @@ function themeStudioNormalizeState(state){
 function themeStudioGet(){return themeStudioNormalizeState(themeStudioReadJSON(THEME_STUDIO_STATE_KEY,{}));}
 function themeStudioSet(state,skipRender){state=themeStudioNormalizeState(state);themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,state);themeStudioApply(state);if(!skipRender)themeStudioRender();themeStudioQueueCloudSync();}
 function themeStudioQueueCloudSync(){
+  try{themeStudioEnsureMediaFallbacks();}catch(e){}
   try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
   try{
     if(typeof fbSaveCloudSettings==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser){
@@ -24359,14 +24441,91 @@ function themeStudioApplyPreview(state){
   var meta=document.getElementById('theme-preview-meta');if(meta)meta.textContent=((state.componentSkins&&state.componentSkins.card)||'minimal')+' - '+(state.density||'comfortable');
 }
 function themeStudioAssets(){return themeStudioReadJSON(THEME_STUDIO_ASSETS_KEY,[]).filter(function(a){return a&&a.id&&a.url;});}
+function themeStudioCloudFallbackDataUrl(dataUrl,meta){
+  meta=meta||{};
+  dataUrl=String(dataUrl||'');
+  if(!/^data:image/.test(dataUrl))return Promise.resolve('');
+  if(dataUrl.length<=160000)return Promise.resolve(dataUrl);
+  return new Promise(function(resolve){
+    try{
+      var img=new Image();
+      img.onload=function(){
+        try{
+          var alpha=Number(meta.alphaRatio||0)>.08;
+          var passes=[
+            {max:alpha?420:640,type:alpha?'image/webp':'image/jpeg',q:alpha?.78:.74},
+            {max:alpha?300:420,type:alpha?'image/webp':'image/jpeg',q:alpha?.68:.66},
+            {max:220,type:alpha?'image/png':'image/jpeg',q:.62}
+          ];
+          var best='';
+          for(var i=0;i<passes.length;i++){
+            var p=passes[i],w=img.naturalWidth||img.width||1,h=img.naturalHeight||img.height||1;
+            var scale=Math.min(1,p.max/Math.max(w,h));
+            var c=document.createElement('canvas');
+            c.width=Math.max(1,Math.round(w*scale));
+            c.height=Math.max(1,Math.round(h*scale));
+            c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+            var out=c.toDataURL(p.type,p.q);
+            if(out&&out.length<dataUrl.length)best=out;
+            if(out&&out.length<=160000){resolve(out);return;}
+          }
+          resolve(best&&best.length<=220000?best:'');
+        }catch(e){resolve('');}
+      };
+      img.onerror=function(){resolve('');};
+      img.src=dataUrl;
+    }catch(e){resolve('');}
+  });
+}
 function themeStudioCompactAssetForStorage(asset){
   var a=themeStudioClone(asset||{});
-  if(a.syncDataUrl&&String(a.syncDataUrl).length>120000)delete a.syncDataUrl;
+  if(a.syncDataUrl&&String(a.syncDataUrl).length>220000)delete a.syncDataUrl;
   if(a.dataUrl&&String(a.dataUrl).length>120000)delete a.dataUrl;
   return a;
 }
 function themeStudioSaveAssets(list){
   return themeStudioWriteJSON(THEME_STUDIO_ASSETS_KEY,(list||[]).map(themeStudioCompactAssetForStorage));
+}
+var _themeStudioFallbackRepairRunning=false;
+function themeStudioEnsureMediaFallbacks(){
+  if(_themeStudioFallbackRepairRunning)return;
+  _themeStudioFallbackRepairRunning=true;
+  var list=themeStudioAssets(), changed=false, jobs=[];
+  list.forEach(function(asset){
+    if(!asset||!isReturnMediaRef(asset.url)||asset.syncDataUrl)return;
+    jobs.push(returnMediaResolveUrl(asset.url).then(function(url){
+      if(!url)return;
+      return themeStudioCloudFallbackDataUrl(url,asset).then(function(fallback){
+        if(fallback){asset.syncDataUrl=fallback;changed=true;}
+      });
+    }));
+  });
+  Promise.all(jobs).then(function(){
+    if(changed)themeStudioSaveAssets(list);
+    var cur=themeStudioGet(), dirty=false;
+    function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return a&&(a.syncDataUrl||a.dataUrl)||'';}
+    themeStudioEnsureIconsState(cur);
+    Object.keys(cur.icons||{}).forEach(function(k){
+      var v=cur.icons[k], fb=fallbackFor(v);
+      if(fb&&(!cur.iconFallbacks||!cur.iconFallbacks[k])){cur.iconFallbacks=cur.iconFallbacks||{};cur.iconFallbacks[k]=fb;dirty=true;}
+    });
+    var card=themeStudioEnsureSkinState(cur);
+    ['background','frame','cornerTopLeft','cornerTopRight','cornerBottomLeft','cornerBottomRight'].forEach(function(k){
+      var fb=fallbackFor(card[k]);
+      if(fb&&!card[k+'SyncDataUrl']){card[k+'SyncDataUrl']=fb;dirty=true;}
+    });
+    if(cur.background&&cur.background.image&&!cur.background.syncDataUrl){
+      var bgfb=fallbackFor(cur.background.image);if(bgfb){cur.background.syncDataUrl=bgfb;dirty=true;}
+    }
+    if(cur.banner&&cur.banner.image&&!cur.banner.syncDataUrl){
+      var hfb=fallbackFor(cur.banner.image);if(hfb){cur.banner.syncDataUrl=hfb;dirty=true;}
+    }
+    if(cur.banner&&cur.banner.hobbyImage&&!cur.banner.hobbySyncDataUrl){
+      var hobfb=fallbackFor(cur.banner.hobbyImage);if(hobfb){cur.banner.hobbySyncDataUrl=hobfb;dirty=true;}
+    }
+    if(dirty){themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);themeStudioApply(cur);}
+    try{if(changed||dirty){if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)fbSaveCloudSettings(fbDb.collection('users').doc(fbUser.uid));if(typeof fbSaveAll==='function')fbSaveAll();}}catch(e){}
+  }).finally(function(){_themeStudioFallbackRepairRunning=false;});
 }
 function themeStudioAddMediaAssetRef(ref,name,kind,role,sourceTheme){
   if(!isReturnMediaRef(ref))return false;
@@ -24590,7 +24749,7 @@ function themeStudioPlaceSticker(asset){
     if(typeof loadGlobalStickers==='function')loadGlobalStickers();
     var page=window._currentPage||'home';
     globalStickerState[page]=globalStickerState[page]||[];
-    globalStickerState[page].push({id:themeStudioUid('gs'),url:asset.url,x:24,y:24,w:72,r:0,opacity:1});
+    globalStickerState[page].push({id:themeStudioUid('gs'),url:asset.url,syncDataUrl:asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url)||'',x:24,y:24,w:72,r:0,opacity:1});
     saveGlobalStickers();renderGlobalStickers();
   }catch(e){}
 }
@@ -24768,14 +24927,16 @@ async function themeStudioAssetFromBlob(blob,name,pack){
   var color=await themeStudioDominantColor(url);
   var meta=await themeStudioAnalyzeImage(url);
   var ref=await returnMediaStoreDataUrl(url,{role:'themeAsset',name:name,type:blob.type||'image'});
-  return {id:themeStudioUid('asset'),name:name,type:blob.type||'image',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:url,size:blob.size||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
+  var fallback=await themeStudioCloudFallbackDataUrl(url,meta);
+  return {id:themeStudioUid('asset'),name:name,type:blob.type||'image',kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:fallback||url,size:blob.size||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
 }
 async function themeStudioAssetFromDataUrl(url,name,pack){
   var color=await themeStudioDominantColor(url);
   var meta=await themeStudioAnalyzeImage(url);
   var mime=(String(url).match(/^data:([^;]+);/)||[])[1]||themeStudioMime(name)||'image';
   var ref=await returnMediaStoreDataUrl(url,{role:'themeAsset',name:name,type:mime});
-  return {id:themeStudioUid('asset'),name:name,type:mime,kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:url,size:url.length||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
+  var fallback=await themeStudioCloudFallbackDataUrl(url,meta);
+  return {id:themeStudioUid('asset'),name:name,type:mime,kind:themeStudioInferKind(name,meta),url:(isReturnMediaRef(ref)?ref:url),syncDataUrl:fallback||url,size:url.length||0,color:color,width:meta.width,height:meta.height,alphaRatio:meta.alphaRatio,sourceTheme:pack,roles:[],createdAt:new Date().toISOString()};
 }
 function themeStudioInferKind(name,meta){
   name=String(name||'').toLowerCase();
