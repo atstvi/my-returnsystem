@@ -7118,16 +7118,16 @@ function _initHome() {
   var el = document.getElementById('js-date');
   if (el) el.textContent = d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+days[d.getDay()]+'요일';
   requestAnimationFrame(function(){
-    try{ renderHomeBanner(); }catch(e){}
-    try{ refreshRepeatTasks(); applyActiveTaskRules(); }catch(e){}
-    try{ renderHomeTasks(); setHomeTaskView(localStorage.getItem('home_task_view') || 'eisen'); }catch(e){}
-    try{ renderHomeOpsPanel(); }catch(e){}
-    try{ normalizeHomeLayoutOrder(); }catch(e){}
-    try{ renderHomeSituation(); }catch(e){}
-    try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){}
-    try{ renderHomeTimeBlocks(); }catch(e){}
-    try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){}
-    try{ window.dispatchEvent(new Event('resize')); }catch(e){}
+    try{ renderHomeBanner(); }catch(e){ console.error('[home] renderHomeBanner failed:',e); }
+    try{ refreshRepeatTasks(); applyActiveTaskRules(); }catch(e){ console.error('[home] refreshRepeatTasks/applyActiveTaskRules failed:',e); }
+    try{ renderHomeTasks(); setHomeTaskView(localStorage.getItem('home_task_view') || 'eisen'); }catch(e){ console.error('[home] renderHomeTasks failed:',e); }
+    try{ renderHomeOpsPanel(); }catch(e){ console.error('[home] renderHomeOpsPanel failed:',e); }
+    try{ normalizeHomeLayoutOrder(); }catch(e){ console.error('[home] normalizeHomeLayoutOrder failed:',e); }
+    try{ renderHomeSituation(); }catch(e){ console.error('[home] renderHomeSituation failed:',e); }
+    try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){ console.error('[home] homeRenderTimeGrid failed:',e); }
+    try{ renderHomeTimeBlocks(); }catch(e){ console.error('[home] renderHomeTimeBlocks failed:',e); }
+    try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){ console.error('[home] renderHomeInbox failed:',e); }
+    try{ window.dispatchEvent(new Event('resize')); }catch(e){ console.error('[home] resize dispatch failed:',e); }
   });
 }
 
@@ -8515,9 +8515,9 @@ function setHomeTaskView(view){
 }
 document.getElementById('home-eisen-btn') && document.getElementById('home-eisen-btn').addEventListener('click', function(){ setHomeTaskView('eisen'); });
 document.getElementById('home-list-btn') && document.getElementById('home-list-btn').addEventListener('click', function(){ setHomeTaskView('list'); });
-function loadTaskRules(){ try{return JSON.parse(localStorage.getItem('task_rules_v1')||'[]');}catch(e){return [];} }
+function loadTaskRules(){ try{return JSON.parse(localStorage.getItem('task_rules_v1')||'[]');}catch(e){ console.error('[rules] loadTaskRules: corrupt data, resetting to []', e); return [];} }
 function saveTaskRules(rules){ var ok=setReturnStorageItem('task_rules_v1',JSON.stringify(rules));if(ok&&typeof repairGeneratedTasks==='function')repairGeneratedTasks({source:'saveTaskRules'});return ok; }
-function loadRepeatItems(){ try{return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]');}catch(e){return [];} }
+function loadRepeatItems(){ try{return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]');}catch(e){ console.error('[repeat] loadRepeatItems: corrupt data, resetting to []', e); return [];} }
 function saveRepeatItems(items){ var ok=setReturnStorageItem('repeat_items_v1',JSON.stringify(items));if(ok&&typeof repairGeneratedTasks==='function')repairGeneratedTasks({source:'saveRepeatItems'});return ok; }
 function taskDateFromKey(key){
   var m=String(key||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -8554,8 +8554,12 @@ function repeatWeekdays(rep){
 }
 function repeatGenerationKey(rep,dkey){return String((rep&&rep.id)||'')+'|'+taskDateKeyLocal(dkey);}
 function activeRuleGenerationKey(ruleId,sourceId,dkey){return String(ruleId||'')+'|'+String(sourceId||'')+'|'+taskDateKeyLocal(dkey);}
-function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){return {};}}
-function saveRepeatSuppressions(map){try{localStorage.setItem('repeat_suppressions_v1',JSON.stringify(map||{}));}catch(e){}}
+function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadRepeatSuppressions: corrupt data, resetting to {}', e); return {};}}
+function saveRepeatSuppressions(map){
+  var ok=setReturnStorageItem('repeat_suppressions_v1',JSON.stringify(map||{}));
+  if(!ok)console.error('[repeat] saveRepeatSuppressions: storage write failed — suppression may re-generate on reload');
+  return ok;
+}
 function suppressRepeatOccurrence(task){
   if(!task||!task._repeatId)return;
   var occurrence=taskDateKeyLocal(task._repeatOccurrence||task.date);
@@ -8565,8 +8569,12 @@ function suppressRepeatOccurrence(task){
   map[key]={repeatId:task._repeatId,occurrence:occurrence,reason:'deleted',at:Date.now()};
   saveRepeatSuppressions(map);
 }
-function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){return {};}}
-function saveGeneratedTaskSuppressions(map){try{localStorage.setItem('generated_task_suppressions_v1',JSON.stringify(map||{}));}catch(e){}}
+function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadGeneratedTaskSuppressions: corrupt data, resetting to {}', e); return {};}}
+function saveGeneratedTaskSuppressions(map){
+  var ok=setReturnStorageItem('generated_task_suppressions_v1',JSON.stringify(map||{}));
+  if(!ok)console.error('[repeat] saveGeneratedTaskSuppressions: storage write failed — suppression may re-generate on reload');
+  return ok;
+}
 function generatedTaskKey(task){
   if(!task)return '';
   if(task.generationKey)return String(task.generationKey);
@@ -10801,8 +10809,8 @@ function setReturnStorageItem(key,value){
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
     }
   }
-  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){}
-  try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
+  try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
   return false;
@@ -23481,7 +23489,9 @@ async function syncDiaryToNotion(dateKey, opts){
         if(notionPage) propPulled=_pullDiaryPageProperties(notionPage, dateKey, cfg);
         pulled=await _pullDiaryPageBody(pageId, dateKey);
       } catch(e){
-        console.warn('pull step failed (continuing):', e&&e.message);
+        console.error('[notion] pull step failed:', e);
+        /* Abort rather than pushing potentially stale data over what Notion has. */
+        throw new Error('Notion에서 가져오기 실패 (푸시 중단): '+(e&&e.message||e));
       }
     }
 
