@@ -4787,6 +4787,40 @@ to{opacity:1;transform:translateY(0)}}
 #music-mode-row:empty{display:none}
 /* ── end Music UX v4 ────────────────────────────────────────────────── */
 
+/* ── Music UX v5: visual polish, cover-focused cards, layout fix ────── */
+/* 1. Page fill fix */
+.music-page{flex:1!important;min-width:0!important;width:100%!important}
+/* 2. Playlist panel: ghost — cards float directly on the page bg */
+.music-pl-panel-ghost{background:transparent!important;border:none!important;box-shadow:none!important;padding:var(--sp-2) 0 var(--sp-1)!important}
+/* 3. Playlist grid: tighter min-width */
+#music-playlist-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))!important;gap:var(--sp-3)!important}
+/* 4. Cover-focused playlist card */
+.music-playlist-card{padding:0!important;gap:0!important;overflow:hidden!important;border-radius:var(--r-lg)!important;background:var(--bg-card)!important;transition:transform .14s,box-shadow .14s!important}
+.music-playlist-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.1)!important}
+/* Cover: full width square, no border-radius at top */
+.music-playlist-card .music-cover{border-radius:0!important;aspect-ratio:1/1!important;width:100%!important;position:relative!important;border:none!important;border-bottom:.5px solid var(--border)!important}
+/* Play overlay on hover */
+.music-pl-overlay{position:absolute;inset:0;background:rgba(0,0,0,.22);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s}
+.music-playlist-card:hover .music-pl-overlay,.music-playlist-card:focus-within .music-pl-overlay{opacity:1}
+.music-pl-play-btn{width:44px!important;height:44px!important;border-radius:50%!important;background:rgba(255,255,255,.92)!important;border:none!important;color:#111!important;font-size:15px!important;cursor:pointer!important;display:flex!important;align-items:center!important;justify-content:center!important;padding-left:3px!important;box-shadow:0 2px 8px rgba(0,0,0,.18)!important;flex-shrink:0!important}
+/* Card text area */
+.music-pl-info{padding:var(--sp-2) var(--sp-3) var(--sp-3)!important;display:flex!important;flex-direction:column!important;gap:3px!important}
+.music-pl-info .music-card-title{font-size:var(--text-sm)!important;font-weight:var(--fw-semibold)!important;min-height:0!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;margin:0!important}
+.music-pl-info .music-note{white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}
+/* Subtle action buttons: always present, fade stronger on hover */
+.music-pl-card-btns{display:flex!important;gap:var(--sp-1)!important;margin-top:var(--sp-1)!important;opacity:.55!important;transition:opacity .12s!important}
+.music-playlist-card:hover .music-pl-card-btns{opacity:1!important}
+.music-pl-card-btns .set-btn{height:24px!important;padding:0 var(--sp-2)!important;font-size:var(--text-2xs)!important}
+/* 5. Compact song rows */
+.music-song-row{grid-template-columns:40px minmax(0,1fr) auto!important;padding:var(--sp-1) var(--sp-2)!important;gap:var(--sp-2)!important}
+.music-song-row .music-cover{width:40px!important;height:40px!important}
+.music-song-row .music-card-title{font-size:var(--text-xs)!important;min-height:0!important}
+/* 6. Songs panel: subtle bg */
+.music-songs-panel-v5{background:var(--bg-raised)!important;border-color:var(--border)!important}
+/* 7. Responsive */
+@media(max-width:640px){#music-playlist-grid{grid-template-columns:repeat(2,1fr)!important;gap:var(--sp-2)!important}}
+/* ── end Music UX v5 ────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body class="auth-locked">
@@ -26847,6 +26881,78 @@ _initMusic=function(){
 
 })();
 /* ── end Music UX v4 JS ──────────────────────────────────────────────── */
+
+/* ── Music UX v5 JS: cover-focused cards, ghost panels ──────────────── */
+(function(){
+'use strict';
+
+/* 1. Cover-focused playlist card */
+musicPlaylistCard=function(pl){
+  var songs=(pl.songIds||[]).map(musicSongById).filter(Boolean);
+  var cover=pl.coverImage||(songs[0]&&songs[0].thumbnail)||'';
+  var countStr=songs.length+'곡';
+  var tags=(pl.tags||[]).slice(0,2);
+  var meta=[countStr].concat(tags).join(' · ');
+  return '<article class="music-card music-playlist-card">'+
+    '<div class="music-cover">'+
+      (cover?'<img src="'+musicEsc(cover)+'" alt="" loading="lazy">':'')+
+      '<div class="music-pl-overlay">'+
+        '<button class="music-pl-play-btn" type="button" data-music-playlist-play="'+musicEsc(pl.id)+'" aria-label="재생">▶</button>'+
+      '</div>'+
+    '</div>'+
+    '<div class="music-pl-info">'+
+      '<div class="music-card-title">'+musicEsc(pl.title||'Playlist')+'</div>'+
+      '<div class="music-note">'+musicEsc(meta)+'</div>'+
+      '<div class="music-pl-card-btns">'+
+        '<button class="set-btn btn-ghost" type="button" data-music-playlist-add="'+musicEsc(pl.id)+'">+ 담기</button>'+
+        '<button class="set-btn btn-ghost" type="button" data-music-playlist-edit="'+musicEsc(pl.id)+'">관리</button>'+
+      '</div>'+
+    '</div>'+
+    '</article>';
+};
+
+/* 2. Compact song row */
+musicSongCard=function(song){
+  var tags=musicTagsHtml(song);
+  return '<article class="music-song-row">'+
+    '<div class="music-cover">'+(song.thumbnail?'<img src="'+musicEsc(song.thumbnail)+'" alt="" loading="lazy">':'')+'</div>'+
+    '<div style="min-width:0">'+
+      '<div class="music-card-title">'+musicEsc(song.title||'Untitled')+'</div>'+
+      (song.artist?'<div class="music-note">'+musicEsc(song.artist)+'</div>':'')+
+      (tags?'<div class="music-meta" style="margin-top:2px">'+tags+'</div>':'')+
+    '</div>'+
+    '<div class="music-song-actions">'+
+      '<button class="set-btn btn-primary" style="height:30px;padding:0 10px;font-size:13px" type="button" data-music-song-play="'+musicEsc(song.id)+'">▶</button>'+
+      '<button class="set-btn btn-ghost" style="height:30px;padding:0 10px;font-size:13px" type="button" data-music-song-add="'+musicEsc(song.id)+'">담기</button>'+
+      '<button class="set-btn btn-ghost" style="height:30px;padding:0 10px;font-size:13px" type="button" data-music-song-edit="'+musicEsc(song.id)+'">수정</button>'+
+    '</div>'+
+    '</article>';
+};
+
+/* 3. Ghost playlist panel + subtle songs panel (once per panel lifetime) */
+function musicApplyV5Panels(){
+  var plGrid=document.getElementById('music-playlist-grid');
+  var plPanel=plGrid&&plGrid.closest('.music-panel');
+  if(plPanel&&!plPanel.dataset.v5p){
+    plPanel.dataset.v5p='1';
+    plPanel.classList.add('music-pl-panel-ghost');
+  }
+  var songGrid=document.getElementById('music-grid');
+  var songPanel=songGrid&&songGrid.closest('.music-panel');
+  if(songPanel&&!songPanel.dataset.v5s){
+    songPanel.dataset.v5s='1';
+    songPanel.classList.add('music-songs-panel-v5');
+  }
+}
+
+var _oldRenderV5=musicRender;
+musicRender=function(){
+  _oldRenderV5();
+  setTimeout(musicApplyV5Panels,0);
+};
+
+})();
+/* ── end Music UX v5 JS ──────────────────────────────────────────────── */
 </script>
 </body>
 </html>
