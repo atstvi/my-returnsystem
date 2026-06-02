@@ -4266,6 +4266,13 @@ to{opacity:1;transform:translateY(0)}}
 .theme-component-eyebrow{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--accent);text-transform:uppercase;letter-spacing:.08em}
 .theme-component-title{font-size:var(--text-md);font-weight:var(--fw-bold);color:var(--fg-2)}
 .theme-component-sub{font-size:var(--text-xs);color:var(--fg-4);line-height:1.45;margin-top:var(--sp-1)}
+.theme-mapping-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--sp-3)}
+.theme-mapping-card{border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);padding:var(--sp-3);display:grid;grid-template-columns:58px minmax(0,1fr);gap:var(--sp-3);align-items:start}
+.theme-mapping-preview{width:58px;height:58px;border-radius:var(--r-md);background:var(--bg-card);border:.5px solid var(--border-subtle);background-size:contain;background-position:center;background-repeat:no-repeat;display:flex;align-items:center;justify-content:center;color:var(--fg-4);font-size:var(--text-xs);overflow:hidden}
+.theme-mapping-body{min-width:0;display:flex;flex-direction:column;gap:var(--sp-2)}
+.theme-mapping-title{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-2)}
+.theme-mapping-note{font-size:var(--text-xs);color:var(--fg-4);line-height:1.35}
+.theme-mapping-actions{display:flex;gap:var(--sp-2);flex-wrap:wrap}
 .theme-skin-card .theme-choice-preview{height:58px}
 .theme-skin-card .theme-chip-row{max-height:none}
 .theme-asset-action-title{width:100%;font-weight:var(--fw-bold);color:var(--fg-2)}
@@ -6234,11 +6241,11 @@ to{opacity:1;transform:translateY(0)}}
                   <div class="theme-tools" id="theme-intensity-controls"></div>
                 </div>
                 <div class="theme-component-section">
-                  <div class="theme-component-section-head"><div><div class="theme-component-eyebrow">Step 3</div><div class="theme-component-title">Applied card decorations</div><div class="theme-component-sub">Only images currently attached to card skins appear here. Empty slots stay hidden to keep this simple.</div></div></div>
+                  <div class="theme-component-section-head"><div><div class="theme-component-eyebrow">Step 3</div><div class="theme-component-title">Mapped theme elements</div><div class="theme-component-sub">See what is currently attached to each place. Change or remove it from the place itself.</div></div></div>
                   <div class="theme-role-actions" id="theme-skin-resource-panel"></div>
                 </div>
                 <div class="theme-component-section">
-                  <div class="theme-component-section-head"><div><div class="theme-component-eyebrow">Step 4</div><div class="theme-component-title">Pick an image and give it a role</div><div class="theme-component-sub">An asset is just a file. After selecting one, choose exactly where it should be used.</div></div></div>
+                  <div class="theme-component-section-head"><div><div class="theme-component-eyebrow">Asset Library</div><div class="theme-component-title">Manage reusable files</div><div class="theme-component-sub">Imported and uploaded files live here. Use the mapped elements above when you want to apply a file to a specific place.</div></div></div>
                   <div class="theme-pack-tools" id="theme-asset-pack-tools"></div><div class="theme-pack-tools" id="theme-asset-filters"></div><div class="theme-asset-grid" id="theme-asset-grid"></div><div class="theme-role-actions" id="theme-asset-actions"></div>
                 </div>
               </div>
@@ -24568,23 +24575,59 @@ function themeStudioInferKind(name,meta){
   return 'Asset';
 }
 async function themeStudioExtractZipImages(file){
-  var buf=await file.arrayBuffer(), view=new DataView(buf), out=[], pos=0;
-  function str(off,len){return new TextDecoder().decode(new Uint8Array(buf,off,len));}
+  var buf=await file.arrayBuffer(), view=new DataView(buf), out=[];
+  function decodeName(off,len,flags){
+    var bytes=new Uint8Array(buf,off,len);
+    try{return new TextDecoder((flags&0x800)?'utf-8':'euc-kr').decode(bytes);}catch(e){}
+    try{return new TextDecoder('utf-8').decode(bytes);}catch(e){}
+    return Array.prototype.map.call(bytes,function(b){return String.fromCharCode(b);}).join('');
+  }
+  async function inflate(data,method){
+    if(method===0)return data;
+    if(method!==8||!window.DecompressionStream)return null;
+    try{
+      var ds=new DecompressionStream('deflate-raw');
+      var stream=new Blob([data]).stream().pipeThrough(ds);
+      return new Uint8Array(await new Response(stream).arrayBuffer());
+    }catch(e){return null;}
+  }
+  function isImageEntry(name){
+    return /\.(png|jpe?g|webp|gif)$/i.test(name)&&!/__(MACOSX)\//i.test(name)&&!/(^|\/)\._/.test(name);
+  }
+  var eocd=-1, searchStart=Math.max(0,buf.byteLength-66000);
+  for(var p=buf.byteLength-22;p>=searchStart;p--){
+    if(view.getUint32(p,true)===0x06054b50){eocd=p;break;}
+  }
+  if(eocd>=0){
+    var total=view.getUint16(eocd+10,true), cdPos=view.getUint32(eocd+16,true);
+    for(var i=0;i<total&&cdPos<buf.byteLength-46;i++){
+      if(view.getUint32(cdPos,true)!==0x02014b50)break;
+      var flags=view.getUint16(cdPos+8,true), method=view.getUint16(cdPos+10,true), comp=view.getUint32(cdPos+20,true);
+      var nlen=view.getUint16(cdPos+28,true), xlen=view.getUint16(cdPos+30,true), clen=view.getUint16(cdPos+32,true), localOff=view.getUint32(cdPos+42,true);
+      var name=decodeName(cdPos+46,nlen,flags);
+      if(isImageEntry(name)&&localOff<buf.byteLength-30&&view.getUint32(localOff,true)===0x04034b50){
+        var ln=view.getUint16(localOff+26,true), lx=view.getUint16(localOff+28,true), start=localOff+30+ln+lx, end=start+comp;
+        if(end<=buf.byteLength){
+          var bytes=await inflate(new Uint8Array(buf,start,comp),method);
+          if(bytes)out.push({name:name.split('/').pop(),blob:new Blob([bytes],{type:themeStudioMime(name)})});
+        }
+      }
+      cdPos += 46+nlen+xlen+clen;
+    }
+    return out;
+  }
+  var pos=0;
   while(pos<buf.byteLength-30){
     if(view.getUint32(pos,true)!==0x04034b50){pos++;continue;}
-    var method=view.getUint16(pos+8,true), comp=view.getUint32(pos+18,true), uncomp=view.getUint32(pos+22,true), nlen=view.getUint16(pos+26,true), xlen=view.getUint16(pos+28,true);
-    var name=str(pos+30,nlen), start=pos+30+nlen+xlen, end=start+comp;
-    if(end>buf.byteLength)break;
-    if(/\.(png|jpe?g|webp|gif)$/i.test(name)){
-      var data=new Uint8Array(buf,start,comp), bytes=null;
-      if(method===0)bytes=data;
-      else if(method===8&&window.DecompressionStream){
-        try{var ds=new DecompressionStream('deflate-raw');var stream=new Blob([data]).stream().pipeThrough(ds);bytes=new Uint8Array(await new Response(stream).arrayBuffer());}catch(e){}
-      }
-      if(bytes)out.push({name:name.split('/').pop(),blob:new Blob([bytes],{type:themeStudioMime(name)})});
+    var lFlags=view.getUint16(pos+6,true), lMethod=view.getUint16(pos+8,true), lComp=view.getUint32(pos+18,true), lUncomp=view.getUint32(pos+22,true), lNlen=view.getUint16(pos+26,true), lXlen=view.getUint16(pos+28,true);
+    var lName=decodeName(pos+30,lNlen,lFlags), lStart=pos+30+lNlen+lXlen, lEnd=lStart+lComp;
+    if(lEnd>buf.byteLength)break;
+    if(isImageEntry(lName)){
+      var lBytes=await inflate(new Uint8Array(buf,lStart,lComp),lMethod);
+      if(lBytes)out.push({name:lName.split('/').pop(),blob:new Blob([lBytes],{type:themeStudioMime(lName)})});
     }
-    pos=end;
-    if(!comp&&uncomp)pos++;
+    pos=lEnd;
+    if(!lComp&&lUncomp)pos++;
   }
   return out;
 }
@@ -24664,8 +24707,10 @@ function themeStudioClearSkinSlot(slot){
   var card=themeStudioEnsureSkinState(cur);
   if(slot==='corners'){
     card.cornerTopLeft='';card.cornerTopRight='';card.cornerBottomLeft='';card.cornerBottomRight='';
+    card.cornerTopLeftSyncDataUrl='';card.cornerTopRightSyncDataUrl='';card.cornerBottomLeftSyncDataUrl='';card.cornerBottomRightSyncDataUrl='';
   }else{
     card[slot]='';
+    card[slot+'SyncDataUrl']='';
   }
   themeStudioSet(cur);
 }
@@ -24689,33 +24734,91 @@ function themeStudioRenderSkinResources(){
   themeStudioResolveMediaPreviews(wrap);
   wrap.querySelectorAll('[data-clear-skin-slot]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioClearSkinSlot(btn.dataset.clearSkinSlot);});});
 }
+function themeStudioCurrentMappedSlots(){
+  var cur=themeStudioGet(), card=(((cur.componentSkins||{}).resources||{}).card)||{}, icons=cur.icons||{};
+  var hb='', hbFallback='';
+  try{var hbs=JSON.parse(localStorage.getItem('home_banner_v1')||'{}')||{};hb=hbs.imgUrl||'';hbFallback=hbs.syncDataUrl||'';}catch(e){}
+  var hobby=localStorage.getItem('hobby_banner_v1')||'';
+  var slots=[
+    {id:'background',group:'Backdrop',label:'Page background',note:'App wallpaper behind content',url:(cur.background&&cur.background.image)||'',role:'pageBackground'},
+    {id:'banner',group:'Banner',label:'Home banner',note:'Top image on Home',url:(cur.banner&&cur.banner.image)||hb||'',fallback:hbFallback,role:'pageBanner'},
+    {id:'hobbyBanner',group:'Banner',label:'Hobby banner',note:'Top image on Hobby',url:(cur.banner&&cur.banner.hobbyImage)||hobby||'',role:'hobbyBanner'},
+    {id:'appLogo',group:'Icons',label:'App logo',note:'Sidebar / browser app mark',url:icons.app||'',fallback:(cur.iconFallbacks&&cur.iconFallbacks.app)||'',role:'appLogo'},
+    {id:'avatar',group:'Icons',label:'Today avatar',note:'Avatar in Today situation',url:icons.avatar||'',fallback:(cur.iconFallbacks&&cur.iconFallbacks.avatar)||'',role:'situationAvatar'},
+  ];
+  ['home','inbox','diary','routine','tasks','projects','schedule','hobby','recharge','records','settings'].forEach(function(k){
+    slots.push({id:'icon_'+k,group:'Tab icons',label:themeStudioIconLabel(k),note:'Sidebar tab icon',url:icons[k]||'',fallback:(cur.iconFallbacks&&cur.iconFallbacks[k])||'',role:'icon'});
+  });
+  return slots.concat([
+    {id:'cardBackground',group:'Cards',label:'Card texture',note:'Soft texture inside hero cards',url:card.background||'',fallback:card.backgroundSyncDataUrl||'',role:'cardBackground'},
+    {id:'cardFrame',group:'Cards',label:'Card frame',note:'Decorative frame layer',url:card.frame||'',fallback:card.frameSyncDataUrl||'',role:'cardFrame'},
+    {id:'cornerTopLeft',group:'Corners',label:'Top-left corner',note:'Attached outside card edge',url:card.cornerTopLeft||'',fallback:card.cornerTopLeftSyncDataUrl||'',role:'cornerTopLeft'},
+    {id:'cornerTopRight',group:'Corners',label:'Top-right corner',note:'Attached outside card edge',url:card.cornerTopRight||'',fallback:card.cornerTopRightSyncDataUrl||'',role:'cornerTopRight'},
+    {id:'cornerBottomLeft',group:'Corners',label:'Bottom-left corner',note:'Attached outside card edge',url:card.cornerBottomLeft||'',fallback:card.cornerBottomLeftSyncDataUrl||'',role:'cornerBottomLeft'},
+    {id:'cornerBottomRight',group:'Corners',label:'Bottom-right corner',note:'Attached outside card edge',url:card.cornerBottomRight||'',fallback:card.cornerBottomRightSyncDataUrl||'',role:'cornerBottomRight'}
+  ]);
+}
+function themeStudioClearMappedSlot(id){
+  var cur=themeStudioGet();
+  if(id==='background'){themeStudioSetMedia('background','');return;}
+  if(id==='banner'){themeStudioSetMedia('banner','');return;}
+  if(id==='hobbyBanner'){themeStudioSetMedia('hobbyBanner','');return;}
+  if(id==='appLogo'){themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,'app',THEME_STUDIO_DEFAULT.icons.app||'R','');themeStudioSet(cur);return;}
+  if(id==='avatar'){themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,'avatar',THEME_STUDIO_DEFAULT.icons.avatar||'🙂','');themeStudioSet(cur);return;}
+  if(/^icon_/.test(id)){var key=id.replace(/^icon_/,'');themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,key,THEME_STUDIO_DEFAULT.icons[key]||'','');themeStudioSet(cur);return;}
+  if(id==='cardBackground'){themeStudioClearSkinSlot('background');return;}
+  if(id==='cardFrame'){themeStudioClearSkinSlot('frame');return;}
+  if(/^corner/.test(id)){themeStudioClearSkinSlot(id);return;}
+}
+function themeStudioApplyAssetToMappedSlot(id,asset){
+  if(!asset)return;
+  var cur=themeStudioGet(), card=themeStudioEnsureSkinState(cur);
+  if(id==='background')cur.background=Object.assign({},cur.background||{},{image:asset.url});
+  else if(id==='banner')cur.banner=Object.assign({},cur.banner||{},{image:asset.url});
+  else if(id==='hobbyBanner')cur.banner=Object.assign({},cur.banner||{},{hobbyImage:asset.url});
+  else if(id==='appLogo'){themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,'app',asset.url,asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url));}
+  else if(id==='avatar'){themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,'avatar',asset.url,asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url));}
+  else if(/^icon_/.test(id)){themeStudioEnsureIconsState(cur);themeStudioSetIconValue(cur,id.replace(/^icon_/,''),asset.url,asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url));}
+  else if(id==='cardBackground'){cur.componentSkins.enabled=true;cur.componentSkins.card='bubble';card.background=asset.url;card.backgroundSyncDataUrl=asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url)||'';}
+  else if(id==='cardFrame'){cur.componentSkins.enabled=true;cur.componentSkins.card='frame';card.frame=asset.url;card.frameSyncDataUrl=asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url)||'';}
+  else if(/^corner/.test(id)){cur.componentSkins.enabled=true;cur.componentSkins.card='frame';card[id]=asset.url;card[id+'SyncDataUrl']=asset.syncDataUrl||themeStudioMediaFallbackForUrl(asset.url)||'';}
+  var slot=themeStudioCurrentMappedSlots().find(function(x){return x.id===id;});
+  themeStudioMarkRole(asset.id,(slot&&slot.role)||id);
+  themeStudioSet(cur);
+  themeStudioRenderSkinResources();
+  if(typeof showToast==='function')showToast('Theme mapping updated.');
+}
+function themeStudioOpenMappingAssetPicker(slotId){
+  var assets=themeStudioAssets(), slot=themeStudioCurrentMappedSlots().find(function(x){return x.id===slotId;});
+  if(!slot)return;
+  var old=document.getElementById('theme-mapping-picker-modal');if(old)old.remove();
+  var modal=document.createElement('div');
+  modal.id='theme-mapping-picker-modal';
+  modal.className='sticker-board-modal';
+  modal.innerHTML='<div class="sticker-board-sheet"><div class="theme-tools"><div><strong>Choose asset for '+themeStudioEsc(slot.label)+'</strong><div class="field-hint">This will only change this mapped place.</div></div><button class="set-btn btn-ghost" type="button" data-map-picker-close>Close</button></div>'+
+    (assets.length?'<div class="theme-asset-grid">'+assets.map(function(a){return '<button class="theme-asset-card-inner theme-asset-card" type="button" data-map-asset="'+themeStudioEsc(a.id)+'">'+themeStudioImgTag(a.url,a.syncDataUrl)+'<strong>'+themeStudioEsc(a.kind||'Asset')+'</strong><span class="theme-choice-note">'+themeStudioEsc(a.sourceTheme||'Local asset')+'</span></button>';}).join('')+'</div>':'<div class="field-hint">No assets yet. Import a Kakao theme or upload images first.</div>')+'</div>';
+  modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+  modal.querySelector('[data-map-picker-close]').addEventListener('click',function(){modal.remove();});
+  modal.querySelectorAll('[data-map-asset]').forEach(function(btn){btn.addEventListener('click',function(){
+    var asset=assets.find(function(a){return a.id===btn.dataset.mapAsset;});
+    themeStudioApplyAssetToMappedSlot(slotId,asset);
+    modal.remove();
+  });});
+  document.body.appendChild(modal);
+  themeStudioResolveMediaPreviews(modal);
+}
 themeStudioRenderSkinResources=function(){
   var wrap=document.getElementById('theme-skin-resource-panel');if(!wrap)return;
   var tools=document.getElementById('theme-clear-skin-tools');
-  var cur=themeStudioGet();
-  var card=(((cur.componentSkins||{}).resources||{}).card)||{};
-  var slots=[
-    ['background','Card texture','Soft image inside large cards','cardBackground'],
-    ['frame','Card frame','Decorative outline for hero cards','cardFrame'],
-    ['corners','Bottom corner accents','Small images attached to card corners','cardCornerDecoration']
-  ];
-  var selected=themeStudioSelectedAsset();
-  var mapped=slots.map(function(s){
-    var url=s[0]==='corners'?(card.cornerBottomLeft||card.cornerBottomRight||card.cornerTopLeft||card.cornerTopRight||''):(card[s[0]]||'');
-    return {slot:s[0],label:s[1],note:s[2],role:s[3],url:url};
-  });
+  var mapped=themeStudioCurrentMappedSlots();
   if(tools)tools.innerHTML=mapped.some(function(x){return x.url;})?'<button class="set-btn btn-ghost" type="button" onclick="themeStudioClearSkinAssets()">Clear card decoration images</button>':'';
-  wrap.innerHTML='<div class="field-hint" style="grid-column:1/-1">'+(selected?'Selected asset: '+themeStudioEsc(selected.kind||'Asset')+'. Click a card below to place it there.':'Select an image in Asset Library first, then choose where it should decorate cards.')+'</div>'+mapped.map(function(s){
-    var preview=s.url?themeStudioBgAttr(s.url):(selected?themeStudioBgAttr(selected.url):'');
-    var note=s.url?'Applied - '+s.note:(selected?'Click to apply selected asset here':s.note);
-    return '<button class="theme-role-action" type="button" data-skin-role="'+themeStudioEsc(s.role)+'"><span class="theme-role-preview with-asset"'+preview+'></span><strong>'+themeStudioEsc(s.label)+'</strong><span class="theme-choice-note">'+themeStudioEsc(note)+'</span>'+(s.url?'<span class="theme-chip-row"><span class="theme-chip">In use</span></span>':'')+'</button>'+(s.url?'<button class="set-btn btn-ghost" type="button" data-clear-skin-slot="'+themeStudioEsc(s.slot)+'">Remove '+themeStudioEsc(s.label)+'</button>':'');
-  }).join('');
+  wrap.innerHTML='<div class="theme-mapping-grid">'+mapped.map(function(s){
+    var preview=s.url?themeStudioBgAttr(s.url,s.fallback):'';
+    return '<div class="theme-mapping-card" data-map-slot="'+themeStudioEsc(s.id)+'"><div class="theme-mapping-preview with-asset"'+preview+'>'+(s.url?'':'Empty')+'</div><div class="theme-mapping-body"><div><span class="theme-chip">'+themeStudioEsc(s.group)+'</span></div><div class="theme-mapping-title">'+themeStudioEsc(s.label)+'</div><div class="theme-mapping-note">'+themeStudioEsc(s.url?'Mapped - '+s.note:s.note)+'</div><div class="theme-mapping-actions"><button class="set-btn btn-ghost" type="button" data-map-pick="'+themeStudioEsc(s.id)+'">'+(s.url?'Change':'Choose')+'</button>'+(s.url?'<button class="set-btn btn-ghost" type="button" data-map-clear="'+themeStudioEsc(s.id)+'">Remove</button>':'')+'</div></div></div>';
+  }).join('')+'</div>';
   themeStudioResolveMediaPreviews(wrap);
-  wrap.querySelectorAll('[data-skin-role]').forEach(function(btn){btn.addEventListener('click',function(){
-    if(!themeStudioSelectedAsset()){if(typeof showToast==='function')showToast('Select an asset in the library first.');return;}
-    themeStudioApplyAssetRole(btn.dataset.skinRole);
-  });});
-  wrap.querySelectorAll('[data-clear-skin-slot]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioClearSkinSlot(btn.dataset.clearSkinSlot);});});
+  wrap.querySelectorAll('[data-map-pick]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioOpenMappingAssetPicker(btn.dataset.mapPick);});});
+  wrap.querySelectorAll('[data-map-clear]').forEach(function(btn){btn.addEventListener('click',function(){themeStudioClearMappedSlot(btn.dataset.mapClear);});});
 };
 function themeStudioRenderComponentGuide(){
   var box=document.getElementById('theme-component-guide');if(!box)return;
