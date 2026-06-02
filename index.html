@@ -4765,6 +4765,28 @@ to{opacity:1;transform:translateY(0)}}
 .music-manage-row-cover img{width:100%;height:100%;object-fit:cover}
 /* ── end Music UX v3 ─────────────────────────────────────────────────── */
 
+/* ── Music UX v4 hierarchy ─────────────────────────────────────────── */
+/* Playlist create panel: hidden by default, revealed by toggle */
+#music-playlist-create-panel{display:none!important}
+#music-playlist-create-panel.music-panel-open{display:block!important}
+/* Single-column library (playlists above songs, not side-by-side) */
+.music-library-layout{display:flex!important;flex-direction:column!important;gap:var(--sp-4)!important}
+/* Collapsible songs section */
+.music-grid.music-grid-collapsed{display:none!important}
+/* Songs panel title: pointer to hint collapse */
+.music-panel-title.music-collapsible{cursor:pointer;display:inline-flex;align-items:center;gap:var(--sp-2)}
+.music-panel-title.music-collapsible:hover{color:var(--fg-2)}
+/* Onboarding guide */
+.music-onboard{padding:var(--sp-3) 0 var(--sp-2)}
+.music-onboard-title{font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg-2);margin-bottom:var(--sp-2)}
+.music-onboard-steps{font-size:var(--text-xs);color:var(--fg-4);line-height:1.8;margin-bottom:var(--sp-3)}
+.music-onboard-steps strong{color:var(--fg-3)}
+/* Playlist section header button */
+.music-pl-create-btn{height:28px!important;font-size:var(--text-xs)!important;padding:0 var(--sp-3)!important;flex-shrink:0}
+/* Recommendation panel: compact when empty */
+#music-mode-row:empty{display:none}
+/* ── end Music UX v4 ────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body class="auth-locked">
@@ -26677,6 +26699,154 @@ musicUiEnsure=function(){_oldUiEnsureV3();musicEnhanceSongForm();};
 
 })();
 /* ── end Music UX v3 JS ─────────────────────────────────────────────── */
+
+/* ── Music UX v4 JS: hierarchy & flow ───────────────────────────────── */
+(function(){
+'use strict';
+
+/* shared toggle state for the create-playlist panel */
+function musicSetPlCreateOpen(open){
+  var panel=document.getElementById('music-playlist-create-panel');
+  if(panel)panel.classList.toggle('music-panel-open',open);
+  /* sync all toggle buttons */
+  document.querySelectorAll('.music-pl-create-btn').forEach(function(b){
+    b.textContent=open?'✕ 취소':'+ 새 플레이리스트';
+  });
+  var heroBtn=document.getElementById('music-pl-hero-btn');
+  if(heroBtn)heroBtn.textContent=open?'✕ 취소':'+ 플레이리스트';
+  if(open&&panel)panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function musicIsPlCreateOpen(){
+  var p=document.getElementById('music-playlist-create-panel');
+  return p?p.classList.contains('music-panel-open'):false;
+}
+
+/* ── 1. Better recommendation empty state ── */
+var _origRenderRecoV4=musicRenderRecommended;
+musicRenderRecommended=function(){
+  var hasSongs=musicLibrary&&musicLibrary.songs&&musicLibrary.songs.length>0;
+  /* hide mode chips when no songs — they serve no purpose */
+  var modeRow=document.getElementById('music-mode-row');
+  if(modeRow)modeRow.style.display=hasSongs?'':'none';
+
+  if(!hasSongs){
+    var host=document.getElementById('music-recommended');
+    if(!host)return;
+    host.innerHTML=
+      '<div class="music-onboard">'+
+        '<div class="music-onboard-title">음악 보관함 시작하기</div>'+
+        '<div class="music-onboard-steps">'+
+          '① YouTube 영상 URL을 <strong>노래</strong>로 저장해요.<br>'+
+          '② 노래를 <strong>플레이리스트</strong>에 담아요.<br>'+
+          '③ 모드를 선택해서 바로 재생해요.'+
+        '</div>'+
+        '<button class="set-btn btn-primary" type="button" id="music-onboard-start">+ 첫 번째 노래 추가</button>'+
+      '</div>';
+    var btn=host.querySelector('#music-onboard-start');
+    if(btn)btn.addEventListener('click',function(){
+      var panel=document.getElementById('music-add-panel');
+      if(!panel)return;
+      panel.style.display='block';
+      panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    });
+    return;
+  }
+  _origRenderRecoV4();
+};
+
+/* ── 2. Apply hierarchy DOM changes after render ── */
+function musicApplyHierarchy(){
+  var shell=document.querySelector('#page-music .music-shell');
+  if(!shell)return;
+
+  /* Hero: add "+ 플레이리스트" ghost button (once) */
+  if(!document.getElementById('music-pl-hero-btn')){
+    var heroActions=shell.querySelector('.music-actions');
+    if(heroActions){
+      var hb=document.createElement('button');
+      hb.className='set-btn btn-ghost';
+      hb.type='button';
+      hb.id='music-pl-hero-btn';
+      hb.textContent='+ 플레이리스트';
+      heroActions.insertBefore(hb,heroActions.firstChild);
+      hb.addEventListener('click',function(){musicSetPlCreateOpen(!musicIsPlCreateOpen());});
+    }
+  }
+
+  /* Playlists panel: add "새 플레이리스트" button to header (once) */
+  var plGrid=document.getElementById('music-playlist-grid');
+  var plPanel=plGrid&&plGrid.closest('.music-panel');
+  if(plPanel&&!plPanel.dataset.v4plhead){
+    plPanel.dataset.v4plhead='1';
+    var plHead=plPanel.querySelector('.music-panel-head');
+    if(plHead){
+      var pb=document.createElement('button');
+      pb.className='set-btn btn-ghost music-pl-create-btn';
+      pb.type='button';
+      pb.textContent='+ 새 플레이리스트';
+      plHead.appendChild(pb);
+      pb.addEventListener('click',function(){musicSetPlCreateOpen(!musicIsPlCreateOpen());});
+    }
+  }
+
+  /* Close create-panel after successful playlist save */
+  var saveBtn=document.getElementById('music-playlist-save-btn');
+  if(saveBtn&&!saveBtn.dataset.v4close){
+    saveBtn.dataset.v4close='1';
+    saveBtn.addEventListener('click',function(){
+      setTimeout(function(){musicSetPlCreateOpen(false);},50);
+    });
+  }
+
+  /* Songs panel: collapsible with caret (once) */
+  var grid=document.getElementById('music-grid');
+  var songPanel=grid&&grid.closest('.music-panel');
+  if(songPanel&&!songPanel.dataset.v4song){
+    songPanel.dataset.v4song='1';
+    var songTitle=songPanel.querySelector('.music-panel-title');
+    if(songTitle){
+      songTitle.classList.add('music-collapsible');
+      var caret=document.createElement('span');
+      caret.id='music-songs-caret';
+      caret.style.cssText='font-size:.7em;color:var(--fg-4)';
+      songTitle.appendChild(caret);
+      /* auto-collapse if playlists already exist */
+      var hasPlaylists=musicLibrary&&musicLibrary.playlists&&musicLibrary.playlists.length>0;
+      if(hasPlaylists){
+        grid.classList.add('music-grid-collapsed');
+        caret.textContent=' ▸';
+        songPanel.dataset.collapsed='1';
+      }else{
+        caret.textContent=' ▾';
+        songPanel.dataset.collapsed='0';
+      }
+      songTitle.addEventListener('click',function(){
+        var collapsed=songPanel.dataset.collapsed==='1';
+        grid.classList.toggle('music-grid-collapsed',collapsed);
+        caret.textContent=collapsed?' ▾':' ▸';
+        songPanel.dataset.collapsed=collapsed?'0':'1';
+      });
+    }
+  }
+}
+
+/* Hook into render */
+var _oldRenderV4=musicRender;
+musicRender=function(){
+  _oldRenderV4();
+  setTimeout(musicApplyHierarchy,0);
+};
+
+/* Run once on init too */
+var _oldInitV4=_initMusic;
+_initMusic=function(){
+  _oldInitV4();
+  setTimeout(musicApplyHierarchy,0);
+};
+
+})();
+/* ── end Music UX v4 JS ──────────────────────────────────────────────── */
 </script>
 </body>
 </html>
