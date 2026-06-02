@@ -1400,9 +1400,9 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   .home-content{
     max-width:1600px;
     margin:0 auto;
-    padding:calc(210px + var(--sp-2)) clamp(24px,4vw,64px) 104px;
+    padding:calc(210px + var(--sp-2)) clamp(18px,3vw,56px) 104px;
     display:grid;
-    grid-template-columns:minmax(480px,.95fr) minmax(680px,1.25fr);
+    grid-template-columns:minmax(360px,.95fr) minmax(480px,1.25fr);
     column-gap:var(--sp-6);
     row-gap:var(--sp-4);
     align-items:start;
@@ -1895,10 +1895,15 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 /* ── DEADLINE CANVAS VIEW ── */
 /* Canvas overlays the calendar grid to draw arrows task→deadline */
 .cal-canvas-container{position:relative}
-#dl-canvas{position:absolute;top:0;left:0;pointer-events:none;z-index:1;display:none}
+#dl-canvas{position:absolute;top:0;left:0;pointer-events:none;z-index:0;display:none}
 #dl-canvas.visible{display:block}
-.cal-days{position:relative;z-index:2}
+.cal-days{position:relative;z-index:1}
 .cal-day-num,.cal-day-dots,.cal-day-events,.cal-event-pill,.cal-day-dl-chip{position:relative;z-index:3}
+.cal-canvas-container.deadline-links-on .cal-event-pill,
+.cal-canvas-container.deadline-links-on .cal-day-dl-chip{
+  z-index:5;
+  box-shadow:0 0 0 4px var(--bg-card),var(--elev-1);
+}
 .cal-event-pill,.cal-day-dl-chip{box-shadow:0 0 0 3px color-mix(in srgb,var(--bg-card) 88%,transparent)}
 
 /* Deadline pill chips on calendar cells (full-view) */
@@ -8338,15 +8343,16 @@ function inferActiveRuleSourceId(rule,t,sourceById){
   if(direct.indexOf('weekday:')===0)return direct;
   if(!rule||!t)return direct;
   var triggerType=rule.triggerType||(rule.weekdays?'weekday':'keyword');
-  if(triggerType==='weekday')return 'weekday:'+(taskDateKeyLocal(t.triggerDate||t.occurrenceDate||t.date)||taskTodayKeyLocal());
+  if(triggerType==='weekday')return 'weekday:'+(taskDateKeyLocal(t.deadlineDate||t.triggerDate||t.occurrenceDate||t.date)||taskTodayKeyLocal());
   var key=String(rule.matchText||'').trim();
   var offset=parseInt(rule.offsetDays,10)||0;
   var actual=taskDateKeyLocal(t.date);
-  var best='';
+  var best='', candidates=[];
   Object.keys(sourceById||{}).some(function(id){
     var src=sourceById[id];
     if(!src||src._ruleGen||src.sourceType==='activeRule'||src._repeatId||src.sourceType==='repeat'||src._travelOnly)return false;
     if(key&&String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return false;
+    candidates.push(String(id));
     var anchor=taskDateKeyLocal(src.deadlineDate||src.date);
     if(!anchor)return false;
     var expected=taskAddDaysKey(anchor,-offset);
@@ -8356,7 +8362,7 @@ function inferActiveRuleSourceId(rule,t,sourceById){
     }
     return false;
   });
-  return best||direct;
+  return best||direct||(candidates.length===1?candidates[0]:'');
 }
 function mergeGeneratedTaskInto(target,dup){
   if(!target||!dup)return;
@@ -9006,7 +9012,7 @@ function isGeneratedTask(t){return !!generatedCanonicalType(t);}
 function isGeneratedManual(t){return !!(t&&t.userModifiedDate);}
 function normalizeGeneratedTaskMeta(t, expected){
   if(!t||!expected)return;
-  t.sourceType=expected.type;
+  t.sourceType=expected.type==='rule'?'activeRule':expected.type;
   t.sourceId=expected.sourceId;
   t.occurrenceDate=expected.occurrenceDate;
   t.scheduleKey=expected.scheduleKey;
@@ -10322,7 +10328,8 @@ function compactGlobalStickerStateForStorage(state){
   Object.keys(state||{}).forEach(function(page){
     compact[page] = (state[page]||[]).map(function(s){
       var next = Object.assign({}, s || {});
-      if (isReturnMediaRef(next.url)) delete next.syncDataUrl;
+      if (isReturnMediaRef(next.url) && !next.syncDataUrl && typeof themeStudioMediaFallbackForUrl==='function') next.syncDataUrl = themeStudioMediaFallbackForUrl(next.url);
+      if (isReturnMediaRef(next.url) && next.syncDataUrl && String(next.syncDataUrl).length > 220000) delete next.syncDataUrl;
       return next;
     });
   });
@@ -11889,11 +11896,73 @@ function timetableTaskDateKey(date){
   }
   return String(date||'').slice(0,10);
 }
+function timetableSlotId(slot, slotIdx){
+  return String(slot&&(slot._slotId||slot.id)||('idx_'+slotIdx));
+}
+function timetableLegacySlotKey(slot, slotIdx){
+  return String(slotIdx)+'|'+String(slot&&slot.day)+'|'+String(slot&&slot.title||'')+'|'+String(slot&&slot.timeStart||'')+'|'+String(slot&&slot.timeEnd||'');
+}
+function ensureTimetableSlotIds(ttList){
+  var changed=false;
+  (ttList||[]).forEach(function(tt){
+    if(!tt||!Array.isArray(tt.slots))return;
+    tt.slots.forEach(function(slot,idx){
+      if(!slot)return;
+      if(!slot._slotId&&!slot.id){
+        slot._slotId='slot_'+timetableTaskHash([tt.id,idx,slot.day,slot.timeStart,slot.timeEnd,slot.title,Date.now(),Math.random()].join('|'));
+        changed=true;
+      }
+    });
+  });
+  return changed;
+}
+function mergeGeneratedChecklist(existing, expected){
+  if(!Array.isArray(expected))return expected;
+  var old=Array.isArray(existing)?existing:[];
+  var byId={}, byText={};
+  old.forEach(function(item){
+    if(!item)return;
+    if(item.id)byId[item.id]=item;
+    if(item.text)byText[String(item.text).replace(/^\?럲\s*/,'')]=item;
+  });
+  return expected.map(function(item){
+    var plain=item&&item.text?String(item.text).replace(/^\?럲\s*/,''):'';
+    var keep=(item&&item.id&&byId[item.id])||(plain&&byText[plain]);
+    return Object.assign({},item,{done:keep?!!keep.done:!!item.done});
+  });
+}
+function migrateGcalEventMetaKey(oldKey,newKey){
+  if(!oldKey||!newKey||oldKey===newKey)return;
+  try{
+    if(typeof _gcalCfg==='undefined'||!_gcalCfg||!_gcalCfg.eventMeta||!_gcalCfg.eventMeta[oldKey]||_gcalCfg.eventMeta[newKey])return;
+    _gcalCfg.eventMeta[newKey]=_gcalCfg.eventMeta[oldKey];
+    delete _gcalCfg.eventMeta[oldKey];
+    if(typeof saveGcalCfg==='function')saveGcalCfg();
+  }catch(e){}
+}
+function queueGeneratedExternalDeletion(task){
+  try{if(typeof gcalQueueTaskEventDeletion==='function')gcalQueueTaskEventDeletion(task);}catch(e){}
+}
+function findTimetableExpectedKeyForTask(task, expected, expectedKeys){
+  if(!task||!expected)return '';
+  if(task._ttKey&&expected[task._ttKey])return task._ttKey;
+  expectedKeys=expectedKeys||Object.keys(expected);
+  for(var i=0;i<expectedKeys.length;i++){
+    var k=expectedKeys[i], exp=expected[k];
+    if(!exp)continue;
+    if(task._ttId&&task._ttSlotId&&task.date===exp.date&&String(task._ttId)===exp._ttId&&String(task._ttSlotId)===exp._ttSlotId)return k;
+    if(task._ttId&&task._ttSlotKey&&task.date===exp.date&&String(task._ttId)===exp._ttId&&String(task._ttSlotKey)===exp._ttSlotKey)return k;
+    if(task.date===exp.date&&task.text===exp.text&&task.timeStart===exp.timeStart&&task.timeEnd===exp.timeEnd)return k;
+  }
+  return '';
+}
 function timetableTaskKey(tt, slot, dateKey, slotIdx){
-  return ['tt',tt&&tt.id,slotIdx,slot&&slot.day,slot&&slot.timeStart,slot&&slot.timeEnd,slot&&slot.title,dateKey].join('|');
+  return ['tt',tt&&tt.id,timetableSlotId(slot,slotIdx),dateKey].join('|');
 }
 function buildTimetableExpectedTasks(ttList){
   var expected={};
+  var slotIdsChanged=ensureTimetableSlotIds(ttList);
+  if(slotIdsChanged){try{localStorage.setItem('timetables_v1',JSON.stringify(ttList));}catch(e){}}
   (ttList||[]).forEach(function(tt){
     if(!tt||!tt.id||!tt.startDate||!tt.endDate||!Array.isArray(tt.slots))return;
     var start=new Date(tt.startDate+'T00:00');
@@ -11911,6 +11980,7 @@ function buildTimetableExpectedTasks(ttList){
       tt.slots.forEach(function(s,idx){
         if(!s||s.day!==slotDay||!s.title||!s.timeStart)return;
         var key=timetableTaskKey(tt,s,dateKey,idx);
+        var slotId=timetableSlotId(s,idx);
         var prep=String(s.prep||'').split(/[,;]\s*/).map(function(x,i){
           var text=x.trim();
           return text?{id:timetableTaskHash(key+'|prep|'+i),text:text,done:false}:null;
@@ -11929,7 +11999,8 @@ function buildTimetableExpectedTasks(ttList){
           note:'시간표 · '+(tt.name||''),
           _isTt:true,
           _ttId:String(tt.id),
-          _ttSlotKey:String(idx)+'|'+String(s.day)+'|'+String(s.title||'')+'|'+String(s.timeStart||'')+'|'+String(s.timeEnd||''),
+          _ttSlotId:slotId,
+          _ttSlotKey:timetableLegacySlotKey(s,idx),
           _ttKey:key,
           generationKey:key,
           sourceType:'timetable',
@@ -11952,21 +12023,41 @@ function reconcileTimetableTasks(opts){
   }
   var expected=buildTimetableExpectedTasks(ttList);
   var expectedKeys=Object.keys(expected);
-  if(!expectedKeys.length)return 0;
+  if(!expectedKeys.length){
+    var knownTtIds=(ttList||[]).map(function(tt){return tt&&tt.id!=null?String(tt.id):'';}).filter(Boolean);
+    if(!knownTtIds.length)return 0;
+    var removedEmpty=0, keptEmpty=[];
+    tasks.forEach(function(t){
+      if(t&&t._isTt&&!t.done&&!t.userModifiedDate&&!t._travelOnly&&(!t._ttId||knownTtIds.indexOf(String(t._ttId))>=0)){
+        queueGeneratedExternalDeletion(t);
+        removedEmpty++;
+        return;
+      }
+      keptEmpty.push(t);
+    });
+    if(removedEmpty){
+      tasks=keptEmpty;
+      normalizeTimetableTaskCategories();
+      try{localStorage.setItem('task_items_v1',JSON.stringify(tasks));}catch(e){}
+      if(!opts.silent){
+        try{if(typeof homeRefreshCards==='function')homeRefreshCards();}catch(e){}
+        try{if(typeof renderCal==='function')renderCal();}catch(e){}
+        try{if(typeof renderList==='function')renderList();}catch(e){}
+        try{if(typeof window.homeRenderTimeGrid==='function')window.homeRenderTimeGrid();}catch(e){}
+      }
+    }
+    return removedEmpty;
+  }
   var changed=0, byKey={}, next=[];
   tasks.forEach(function(t){
     if(!t)return;
     if(t._isTt){
       if(t.catId!=='schedule'){t.catId='schedule';changed++;}
-      if(!t._ttKey){
-        expectedKeys.some(function(k){
-          var exp=expected[k];
-          if(t.date===exp.date&&t.text===exp.text&&t.timeStart===exp.timeStart&&t.timeEnd===exp.timeEnd){
-            t._ttKey=k;t._ttId=exp._ttId;t._ttSlotKey=exp._ttSlotKey;t.generationKey=t.generationKey||k;t.sourceType=t.sourceType||'timetable';t.occurrenceDate=t.occurrenceDate||exp.date;changed++;
-            return true;
-          }
-          return false;
-        });
+      var matchedKey=findTimetableExpectedKeyForTask(t,expected,expectedKeys);
+      if(matchedKey&&t._ttKey!==matchedKey){
+        migrateGcalEventMetaKey(t._ttKey||t.generationKey,matchedKey);
+        t._ttKey=matchedKey;
+        changed++;
       }
     }
     var key=t&&t._isTt&&t._ttKey;
@@ -11974,25 +12065,33 @@ function reconcileTimetableTasks(opts){
       if(byKey[key]){
         if(t.done)byKey[key].done=true;
         if((t.note||'').length>(byKey[key].note||'').length)byKey[key].note=t.note;
+        queueGeneratedExternalDeletion(t);
         changed++;
         return;
       }
       var exp=expected[key];
       if(!t.userModifiedDate){
-        ['text','catId','date','timeStart','timeEnd','priority','deadlineDate','deadlineId','travelMin'].forEach(function(prop){
+        ['text','catId','date','timeStart','timeEnd','priority','deadlineDate','deadlineId','note','travelMin'].forEach(function(prop){
           if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
         });
       }
-      ['_ttId','_ttSlotKey','generationKey','sourceType','occurrenceDate'].forEach(function(prop){
+      ['_ttId','_ttSlotId','_ttSlotKey','generationKey','sourceType','occurrenceDate'].forEach(function(prop){
         if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
       });
-      if(exp.prepItems&&exp.prepItems.length&&(!Array.isArray(t.prepItems)||!t.prepItems.length)){t.prepItems=exp.prepItems;changed++;}
-      if(exp.subs&&exp.subs.length&&(!Array.isArray(t.subs)||!t.subs.length)){t.subs=exp.subs;changed++;}
+      if(exp.prepItems){
+        var mergedPrep=mergeGeneratedChecklist(t.prepItems,exp.prepItems);
+        if(JSON.stringify(t.prepItems||[])!==JSON.stringify(mergedPrep)){t.prepItems=mergedPrep;changed++;}
+      }
+      if(exp.subs){
+        var mergedSubs=mergeGeneratedChecklist(t.subs,exp.subs);
+        if(JSON.stringify(t.subs||[])!==JSON.stringify(mergedSubs)){t.subs=mergedSubs;changed++;}
+      }
       byKey[key]=t;
       next.push(t);
       return;
     }
     if(key&&!expected[key]&&!t.done&&!t.userModifiedDate&&!t._travelOnly){
+      queueGeneratedExternalDeletion(t);
       changed++;
       return;
     }
@@ -12039,7 +12138,7 @@ function cleanupLegacyTimetableTaskConflicts(ttList, expected){
   }
   tasks=tasks.filter(function(t){
     if(!looksLikeLegacyTt(t))return true;
-    if(t._travelOnly||hasExpectedTwin(t)){changed++;return false;}
+    if(t._travelOnly||hasExpectedTwin(t)){queueGeneratedExternalDeletion(t);changed++;return false;}
     return true;
   });
   return changed;
@@ -12620,6 +12719,7 @@ function renderDlCanvas(){
   var container=document.getElementById('cal-canvas-container');
   if(!canvas||!container)return;
 
+  container.classList.toggle('deadline-links-on',!!dlView);
   if(!dlView){canvas.classList.remove('visible');return;}
 
   var cw=container.offsetWidth||280;
@@ -12627,6 +12727,7 @@ function renderDlCanvas(){
   var dpr=window.devicePixelRatio||1;
   canvas.width=Math.max(1,Math.round(cw*dpr)); canvas.height=Math.max(1,Math.round(ch*dpr));
   canvas.style.width=cw+'px'; canvas.style.height=ch+'px';
+  canvas.style.zIndex='0';
   canvas.classList.add('visible');
 
   var ctx=canvas.getContext('2d');
@@ -12732,13 +12833,15 @@ function renderDlCanvas(){
     ctx.lineJoin='round';
     ctx.setLineDash([5,7]);
     drawRoute();
-    ctx.strokeStyle='rgba(255,255,255,.84)';
-    ctx.lineWidth=5;
+    ctx.strokeStyle='rgba(255,255,255,.72)';
+    ctx.lineWidth=4;
     ctx.stroke();
     drawRoute();
     ctx.strokeStyle=col;
-    ctx.lineWidth=2.25;
+    ctx.globalAlpha=.72;
+    ctx.lineWidth=1.8;
     ctx.stroke();
+    ctx.globalAlpha=1;
 
     var days=0;
     try{days=taskDaysBetweenKeys(task.date,targetDate);}catch(e){
@@ -15197,6 +15300,7 @@ function loadDate(dk) {
   if (currentDate && currentDate !== dk) {
     commitCurrent();
     saveAll();
+    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
   }
 
   currentDate = dk;
@@ -15569,7 +15673,7 @@ document.getElementById('diary-date-input').addEventListener('change', function(
 
 /* ── NOTION SYNC (stub) ── */
 document.getElementById('sync-btn').addEventListener('click', function() {
-  if (typeof syncDiaryToNotion === 'function') { syncDiaryToNotion(currentDate || TK, {pullFirst:false}); return; }
+  if (typeof syncDiaryToNotion === 'function') { syncDiaryToNotion(currentDate || TK); return; }
   var dot = document.getElementById('notion-dot');
   var txt = document.getElementById('notion-status-text');
   dot.className = 'sync-dot syncing';
@@ -15797,6 +15901,7 @@ function scheduleBlockSave() {
   blockSaveTimer = setTimeout(function() {
     commitCurrent();
     saveAll();
+    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
   }, 2000);
 }
 
@@ -16772,9 +16877,11 @@ function loadTimetables() {
     }];
     saveTimetables();
   }
+  try{if(typeof ensureTimetableSlotIds==='function'&&ensureTimetableSlotIds(timetables))localStorage.setItem('timetables_v1',JSON.stringify(timetables));}catch(e){}
   try { if(typeof reconcileTimetableTasks==='function') reconcileTimetableTasks({timetables:timetables,source:'loadTimetables'}); } catch(e) {}
 }
 function saveTimetables() {
+  try{if(typeof ensureTimetableSlotIds==='function')ensureTimetableSlotIds(timetables);}catch(e){}
   try { localStorage.setItem('timetables_v1', JSON.stringify(timetables)); } catch(e) {}
   try { if(typeof reconcileTimetableTasks==='function') reconcileTimetableTasks({timetables:timetables,source:'saveTimetables'}); } catch(e) {}
 }
@@ -20357,7 +20464,7 @@ var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_it
    integrations and are not part of app-data source of truth. */
 window.RETURN_LEGACY_SYNC_ACTIVE = true;
 var SyncManager=(function(){
-  var meaningfulKeys=['task_items_v1','inbox_v1','diary_entries_v1','projects_v1','routine_habits_v1','routine_bundles_v1','timetables_v1','return_theme_studio_state_v1','return_theme_studio_assets_v1','home_banner_v1'];
+  var meaningfulKeys=['task_items_v1','task_cats_v1','task_rules_v1','repeat_items_v1','repeat_suppressions_v1','generated_task_suppressions_v1','inbox_v1','diary_entries_v1','projects_v1','routine_habits_v1','routine_bundles_v1','routine_logs_v1','timetables_v1','timetable_palette_v1','return_theme_studio_state_v1','return_theme_studio_assets_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','global_stickers_v1','global_sticker_shadow','home_banner_v1','hobby_banner_v1','theme_palette_presets_v1'];
   var state={
     authStatus:'unknown',uid:'',email:'',
     localLoaded:false,cloudLoaded:false,hydrating:false,hydrationComplete:false,
@@ -20420,6 +20527,7 @@ var SyncManager=(function(){
     return true;
   }
   function markSaved(){update({pendingWrites:0,dirty:false,lastSaveTime:now(),lastSyncStatus:'saved',lastError:''});}
+  function markIdle(status){update({pendingWrites:0,dirty:false,lastSyncStatus:status||'idle'});}
   function markError(err){update({lastSyncStatus:'error',lastError:String(err&&err.message||err||'sync error')});}
   function retry(){try{ if(typeof fbForcePull==='function')fbForcePull(); else if(typeof fbLoadAll==='function')fbLoadAll(); }catch(e){markError(e);}}
   function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
@@ -20447,7 +20555,7 @@ var SyncManager=(function(){
     var btn=host.querySelector('#sync-manager-retry');
     if(btn)btn.onclick=retry;
   }
-  return {state:state,onAuthState:onAuthState,beginHydration:beginHydration,finishHydration:finishHydration,failHydration:failHydration,canQueueSave:canQueueSave,canSave:canSave,protectCloudOverwrite:protectCloudOverwrite,markSaved:markSaved,markError:markError,retry:retry,renderPanel:renderPanel};
+  return {state:state,onAuthState:onAuthState,beginHydration:beginHydration,finishHydration:finishHydration,failHydration:failHydration,canQueueSave:canQueueSave,canSave:canSave,protectCloudOverwrite:protectCloudOverwrite,markSaved:markSaved,markIdle:markIdle,markError:markError,retry:retry,renderPanel:renderPanel};
 })();
 function shouldFbSyncKey(k){
   if(!k)return false;
@@ -20583,7 +20691,7 @@ function fbSanitizeNotionCfg(cfg){
 }
 function fbSanitizeGcalCfg(cfg){
   cfg=cfg||{};
-  return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0};
+  return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',taskCalendarId:cfg.taskCalendarId||'',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0};
 }
 function fbCollectCloudSettings(){
   var out={updatedAtMs:Date.now(),settings:{}};
@@ -20610,6 +20718,7 @@ function fbApplyCloudSettings(doc){
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
+        if(gIn.taskCalendarId==null && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
         if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
         localStorage.setItem(k,JSON.stringify(gIn));
       }else{
@@ -20618,7 +20727,7 @@ function fbApplyCloudSettings(doc){
       n++;
     }catch(e){console.warn('settings apply failed',k,e);}
   });
-  try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
+try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
   return n;
 }
 async function fbLoadCloudSettings(ref){
@@ -20687,6 +20796,7 @@ function fbApplyData(data){
      user edit made during a render still triggers a normal save. */
   _applyingFbData = true;
   var generatedRepairAfterFbApply = 0;
+  var timetableRepairAfterFbApply = 0;
   try {
     Object.keys(data.keys).forEach(function(k){
       try{ _rawSetItem(k, data.keys[k]); }catch(e){
@@ -20748,8 +20858,12 @@ function fbApplyData(data){
     /* phil cards (separate load path on settings tab) */
     try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){}
     /* schedule / timetable */
-    try { if(typeof loadTimetables==='function') loadTimetables(); } catch(e){}
+    try {
+      if(typeof loadTimetables==='function') loadTimetables();
+      if(typeof reconcileTimetableTasks==='function') timetableRepairAfterFbApply=reconcileTimetableTasks({silent:true,source:'fbApplyData'});
+    } catch(e){}
     try { if(typeof applyTtPalette==='function') applyTtPalette(); } catch(e){}
+    try { if(typeof renderTtPaletteEditor==='function') renderTtPaletteEditor(); } catch(e){}
     /* home banner + stickers */
     try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){}
     try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){}
@@ -20766,7 +20880,7 @@ function fbApplyData(data){
   } finally {
     _applyingFbData = false;
   }
-  if(generatedRepairAfterFbApply && typeof fbSaveNow==='function'){
+  if((generatedRepairAfterFbApply||timetableRepairAfterFbApply) && typeof fbSaveNow==='function'){
     setTimeout(function(){ try{ fbSaveNow({force:true}); }catch(_e){} }, 350);
   }
 
@@ -20833,7 +20947,7 @@ function fbApplyData(data){
   /* Recharge tab */
   safeCall('renderAll');
   safeCall('renderReflects');
-  try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioRender==='function') themeStudioRender(); } catch(e){ console.warn('themeStudio render failed:', e&&e.message); }
+    try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); if(typeof themeStudioRenderTimetablePalette==='function') themeStudioRenderTimetablePalette(); if(typeof themeStudioRenderTaskPalette==='function') themeStudioRenderTaskPalette(); if(typeof themeStudioRender==='function') themeStudioRender(); } catch(e){ console.warn('themeStudio render failed:', e&&e.message); }
 }
 function fbStatusTime(prefix){
   return prefix+' · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
@@ -20923,6 +21037,7 @@ async function fbSaveNow(opts){
      swallow a real edit a user makes right after seeing the remote update.
      Manual "지금 올리기" still bypasses with force:true. */
   if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
+    try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
   try{
@@ -21651,7 +21766,7 @@ function queueDiaryNotionSave(dateKey){
   }
   clearTimeout(_notionSaveTimer);
   _notionSaveTimer=setTimeout(function(){
-    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:true});
+    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true,pullFirst:false});
   },900);
 }
 function queueDiaryNotionPull(dateKey, reason, delay){
@@ -23068,6 +23183,20 @@ function gcalTaskTargetCalId(t){
   if(!_gcalCfg)return 'primary';
   return (t&&(t.catId==='schedule'||t._isTt)) ? (_gcalCfg.calendarId||'primary') : (_gcalCfg.taskCalendarId||_gcalCfg.calendarId||'primary');
 }
+function gcalFindLocalTaskByKey(taskKey){
+  if(!taskKey||typeof tasks==='undefined'||!Array.isArray(tasks))return null;
+  for(var i=0;i<tasks.length;i++){
+    var t=tasks[i];
+    if(t&&gcalTaskStableKey(t)===String(taskKey))return t;
+  }
+  return null;
+}
+function gcalPreferredCalendarForKey(taskKey){
+  var local=gcalFindLocalTaskByKey(taskKey);
+  if(local)return gcalTaskTargetCalId(local);
+  var meta=_gcalCfg&&_gcalCfg.eventMeta&&_gcalCfg.eventMeta[taskKey];
+  return (meta&&meta.calId)||'';
+}
 function gcalEventStartValue(ev){return ev&&ev.start&&(ev.start.dateTime||ev.start.date)||'';}
 function gcalEventEndValue(ev){return ev&&ev.end&&(ev.end.dateTime||ev.end.date)||'';}
 function gcalIsReturnOwnedEvent(ev, taskKey){
@@ -23123,17 +23252,70 @@ async function gcalListReturnOwnedEvents(calId){
   var data=await gcalApiCal('GET',path,null,calId);
   return ((data&&data.items)||[]).filter(function(ev){return ev&&ev.status!=='cancelled'&&gcalIsReturnOwnedEvent(ev);});
 }
-async function gcalRepairDuplicates(){
+function gcalConfiguredCalendarIds(){
+  var ids=[];
+  function add(id){
+    id=String(id||'').trim()||'primary';
+    if(ids.indexOf(id)<0)ids.push(id);
+  }
+  add(_gcalCfg&&_gcalCfg.calendarId);
+  if(_gcalCfg&&_gcalCfg.taskCalendarId)add(_gcalCfg.taskCalendarId);
+  return ids;
+}
+async function gcalDeleteReturnEventsInOtherCalendars(taskKey, keepCalId, keepId){
+  if(!taskKey)return 0;
+  var calendars=gcalConfiguredCalendarIds();
+  var removed=0;
+  for(var ci=0;ci<calendars.length;ci++){
+    var calId=calendars[ci];
+    if(calId===keepCalId)continue;
+    try{
+      var items=await gcalFindExistingEvents(taskKey,calId);
+      for(var i=0;i<items.length;i++){
+        var ev=items[i];
+        if(!ev||!ev.id||ev.id===keepId)continue;
+        await gcalApiCal('DELETE','/'+encodeURIComponent(ev.id),null,calId);
+        removed++;
+      }
+    }catch(e){
+      if((e&&e.message||'').indexOf('404')<0)console.warn('gcal cross-calendar delete skipped:',calId,e&&e.message);
+    }
+  }
+  return removed;
+}
+async function gcalDeleteReturnEventsByKey(taskKey, preferredCalId, keepId){
+  if(!taskKey)return 0;
+  var calendars=gcalConfiguredCalendarIds();
+  var removed=0;
+  if(preferredCalId&&calendars.indexOf(preferredCalId)<0)calendars.unshift(preferredCalId);
+  for(var ci=0;ci<calendars.length;ci++){
+    var calId=calendars[ci];
+    try{
+      var items=await gcalFindExistingEvents(taskKey,calId);
+      for(var i=0;i<items.length;i++){
+        var ev=items[i];
+        if(!ev||!ev.id||ev.id===keepId)continue;
+        await gcalApiCal('DELETE','/'+encodeURIComponent(ev.id),null,calId);
+        removed++;
+      }
+    }catch(e){
+      if((e&&e.message||'').indexOf('404')<0)console.warn('gcal key delete skipped:',calId,e&&e.message);
+    }
+  }
+  return removed;
+}
+async function gcalRepairDuplicates(opts){
+  opts=opts||{};
   gcalSaveConfig(true);
   if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
     var renewed=await gcalEnsureToken(true);
     if(!renewed){gcalStatus('Google 로그인이 필요해요 — 중복 정리 전 다시 로그인해주세요','err');return;}
   }
   gcalStatus('Return 소유 Google 중복 이벤트 확인 중...','saving');
-  var calendars=[_gcalCfg.calendarId||'primary'];
-  if(_gcalCfg.taskCalendarId&&calendars.indexOf(_gcalCfg.taskCalendarId)<0)calendars.push(_gcalCfg.taskCalendarId);
+  var calendars=gcalConfiguredCalendarIds();
   var removed=0, scanned=0, errors=0;
   _gcalCfg.eventMeta=_gcalCfg.eventMeta||{};
+  var crossGroups={};
   for(var ci=0;ci<calendars.length;ci++){
     var calId=calendars[ci];
     try{
@@ -23145,6 +23327,10 @@ async function gcalRepairDuplicates(){
         var key=p.returnTaskKey||('id:'+p.returnTaskId)||('summary:'+String(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev));
         if(!groups[key])groups[key]=[];
         groups[key].push(ev);
+        if(key&&key.indexOf('summary:')!==0&&key.indexOf('id:')!==0){
+          if(!crossGroups[key])crossGroups[key]=[];
+          crossGroups[key].push({ev:ev,calId:calId});
+        }
       });
       var keys=Object.keys(groups);
       for(var gi=0;gi<keys.length;gi++){
@@ -23165,6 +23351,34 @@ async function gcalRepairDuplicates(){
     }catch(e){
       errors++;
       console.warn('gcal duplicate repair failed:',calId,e&&e.message);
+    }
+  }
+  var crossKeys=Object.keys(crossGroups);
+  for(var cgi=0;cgi<crossKeys.length;cgi++){
+    var ckey=crossKeys[cgi], cgroup=crossGroups[ckey];
+    if(!cgroup||cgroup.length<2)continue;
+    var cmeta=_gcalCfg.eventMeta[ckey]||{};
+    var preferredCal=gcalPreferredCalendarForKey(ckey);
+    cgroup.sort(function(a,b){
+      if(preferredCal&&a.calId===preferredCal&&b.calId!==preferredCal)return -1;
+      if(preferredCal&&b.calId===preferredCal&&a.calId!==preferredCal)return 1;
+      if(cmeta.eventId===a.ev.id&&cmeta.calId===a.calId)return -1;
+      if(cmeta.eventId===b.ev.id&&cmeta.calId===b.calId)return 1;
+      return String(b.ev.updated||'').localeCompare(String(a.ev.updated||''));
+    });
+    var ckeep=cgroup[0];
+    for(var cdi=1;cdi<cgroup.length;cdi++){
+      var dup=cgroup[cdi];
+      if(!dup||!dup.ev||!dup.ev.id)continue;
+      try{
+        await gcalApiCal('DELETE','/'+encodeURIComponent(dup.ev.id),null,dup.calId);
+        removed++;
+      }catch(ce){
+        if((ce&&ce.message||'').indexOf('404')<0){errors++;console.warn('gcal cross-calendar duplicate delete failed:',dup.calId,ce&&ce.message);}
+      }
+    }
+    if(ckeep&&ckeep.ev&&ckeep.ev.id){
+      _gcalCfg.eventMeta[ckey]=Object.assign({},_gcalCfg.eventMeta[ckey]||{},{eventId:ckeep.ev.id,calId:ckeep.calId,updatedAt:Date.now()});
     }
   }
   try{localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));}catch(e){}
@@ -23193,6 +23407,8 @@ function gcalQueueTaskEventDeletion(t){
   var eventId=t.google_event_id||meta.eventId||_gcalCfg.eventIds[String(t.id)];
   if(eventId&&!_gcalCfg.deletedEvents.some(function(x){return x&&x.eventId===eventId;})){
     _gcalCfg.deletedEvents.push({eventId:eventId,calId:meta.calId||gcalTaskTargetCalId(t),taskKey:taskKey,taskId:String(t.id||''),queuedAt:Date.now()});
+  }else if(taskKey&&!_gcalCfg.deletedEvents.some(function(x){return x&&!x.eventId&&x.taskKey===taskKey;})){
+    _gcalCfg.deletedEvents.push({eventId:'',calId:meta.calId||gcalTaskTargetCalId(t),taskKey:taskKey,taskId:String(t.id||''),queuedAt:Date.now()});
   }
   if(taskKey)delete _gcalCfg.eventMeta[taskKey];
   if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
@@ -23269,9 +23485,14 @@ async function gcalSync(opts){
     var remainingDeletes=[];
     for(var di=0;di<_gcalCfg.deletedEvents.length;di++){
       var del=_gcalCfg.deletedEvents[di];
-      if(!del||!del.eventId)continue;
+      if(!del)continue;
       try{
-        await gcalApiCal('DELETE','/'+encodeURIComponent(del.eventId),null,del.calId||_gcalCfg.calendarId||'primary');
+        if(del.eventId){
+          await gcalApiCal('DELETE','/'+encodeURIComponent(del.eventId),null,del.calId||_gcalCfg.calendarId||'primary');
+          if(del.taskKey)await gcalDeleteReturnEventsByKey(del.taskKey,del.calId,del.eventId);
+        }else if(del.taskKey){
+          await gcalDeleteReturnEventsByKey(del.taskKey,del.calId,'');
+        }
       }catch(de){
         if((de&&de.message||'').indexOf('404')<0)remainingDeletes.push(del);
       }
@@ -23322,6 +23543,7 @@ async function gcalSync(opts){
       if(r&&r.id){
         if(!existingItems)existingItems=await gcalFindExistingEvents(taskKey,calId);
         await gcalDeleteDuplicateReturnEvents(existingItems,r.id,calId,taskKey);
+        await gcalDeleteReturnEventsInOtherCalendars(taskKey,calId,r.id);
         _gcalCfg.eventIds[String(t.id)]=r.id;
         _gcalCfg.eventMeta[taskKey]={eventId:r.id,calId:calId,taskId:String(t.id),updatedAt:Date.now()};
         if(t.google_event_id!==r.id){t.google_event_id=r.id;taskChanged=true;}
@@ -23972,7 +24194,7 @@ function themeStudioSetIconValue(state,key,value,fallback){
   var icons=themeStudioEnsureIconsState(state);
   icons[key]=value||'';
   state.iconFallbacks=state.iconFallbacks||{};
-  if(fallback&&isReturnDisplayableImageUrl(fallback)&&fallback.length<350000)state.iconFallbacks[key]=fallback;
+  if(fallback&&isReturnDisplayableImageUrl(fallback)&&fallback.length<700000)state.iconFallbacks[key]=fallback;
   else if(!value)delete state.iconFallbacks[key];
 }
 function themeStudioSystemPresets(){
