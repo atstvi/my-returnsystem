@@ -4728,6 +4728,42 @@ body[data-theme-radius="bubble"]{--r-md:18px;--r-lg:24px;--r-xl:32px}
 
 to{opacity:1;transform:translateY(0)}}
 
+/* ── Music UX v3 ───────────────────────────────────────────────────────── */
+/* Mini player: always show controls, progress, time */
+.music-mini-player{width:min(540px,calc(100vw - 32px));opacity:1}
+.music-mini-player:hover,.music-mini-player.expanded{width:min(680px,calc(100vw - 32px))}
+.music-mini-time{display:flex!important;justify-content:space-between;line-height:1.4}
+.music-mini-controls button:not(#music-play-btn){display:inline-flex!important;align-items:center;justify-content:center}
+#music-play-btn{width:40px!important;height:40px!important;font-size:16px!important;background:var(--accent)!important;color:#fff!important;border-color:transparent!important;border-radius:var(--r-full)!important}
+/* Hide redundant free-text inputs — chips cover mood/usecase */
+#music-mood-input,#music-usecase-input,#music-playlist-mood-input,#music-playlist-usecase-input,#music-playlist-desc-input{display:none!important}
+/* Advanced toggle */
+.music-adv-toggle{font-size:var(--text-xs);color:var(--a-600,#5b7abf);cursor:pointer;background:none;border:none;padding:var(--sp-1) 0;margin:var(--sp-1) 0;display:inline-block}
+.music-adv-toggle:hover{color:var(--fg)}
+.music-adv-fields{display:none;gap:var(--sp-3)}
+.music-adv-fields.open{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);grid-column:1/-1}
+/* Simplified song form columns */
+#music-add-panel .music-form{grid-template-columns:1fr 1fr}
+/* Inline edit + picker panels */
+.music-edit-panel,.music-pl-picker{background:var(--bg-card);border:.5px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.music-pl-picker-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:var(--sp-3);max-height:360px;overflow-y:auto}
+.music-pl-pick-btn{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-raised);cursor:pointer;text-align:left;width:100%;transition:background .1s,border-color .1s}
+.music-pl-pick-btn:hover:not([disabled]){background:var(--accent-light);border-color:var(--a-200)}
+.music-pl-pick-btn[disabled]{opacity:.5;cursor:default}
+.music-pl-pick-cover{width:36px;height:36px;border-radius:var(--r-md);overflow:hidden;background:var(--bg-sunken);flex-shrink:0}
+.music-pl-pick-cover img{width:100%;height:100%;object-fit:cover}
+/* Cleaner playlist card song preview */
+.music-card-song-preview{display:flex;flex-direction:column;gap:3px;margin:var(--sp-2) 0}
+.music-card-song-preview .music-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--text-2xs)!important}
+/* Panel title style */
+.music-panel-title{font-size:var(--text-xs)!important;font-weight:var(--fw-bold)!important;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)!important}
+/* Quick chip label */
+.music-chip-label{font-size:var(--text-xs);color:var(--fg-4);margin-bottom:4px;display:block}
+/* Manage list rows */
+.music-manage-row{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2);border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-raised)}
+.music-manage-row-cover{width:32px;height:32px;border-radius:var(--r-md);overflow:hidden;background:var(--bg-sunken);flex-shrink:0}
+.music-manage-row-cover img{width:100%;height:100%;object-fit:cover}
+/* ── end Music UX v3 ─────────────────────────────────────────────────── */
 
 </style>
 </head>
@@ -26364,6 +26400,283 @@ try {
   _currentPage = null;
   goPage(slug);
 })();
+
+/* ── Music UX v3 JS ─────────────────────────────────────────────────── */
+(function(){
+'use strict';
+
+/* ── transient panel refs ── */
+var _musicEditPanel=null;
+var _musicPickerPanel=null;
+
+function musicCloseEditPanel(){if(_musicEditPanel){_musicEditPanel.remove();_musicEditPanel=null;}}
+function musicClosePickerPanel(){if(_musicPickerPanel){_musicPickerPanel.remove();_musicPickerPanel=null;}}
+
+/* ── 1. Advanced-fields toggle for add-song form ── */
+function musicEnhanceSongForm(){
+  var form=document.querySelector('#music-add-panel .music-form');
+  if(!form||form.dataset.v3enh)return;
+  form.dataset.v3enh='1';
+  var advIds=['music-start-input','music-end-input','music-volume-input'];
+  var advEls=advIds.map(function(id){return document.getElementById(id);}).filter(Boolean);
+  var notesEl=document.getElementById('music-notes-input');
+  if(!advEls.length&&!notesEl)return;
+  var wrap=document.createElement('div');
+  wrap.className='music-adv-fields';
+  wrap.id='music-song-adv-wrap';
+  advEls.forEach(function(el){wrap.appendChild(el);});
+  if(notesEl&&!wrap.contains(notesEl))wrap.appendChild(notesEl);
+  var toggle=document.createElement('button');
+  toggle.type='button';
+  toggle.className='music-adv-toggle';
+  toggle.style.gridColumn='1/-1';
+  toggle.textContent='고급 설정 ▸';
+  toggle.addEventListener('click',function(){
+    var open=wrap.classList.toggle('open');
+    toggle.textContent=open?'고급 설정 ▴':'고급 설정 ▸';
+  });
+  var actions=form.querySelector('.music-form-actions');
+  if(actions){form.insertBefore(toggle,actions);form.insertBefore(wrap,actions);}
+  else{form.appendChild(toggle);form.appendChild(wrap);}
+}
+
+/* ── 2. Inline song-edit panel ── */
+function musicShowEditPanel(songId){
+  var s=musicSongById(songId);if(!s)return;
+  musicCloseEditPanel();musicClosePickerPanel();
+  var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
+  var panel=document.createElement('section');
+  panel.className='music-panel music-edit-panel';
+  panel.id='music-song-edit-panel';
+  var grpId='edit-song-'+String(songId).slice(-6);
+  panel.innerHTML=
+    '<div class="music-panel-head">'+
+      '<div><div class="music-panel-title">노래 수정</div>'+
+      '<div class="music-note">'+musicEsc(s.title)+'</div></div>'+
+      '<button class="set-btn btn-ghost" type="button" id="music-edit-close-btn">✕</button></div>'+
+    '<div class="music-form" style="grid-template-columns:1fr 1fr">'+
+      '<input class="set-inp" id="music-edit-title" placeholder="제목" value="'+musicEsc(s.title||'')+'">'+
+      '<input class="set-inp" id="music-edit-artist" placeholder="아티스트/채널" value="'+musicEsc(s.artist||'')+'">'+
+      '<div style="grid-column:1/-1">'+
+        '<span class="music-chip-label">태그</span>'+
+        musicPresetChipsHtml(grpId,s.tags||[])+
+        '<input class="set-inp" id="music-edit-tags" placeholder="직접 입력" style="margin-top:6px" value="'+musicEsc((s.tags||[]).join(', '))+'">'+
+      '</div>'+
+      '<button type="button" class="music-adv-toggle" id="music-edit-adv-toggle" style="grid-column:1/-1">고급 설정 ▸</button>'+
+      '<div class="music-adv-fields" id="music-edit-adv-wrap" style="grid-column:1/-1">'+
+        '<input class="set-inp" id="music-edit-start" type="number" min="0" placeholder="시작 초" value="'+(s.startTime||0)+'">'+
+        '<input class="set-inp" id="music-edit-end" type="number" min="0" placeholder="종료 초" value="'+(s.endTime||0)+'">'+
+        '<input class="set-inp" id="music-edit-volume" type="number" min="0" max="100" placeholder="볼륨 0-100" value="'+(s.volume==null?80:s.volume)+'">'+
+      '</div>'+
+      '<div class="music-form-actions" style="grid-column:1/-1">'+
+        '<button class="set-btn btn-ghost" type="button" id="music-edit-del-btn" data-del-sid="'+musicEsc(s.id)+'">삭제</button>'+
+        '<button class="set-btn btn-ghost" type="button" id="music-edit-cancel-btn">취소</button>'+
+        '<button class="set-btn btn-primary" type="button" id="music-edit-save-btn" data-save-sid="'+musicEsc(s.id)+'">저장</button>'+
+      '</div>'+
+    '</div>';
+  var ref=document.getElementById('music-add-panel');
+  ref?ref.after(panel):shell.prepend(panel);
+  _musicEditPanel=panel;
+  musicBindPresetChips(panel);
+  panel.querySelector('#music-edit-close-btn').addEventListener('click',musicCloseEditPanel);
+  panel.querySelector('#music-edit-cancel-btn').addEventListener('click',musicCloseEditPanel);
+  var advTog=panel.querySelector('#music-edit-adv-toggle');
+  var advWrap=panel.querySelector('#music-edit-adv-wrap');
+  advTog.addEventListener('click',function(){
+    var open=advWrap.classList.toggle('open');
+    advTog.textContent=open?'고급 설정 ▴':'고급 설정 ▸';
+  });
+  panel.querySelector('#music-edit-del-btn').addEventListener('click',function(){
+    if(!confirm('"'+s.title+'" 를 삭제할까요?'))return;
+    musicLibrary.songs=musicLibrary.songs.filter(function(x){return x.id!==s.id;});
+    musicLibrary.playlists.forEach(function(pl){pl.songIds=(pl.songIds||[]).filter(function(id){return id!==s.id;});});
+    musicSave();musicCloseEditPanel();musicRender();
+  });
+  panel.querySelector('#music-edit-save-btn').addEventListener('click',function(){
+    var song=musicSongById(panel.querySelector('#music-edit-save-btn').dataset.saveSid);
+    if(!song)return;
+    var tval=((document.getElementById('music-edit-title')||{}).value||'').trim();
+    if(tval)song.title=tval;
+    song.artist=((document.getElementById('music-edit-artist')||{}).value||'').trim();
+    var chips=musicReadPresetChips(grpId);
+    var custom=musicSplitTags((document.getElementById('music-edit-tags')||{}).value||'');
+    var seen={};
+    song.tags=chips.concat(custom).filter(function(t){var k=t.toLowerCase();if(seen[k])return false;seen[k]=1;return true;});
+    if(!song.mood)song.mood=(song.tags.find(function(t){return /calm|upbeat|cozy|night|morning/i.test(t);})||'');
+    if(!song.useCase)song.useCase=(song.tags.find(function(t){return /study|routine|planning|rest|focus/i.test(t);})||'');
+    song.startTime=Math.max(0,parseInt((document.getElementById('music-edit-start')||{}).value||'0',10)||0);
+    song.endTime=Math.max(0,parseInt((document.getElementById('music-edit-end')||{}).value||'0',10)||0);
+    song.volume=Math.max(0,Math.min(100,parseInt((document.getElementById('music-edit-volume')||{}).value||'80',10)||80));
+    song.updatedAt=Date.now();
+    musicSave();musicCloseEditPanel();musicRender();
+  });
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ── 3. Inline add-song-to-playlist picker ── */
+function musicShowAddSongFlow(songId,playlistId){
+  musicLoad();
+  var song=songId?musicSongById(songId):null;
+  var pl=playlistId?musicPlaylistById(playlistId):null;
+  /* Direct add when both are known */
+  if(song&&pl){
+    pl.songIds=pl.songIds||[];
+    if(pl.songIds.indexOf(song.id)<0){
+      pl.songIds.push(song.id);
+      if(!pl.coverImage)pl.coverImage=song.thumbnail||'';
+      pl.updatedAt=Date.now();
+      musicSave();musicRender();
+      if(typeof showToast==='function')showToast('"'+pl.title+'"에 추가했어요.');
+    }else{if(typeof showToast==='function')showToast('이미 담겨 있어요.');}
+    return;
+  }
+  musicClosePickerPanel();musicCloseEditPanel();
+  var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
+  var picker=document.createElement('section');
+  picker.className='music-panel music-pl-picker';
+  picker.id='music-pl-picker-panel';
+  /* Picking playlist for a song */
+  if(song&&!pl){
+    if(!musicLibrary.playlists.length){if(typeof showToast==='function')showToast('플레이리스트를 먼저 만들어 주세요.');return;}
+    var listHtml=musicLibrary.playlists.map(function(p){
+      var cover=p.coverImage||'';var cnt=(p.songIds||[]).length;var already=(p.songIds||[]).indexOf(song.id)>=0;
+      return '<button class="music-pl-pick-btn" type="button" data-pick-pl="'+musicEsc(p.id)+'"'+(already?' disabled':'')+'>'+
+        '<div class="music-pl-pick-cover">'+(cover?'<img src="'+musicEsc(cover)+'" alt="">':'')+'</div>'+
+        '<div style="min-width:0;flex:1"><div style="font-size:var(--text-sm);font-weight:var(--fw-semibold)">'+musicEsc(p.title)+'</div>'+
+        '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+cnt+'곡'+(already?' · 이미 담김':'')+'</div></div></button>';
+    }).join('');
+    picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">플레이리스트에 담기</div><div class="music-note">'+musicEsc(song.title)+'</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div><div class="music-pl-picker-list">'+listHtml+'</div>';
+    var ref2=document.getElementById('music-add-panel');ref2?ref2.after(picker):shell.prepend(picker);
+    _musicPickerPanel=picker;
+    picker.querySelector('#music-picker-close').addEventListener('click',musicClosePickerPanel);
+    picker.querySelectorAll('[data-pick-pl]').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var target=musicPlaylistById(btn.dataset.pickPl);if(!target||!song)return;
+        target.songIds=target.songIds||[];
+        if(target.songIds.indexOf(song.id)<0){target.songIds.push(song.id);if(!target.coverImage)target.coverImage=song.thumbnail||'';target.updatedAt=Date.now();musicSave();musicRender();if(typeof showToast==='function')showToast('"'+target.title+'"에 추가했어요.');}
+        musicClosePickerPanel();
+      });
+    });
+  }
+  /* Picking song for a playlist */
+  if(pl&&!song){
+    if(!musicLibrary.songs.length){if(typeof showToast==='function')showToast('노래를 먼저 추가해 주세요.');return;}
+    var songHtml=musicLibrary.songs.map(function(s){
+      var already=(pl.songIds||[]).indexOf(s.id)>=0;
+      return '<button class="music-pl-pick-btn" type="button" data-pick-song="'+musicEsc(s.id)+'"'+(already?' disabled':'')+'>'+
+        '<div class="music-pl-pick-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div>'+
+        '<div style="min-width:0;flex:1"><div style="font-size:var(--text-sm);font-weight:var(--fw-semibold)">'+musicEsc(s.title)+'</div>'+
+        '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+musicEsc(s.artist||'YouTube')+(already?' · 이미 담김':'')+'</div></div></button>';
+    }).join('');
+    picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">노래 선택</div><div class="music-note">'+musicEsc(pl.title)+'에 담기</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div><div class="music-pl-picker-list">'+songHtml+'</div>';
+    var ref3=document.getElementById('music-add-panel');ref3?ref3.after(picker):shell.prepend(picker);
+    _musicPickerPanel=picker;
+    picker.querySelector('#music-picker-close').addEventListener('click',musicClosePickerPanel);
+    picker.querySelectorAll('[data-pick-song]').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var s=musicSongById(btn.dataset.pickSong);if(!s||!pl)return;
+        pl.songIds=pl.songIds||[];
+        if(pl.songIds.indexOf(s.id)<0){pl.songIds.push(s.id);if(!pl.coverImage)pl.coverImage=s.thumbnail||'';pl.updatedAt=Date.now();musicSave();musicRender();if(typeof showToast==='function')showToast('"'+s.title+'"을(를) 추가했어요.');}
+        musicClosePickerPanel();
+      });
+    });
+  }
+  picker.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ── 4. Inline playlist-manage panel ── */
+function musicShowManagePanel(id){
+  var pl=musicPlaylistById(id);if(!pl)return;
+  musicCloseEditPanel();musicClosePickerPanel();
+  var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
+  var panel=document.createElement('section');
+  panel.className='music-panel music-edit-panel';
+  panel.id='music-manage-pl-panel';
+  function buildRows(){
+    var songs=(pl.songIds||[]).map(musicSongById).filter(Boolean);
+    if(!songs.length)return '<div class="music-empty" style="padding:var(--sp-4)">노래를 담아 큐를 만들어요.</div>';
+    return songs.map(function(s,i){
+      return '<div class="music-manage-row">'+
+        '<div class="music-manage-row-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div>'+
+        '<div style="flex:1;min-width:0;font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+musicEsc(s.title)+'</div>'+
+        '<span style="display:flex;gap:4px;flex-shrink:0">'+
+          (i>0?'<button class="set-btn btn-ghost" style="height:28px;padding:0 8px;font-size:11px" type="button" data-mpl-up="'+musicEsc(pl.id)+'" data-si="'+i+'">↑</button>':'')+
+          (i<songs.length-1?'<button class="set-btn btn-ghost" style="height:28px;padding:0 8px;font-size:11px" type="button" data-mpl-dn="'+musicEsc(pl.id)+'" data-si="'+i+'">↓</button>':'')+
+          '<button class="set-btn btn-ghost" style="height:28px;padding:0 8px;font-size:11px" type="button" data-mpl-rm="'+musicEsc(pl.id)+'" data-sid="'+musicEsc(s.id)+'">×</button>'+
+        '</span></div>';
+    }).join('');
+  }
+  panel.innerHTML=
+    '<div class="music-panel-head">'+
+      '<div><div class="music-panel-title">플레이리스트 관리</div>'+
+      '<div class="music-note">'+musicEsc(pl.title)+'</div></div>'+
+      '<div style="display:flex;gap:var(--sp-2)">'+
+        '<button class="set-btn btn-ghost" type="button" id="music-manage-del" style="font-size:var(--text-xs)">삭제</button>'+
+        '<button class="set-btn btn-ghost" type="button" id="music-manage-close">✕</button>'+
+      '</div></div>'+
+    '<div id="music-manage-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">'+buildRows()+'</div>';
+  var ref=document.getElementById('music-add-panel');ref?ref.after(panel):shell.prepend(panel);
+  _musicEditPanel=panel;
+  function rebind(){
+    var list=document.getElementById('music-manage-list');if(!list)return;
+    list.innerHTML=buildRows();
+    list.querySelectorAll('[data-mpl-up]').forEach(function(b){b.addEventListener('click',function(){musicMovePlaylistSong(b.dataset.mplUp,Number(b.dataset.si),-1);pl=musicPlaylistById(id);rebind();});});
+    list.querySelectorAll('[data-mpl-dn]').forEach(function(b){b.addEventListener('click',function(){musicMovePlaylistSong(b.dataset.mplDn,Number(b.dataset.si),1);pl=musicPlaylistById(id);rebind();});});
+    list.querySelectorAll('[data-mpl-rm]').forEach(function(b){b.addEventListener('click',function(){musicRemoveSongFromPlaylist(b.dataset.mplRm,b.dataset.sid);pl=musicPlaylistById(id);rebind();});});
+  }
+  rebind();
+  panel.querySelector('#music-manage-close').addEventListener('click',musicCloseEditPanel);
+  panel.querySelector('#music-manage-del').addEventListener('click',function(){
+    if(!confirm('"'+pl.title+'" 를 삭제할까요?'))return;
+    musicDeletePlaylist(id);musicCloseEditPanel();
+  });
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+/* ── 5. Cleaner playlist card (no inline inline form rows) ── */
+musicPlaylistCard=function(pl){
+  var songs=(pl.songIds||[]).map(musicSongById).filter(Boolean);
+  var cover=pl.coverImage||(songs[0]&&songs[0].thumbnail)||'';
+  var preview=songs.slice(0,3).map(function(s,i){
+    return '<div class="music-note music-card-song-preview">'+musicEsc((i+1)+'. '+s.title)+'</div>';
+  }).join('');
+  return '<article class="music-card music-playlist-card">'+
+    '<div class="music-cover">'+(cover?'<img src="'+musicEsc(cover)+'" alt="">':'')+'</div>'+
+    '<div class="music-card-title">'+musicEsc(pl.title||'Playlist')+'</div>'+
+    '<div class="music-note" style="font-size:var(--text-xs)">'+songs.length+'곡'+(pl.description?' · '+musicEsc(pl.description.slice(0,40)):'')+'</div>'+
+    '<div class="music-meta">'+musicTagsHtml(pl)+'</div>'+
+    (preview?'<div style="display:flex;flex-direction:column;gap:3px;margin:var(--sp-2) 0">'+preview+'</div>':'')+
+    '<div class="music-card-actions">'+
+      '<button class="set-btn btn-primary" type="button" data-music-playlist-play="'+musicEsc(pl.id)+'">▶ 재생</button>'+
+      '<button class="set-btn btn-ghost" type="button" data-music-playlist-add="'+musicEsc(pl.id)+'">+ 담기</button>'+
+      '<button class="set-btn btn-ghost" type="button" data-music-playlist-edit="'+musicEsc(pl.id)+'">관리</button>'+
+    '</div></article>';
+};
+
+/* ── 6. Override function hooks ── */
+musicEditSong=musicShowEditPanel;
+musicAddSongToPlaylistPrompt=musicShowAddSongFlow;
+musicManagePlaylist=musicShowManagePanel;
+
+var _oldUiEnsureV3=musicUiEnsure;
+musicUiEnsure=function(){_oldUiEnsureV3();musicEnhanceSongForm();};
+
+/* ── 7. Song card: compact "수정" opens inline, "담기" uses picker ── */
+/* Already handled via function overrides above */
+
+/* ── 8. Close panels when switching away from music tab ── */
+(function(){
+  var orig=window.goPage;
+  if(typeof orig==='function'){
+    window.goPage=function(p){
+      if(p!=='music'){musicCloseEditPanel();musicClosePickerPanel();}
+      return orig.apply(this,arguments);
+    };
+  }
+})();
+
+})();
+/* ── end Music UX v3 JS ─────────────────────────────────────────────── */
 </script>
 </body>
 </html>
