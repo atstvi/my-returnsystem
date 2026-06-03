@@ -12456,8 +12456,12 @@ function setReturnStorageItem(key,value){
   function verifiedWrite(){
     var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
     writer(key,value);
-    /* Also remove from IDB cache so localStorage value takes precedence */
-    if(Object.prototype.hasOwnProperty.call(_idbCache,key)) _idbDelete(key);
+    /* Also remove from IDB cache so localStorage value takes precedence.
+       Null-safe: a #settings deep-link can call this during initial parse,
+       before `var _idbCache={}` (further down) is assigned — a write must not
+       throw on that (it previously failed the whole save with "Cannot convert
+       undefined or null to object"). */
+    if(typeof _idbCache!=='undefined'&&_idbCache&&Object.prototype.hasOwnProperty.call(_idbCache,key)&&typeof _idbDelete==='function') _idbDelete(key);
     return localStorage.getItem(key)===value;
   }
   /* Fire the same side-effects (Firebase save, GCal queue, Notion queue) that
@@ -23140,8 +23144,13 @@ var SyncManager=(function(){
 function shouldFbSyncKey(k){
   if(!k)return false;
   if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id'].indexOf(k)>=0)return false;
-  if(CLOUD_SETTING_KEYS.indexOf(k)>=0)return true;
-  if(FB_DATA_KEYS.indexOf(k)>=0)return true;
+  /* Null-safe against boot ordering: a #settings deep-link runs goPage() during
+     initial parse, which can persist (theme/cats) BEFORE the module-level
+     CLOUD_SETTING_KEYS / FB_DATA_KEYS arrays are assigned further down the file.
+     A predicate must never throw on that — the regex fallback below still
+     classifies correctly, and the value is re-synced once hydration completes. */
+  if(typeof CLOUD_SETTING_KEYS!=='undefined'&&CLOUD_SETTING_KEYS&&CLOUD_SETTING_KEYS.indexOf(k)>=0)return true;
+  if(typeof FB_DATA_KEYS!=='undefined'&&FB_DATA_KEYS&&FB_DATA_KEYS.indexOf(k)>=0)return true;
   return /^(return_|task_|diary_|hobby_|home_|inbox_|project|projects_|memos_|metrics_|phil_|reward_|recharge_|timetables_|global_sticker)/.test(k);
 }
 function fbConfig(){ try{return Object.assign({},DEFAULT_FB_CONFIG,JSON.parse(localStorage.getItem('fb_config')||'{}'));}catch(e){return Object.assign({},DEFAULT_FB_CONFIG);} }
