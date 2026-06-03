@@ -16091,7 +16091,8 @@ function loadDate(dk) {
   if (currentDate && currentDate !== dk) {
     commitCurrent();
     var saved=saveAll();
-    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    if(!saved && typeof showToast==='function') showToast('일기 저장 실패 — 저장공간을 확인해주세요');
+    if(saved && typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
   }
 
   currentDate = dk;
@@ -16187,7 +16188,7 @@ function pickContextCycle(field, pool, btn) {
   var cur = entries[currentDate][field] || '';
   var idx = pool.indexOf(cur);
   entries[currentDate][field] = pool[(idx+1) % pool.length];
-  saveAll();
+  if(!saveAll() && typeof showToast==='function') showToast('일기 저장 실패 — 저장공간을 확인해주세요');
   renderContextChips(currentDate);
 }
 function addDiaryTimelineManual(){
@@ -16268,22 +16269,24 @@ function diaryAutoSave(key, el) {
 
   saveTimer = setTimeout(function() {
     commitCurrent();
-    saveAll();
+    var saved = saveAll();
 
-    /* Clear dirty indicators */
-    if(saved)SECTIONS.forEach(function(k) {
-      var s = document.getElementById('ds-'+k);
-      if (s) s.classList.remove('dirty');
-    });
-
-    if (saveDot) saveDot.className = 'save-dot';
-    if (saveText) saveText.textContent = '모두 저장됨';
-
-    /* Update strip */
-    if(saved)renderStripEntries();
-    if(saved)renderStripDays();
-    if(!saved && saveDot) saveDot.className = 'save-dot saving';
-    if(!saved && saveText) saveText.textContent = 'Save failed';
+    if (saved) {
+      /* Clear dirty indicators */
+      SECTIONS.forEach(function(k) {
+        var s = document.getElementById('ds-'+k);
+        if (s) s.classList.remove('dirty');
+      });
+      if (saveDot) saveDot.className = 'save-dot';
+      if (saveText) saveText.textContent = '모두 저장됨';
+      /* Update strip */
+      renderStripEntries();
+      renderStripDays();
+    } else {
+      if (saveDot) saveDot.className = 'save-dot saving';
+      if (saveText) saveText.textContent = '저장 실패 — 저장공간 부족';
+      console.error('[diary] saveAll failed — storage quota likely exceeded');
+    }
   }, 4000);
 }
 
@@ -16695,8 +16698,9 @@ function scheduleBlockSave() {
   clearTimeout(blockSaveTimer);
   blockSaveTimer = setTimeout(function() {
     commitCurrent();
-    saveAll();
-    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    var bsaved=saveAll();
+    if(bsaved && typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    if(!bsaved) console.error('[diary] scheduleBlockSave: saveAll failed');
   }, 2000);
 }
 
