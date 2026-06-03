@@ -1,0 +1,81 @@
+'use strict';
+/* Stage 6d — per-entity merge semantics (design §3 + verification matrix §7).
+   Loads the real merge functions from index.html and exercises the matrix. */
+const { readIndex, sliceBlock, makeStore, runner } = require('./lib');
+
+const html = readIndex();
+const block = sliceBlock(html, 'var RETURN_SYNC_CONFLICT_KEY=', 'window.returnEntityMergeArray=');
+
+const { store, localStorage } = makeStore();
+const sandbox = {
+  window: {},
+  console,
+  localStorage,
+  setReturnStorageItem: (k, v) => { store[k] = String(v); return true; },
+  _entityPayloadHash: (e) => JSON.stringify(e), // stub: payload-equality only
+};
+const vm = require('vm');
+vm.createContext(sandbox);
+vm.runInContext(block, sandbox);
+const { returnEntityMergeArray, returnEntityMergeObject, returnEntityLogConflicts } = sandbox;
+
+const t = runner('Stage 6d — merge matrix');
+
+/* single-eid array merge helper */
+function D(eid, L, C, tomb) {
+  const local = L ? [Object.assign({ _eid: eid }, L)] : [];
+  const cloud = {}; if (C) cloud[eid] = C;
+  return returnEntityMergeArray(local, cloud, tomb || {}, 'tasks');
+}
+
+// §7.4 — both live, concurrent edit → newer updatedAt wins, conflict logged
+let r = D('t_1', { title: 'local', updatedAt: 200 }, { _eid: 't_1', payload: { _eid: 't_1', title: 'cloud', updatedAt: 300 }, updatedAt: 300 });
+t.ok('cloud newer wins', r.merged.length === 1 && r.merged[0].title === 'cloud', r.merged);
+t.ok('conflict logged (cloud)', r.conflicts.length === 1 && r.conflicts[0].winner === 'cloud', r.conflicts);
+r = D('t_1', { title: 'local', updatedAt: 400 }, { _eid: 't_1', payload: { title: 'cloud', updatedAt: 300 }, updatedAt: 300 });
+t.ok('local newer wins', r.merged[0].title === 'local' && r.conflicts[0].winner === 'local');
+r = D('t_1', { title: 'local', updatedAt: 300 }, { _eid: 't_1', payload: { title: 'cloud', updatedAt: 300 }, updatedAt: 300 });
+t.ok('tie → cloud, no conflict', r.merged[0].title === 'cloud' && r.conflicts.length === 0);
+
+// §7.5 — A deletes (cloud tombstone), B stale → stays deleted; newer local edit survives
+r = D('t_2', { title: 'stale', updatedAt: 100 }, { _eid: 't_2', deletedAt: 500, _tombstone: true });
+t.ok('cloud tombstone > stale local → dropped', r.merged.length === 0, r.merged);
+r = D('t_2', { title: 'fresh', updatedAt: 900 }, { _eid: 't_2', deletedAt: 500, _tombstone: true });
+t.ok('newer local edit survives delete', r.merged.length === 1 && r.merged[0].title === 'fresh', r.merged);
+
+// §7.6 — delete-vs-edit decided by timestamp both ways
+r = D('t_3', null, { _eid: 't_3', payload: { title: 'cloud-edit', updatedAt: 700 }, updatedAt: 700 }, { t_3: { deletedAt: 600 } });
+t.ok('edit(700) > delete(600) → survives', r.merged.length === 1 && r.merged[0].title === 'cloud-edit', r.merged);
+r = D('t_3', null, { _eid: 't_3', payload: { title: 'cloud-edit', updatedAt: 500 }, updatedAt: 500 }, { t_3: { deletedAt: 600 } });
+t.ok('delete(600) >= edit(500) → dropped', r.merged.length === 0, r.merged);
+
+// §7.3 / R3 — cloud-only adopt, but suppressed by newer local tombstone
+r = returnEntityMergeArray([], { t_9: { _eid: 't_9', payload: { title: 'remote-new', updatedAt: 50 }, updatedAt: 50 } }, {}, 'tasks');
+t.ok('cloud-only adopted', r.merged.length === 1 && r.merged[0].title === 'remote-new');
+r = returnEntityMergeArray([], { t_9: { _eid: 't_9', payload: { title: 'remote-new', updatedAt: 50 }, updatedAt: 50 } }, { t_9: { deletedAt: 80 } }, 'tasks');
+t.ok('cloud-only suppressed by newer local tombstone (R3)', r.merged.length === 0, r.merged);
+
+// local-only kept; eid-less passthrough; order preserved
+r = returnEntityMergeArray([{ _eid: 't_a', title: 'A', updatedAt: 1 }, { title: 'noeid' }, { _eid: 't_b', title: 'B', updatedAt: 1 }], {}, {}, 'tasks');
+t.ok('local-only + eid-less passthrough + order', r.merged.length === 3 && r.merged[0].title === 'A' && r.merged[1].title === 'noeid' && r.merged[2].title === 'B', r.merged.map((x) => x.title));
+
+// §7.8 — diary per-date merge
+let dr = returnEntityMergeObject(
+  { '2026-01-01': { _eid: 'diary_2026-01-01', text: 'local', updatedAt: 100 } },
+  { 'diary_2026-01-01': { _eid: 'diary_2026-01-01', payload: { _eid: 'diary_2026-01-01', text: 'cloud', updatedAt: 200 }, updatedAt: 200 },
+    'diary_2026-01-02': { _eid: 'diary_2026-01-02', payload: { _eid: 'diary_2026-01-02', text: 'new-day', updatedAt: 10 }, updatedAt: 10 } },
+  {}, 'diary', 'diary_');
+t.ok('diary same-date LWW (cloud newer)', dr.merged['2026-01-01'].text === 'cloud', dr.merged['2026-01-01']);
+t.ok('diary new cloud date adopted', dr.merged['2026-01-02'] && dr.merged['2026-01-02'].text === 'new-day', Object.keys(dr.merged));
+dr = returnEntityMergeObject({ '2026-01-03': { _eid: 'diary_2026-01-03', text: 'old', updatedAt: 100 } }, {}, { 'diary_2026-01-03': { deletedAt: 200 } }, 'diary', 'diary_');
+t.ok('diary date suppressed by tombstone', !dr.merged['2026-01-03'], dr.merged);
+
+// conflict ring buffer cap 50
+const big = []; for (let i = 0; i < 60; i++) big.push({ collection: 'tasks', _eid: 'x' + i });
+returnEntityLogConflicts(big);
+const buf = JSON.parse(store['__sync_conflicts_v1']);
+t.ok('conflict buffer capped at 50', buf.length === 50 && buf[49]._eid === 'x59', buf.length);
+
+t.ok('empty merge stable', returnEntityMergeArray([], {}, {}, 'x').merged.length === 0);
+
+t.done();
