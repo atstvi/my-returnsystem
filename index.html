@@ -11152,6 +11152,8 @@ function loadHomeBanner(){
   if (!hbState.stickers) hbState.stickers = [];
   bannerDebugLog('home:load',{hasImage:!!hbState.imgUrl,imgLength:hbState.imgUrl?hbState.imgUrl.length:0,stickers:hbState.stickers.length,pos:hbState.bgPos||null});
 }
+/* Ensure quota-tracking map exists before setReturnStorageItem is first called */
+if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
 function setReturnStorageItem(key,value){
   value=String(value==null?'':value);
   var old=null;
@@ -16455,7 +16457,7 @@ function loadDate(dk) {
   var entry = entries[dk] || {};
 
   /* Fill sections */
-  SECTIONS.forEach(function(key) {
+  (Array.isArray(SECTIONS)?SECTIONS:[]).forEach(function(key) {
     var el = document.getElementById('diary_'+key);
     if (!el) return;
     el.value = entry[key] || '';
@@ -19814,6 +19816,7 @@ function renderProjects(){
   if(!p&&projects.length){activeProjectId=projects[0].id;p=projects[0];}
   if(!p){detail.innerHTML='<div class="project-empty">프로젝트를 선택하거나 새로 만들어 주세요.</div>';return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
+  var tasksHtml=(typeof projectTaskTimelineHtml==='function')?projectTaskTimelineHtml(linked):'';
   var notesHtml=projectRecordAccessRows(p);
   var resHtml=(p.resources||[]).map(function(r){var host='링크';try{host=r.url?new URL(r.url).hostname:'메모';}catch(e){}return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+(r.image?'<img src="'+projectEsc(r.image)+'" alt="">':projectEsc(host))+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div></div>';}).join('')||'<div class="project-empty">링크, 이미지, 참고 메모를 추가해 보세요.</div>';
   detail.innerHTML='<section class="project-head"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+(p.deadline?' · '+p.deadline:'')+'</div><div class="project-desc">'+projectEsc(p.description||'설명이 없습니다.')+'</div><div class="project-progress"><span style="width:'+pct+'%"></span></div></div><div class="project-actions"><button class="btn btn-ghost" id="project-edit">편집</button><button class="btn btn-ghost" id="project-archive">'+(p.status==='archived'?'진행':'보관')+'</button><button class="btn btn-danger" id="project-delete">삭제</button></div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">연결된 할일</span><button class="btn btn-ghost" id="project-link-task">할일 연결</button></div><div class="project-linked-list">'+tasksHtml+'</div></section><section class="project-section"><div class="project-section-head"><span class="sec-label">기록 · 일기 · 체크</span></div>'+notesHtml+'</section><section class="project-section"><div class="project-section-head"><span class="sec-label">참고 자료</span><button class="btn btn-ghost" id="project-add-resource">추가</button></div><div class="project-resource-grid">'+resHtml+'</div></section>';
@@ -21788,7 +21791,8 @@ function fbLocalOnlyMode(){
   if(typeof updateGlobalCaptureVisibility==='function') updateGlobalCaptureVisibility();
 }
 function updateAuthGate(){
-  if(_fbLocalOnly){ document.body.classList.remove('auth-locked'); return; }
+  // Local-only mode: keep unlocked, but if user just logged in, fall through to clear local-only state
+  if(_fbLocalOnly && !fbUser){ document.body.classList.remove('auth-locked'); return; }
   var locked=!fbUser;
   document.body.classList.toggle('auth-locked',locked);
   var st=document.getElementById('auth-status');
@@ -22085,8 +22089,9 @@ function fbApplyData(data){
   var generatedRepairAfterFbApply = 0;
   var timetableRepairAfterFbApply = 0;
   try {
+    var _fbWriter = (typeof _rawSetItem === 'function') ? _rawSetItem : localStorage.setItem.bind(localStorage);
     Object.keys(data.keys).forEach(function(k){
-      try{ _rawSetItem(k, data.keys[k]); }catch(e){
+      try{ _fbWriter(k, data.keys[k]); }catch(e){
         try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
       }
     });
@@ -22860,6 +22865,7 @@ function __isQuotaError(e){
 }
 
 function __markStaleQuota(k){
+  if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
   if (!window.__staleQuotaKeys[k]) {
     window.__staleQuotaKeys[k] = Date.now();
     try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','quota stale: '+k); } catch(_){}
@@ -22875,6 +22881,7 @@ function __markStaleQuota(k){
 }
 
 function __clearStaleQuota(k){
+  if (!window.__staleQuotaKeys || !window.__staleQuotaKeys[k]) return;
   if (window.__staleQuotaKeys[k]) {
     delete window.__staleQuotaKeys[k];
     try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','quota stale cleared: '+k); } catch(_){}
