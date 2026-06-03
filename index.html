@@ -24564,9 +24564,24 @@ var _rawSetItem = localStorage.setItem.bind(localStorage);
 
 /* Storage health report — callable from the browser console as
    returnStorageReport() or returnStorageReport(true) to log a full breakdown.
-   Returns {totalKB, usedKeys, topKeys:[{key,kb}]} so callers can inspect
-   programmatically. Logs a console.warn if usage exceeds 80% of the typical
-   5 MB browser quota. */
+
+   Beyond raw size, this categorizes every key and flags ROOT-CAUSE candidates
+   (so cleanup removes causes instead of compressing blindly):
+     • media-inline base64 sitting in localStorage that belongs in IDB/media-store
+     • duplicated media blobs (same bytes under multiple keys)
+     • oversized non-synced bookkeeping (shadows / conflict log / tombstones)
+   Returns {totalKB, usedPct, keyCount, topKeys, categories, flags, idb} so
+   callers can inspect programmatically. Logs a console.warn past 80% quota. */
+function _storageClassifyKey(k){
+  if(k==='return_media_sync_v1') return 'media-sync';
+  if(/^__entity_wshadow/.test(k)||/_eidshadow/.test(k)||k==='global_sticker_shadow') return 'sync-shadow';
+  if(k==='return_tombstones_v1'||k==='__sync_conflicts_v1'||/^__storage_health/.test(k)) return 'sync-meta';
+  if(/banner/.test(k)||/theme_studio_assets/.test(k)) return 'media-inline';
+  if(/theme_studio|theme_palette|return_theme/.test(k)) return 'theme';
+  if(k==='gcal_cfg_v1'||k==='diary_notion_cfg'||k==='notion_config'||k==='groq_api_key'||k==='app_password'||/^return_fb_/.test(k)) return 'config';
+  if(/_v\d+$/.test(k)||/_items$|_cats$|_rules$|_logs$|_suppressions$/.test(k)) return 'synced-data';
+  return 'other';
+}
 function returnStorageReport(verbose){
   var total=0, keys=[];
   try {
@@ -24575,19 +24590,69 @@ function returnStorageReport(verbose){
       var v=localStorage.getItem(k)||'';
       var sz=(k.length+v.length)*2; // UTF-16: 2 bytes per char
       total+=sz;
-      keys.push({key:k,bytes:sz});
+      keys.push({key:k,bytes:sz,val:v});
     }
   } catch(e){ console.error('[storage] returnStorageReport failed:',e); return null; }
   keys.sort(function(a,b){return b.bytes-a.bytes;});
   var KB=Math.round(total/1024);
   var pct=Math.round(total/(5*1024*1024)*100);
-  var report={totalKB:KB,usedPct:pct,keyCount:keys.length,topKeys:keys.slice(0,10).map(function(x){return {key:x.key,kb:Math.round(x.bytes/1024)};})};
+
+  // category rollup
+  var cats={};
+  keys.forEach(function(x){ var c=_storageClassifyKey(x.key); (cats[c]=cats[c]||{bytes:0,count:0}); cats[c].bytes+=x.bytes; cats[c].count++; });
+  var categories=Object.keys(cats).map(function(c){return {category:c,kb:Math.round(cats[c].bytes/1024),count:cats[c].count};}).sort(function(a,b){return b.kb-a.kb;});
+
+  // root-cause flags
+  var flags=[], seenBlobs={};
+  keys.forEach(function(x){
+    var kb=Math.round(x.bytes/1024);
+    var b64=x.val.indexOf('data:')>=0 && x.val.length>2000;
+    if(b64 && kb>=40 && _storageClassifyKey(x.key)!=='media-sync'){
+      flags.push({key:x.key,kb:kb,issue:'inline-base64',hint:'large base64 image in localStorage — migrate to return_media_sync_v1 / IDB and store a media ref'});
+    }
+    // duplicate-media detection: signature on length + head/tail of any large base64 value
+    if(b64 && x.val.length>20000){
+      var sig=x.val.length+':'+x.val.slice(0,64)+x.val.slice(-64);
+      if(seenBlobs[sig]) flags.push({key:x.key,kb:kb,issue:'duplicate-media',hint:'identical blob also in "'+seenBlobs[sig]+'" — dedupe via media store'});
+      else seenBlobs[sig]=x.key;
+    }
+    var cl=_storageClassifyKey(x.key);
+    if((cl==='sync-shadow'||cl==='sync-meta')&&kb>=50){
+      flags.push({key:x.key,kb:kb,issue:'oversized-bookkeeping',hint:'non-data bookkeeping is unexpectedly large — likely stale/unpruned'});
+    }
+  });
+
+  // IDB overflow summary (bytes already living outside localStorage)
+  var idb=null;
+  try{
+    if(typeof _idbCache==='object'&&_idbCache){
+      var ib=0,ic=0; Object.keys(_idbCache).forEach(function(k){ ib+=(k.length+String(_idbCache[k]||'').length)*2; ic++; });
+      idb={keyCount:ic,kb:Math.round(ib/1024)};
+    }
+  }catch(_e){}
+
+  var report={
+    totalKB:KB, usedPct:pct, keyCount:keys.length,
+    topKeys:keys.slice(0,12).map(function(x){return {key:x.key,kb:Math.round(x.bytes/1024),category:_storageClassifyKey(x.key)};}),
+    categories:categories, flags:flags, idb:idb
+  };
+
   if(verbose){
-    console.group('[storage] returnStorageReport — '+KB+'KB / ~5120KB ('+pct+'%)');
-    report.topKeys.forEach(function(x){console.log(x.key+': '+x.kb+'KB');});
+    console.group('[storage] returnStorageReport — '+KB+'KB / ~5120KB ('+pct+'%)'+(idb?'  |  IDB overflow: '+idb.kb+'KB / '+idb.keyCount+' keys':''));
+    console.group('top keys');
+    report.topKeys.forEach(function(x){console.log(x.kb+'KB  ['+x.category+']  '+x.key);});
+    console.groupEnd();
+    console.group('by category');
+    categories.forEach(function(c){console.log(c.kb+'KB  ('+c.count+' keys)  '+c.category);});
+    console.groupEnd();
+    if(flags.length){
+      console.group('%croot-cause candidates ('+flags.length+')','color:#c0392b;font-weight:bold');
+      flags.forEach(function(f){console.warn(f.kb+'KB  '+f.issue+'  "'+f.key+'"\n   → '+f.hint);});
+      console.groupEnd();
+    } else { console.log('no root-cause flags — usage is dominated by genuine data'); }
     console.groupEnd();
   }
-  if(pct>=80) console.warn('[storage] localStorage at '+pct+'% capacity ('+KB+'KB). Consider clearing old data.');
+  if(pct>=80) console.warn('[storage] localStorage at '+pct+'% capacity ('+KB+'KB). Run returnStorageReport(true) and review the root-cause candidates above.');
   return report;
 }
 window.returnStorageReport=returnStorageReport;
