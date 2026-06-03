@@ -670,7 +670,7 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   height:20px; padding:0 var(--sp-3); border-radius:var(--r-full);
   font-size:var(--text-2xs); font-weight:var(--fw-semibold);
   cursor:pointer; white-space:nowrap; display:inline-flex; align-items:center;
-  transition:opacity var(--t-snap);
+  transition:opacity var(--t-snap); touch-action:none;
 }
 .allday-chip:hover { opacity:.8; }
 .chip-accent { background:var(--accent-light); color:var(--a-600); }
@@ -10087,30 +10087,30 @@ function renderHomeTimeBlocks(){
     chip.textContent=label;
     chip.setAttribute('draggable','true');
     chip.addEventListener('dragstart', function(e){ e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed='move'; });
+    /* Mouse click: open modal (touch tap is handled inside pointerdown/pointerup below). */
     chip.addEventListener('click', function(){
-      /* Suppress the synthetic click that fires after a touch-drag. */
-      if (chip._touchDragMoved) { chip._touchDragMoved=false; return; }
       if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
     });
 
-    /* Touch drag — HTML5 drag-and-drop doesn't work on iOS/Android, so we
-       simulate it. The chip stays in place while a "ghost" tracks the
-       finger. On touchend we pick the element under the finger and route
-       to the same logic the desktop ondrop handlers use.
-       Long-press OR initial movement past a small threshold triggers drag,
-       so quick taps still count as taps and open the task modal. */
-    chip.addEventListener('touchstart', function(e){
-      if (e.touches.length !== 1) return;
-      var touch = e.touches[0];
-      var startX = touch.clientX, startY = touch.clientY;
+    /* Touch drag via Pointer Events + setPointerCapture.
+       Unlike the old touchstart approach (passive, scroll-prone), pointer
+       capture gives us full control: the browser won't scroll while we hold
+       the capture, and ev.clientX/Y always reflect the real finger position.
+       Taps are handled on pointerup when no drag occurred, so no synthetic
+       click conflicts arise. */
+    chip.addEventListener('pointerdown', function(e){
+      if (e.pointerType !== 'touch') return;
+      e.preventDefault(); /* prevent scroll and synthetic click */
+      var startX = e.clientX, startY = e.clientY;
+      var pid = e.pointerId;
       var ghost = null, dragging = false;
-      chip._touchDragMoved = false;
-      var holdTimer = setTimeout(function(){ startDrag(touch); }, 220);
+      try { chip.setPointerCapture(pid); } catch(_){}
 
-      function startDrag(initial){
+      var holdTimer = setTimeout(function(){ startDragFn(); }, 200);
+
+      function startDragFn(){
         if (dragging) return;
         dragging = true;
-        chip._touchDragMoved = true;
         try { if (navigator.vibrate) navigator.vibrate(10); } catch(_){}
         var rect = chip.getBoundingClientRect();
         ghost = chip.cloneNode(true);
@@ -10122,56 +10122,57 @@ function renderHomeTimeBlocks(){
         document.body.appendChild(ghost);
         chip.style.opacity = '0.4';
       }
-      function move(ev){
-        if (!ev.touches || ev.touches.length !== 1) return;
-        var tt = ev.touches[0];
+
+      function onMove(ev){
+        if (ev.pointerId !== pid) return;
         if (!dragging) {
-          if (Math.abs(tt.clientX-startX) > 6 || Math.abs(tt.clientY-startY) > 6) {
+          if (Math.abs(ev.clientX-startX) > 8 || Math.abs(ev.clientY-startY) > 8) {
             clearTimeout(holdTimer);
-            startDrag(tt);
+            startDragFn();
           } else return;
         }
-        ev.preventDefault();
         if (ghost) {
-          ghost.style.left = (tt.clientX - ghost.offsetWidth/2) + 'px';
-          ghost.style.top  = (tt.clientY - ghost.offsetHeight/2) + 'px';
+          ghost.style.left = (ev.clientX - ghost.offsetWidth/2) + 'px';
+          ghost.style.top  = (ev.clientY - ghost.offsetHeight/2) + 'px';
         }
-        /* Highlight the drop target the finger is over. */
-        var el = document.elementFromPoint(tt.clientX, tt.clientY);
-        var slotsEl = pointInSlots(tt.clientX, tt.clientY) || (el && el.closest && el.closest('#htb-slots'));
-        var alldayEl = pointInAllDay(tt.clientX, tt.clientY) || (el && el.closest && el.closest('.htb-allday'));
-        slots.classList.toggle('drag-over-slots', !!slotsEl);
-        allday.classList.toggle('drag-over-date', !!alldayEl);
+        var inSlots  = pointInSlots(ev.clientX, ev.clientY);
+        var inAllday = pointInAllDay(ev.clientX, ev.clientY);
+        slots.classList.toggle('drag-over-slots', !!inSlots);
+        allday.classList.toggle('drag-over-date', !!inAllday && !inSlots);
       }
-      function end(ev){
+
+      function onUp(ev){
+        if (ev.pointerId !== pid) return;
         clearTimeout(holdTimer);
-        document.removeEventListener('touchmove', move, {passive:false});
-        document.removeEventListener('touchend', end);
-        document.removeEventListener('touchcancel', end);
+        chip.removeEventListener('pointermove', onMove);
+        chip.removeEventListener('pointerup', onUp);
+        chip.removeEventListener('pointercancel', onUp);
         if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+        ghost = null;
         chip.style.opacity = '';
         slots.classList.remove('drag-over-slots');
         allday.classList.remove('drag-over-date');
-        if (!dragging) return;
-        var endTouch = (ev.changedTouches && ev.changedTouches[0]) || null;
-        if (!endTouch) return;
-        var el = document.elementFromPoint(endTouch.clientX, endTouch.clientY);
-        var slotsEl = pointInSlots(endTouch.clientX, endTouch.clientY) || (el && el.closest && el.closest('#htb-slots'));
-        var alldayEl = pointInAllDay(endTouch.clientX, endTouch.clientY) || (el && el.closest && el.closest('.htb-allday'));
-        if (slotsEl) {
-          var minsDrop = timeFromSlotY(endTouch.clientY);
+
+        if (!dragging) {
+          /* Tap — open modal directly since synthetic click was suppressed. */
+          if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
+          return;
+        }
+
+        var inSlots = pointInSlots(ev.clientX, ev.clientY);
+        if (inSlots) {
+          var minsDrop = timeFromSlotY(ev.clientY);
           t.timeStart = fmt(minsDrop);
-          t.timeEnd = fmt(minsDrop+45);
+          t.timeEnd   = fmt(minsDrop + 45);
           if (typeof saveTaskData === 'function') saveTaskData();
           renderHomeTimeBlocks();
-        } else if (alldayEl) {
-          /* No-op: chip is already in the allday lane. */
         }
       }
-      document.addEventListener('touchmove', move, {passive:false});
-      document.addEventListener('touchend', end);
-      document.addEventListener('touchcancel', end);
-    }, {passive:true});
+
+      chip.addEventListener('pointermove', onMove);
+      chip.addEventListener('pointerup', onUp);
+      chip.addEventListener('pointercancel', onUp);
+    });
 
     allday.appendChild(chip);
   }
