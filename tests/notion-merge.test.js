@@ -35,11 +35,19 @@ t.ok('both changed, Notion newer → Notion wins + logged', _notionMergeSection(
 e = { sleep: 'localEdit', _nbase: { sleep: 'base' }, updatedAt: 900 }; c = [];
 t.ok('both changed, local newer → keep local (no clobber)', _notionMergeSection(e, 'sleep', 'notionEdit', 500, c) === 'conflict-local-wins' && e.sleep === 'localEdit' && c[0].winner === 'local');
 
-e = { sleep: 'freshLocal', updatedAt: 900 };
-t.ok('no baseline + stale Notion → keep fresh local', _notionMergeSection(e, 'sleep', 'oldNotion', 500, []) === 'conflict-local-wins' && e.sleep === 'freshLocal');
+/* No baseline (every entry right after ship): Notion non-empty must ADOPT,
+   regardless of local updatedAt — otherwise the "write in Notion → pull in app"
+   direction breaks (the reported regression). 3-way protection starts once a
+   baseline exists. */
+e = { sleep: 'localTouchedRecently', updatedAt: 9e15 };
+t.ok('no baseline → adopt Notion even when local updatedAt is fresh (pull works)', _notionMergeSection(e, 'sleep', 'fromNotion', 500, []) === 'adopt-notion-nobaseline' && e.sleep === 'fromNotion');
 
 e = { sleep: 'oldLocal', updatedAt: 100 };
-t.ok('no baseline + newer Notion → adopt (legacy preserved)', _notionMergeSection(e, 'sleep', 'newNotion', 500, []) === 'conflict-notion-wins' && e.sleep === 'newNotion');
+t.ok('no baseline → adopt Notion', _notionMergeSection(e, 'sleep', 'newNotion', 500, []) === 'adopt-notion-nobaseline' && e.sleep === 'newNotion');
+
+/* Conflict path only applies AFTER a baseline exists and BOTH sides diverged. */
+e = { sleep: 'localEdit2', _nbase: { sleep: 'base' }, updatedAt: 900 };
+t.ok('baseline + both changed + local newer → keep local', _notionMergeSection(e, 'sleep', 'notionEdit2', 500, []) === 'conflict-local-wins' && e.sleep === 'localEdit2');
 
 e = { sleep: 'same' };
 t.ok('identical → no-op', _notionMergeSection(e, 'sleep', 'same', 999, []) === 'identical');

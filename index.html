@@ -25643,10 +25643,17 @@ function _notionMergeSection(entry, key, notionVal, notionEditedMs, conflicts){
   var local=(entry[key]==null)?'':String(entry[key]);
   if(notionVal===local) return 'identical';
   var hasBase=!!(entry._nbase&&Object.prototype.hasOwnProperty.call(entry._nbase,key));
-  var base=hasBase?String(entry._nbase[key]):null;
-  if(hasBase&&notionVal===base) return 'keep-local-notion-unchanged'; /* Notion side unchanged */
-  if(hasBase&&local===base){ entry[key]=notionVal; return 'adopt-notion'; } /* only Notion changed */
-  /* conflict: both changed since baseline, OR no baseline and they differ */
+  /* No baseline yet (every entry right after this feature ships, and any entry
+     never synced): adopt non-empty Notion — the original pull behavior. We do
+     NOT timestamp-compare here, because entry.updatedAt is bumped by ordinary
+     local saves/opens and would wrongly block a real "wrote in Notion → pull"
+     flow. The precise 3-way protection turns on once the first sync writes a
+     baseline (see _notionUpdateBaseline). */
+  if(!hasBase){ entry[key]=notionVal; return 'adopt-notion-nobaseline'; }
+  var base=String(entry._nbase[key]);
+  if(notionVal===base) return 'keep-local-notion-unchanged'; /* Notion side unchanged */
+  if(local===base){ entry[key]=notionVal; return 'adopt-notion'; } /* only Notion changed */
+  /* genuine conflict: both sides changed since the baseline → newer wins */
   var localMs=Number(entry.updatedAt)||0, nMs=Number(notionEditedMs)||0;
   if(nMs>localMs){ if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'notion',localMs:localMs,notionMs:nMs,at:Date.now()}); entry[key]=notionVal; return 'conflict-notion-wins'; }
   if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'local',localMs:localMs,notionMs:nMs,at:Date.now()});
