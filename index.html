@@ -25064,6 +25064,7 @@ async function gcalApiCal(method,path,body,calId){
   return data;
 }
 var _gcalAutoTimer=null;
+var _gcalDedupedThisSession=false;
 function gcalQueueAutoSync(){
   if(!_gcalCfg||!_gcalCfg.autoSync||!_gcalToken||Date.now()>_gcalTokenExp-60000)return;
   clearTimeout(_gcalAutoTimer);
@@ -25172,7 +25173,10 @@ async function gcalSync(opts){
     gcalStatus('동기화 완료: '+ok+'개 이벤트','ok');
     if(!opts.silent)showToast('Google Calendar 동기화 완료 ('+ok+'개)');
   }
-  if(!opts.auto && !opts.skipDuplicateRepair && typeof gcalRepairDuplicates==='function'){
+  var shouldDedup = !opts.skipDuplicateRepair && typeof gcalRepairDuplicates==='function';
+  var isFirstAutoSync = opts.auto && !_gcalDedupedThisSession;
+  if(shouldDedup && (!opts.auto || isFirstAutoSync)){
+    _gcalDedupedThisSession = true;
     try{ await gcalRepairDuplicates({fromSync:true,silent:opts.silent}); }catch(repairErr){ console.warn('gcal post-sync duplicate repair failed:',repairErr&&repairErr.message); }
   }
 }
