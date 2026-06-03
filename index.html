@@ -8266,7 +8266,14 @@ function renderHomeSituation(){
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
       if (customAvatar && typeof themeStudioIconMarkup === 'function') {
-        avatar.innerHTML = themeStudioIconMarkup(customAvatar, defaultAvatar);
+        /* Use the stored base64 fallback (iconFallbacks.avatar) so the image
+           displays on devices that don't have this asset in their IndexedDB.
+           Falls back to themeStudioMediaFallbackForUrl (asset list lookup) or
+           the emoji only as a last resort. */
+        var avatarFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
+          || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
+          || '';
+        avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
         if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
         avatar.innerHTML = '<img src="' + customAvatar + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
@@ -11067,6 +11074,23 @@ function _findStickerHost(page){
 function renderGlobalStickers(){
   if (!_currentPage) return;
   loadGlobalStickers();
+  /* Backfill missing syncDataUrls from the assets list so stickers received
+     via Firebase (which may have no inline syncDataUrl) can display on this
+     device using the asset's own syncDataUrl. */
+  try {
+    if(typeof isReturnMediaRef==='function'&&typeof themeStudioMediaFallbackForUrl==='function'){
+      var stickerChanged=false;
+      Object.keys(globalStickerState||{}).forEach(function(page){
+        (globalStickerState[page]||[]).forEach(function(s){
+          if(isReturnMediaRef(s.url)&&!s.syncDataUrl){
+            var fb=themeStudioMediaFallbackForUrl(s.url);
+            if(fb){s.syncDataUrl=fb;stickerChanged=true;}
+          }
+        });
+      });
+      if(stickerChanged)saveGlobalStickers();
+    }
+  } catch(e){}
   migrateGlobalStickerDataUrls();
   applyStickerShadowSetting();
   document.querySelectorAll('.gs-layer').forEach(function(x){ x.remove(); });
@@ -21565,6 +21589,34 @@ async function fbReadSplitData(ref){
   }
   return data;
 }
+/* Seed the local IndexedDB with any assets that arrived from Firebase carrying
+   a syncDataUrl. This makes return-media: references resolve on this device
+   without needing the original upload, enabling true cross-device image sync
+   for any asset that fits within the inline size budget. Fire-and-forget. */
+function _fbSeedMediaFromSyncedAssets(){
+  if(typeof returnMediaGet!=='function'||typeof returnMediaPut!=='function'||typeof isReturnMediaRef!=='function')return;
+  var raw;
+  try{raw=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');}catch(e){return;}
+  if(!Array.isArray(raw))return;
+  raw.forEach(function(asset){
+    if(!asset||!isReturnMediaRef(asset.url)||!asset.syncDataUrl)return;
+    if(!/^data:image/.test(asset.syncDataUrl))return;
+    var id=String(asset.url).replace(/^return-media:/,'');
+    returnMediaGet(id).then(function(existing){
+      if(existing)return; // already in IndexedDB
+      returnMediaPut({
+        id:id,type:asset.type||'image',role:asset.sourceTheme||'',
+        name:asset.name||'',dataUrl:asset.syncDataUrl,
+        createdAt:asset.createdAt||new Date().toISOString()
+      }).then(function(){
+        console.log('[media] seeded IndexedDB from synced asset: '+id);
+      }).catch(function(e){
+        console.warn('[media] IndexedDB seed failed for '+id+':', e&&e.message);
+      });
+    }).catch(function(){});
+  });
+}
+
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
@@ -21659,6 +21711,10 @@ function fbApplyData(data){
     try { if(typeof loadNotifSettings==='function') loadNotifSettings(); } catch(e){}
     try { if(typeof loadProfile==='function') loadProfile(); } catch(e){}
     try { if(typeof loadCalendarPrefs==='function') loadCalendarPrefs(); } catch(e){}
+    /* Seed this device's IndexedDB from any asset syncDataUrls that arrived
+       via Firebase. Allows return-media: refs to resolve locally going forward,
+       even if this device never uploaded the original file. Fire-and-forget. */
+    try { _fbSeedMediaFromSyncedAssets(); } catch(e){}
   } finally {
     _applyingFbData = false;
   }
