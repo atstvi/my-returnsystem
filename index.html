@@ -23591,6 +23591,29 @@ async function fbEntityMergeIntoLocal(ref){
 }
 window.returnEntityMergeArray=returnEntityMergeArray;
 window.returnEntityMergeObject=returnEntityMergeObject;
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 9 — in-app sync self-test. Runs the single-device-runnable subset of
+   the §7 verification matrix against the LIVE merge functions, so the merge
+   logic can be sanity-checked from the browser console (returnSyncSelfTest())
+   before the RETURN_SYNC_MODEL flag is ever flipped. The full two-device,
+   live-Firestore matrix is run manually with two profiles. */
+function returnSyncSelfTest(){
+  var pass=0,fail=0,results=[];
+  function ok(name,cond){ if(cond){pass++;}else{fail++;} results.push((cond?'✓ ':'✗ ')+name); }
+  function D(eid,L,C,tomb){ var local=L?[Object.assign({_eid:eid},L)]:[]; var cloud={}; if(C)cloud[eid]=C; return returnEntityMergeArray(local,cloud,tomb||{},'selftest'); }
+  var r;
+  r=D('a',{updatedAt:1},{_eid:'a',payload:{tag:'cloud',updatedAt:2},updatedAt:2}); ok('cloud-newer wins', r.merged.length===1&&r.merged[0].tag==='cloud');
+  r=D('a',{tag:'local',updatedAt:3},{_eid:'a',payload:{updatedAt:2},updatedAt:2}); ok('local-newer wins', r.merged[0].tag==='local');
+  r=D('a',{updatedAt:1},{_eid:'a',deletedAt:5,_tombstone:true}); ok('cloud tombstone > stale → dropped', r.merged.length===0);
+  r=D('a',{tag:'fresh',updatedAt:9},{_eid:'a',deletedAt:5,_tombstone:true}); ok('newer edit survives delete', r.merged.length===1&&r.merged[0].tag==='fresh');
+  r=returnEntityMergeArray([],{a:{_eid:'a',payload:{updatedAt:1},updatedAt:1}},{},'selftest'); ok('cloud-only adopted', r.merged.length===1);
+  r=returnEntityMergeArray([],{a:{_eid:'a',payload:{updatedAt:1},updatedAt:1}},{a:{deletedAt:2}},'selftest'); ok('cloud-only suppressed by newer tombstone (R3)', r.merged.length===0);
+  var dr=returnEntityMergeObject({'d':{_eid:'diary_d',updatedAt:1}},{'diary_d':{_eid:'diary_d',payload:{tag:'cloud',updatedAt:2},updatedAt:2}},{},'diary','diary_'); ok('diary per-date LWW', dr.merged['d'].tag==='cloud');
+  var out={pass:pass,fail:fail,flag:RETURN_SYNC_MODEL,results:results};
+  try{ console.group('[sync] self-test '+(fail?('FAIL '+pass+'/'+(pass+fail)):('PASS '+pass+'/'+pass))); results.forEach(function(l){console.log(l);}); console.log('RETURN_SYNC_MODEL =', RETURN_SYNC_MODEL, '(merge active only when "entity")'); console.groupEnd(); }catch(_e){}
+  return out;
+}
+window.returnSyncSelfTest=returnSyncSelfTest;
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {
