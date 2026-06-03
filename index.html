@@ -5427,6 +5427,108 @@ to{opacity:1;transform:translateY(0)}}
 
 /* ── end Music UX v10 ────────────────────────────────────────────────── */
 
+/* ── Music UX v12: player near CD + smooth motion + fixed controls ───── */
+
+/* 1. Anchor the player to the left, near the sidebar CD (bottom-left) */
+.music-mini-player{
+  left:84px!important;
+  right:auto!important;
+  bottom:18px!important;
+  align-items:flex-start!important;
+}
+
+/* 2. Container stays visible; the panel itself animates (so close is smooth too) */
+.music-mini-player.active:not(.music-ep-open){
+  opacity:1!important;
+  pointer-events:none!important;
+}
+.music-mini-player.active.music-ep-open{
+  opacity:1!important;
+  pointer-events:auto!important;
+}
+
+/* 3. Expanded panel: always laid out, animated via opacity+transform */
+.music-ep-wrap{
+  display:flex!important;
+  opacity:0;
+  visibility:hidden;
+  transform:translateY(10px) scale(.95);
+  transform-origin:bottom left;
+  transition:opacity .2s ease,
+             transform .28s cubic-bezier(.18,.84,.27,1.04),
+             visibility .2s;
+  pointer-events:none;
+  width:300px!important;
+}
+.music-mini-player.music-ep-open .music-ep-wrap{
+  opacity:1;
+  visibility:visible;
+  transform:translateY(0) scale(1);
+  pointer-events:auto;
+}
+
+/* 4. Sidebar CD: subtle "press" feedback + active glow while panel open */
+.music-sidebar-cd-btn:active{transform:scale(.93)!important}
+.music-sidebar-cd-btn.cd-playing{
+  border-color:var(--accent,#7c6ef9)!important;
+  box-shadow:2px 4px 18px rgba(124,110,249,.45)!important;
+}
+
+/* 5. Controls polish — clearer hit targets, active states */
+.music-ep-controls{gap:6px!important}
+.music-ep-btn{
+  transition:transform .12s,background .15s,color .15s!important;
+  border-radius:50%!important;
+}
+.music-ep-btn:active{transform:scale(.88)!important}
+.music-ep-btn.active{
+  color:var(--accent,#7c6ef9)!important;
+  position:relative;
+}
+.music-ep-btn.active::after{
+  content:'';position:absolute;bottom:1px;left:50%;
+  width:4px;height:4px;border-radius:50%;
+  background:var(--accent,#7c6ef9);
+  transform:translateX(-50%);
+}
+/* repeat-one little badge */
+#music-repeat-btn.repeat-one::before{
+  content:'1';
+  position:absolute;top:0;right:2px;
+  font-size:.5rem;font-weight:700;
+  color:var(--accent,#7c6ef9);
+}
+#music-repeat-btn{position:relative}
+
+/* 6. Volume row: clearer slider */
+.music-ep-vol{gap:8px!important;align-items:center!important}
+#music-vol-slider{
+  flex:1;height:4px;cursor:pointer;
+  accent-color:var(--accent,#7c6ef9)!important;
+}
+.music-ep-vol-icon{cursor:pointer;user-select:none;font-size:.95rem!important}
+
+/* 7. Progress bar: taller hit area, smooth fill */
+#music-mini-progress{
+  height:5px!important;border-radius:3px!important;
+  cursor:pointer!important;position:relative;
+}
+#music-mini-progress-fill{transition:width .25s linear}
+#music-mini-progress:hover{height:7px!important;transition:height .12s}
+
+/* 8. Mobile: pull the player to bottom-center, above content */
+@media(max-width:640px){
+  .music-mini-player{
+    left:50%!important;right:auto!important;
+    bottom:14px!important;
+    transform:translateX(-50%)!important;
+    align-items:center!important;
+  }
+  .music-ep-wrap{transform-origin:bottom center;width:min(320px,calc(100vw - 28px))!important}
+}
+
+/* ── end Music UX v12 ────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body class="auth-locked">
@@ -28957,6 +29059,196 @@ setTimeout(function(){
 
 })();
 /* ── end Music UX v11 JS ─────────────────────────────────────────────── */
+
+/* ── Music UX v12 JS: fix player internals + tasteful CD/panel UX ─────── */
+(function(){
+'use strict';
+
+/* ════ A. Critical fix: _ytPlayer was never defined ════
+   All v6/v8/v9/v11 code referenced window._ytPlayer (volume, play-state,
+   CD spin, resume bar) but the real player object is the global musicPlayer.
+   Expose a live alias so every existing reference starts working. */
+try{
+  Object.defineProperty(window,'_ytPlayer',{
+    configurable:true,
+    get:function(){return (typeof musicPlayer!=='undefined')?musicPlayer:null;}
+  });
+}catch(e){ /* if already defined, ignore */ }
+
+/* ════ B. Real shuffle / repeat state ════ */
+window.musicState=window.musicState||{shuffle:false,repeat:'off'}; /* off | all | one */
+
+function ytReady(){
+  return (typeof musicPlayer!=='undefined')&&musicPlayer&&typeof musicPlayer.getPlayerState==='function';
+}
+function isPlaying(){
+  try{return ytReady()&&musicPlayer.getPlayerState()===1;}catch(e){return false;}
+}
+
+/* Queue helpers — works with the v3 queue model (musicQueue + musicCurrentSongIndex)
+   and falls back to the legacy playlist-items model. */
+function queueLen(){
+  if(typeof musicQueue!=='undefined'&&musicQueue&&musicQueue.length)return musicQueue.length;
+  var p=(typeof musicCurrentPlaylist==='function')?musicCurrentPlaylist():null;
+  return p?Math.max(1,(p.items||[]).length):0;
+}
+function curIndex(){
+  if(typeof musicCurrentSongIndex!=='undefined'&&musicCurrentSongIndex!=null)return musicCurrentSongIndex;
+  return (musicCurrent&&musicCurrent.itemIndex)||0;
+}
+function gotoIndex(i){
+  if(typeof musicCurrentSongIndex!=='undefined')musicCurrentSongIndex=i;
+  if(musicCurrent)musicCurrent.itemIndex=i;
+  if(typeof musicLoadCurrent==='function'&&musicPlayerReady)musicLoadCurrent(true);
+}
+
+/* Override musicNext to honour shuffle / repeat */
+var _origNextV12=(typeof musicNext==='function')?musicNext:null;
+musicNext=function(){
+  var len=queueLen();
+  if(len<=0){if(_origNextV12)_origNextV12();return;}
+
+  if(musicState.repeat==='one'){
+    if(musicPlayer&&musicPlayer.seekTo){
+      try{musicPlayer.seekTo(0,true);musicPlayer.playVideo();}catch(e){}
+    }
+    return;
+  }
+  if(musicState.shuffle&&len>1){
+    var i,cur=curIndex(),guard=0;
+    do{i=Math.floor(Math.random()*len);guard++;}while(i===cur&&guard<20);
+    gotoIndex(i);
+    return;
+  }
+  /* sequential: 'off' stops at the end, 'all' wraps */
+  var next=curIndex()+1;
+  if(next>=len){
+    if(musicState.repeat==='all'){gotoIndex(0);}
+    else{ /* off: stop */ if(musicPlayer&&musicPlayer.pauseVideo){try{musicPlayer.pauseVideo();}catch(e){}} if(typeof musicUpdateMini==='function')musicUpdateMini(true); }
+    return;
+  }
+  gotoIndex(next);
+};
+
+/* ════ C. Fix v6's broken musicUpdateMini cover override ════
+   It treated the (boolean) arg as a song object. Re-sync the expanded
+   cover + play icon from the real current item. */
+function syncExpandedCover(){
+  var epCover=document.getElementById('music-ep-cover-sm');
+  if(!epCover)return;
+  var item=(typeof musicCurrentItem==='function')?musicCurrentItem():null;
+  var thumb=item&&(item.thumbnail||item.cover);
+  epCover.innerHTML=thumb?('<img src="'+thumb+'" alt="">'):'';
+}
+var _umV12=(typeof musicUpdateMini==='function')?musicUpdateMini:null;
+musicUpdateMini=function(show){
+  if(_umV12)_umV12.apply(this,arguments);
+  syncExpandedCover();
+  syncPlayIcon();
+};
+
+function syncPlayIcon(){
+  var btn=document.getElementById('music-play-btn');
+  if(btn)btn.textContent=isPlaying()?'⏸':'▶';
+}
+
+/* ════ D. Re-bind all controls cleanly (idempotent) ════ */
+function stripListeners(el){
+  if(!el||!el.parentNode)return el;
+  var clone=el.cloneNode(true);
+  el.parentNode.replaceChild(clone,el);
+  return clone;
+}
+function bindControls(){
+  /* v6 already bound shuffle/repeat/volume; clone to drop those stale
+     listeners so v12 is the single source of truth (prevents double-toggle). */
+  if(!window.__musicV12Stripped){
+    window.__musicV12Stripped=true;
+    stripListeners(document.getElementById('music-shuffle-btn'));
+    stripListeners(document.getElementById('music-repeat-btn'));
+    stripListeners(document.getElementById('music-vol-slider'));
+  }
+
+  var shuffleBtn=document.getElementById('music-shuffle-btn');
+  var repeatBtn=document.getElementById('music-repeat-btn');
+  var volSlider=document.getElementById('music-vol-slider');
+  var volIcon=document.querySelector('.music-ep-vol-icon');
+
+  if(shuffleBtn&&!shuffleBtn.dataset.v12){
+    shuffleBtn.dataset.v12='1';
+    shuffleBtn.classList.toggle('active',musicState.shuffle);
+    shuffleBtn.addEventListener('click',function(e){
+      e.stopPropagation();
+      musicState.shuffle=!musicState.shuffle;
+      shuffleBtn.classList.toggle('active',musicState.shuffle);
+      if(typeof showToast==='function')showToast(musicState.shuffle?'셔플 켜짐':'셔플 꺼짐');
+    });
+  }
+
+  if(repeatBtn&&!repeatBtn.dataset.v12){
+    repeatBtn.dataset.v12='1';
+    applyRepeatUI(repeatBtn);
+    repeatBtn.addEventListener('click',function(e){
+      e.stopPropagation();
+      musicState.repeat=musicState.repeat==='off'?'all':musicState.repeat==='all'?'one':'off';
+      applyRepeatUI(repeatBtn);
+      var label={off:'반복 꺼짐',all:'전체 반복',one:'한 곡 반복'}[musicState.repeat];
+      if(typeof showToast==='function')showToast(label);
+    });
+  }
+
+  if(volSlider&&!volSlider.dataset.v12){
+    volSlider.dataset.v12='1';
+    /* initialise from player if available */
+    try{if(ytReady()&&musicPlayer.getVolume)volSlider.value=Math.round(musicPlayer.getVolume());}catch(e){}
+    var apply=function(){
+      var v=parseInt(volSlider.value,10)||0;
+      try{if(typeof musicPlayer!=='undefined'&&musicPlayer&&musicPlayer.setVolume)musicPlayer.setVolume(v);}catch(e){}
+      if(volIcon)volIcon.textContent=v===0?'🔇':v<50?'🔈':'🔊';
+    };
+    volSlider.addEventListener('input',apply);
+    /* click icon = mute toggle */
+    if(volIcon&&!volIcon.dataset.v12){
+      volIcon.dataset.v12='1';
+      volIcon.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(parseInt(volSlider.value,10)>0){volSlider.dataset.last=volSlider.value;volSlider.value=0;}
+        else{volSlider.value=volSlider.dataset.last||'80';}
+        apply();
+      });
+    }
+  }
+}
+function applyRepeatUI(btn){
+  btn.classList.toggle('active',musicState.repeat!=='off');
+  btn.classList.toggle('repeat-one',musicState.repeat==='one');
+}
+
+/* ════ E. Drive the CD spin + play icon from real state (single loop) ════ */
+function v12Tick(){
+  var playing=isPlaying();
+  /* sidebar CD */
+  var cdFace=document.getElementById('music-scd-face-el');
+  if(cdFace)cdFace.classList.toggle('music-scd-spinning',playing);
+  var cdBtn=document.getElementById('music-sidebar-cd');
+  if(cdBtn)cdBtn.classList.toggle('cd-playing',playing);
+  /* play button icon */
+  syncPlayIcon();
+}
+setInterval(v12Tick,500);
+
+/* ════ F. Keep things wired after every render ════ */
+var _renderV12=(typeof musicRender==='function')?musicRender:null;
+musicRender=function(){
+  if(_renderV12)_renderV12.apply(this,arguments);
+  setTimeout(function(){bindControls();syncExpandedCover();},50);
+};
+
+/* init */
+setTimeout(function(){bindControls();syncExpandedCover();v12Tick();},600);
+
+})();
+/* ── end Music UX v12 JS ─────────────────────────────────────────────── */
 </script>
 </body>
 </html>
