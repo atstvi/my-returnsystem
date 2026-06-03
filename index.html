@@ -23466,8 +23466,13 @@ async function fbEntityWriteChanged(ref, opts){
 window.returnEntityMigrateSkips=function(){ var b=[]; try{ b=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]'); }catch(_e){} console.log('[entity] migrate skips',b.length,b); return b; };
 /* Read the per-entity mirror (verification only in 6c — NOT applied to state).
    Returns {collection:{live,tombs}} so we can confirm the mirror matches local
-   counts after a migration (design §6, 6c verify: "no data delta after migrate"). */
-async function fbEntityReadAll(ref){
+   counts after a migration (design §6, 6c verify: "no data delta after migrate").
+   NOTE: named distinctly from window.fbEntityReadAll. A top-level `function
+   fbEntityReadAll` would become a global == window.fbEntityReadAll, which the
+   console wrapper below then overwrites — so the wrapper would call ITSELF
+   (infinite recursion → "Maximum call stack size exceeded"). Keeping the
+   implementation under a private name avoids that collision. */
+async function fbEntityReadCounts(ref){
   if(!fbDb||!fbUser)return {};
   var out={};
   for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
@@ -23497,7 +23502,7 @@ async function fbEntityMigrateIfNeeded(ref){
   await metaRef.set({syncModel:'entity-v1',entityMigratedAtMs:Date.now(),entityClientId:FB_CLIENT_ID,entitySkippedAtMigrate:res.skipped||0},{merge:true});
   return {migrated:true,written:res.written,tombstoned:res.tombstoned,skipped:res.skipped||0};
 }
-window.fbEntityReadAll=function(){ if(!fbDb||!fbUser){console.warn('[entity] not signed in');return;} return fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){console.log('[entity] mirror report',r);return r;}); };
+window.fbEntityReadAll=function(){ if(!fbDb||!fbUser){console.warn('[entity] not signed in');return;} return fbEntityReadCounts(fbDb.collection('users').doc(fbUser.uid)).then(function(r){console.log('[entity] mirror report',r);return r;}); };
 /* ════════════════════════════════════════════════════════════════════════
    STAGE 6d — PER-ENTITY MERGE (LWW + tombstone enforcement)
 
@@ -23668,7 +23673,7 @@ function returnSyncModelStatus(){
   var info={ syncModel:RETURN_SYNC_MODEL, dualWrite:RETURN_ENTITY_DUALWRITE, conflictsLogged:conflicts, tombstones:tombs, mergeActive:(RETURN_SYNC_MODEL==='entity') };
   try{ console.group('[sync] model status'); Object.keys(info).forEach(function(k){console.log('  '+k+':',info[k]);}); console.log('  → set with returnSyncModelSet("entity"|"legacy"); inspect conflicts with returnSyncConflicts()'); console.groupEnd(); }catch(_e){}
   /* live mirror counts (async, best-effort) */
-  try{ if(fbDb&&fbUser&&typeof fbEntityReadAll==='function'){ fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){ try{console.log('[sync] entity mirror counts',r);}catch(_e){} }); } }catch(_e){}
+  try{ if(fbDb&&fbUser&&typeof fbEntityReadCounts==='function'){ fbEntityReadCounts(fbDb.collection('users').doc(fbUser.uid)).then(function(r){ try{console.log('[sync] entity mirror counts',r);}catch(_e){} }); } }catch(_e){}
   return info;
 }
 function returnSyncModelSet(mode){
@@ -24044,7 +24049,7 @@ async function fbLoadAll(){
     if(RETURN_ENTITY_DUALWRITE){
       try{
         var mig=await fbEntityMigrateIfNeeded(ref);
-        var entReport=await fbEntityReadAll(ref);
+        var entReport=await fbEntityReadCounts(ref);
         try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity 6c migrate+verify',{mig:mig,report:entReport}); }catch(_e){}
       }catch(entErr){
         try{ console.warn('[entity] 6c migrate/verify failed (legacy load unaffected):',entErr&&entErr.message); }catch(_){}
