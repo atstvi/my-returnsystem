@@ -11917,22 +11917,41 @@ function setReturnStorageItem(key,value){
     if(Object.prototype.hasOwnProperty.call(_idbCache,key)) _idbDelete(key);
     return localStorage.getItem(key)===value;
   }
-  try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); return true; } }
+  /* Fire the same side-effects (Firebase save, GCal queue, Notion queue) that
+     the patched localStorage.setItem fires. setReturnStorageItem uses _rawSetItem
+     (the native setItem) internally to bypass the quota-retry logic, which means
+     the patch's side-effects are never reached. Without this, task/diary/inbox
+     saves silently skip Firebase sync entirely. */
+  function _afterWriteSideEffects(){
+    if(window._applyingFbData) return;
+    if((typeof shouldFbSyncKey==='function'&&shouldFbSyncKey(key))||key==='diary_notion_cfg'||key==='gcal_cfg_v1'||key==='groq_api_key'){
+      if(typeof fbSaveAll==='function')try{fbSaveAll();}catch(e){}
+    }
+    if(key==='task_items_v1'&&typeof gcalQueueAutoSync==='function')try{gcalQueueAutoSync();}catch(e){}
+    /* Notion diary auto-save: only when not already mid-sync to prevent re-entry loops.
+       _notionSyncActive is set by syncDiaryToNotion while it is in progress. */
+    if(key==='diary_entries_v1'&&!window._notionSyncActive&&typeof queueDiaryNotionSave==='function'){
+      try{queueDiaryNotionSave(typeof currentDate!=='undefined'?currentDate||null:null);}catch(e){}
+    }
+  }
+  try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); _afterWriteSideEffects(); return true; } }
   catch(e){
     bannerDebugLog('storage:set-failed-once',{key:key,length:String(value||'').length,error:String(e&&e.message||e)});
-    try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } }
+    try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); _afterWriteSideEffects(); return true; } }
     catch(err){
       bannerDebugLog('storage:set-failed-final',{key:key,length:String(value||'').length,error:String(err&&err.message||err),oldLength:old?old.length:0});
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
     }
   }
-  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); _afterWriteSideEffects(); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
   try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
   /* localStorage quota exceeded — fall back to IndexedDB overflow */
   if(_idbOverflow){
     _idbSet(key, value).then(function(){
       if(typeof __clearStaleQuota==='function') __clearStaleQuota(key);
       bannerDebugLog('storage:idb-ok',{key:key,length:value.length});
+      /* Trigger sync after IDB commit so fbCollectData finds the updated _idbCache */
+      _afterWriteSideEffects();
     }).catch(function(e2){
       if(typeof __markStaleQuota==='function')__markStaleQuota(key);
       console.error('[storage] IDB fallback also failed for key "'+key+'":', e2&&e2.message||e2);
@@ -23858,7 +23877,6 @@ function getNotionCfg(){
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
 function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!val;else el.value=val||'';}
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — Worker 비밀 토큰 또는 로컬 토큰으로 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
-saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
 saveNotionConfig=function(silent){
   var prev=getNotionCfg();
   function valOr(id, fallback){
@@ -24839,6 +24857,11 @@ function _pullDiaryPageProperties(page, dateKey, cfg){
 
 async function syncDiaryToNotion(dateKey, opts){
   opts=opts||{};
+  /* Guard flag: prevents setReturnStorageItem's _afterWriteSideEffects from
+     re-queuing queueDiaryNotionSave while this function is already running,
+     which would cause an infinite sync loop when saveAll() is called mid-sync. */
+  window._notionSyncActive = true;
+  try {
   /* Default to bidirectional sync. The previous "비상시 동기화" path used
      pullFirst:false and erased Notion-side edits (especially images added in
      Notion) because _syncDiaryPageBody archives every existing block before
@@ -24977,6 +25000,7 @@ async function syncDiaryToNotion(dateKey, opts){
     if(!opts.silent)showToast('Notion 동기화 실패: '+emsg);
     console.error('syncDiaryToNotion:', e);
   }
+  } finally { window._notionSyncActive = false; }
 }
 async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElementById('notion-preview');if(!el)return;el.style.display='block';el.textContent='정리 중...';try{el.textContent=await _formatTimelineWithAI(_buildTodayTasksText(currentDate||TK));}catch(e){el.textContent='오류: '+e.message;}}
 
