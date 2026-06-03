@@ -11154,12 +11154,80 @@ function loadHomeBanner(){
 }
 /* Ensure quota-tracking map exists before setReturnStorageItem is first called */
 if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
+
+/* ── IndexedDB overflow store ────────────────────────────────────────────────
+   When localStorage hits the 5 MB quota, large items (images, theme assets,
+   stickers) are transparently redirected to IndexedDB which has no hard limit.
+   Values are preloaded into _idbCache at boot so reads stay synchronous.
+   localStorage.getItem is patched to check the cache first.
+   ─────────────────────────────────────────────────────────────────────────── */
+var _idbOverflow = null;
+var _idbCache = {};  // sync-readable mirror of IDB values
+var _idbReady = false;
+(function _initIdbOverflow(){
+  try {
+    var req = indexedDB.open('return_overflow_v1', 1);
+    req.onupgradeneeded = function(e){
+      try { e.target.result.createObjectStore('kv'); } catch(_){}
+    };
+    req.onsuccess = function(e){
+      _idbOverflow = e.target.result;
+      /* Preload all IDB entries into sync cache */
+      try {
+        var tx = _idbOverflow.transaction('kv','readonly');
+        var st = tx.objectStore('kv');
+        var allKeys = st.getAllKeys();
+        var allVals = st.getAll();
+        allVals.onsuccess = function(){
+          var vals = allVals.result;
+          allKeys.onsuccess = function(){
+            var keys = allKeys.result;
+            for(var i=0;i<keys.length;i++) _idbCache[keys[i]] = vals[i];
+            /* Patch localStorage.getItem to serve IDB-overflow values */
+            var _origGet = localStorage.getItem.bind(localStorage);
+            localStorage.getItem = function(k){
+              if(Object.prototype.hasOwnProperty.call(_idbCache, k)) return _idbCache[k];
+              return _origGet(k);
+            };
+            _idbReady = true;
+            try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','idb overflow ready, keys: '+keys.length); }catch(_e){}
+          };
+        };
+      } catch(e2){ console.warn('[idb] preload failed',e2); }
+    };
+    req.onerror = function(e){ console.warn('[idb] open failed', e); };
+  } catch(e){ console.warn('[idb] indexedDB unavailable', e); }
+})();
+
+function _idbSet(key, value){
+  return new Promise(function(resolve, reject){
+    if(!_idbOverflow){ reject(new Error('idb not ready')); return; }
+    try {
+      var tx = _idbOverflow.transaction('kv','readwrite');
+      var req = tx.objectStore('kv').put(value, key);
+      tx.oncomplete = function(){ _idbCache[key] = value; resolve(); };
+      tx.onerror = function(e){ reject(e); };
+    } catch(e){ reject(e); }
+  });
+}
+
+function _idbDelete(key){
+  try {
+    if(!_idbOverflow) return;
+    var tx = _idbOverflow.transaction('kv','readwrite');
+    tx.objectStore('kv').delete(key);
+    delete _idbCache[key];
+  } catch(e){}
+}
+
 function setReturnStorageItem(key,value){
   value=String(value==null?'':value);
   var old=null;
   function verifiedWrite(){
     var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
     writer(key,value);
+    /* Also remove from IDB cache so localStorage value takes precedence */
+    if(Object.prototype.hasOwnProperty.call(_idbCache,key)) _idbDelete(key);
     return localStorage.getItem(key)===value;
   }
   try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); return true; } }
@@ -11173,6 +11241,18 @@ function setReturnStorageItem(key,value){
   }
   try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
   try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
+  /* localStorage quota exceeded — fall back to IndexedDB overflow */
+  if(_idbOverflow){
+    _idbSet(key, value).then(function(){
+      if(typeof __clearStaleQuota==='function') __clearStaleQuota(key);
+      bannerDebugLog('storage:idb-ok',{key:key,length:value.length});
+    }).catch(function(e2){
+      if(typeof __markStaleQuota==='function')__markStaleQuota(key);
+      console.error('[storage] IDB fallback also failed for key "'+key+'":', e2&&e2.message||e2);
+    });
+    /* Return true optimistically — IDB write is async but will succeed */
+    return true;
+  }
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
   return false;
@@ -21927,12 +22007,27 @@ function fbCollectData(){
   for (var i=0; i<localStorage.length; i++){
     var k = localStorage.key(i);
     if (!shouldFbSyncKey(k)) continue;
-    if (stale[k]) { skipped.push(k); continue; }
+    if (stale[k]) {
+      /* Key is stale in localStorage — try IDB overflow cache instead */
+      if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache, k)){
+        data.keys[k] = window._idbCache[k];
+      } else {
+        skipped.push(k);
+      }
+      continue;
+    }
     var v = localStorage.getItem(k);
     if (v != null) data.keys[k] = v;
   }
+  /* Also include any IDB-only keys (not in localStorage at all) */
+  if(window._idbCache){
+    Object.keys(window._idbCache).forEach(function(k){
+      if(!shouldFbSyncKey(k)) return;
+      if(data.keys[k]==null) data.keys[k] = window._idbCache[k];
+    });
+  }
   if (skipped.length) {
-    try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','fbCollectData skipped stale keys', {keys:skipped}); } catch(_){}
+    try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('fb','fbCollectData skipped stale keys (no idb fallback)', {keys:skipped}); } catch(_){}
   }
   return data;
 }
