@@ -17490,7 +17490,7 @@ function applyTtPalette(){
 }
 function saveTtPalette(colors){
   var clean = (colors||[]).map(function(c,i){return /^#[0-9a-f]{6}$/i.test(String(c||'')) ? c : TT_DEFAULT_PALETTE[i];}).slice(0, TT_COLORS.length);
-  if(clean.length) localStorage.setItem(TT_PALETTE_KEY, JSON.stringify(clean));
+  if(clean.length) setReturnStorageItem(TT_PALETTE_KEY, JSON.stringify(clean));
   else localStorage.removeItem(TT_PALETTE_KEY);
   applyTtPalette();
   renderTtPaletteEditor();
@@ -17537,7 +17537,7 @@ function themePaletteApplyPreset(kind,id){
   s.palettes=s.palettes||{};
   if(kind==='timetable'){
     s.palettes.timetable=(preset.value||[]).slice(0,TT_DEFAULT_PALETTE.length);
-    try{localStorage.setItem(TT_PALETTE_KEY,JSON.stringify(s.palettes.timetable));}catch(e){}
+    setReturnStorageItem(TT_PALETTE_KEY,JSON.stringify(s.palettes.timetable));
   }else{
     s.palettes.task=themeStudioClone(preset.value||{});
     if(typeof applyTaskCategoryPalette==='function')applyTaskCategoryPalette(s.palettes.task);
@@ -17596,7 +17596,7 @@ function themeStudioRenderTimetablePalette(){
       var s=themeStudioGet();
       s.palettes=s.palettes||{};
       s.palettes.timetable=next;
-      try{localStorage.setItem(TT_PALETTE_KEY,JSON.stringify(next));}catch(e){}
+      setReturnStorageItem(TT_PALETTE_KEY,JSON.stringify(next));
       themeStudioSet(s,true);
       themeStudioRenderTimetablePalette();
     });
@@ -21835,6 +21835,17 @@ function fbStatusTime(prefix){
 async function fbLoadAll(){
   if(!fbDb||!fbUser)return;
   try{ if(window.SyncManager)SyncManager.beginHydration(); }catch(_e){}
+  /* Safety valve: if hydration doesn't complete or fail within 20 s
+     (e.g. Firestore promise never settles due to network), unblock saves
+     so the user's local edits are not silently queued forever. */
+  var _hydrateGuard=setTimeout(function(){
+    try{
+      if(window.SyncManager&&window.SyncManager.state.hydrating){
+        console.warn('[fb] hydration timeout (20s) — unblocking saves');
+        window.SyncManager.failHydration(new Error('hydration timeout'));
+      }
+    }catch(_){}
+  },20000);
   var ref=fbDb.collection('users').doc(fbUser.uid);
   setFbStatus('Firebase에서 불러오는 중...','saving');
   try{
@@ -21851,6 +21862,7 @@ async function fbLoadAll(){
     var splitData=await fbReadSplitData(ref);
     var splitCount=Object.keys(splitData.keys||{}).length;
     if(splitCount){fbApplyData(splitData);applied+=splitCount;}
+    clearTimeout(_hydrateGuard);
     try{ if(window.SyncManager)SyncManager.finishHydration({cloudKeyCount:splitCount}); }catch(_e){}
     setFbStatus(applied?fbStatusTime('Firebase 동기화됨'):fbStatusTime('Firebase 연결됨 · 아직 클라우드 데이터 없음'),'ok');
     if(_fbUnsubscribe)_fbUnsubscribe();
@@ -21888,6 +21900,7 @@ async function fbLoadAll(){
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
     });
   }catch(e){
+    clearTimeout(_hydrateGuard);
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
     setFbStatus('동기화 오류: '+msg,'err');
     try{ if(window.SyncManager)SyncManager.failHydration(e); }catch(_e){}
