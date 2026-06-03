@@ -180,9 +180,9 @@ Each gets a semi-automated check in the in-app diagnostics panel (Stage 9).
 
 ---
 
-## 10. Open questions for review
+## 10. Resolved decisions (review complete)
 
-1. **Diary granularity:** entity per *date* (simple, matches storage) vs per *block* (finer merge, more complexity). Proposal: **per date**.
-2. **Conflict policy beyond LWW:** is logging + LWW acceptable, or do you want a user-facing "conflict — keep both?" prompt for diary entries specifically? Proposal: **LWW + log** everywhere; revisit diary later if needed.
-3. **Tombstone retention:** 90 days OK?
-4. **Dual-write duration** before retiring legacy (6e): proposal **2 weeks of real use** or an explicit go-ahead.
+1. **Diary granularity:** **per date** — each calendar day's entry is one synced entity; same-day concurrent edits resolve by LWW.
+2. **Conflict policy:** **LWW + log everywhere** — newer `updatedAt` wins; the losing version is written to the `__sync_conflicts` buffer (recoverable/observable). No per-type "keep both" prompt for now.
+3. **Tombstone retention:** **90 days**, then GC (local + cloud).
+4. **Dual-write duration:** legacy blob writes are retired in 6e **only on explicit approval** — the legacy safety net stays until per-entity sync is confirmed solid in real use. No automatic cutover.
