@@ -5529,6 +5529,47 @@ to{opacity:1;transform:translateY(0)}}
 
 /* ── end Music UX v12 ────────────────────────────────────────────────── */
 
+/* ── Music UX v13: fix clipping + create-panel reliability ───────────── */
+
+/* The base .music-mini-player (very early CSS) still carried
+   transform:translateX(-50%) and backdrop-filter:blur(14px). On desktop
+   v12 never reset them, so the panel was shifted half its width off the
+   left edge (clipping) and left a blurry ghost box when empty. Reset both. */
+.music-mini-player{
+  transform:none!important;
+  backdrop-filter:none!important;
+  -webkit-backdrop-filter:none!important;
+}
+/* keep the panel fully on-screen regardless of anchor */
+.music-ep-wrap{
+  max-width:calc(100vw - 96px)!important;
+  box-sizing:border-box!important;
+}
+
+/* Mobile: re-apply centered transform (overrides the reset above) */
+@media(max-width:640px){
+  .music-mini-player{
+    left:50%!important;right:auto!important;
+    transform:translateX(-50%)!important;
+  }
+  .music-ep-wrap{max-width:calc(100vw - 28px)!important}
+}
+
+/* Create-playlist panel: when open, float it as a clear card so it is
+   always visible no matter where it sits in the flex layout */
+#music-playlist-create-panel.music-panel-open{
+  display:block!important;
+  background:var(--bg-card)!important;
+  border:1px solid var(--accent)!important;
+  border-radius:var(--r-xl)!important;
+  padding:var(--sp-4)!important;
+  box-shadow:var(--elev-2)!important;
+  margin-top:var(--sp-3)!important;
+}
+#music-playlist-create-panel.music-panel-open .music-panel-head{display:block!important}
+
+/* ── end Music UX v13 ────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body class="auth-locked">
@@ -29249,6 +29290,109 @@ setTimeout(function(){bindControls();syncExpandedCover();v12Tick();},600);
 
 })();
 /* ── end Music UX v12 JS ─────────────────────────────────────────────── */
+
+/* ── Music UX v13 JS: reliable "새 플레이리스트" flow ──────────────────── */
+(function(){
+'use strict';
+
+/* Ensure the create panel exists in the DOM (idempotent) */
+function ensureCreatePanel(){
+  var panel=document.getElementById('music-playlist-create-panel');
+  if(panel)return panel;
+  if(typeof musicEnsureLibrarySections==='function'){
+    try{musicEnsureLibrarySections();}catch(e){}
+    panel=document.getElementById('music-playlist-create-panel');
+  }
+  return panel;
+}
+
+/* Single source of truth for opening/closing the create panel */
+function openCreate(open){
+  var panel=ensureCreatePanel();
+  if(!panel)return;
+
+  /* Move the panel right after the visible add button so it appears inline,
+     not buried at the bottom of the flex layout. */
+  var addBtn=document.getElementById('music-v8-pl-add-btn');
+  if(open&&addBtn){
+    var host=addBtn.closest('.music-v8-sec')||addBtn.parentNode;
+    if(host&&host.parentNode&&panel.previousElementSibling!==host){
+      host.parentNode.insertBefore(panel,host.nextSibling);
+    }
+  }
+
+  panel.classList.toggle('music-panel-open',open);
+
+  /* sync any label buttons */
+  document.querySelectorAll('.music-pl-create-btn').forEach(function(b){
+    b.textContent=open?'✕ 취소':'+ 새 플레이리스트';
+  });
+  if(addBtn)addBtn.textContent=open?'✕ 취소':'+ 새 플레이리스트';
+
+  if(open){
+    panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+    var t=document.getElementById('music-playlist-title-input');
+    if(t)setTimeout(function(){t.focus();},120);
+  }
+}
+function isCreateOpen(){
+  var p=document.getElementById('music-playlist-create-panel');
+  return !!(p&&p.classList.contains('music-panel-open'));
+}
+
+/* Make the global helpers point at the robust version so every existing
+   caller (v4 hero btn, v8 add btn, v10 fallback) uses one clean path. */
+window.musicSetPlCreateOpen=function(open){openCreate(!!open);};
+window.musicIsPlCreateOpen=isCreateOpen;
+
+/* Delegated click — survives DOM moves / re-renders. Handles the add button
+   and the save button in one place. We mark handled buttons to avoid the
+   double-fire that broke earlier versions. */
+document.addEventListener('click',function(e){
+  var addBtn=e.target.closest&&e.target.closest('#music-v8-pl-add-btn, .music-pl-create-btn, #music-pl-hero-btn');
+  if(addBtn){
+    /* stop the element's own (possibly stale) inline handler from also firing
+       by handling here; we toggle exactly once based on current state */
+    e.preventDefault();
+    e.stopPropagation();
+    openCreate(!isCreateOpen());
+    return;
+  }
+  var saveBtn=e.target.closest&&e.target.closest('#music-playlist-save-btn');
+  if(saveBtn){
+    e.preventDefault();
+    if(typeof musicCreatePlaylist==='function'){
+      try{musicCreatePlaylist();}catch(err){if(typeof showToast==='function')showToast('플레이리스트 생성 중 오류가 발생했어요.');return;}
+      openCreate(false);
+    }
+  }
+},true); /* capture phase: runs before stale per-element handlers */
+
+/* Strip the old per-element listeners that earlier versions attached, so the
+   delegated handler above is the only one that toggles (no double-fire). */
+function stripStaleAddHandlers(){
+  ['music-v8-pl-add-btn','music-pl-hero-btn'].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el&&!el.dataset.v13&&el.parentNode){
+      var c=el.cloneNode(true);el.dataset.v13='1';c.dataset.v13='1';
+      el.parentNode.replaceChild(c,el);
+    }
+  });
+  document.querySelectorAll('.music-pl-create-btn').forEach(function(el){
+    if(!el.dataset.v13&&el.parentNode){var c=el.cloneNode(true);c.dataset.v13='1';el.parentNode.replaceChild(c,el);}
+  });
+}
+setTimeout(stripStaleAddHandlers,700);
+
+/* Re-strip after renders (new buttons may be injected) */
+var _renderV13=(typeof musicRender==='function')?musicRender:null;
+musicRender=function(){
+  if(_renderV13)_renderV13.apply(this,arguments);
+  setTimeout(stripStaleAddHandlers,90);
+};
+
+})();
+/* ── end Music UX v13 JS ─────────────────────────────────────────────── */
 </script>
 </body>
 </html>
