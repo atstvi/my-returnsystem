@@ -4835,7 +4835,7 @@ to{opacity:1;transform:translateY(0)}}
       <button class="btn btn-primary" type="button" onclick="fbGoogleLogin()">Google로 로그인</button>
       <button class="btn btn-ghost" type="button" onclick="initFirebase()">연결 재시도</button>
     </div>
-    <div class="auth-status" id="auth-status">Firebase 연결을 확인하는 중...</div>
+    <div class="auth-status" id="auth-status">연결 중... (안 되면 '연결 재시도' 눌러주세요)</div>
   </div>
 </div>
 <!-- Home modals -->
@@ -21262,8 +21262,16 @@ function loadScript(src){
     if(existing) existing.remove();
     var sc=document.createElement('script');
     sc.src=src; sc.dataset.loading='1';
-    sc.onload=function(){sc.dataset.loaded='1';resolve();};
-    sc.onerror=function(){delete _scriptLoadPromises[src];sc.remove();reject(new Error('스크립트 로드 실패: '+src));};
+    /* 12-second hard timeout — gstatic.com CDN can stall indefinitely on
+       some networks (VPN, captive portal, slow mobile) without ever calling
+       onerror. Without this the promise never settles and the login button
+       appears completely unresponsive. */
+    var timer=setTimeout(function(){
+      delete _scriptLoadPromises[src]; sc.remove();
+      reject(new Error('스크립트 로드 시간 초과 (네트워크를 확인해주세요): '+src.split('/').pop()));
+    }, 12000);
+    sc.onload=function(){clearTimeout(timer);sc.dataset.loaded='1';resolve();};
+    sc.onerror=function(){clearTimeout(timer);delete _scriptLoadPromises[src];sc.remove();reject(new Error('스크립트 로드 실패: '+src.split('/').pop()));};
     document.head.appendChild(sc);
   });
   return _scriptLoadPromises[src];
@@ -21428,12 +21436,13 @@ async function initFirebase(){
   }
   // If already initialized with same config and auth ready, skip reload.
   if(_fbInitOnce && fbAuth && fbDb){ return true; }
+  setFbStatus('Firebase 스크립트 로드 중...','saving');
   try {
     await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
     await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
   } catch(e){
-    setFbStatus('Firebase 스크립트 로드 실패: '+(e&&e.message||'네트워크 확인'),'err');
+    setFbStatus('Firebase 연결 실패: '+(e&&e.message||'네트워크를 확인해주세요'),'err');
     return false;
   }
   if(typeof firebase==='undefined'||!firebase.auth||!firebase.firestore){
@@ -21447,7 +21456,15 @@ async function initFirebase(){
   // Subscribe to auth state changes only once across the lifetime of the page.
   if(!_fbAuthSubscribed){
     _fbAuthSubscribed = true;
+    /* Safety: if onAuthStateChanged never fires (rare Firebase Auth edge case),
+       unblock the UI after 10s so the login button stays usable. */
+    var _authTimeout=setTimeout(function(){
+      if(fbUser===null && document.getElementById('auth-status')){
+        setFbStatus('로그인이 필요해요 — Google로 로그인 버튼을 눌러주세요','');
+      }
+    },10000);
     fbAuth.onAuthStateChanged(function(user){
+      clearTimeout(_authTimeout);
       fbUser=user||null;
       try{ if(window.SyncManager) SyncManager.onAuthState(fbUser); }catch(e){}
       updateAuthGate();
@@ -21478,7 +21495,13 @@ clearFbConfig=function(){
 };
 async function fbGoogleLogin(){
   try{
-    if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
+    if(!fbAuth){
+      var ok=await initFirebase();
+      if(!ok){
+        showToast('Firebase 연결 실패 — 네트워크 확인 후 재시도해주세요');
+        return;
+      }
+    }
     var provider=new firebase.auth.GoogleAuthProvider();
     provider.addScope('profile');
     provider.addScope('email');
