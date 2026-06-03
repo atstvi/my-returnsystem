@@ -45,6 +45,14 @@ const sandbox = {
   _tomb: {},
   fbDb: { batch: makeBatch, collection: (c) => colRef(c) },
   fbUser: { uid: 'u1' },
+  /* deterministic stand-in for the module-level _entityPayloadHash (defined
+     outside this slice). Hashes content with envelope fields excluded. */
+  _entityPayloadHash: (e) => {
+    const env = ['_eid', 'updatedAt', 'createdAt', 'deletedAt', 'schemaVersion', '_rev', 'modifiedBy'];
+    const c = {}; Object.keys(e || {}).forEach((k) => { if (env.indexOf(k) < 0) c[k] = e[k]; });
+    const s = JSON.stringify(c); let h = 7; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return 'H' + s.length + '_' + h;
+  },
 };
 vm.createContext(sandbox);
 vm.runInContext(block, sandbox);
@@ -141,6 +149,53 @@ const t = runner('Stage 6c — entity dual-write + migration');
   t.ok('legacy store still holds the skipped entity (no data loss)', JSON.parse(store['memos_v5']).some((m) => m._eid === 'memo_big'));
   // skipped doc omitted from shadow → retried next save (not silently dropped)
   t.ok('skipped eid not in write-shadow', !(JSON.parse(store['__entity_wshadow_memos'] || '{}').memo_big));
+
+  // ════════════════════════════════════════════════════════════════════════
+  // Regression: id-less items (legacy memos {text,ts}) must NOT churn.
+  // fbEntityBuildDocs used to mint a FRESH returnNewId() for every such item on
+  // every call, so each save re-wrote them all + tombstoned the prior cycle's
+  // random ids → unbounded write amplification that exhausted the Firestore
+  // write quota. Now their id is derived deterministically from the payload.
+  // ════════════════════════════════════════════════════════════════════════
+  const memoSpec = RETURN_ENTITY_COLLECTIONS.find((s) => s.collection === 'memos');
+
+  // 1) deterministic across calls: same input → identical id set, no randomness.
+  store['memos_v5'] = JSON.stringify([{ text: 'alpha', ts: 1 }, { text: 'beta', ts: 2 }]);
+  const d1 = Object.keys(fbEntityBuildDocs(memoSpec)).sort();
+  const d2 = Object.keys(fbEntityBuildDocs(memoSpec)).sort();
+  t.ok('id-less build is deterministic across calls', JSON.stringify(d1) === JSON.stringify(d2) && d1.length === 2, { d1, d2 });
+  t.ok('id-less ids are content-derived (memo_h*), not random gen', d1.every((k) => /^memo_h/.test(k)), d1);
+
+  // 2) the actual churn regression: write twice, second pass must write 0 / tomb 0.
+  //    (fresh fsStore region: clear memo mirror + shadow first)
+  Object.keys(fsStore).forEach((k) => { if (k.indexOf('/entities/memos/') >= 0) delete fsStore[k]; });
+  delete store['__entity_wshadow_memos'];
+  const firstMemo = await fbEntityWriteChanged(ref);
+  const memoWroteFirst = firstMemo.written;
+  const secondMemo = await fbEntityWriteChanged(ref);
+  t.ok('first memo pass mirrors the 2 id-less items', memoWroteFirst >= 2, firstMemo);
+  t.ok('second memo pass writes 0 (NO churn — the quota-burn bug)', secondMemo.written === 0 && secondMemo.tombstoned === 0, secondMemo);
+
+  // 3) duplicate identical payloads do not collide (deterministic __dup suffix).
+  store['memos_v5'] = JSON.stringify([{ text: 'same', ts: 9 }, { text: 'same', ts: 9 }]);
+  const dupDocs = fbEntityBuildDocs(memoSpec);
+  t.ok('identical-payload memos get 2 distinct doc ids', Object.keys(dupDocs).length === 2, Object.keys(dupDocs));
+  t.ok('duplicate disambiguated with __dup suffix', Object.keys(dupDocs).some((k) => /__dup\d+$/.test(k)), Object.keys(dupDocs));
+
+  // 4) circuit breaker: a non-migration pass that would write a huge number of
+  //    docs aborts to protect the quota (and records it — never silent).
+  const many = []; for (let i = 0; i < 800; i++) many.push({ text: 'm' + i, ts: i });
+  store['memos_v5'] = JSON.stringify(many);
+  Object.keys(fsStore).forEach((k) => { if (k.indexOf('/entities/memos/') >= 0) delete fsStore[k]; });
+  delete store['__entity_wshadow_memos'];
+  const breaker = await fbEntityWriteChanged(ref);
+  t.ok('circuit breaker trips on oversized steady-state pass', breaker.aborted === true, breaker);
+  t.ok('breaker caps ops near the configured budget', (breaker.written + breaker.tombstoned) <= 620, breaker);
+  t.ok('breaker trip recorded to skip log (not silent)', sandbox.window.returnEntityMigrateSkips().some((s) => s.reason === 'circuit-breaker'));
+
+  // 5) static source check: the random-id mint is gone from build-docs.
+  t.ok('fbEntityBuildDocs no longer mints returnNewId() inline',
+    !/function fbEntityBuildDocs[\s\S]*?returnNewId\(/.test(html.slice(html.indexOf('function fbEntityBuildDocs'), html.indexOf('function fbEntityBuildDocs') + 1200)));
 
   t.done();
 })();
