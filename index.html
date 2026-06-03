@@ -23455,6 +23455,142 @@ async function fbEntityMigrateIfNeeded(ref){
   return {migrated:true,written:res.written,tombstoned:res.tombstoned};
 }
 window.fbEntityReadAll=function(){ if(!fbDb||!fbUser){console.warn('[entity] not signed in');return;} return fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){console.log('[entity] mirror report',r);return r;}); };
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 6d — PER-ENTITY MERGE (LWW + tombstone enforcement)
+
+   Flips the READ/merge authority from the legacy blob to the per-entity mirror
+   — but ONLY when RETURN_SYNC_MODEL==='entity'. The flag DEFAULTS to 'legacy',
+   so in production nothing here runs: the legacy blob stays authoritative until
+   the §7 two-device matrix is proven green and the flag is flipped explicitly
+   (instant revert by clearing the flag). Dual-write (6c) continues regardless.
+
+   Merge is per _eid, deterministic (design §3):
+     • both live           → newer updatedAt wins (tie → cloud); diff logged
+     • either side deleted  → delete wins iff deletedAt >= newest live updatedAt
+     • cloud-only           → adopt unless a newer local tombstone says deleted
+     • local-only           → keep unless a newer cloud tombstone says deleted
+   No blind "absorb cloud-only key" resurrection (closes R3). Conflicts are
+   logged to a device-local ring buffer (__sync_conflicts_v1, non-synced).
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_SYNC_CONFLICT_KEY='__sync_conflicts_v1'; /* non-synced (double underscore) */
+function returnEntityLogConflicts(list){
+  if(!list||!list.length)return;
+  var buf=[]; try{ buf=JSON.parse(localStorage.getItem(RETURN_SYNC_CONFLICT_KEY)||'[]')||[]; }catch(_e){ buf=[]; }
+  buf=buf.concat(list); if(buf.length>50)buf=buf.slice(buf.length-50);
+  try{ setReturnStorageItem(RETURN_SYNC_CONFLICT_KEY, JSON.stringify(buf)); }catch(_e){}
+}
+window.returnSyncConflicts=function(){ var b=[]; try{ b=JSON.parse(localStorage.getItem(RETURN_SYNC_CONFLICT_KEY)||'[]'); }catch(_e){} console.log('[sync] conflicts',b.length,b); return b; };
+/* Pure decision for one _eid given local item L, cloud doc C, and the local
+   tombstone registry. Returns the surviving payload, or null if deleted. */
+function _returnEntityDecide(eid,L,C,tombstones,collection,conflicts){
+  var lUpd=L?(Number(L.updatedAt)||0):-1;
+  var cIsTomb=!!(C&&(C._tombstone||C.deletedAt));
+  var cUpd=(C&&!cIsTomb)?(Number(C.updatedAt)||0):-1;
+  var localTomb=(tombstones&&tombstones[eid])?(Number(tombstones[eid].deletedAt)||0):0;
+  var cloudTomb=cIsTomb?(Number(C.deletedAt)||0):0;
+  var delAt=Math.max(localTomb,cloudTomb);
+  var liveMax=Math.max(lUpd,cUpd);
+  if(delAt>0 && delAt>=liveMax) return null; /* delete wins (only if not older than a live edit) */
+  if(lUpd>=0 && cUpd>=0){
+    if(lUpd!==cUpd&&conflicts)conflicts.push({collection:collection,_eid:eid,localUpd:lUpd,cloudUpd:cUpd,winner:cUpd>lUpd?'cloud':'local',at:Date.now()});
+    return cUpd>lUpd?C.payload:(lUpd>cUpd?L:(C.payload||L)); /* tie → cloud (deterministic) */
+  }
+  if(cUpd>=0)return C.payload;
+  return L||null;
+}
+/* Merge a local array against the cloud mirror. Preserves local order; items
+   without an _eid pass through untouched; cloud-only survivors appended. */
+function returnEntityMergeArray(localArr, cloudByEid, tombstones, collection){
+  localArr=Array.isArray(localArr)?localArr:[]; cloudByEid=cloudByEid||{}; tombstones=tombstones||{};
+  var conflicts=[], merged=[], handled={};
+  for(var i=0;i<localArr.length;i++){
+    var it=localArr[i];
+    if(!it||!it._eid){ if(it)merged.push(it); continue; }
+    handled[it._eid]=1;
+    var w=_returnEntityDecide(it._eid,it,cloudByEid[it._eid],tombstones,collection,conflicts);
+    if(w)merged.push(w);
+  }
+  Object.keys(cloudByEid).forEach(function(eid){
+    if(handled[eid])return;
+    var w=_returnEntityDecide(eid,null,cloudByEid[eid],tombstones,collection,conflicts);
+    if(w)merged.push(w);
+  });
+  return {merged:merged,conflicts:conflicts};
+}
+/* Diary variant: date-keyed object; each date is an entity _eid=prefix+date. */
+function returnEntityMergeObject(localObj, cloudByEid, tombstones, collection, prefix){
+  localObj=(localObj&&typeof localObj==='object'&&!Array.isArray(localObj))?localObj:{};
+  cloudByEid=cloudByEid||{}; tombstones=tombstones||{};
+  var conflicts=[], result={}, localByEid={};
+  Object.keys(localObj).forEach(function(dk){ var e=localObj[dk]; if(!e||typeof e!=='object')return; var eid=e._eid||(prefix+dk); localByEid[eid]={dk:dk,e:e}; });
+  function dateFromEid(eid){ return eid.indexOf(prefix)===0?eid.slice(prefix.length):eid; }
+  var allEids={}; Object.keys(localByEid).forEach(function(e){allEids[e]=1;}); Object.keys(cloudByEid).forEach(function(e){allEids[e]=1;});
+  Object.keys(allEids).forEach(function(eid){
+    var L=localByEid[eid]?localByEid[eid].e:null;
+    var w=_returnEntityDecide(eid,L,cloudByEid[eid],tombstones,collection,conflicts);
+    if(w){ var dk=localByEid[eid]?localByEid[eid].dk:dateFromEid(eid); result[dk]=w; }
+  });
+  return {merged:result,conflicts:conflicts};
+}
+/* After a merge rewrites a collection's localStorage value, resync its stamping
+   shadow to the merged content so the NEXT save does not spuriously re-stamp
+   updatedAt on entities we adopted from the cloud (which already carry their own
+   updatedAt). Mirrors the shadow shapes used by 6a (array=hash) / 6b (object=1). */
+function _returnResyncEidShadow(collection, merged, type, prefix){
+  var shadowKey='__eid_shadow_'+collection, next={};
+  try{
+    if(type==='object'){
+      Object.keys(merged).forEach(function(dk){ var e=merged[dk]; if(e&&typeof e==='object'){ var eid=e._eid||(prefix+dk); next[eid]=1; } });
+    }else{
+      for(var i=0;i<merged.length;i++){ var e=merged[i]; if(e&&e._eid)next[e._eid]=_entityPayloadHash(e); }
+    }
+    setReturnStorageItem(shadowKey, JSON.stringify(next));
+  }catch(_e){}
+}
+/* Read the full per-entity mirror (docs, incl. tombstones) for merging. */
+async function fbEntityReadAllDocs(ref){
+  if(!fbDb||!fbUser)return {};
+  var out={};
+  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
+    var spec=RETURN_ENTITY_COLLECTIONS[s]; out[spec.collection]={};
+    try{
+      var snap=await ref.collection('entities').doc(spec.collection).collection('items').get();
+      snap.forEach(function(d){ var x=d.data()||{}; if(x._eid)out[spec.collection][x._eid]=x; });
+    }catch(e){ /* leave empty for this collection */ }
+  }
+  return out;
+}
+/* The 6d entry point: merge the cloud mirror into local state per entity. Only
+   runs under the 'entity' flag. Writes back only changed collections (under the
+   apply lock so it doesn't trigger a save), resyncs shadows, logs conflicts. */
+async function fbEntityMergeIntoLocal(ref){
+  if(RETURN_SYNC_MODEL!=='entity')return {skipped:true};
+  if(!fbDb||!fbUser)return {skipped:true};
+  var cloud=await fbEntityReadAllDocs(ref);
+  var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
+  var changedKeys=[], allConflicts=[];
+  var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
+  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
+    var spec=RETURN_ENTITY_COLLECTIONS[s];
+    var raw=null; try{ raw=localStorage.getItem(spec.key); }catch(_e){ raw=null; }
+    var parsed; try{ parsed=JSON.parse(raw||(spec.type==='object'?'{}':'[]')); }catch(_e){ parsed=spec.type==='object'?{}:[]; }
+    var r=(spec.type==='object')
+      ? returnEntityMergeObject(parsed, cloud[spec.collection], tombs, spec.collection, spec.prefix)
+      : returnEntityMergeArray(parsed, cloud[spec.collection], tombs, spec.collection);
+    var newJson=JSON.stringify(r.merged);
+    if(newJson!==raw){
+      _applyingFbData=true;
+      try{ writer(spec.key, newJson); }finally{ _applyingFbData=false; }
+      _returnResyncEidShadow(spec.collection, r.merged, spec.type, spec.prefix);
+      changedKeys.push(spec.key);
+    }
+    if(r.conflicts&&r.conflicts.length)allConflicts=allConflicts.concat(r.conflicts);
+  }
+  if(allConflicts.length)returnEntityLogConflicts(allConflicts);
+  return {changedKeys:changedKeys, conflicts:allConflicts.length};
+}
+window.returnEntityMergeArray=returnEntityMergeArray;
+window.returnEntityMergeObject=returnEntityMergeObject;
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {
@@ -23825,6 +23961,15 @@ async function fbLoadAll(){
         try{ console.warn('[entity] 6c migrate/verify failed (legacy load unaffected):',entErr&&entErr.message); }catch(_){}
       }
     }
+    /* Stage 6d: per-entity merge authority — ONLY under the 'entity' flag.
+       Default 'legacy' = no-op. Isolated; legacy hydration above already done. */
+    if(RETURN_SYNC_MODEL==='entity'){
+      try{
+        var mres=await fbEntityMergeIntoLocal(ref);
+        if(mres.changedKeys&&mres.changedKeys.length&&typeof fbApplyData==='function'){ fbApplyData({keys:{},updatedAtMs:Date.now(),__noop:true}); }
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity 6d merge (load)',mres); }catch(_e){}
+      }catch(mErr){ try{ console.warn('[entity] 6d merge failed (legacy authoritative):',mErr&&mErr.message); }catch(_){} }
+    }
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotEvents++; window.__SYNC_DEBUG.state.timestamps.lastSnapshotAt=Date.now(); window.__SYNC_DEBUG.log('fb','onSnapshot fired',{exists:s.exists}); } }catch(_e){}
@@ -23852,6 +23997,14 @@ async function fbLoadAll(){
       }catch(splitErr){
         console.warn('snapshot split read failed:', splitErr&&splitErr.message);
         try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot split read failed: '+splitErr.message); }catch(_e){}
+      }
+      /* Stage 6d: on a remote change, re-merge the per-entity mirror (flag-gated). */
+      if(RETURN_SYNC_MODEL==='entity'){
+        try{
+          var sm=await fbEntityMergeIntoLocal(ref);
+          if(sm.changedKeys&&sm.changedKeys.length&&typeof fbApplyData==='function'){ fbApplyData({keys:{},updatedAtMs:Date.now(),__noop:true}); }
+          try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity 6d merge (snapshot)',sm); }catch(_e){}
+        }catch(smErr){ try{ console.warn('[entity] 6d snapshot merge failed:',smErr&&smErr.message); }catch(_){} }
       }
       setFbStatus(fbStatusTime('Firebase 원격 변경 반영'),'ok');
     },function(e){
