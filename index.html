@@ -23397,9 +23397,28 @@ function fbEntityBuildDocs(spec){
     });
   }else{
     if(!Array.isArray(parsed))return {};
+    var dedup={};
     for(var i=0;i<parsed.length;i++){
       var it=parsed[i]; if(!it||typeof it!=='object')continue;
-      var id=it._eid||(it.id!=null&&String(it.id)!==''?(spec.prefix+String(it.id)):returnNewId(spec.prefix));
+      var id;
+      if(it._eid){ id=it._eid; }
+      else if(it.id!=null&&String(it.id)!==''){ id=spec.prefix+String(it.id); }
+      else {
+        /* No stable identity (e.g. legacy memos: {text,ts} carry no id/_eid).
+           Derive a DETERMINISTIC id from the payload hash. A previous
+           returnNewId() here minted a FRESH random id on every call, so each
+           save saw all such items as "new" → wrote them + tombstoned the prior
+           cycle's random ids → unbounded write/tombstone churn that exhausted
+           the Firestore write quota. Hashing is stable across calls (no churn)
+           and reorder-safe; an actual content edit changes the hash → exactly
+           one write + one tombstone, which is the correct "changed" cost. */
+        id=spec.prefix+'h'+_entityPayloadHash(it);
+      }
+      /* Disambiguate genuine duplicates (same _eid/id, or identical-payload
+         hashes) deterministically by occurrence order, so neither item silently
+         overwrites the other in the mirror. */
+      if(dedup[id]!=null){ id=id+'__dup'+(++dedup[id]); }
+      else { dedup[id]=0; }
       docs[id]=mk(id,it,it.updatedAt,it.createdAt);
     }
   }
@@ -23412,6 +23431,13 @@ function fbEntityBuildDocs(spec){
    steady-state writes are minimal. */
 var RETURN_ENTITY_SKIP_KEY='__entity_migrate_skips'; /* non-synced (double underscore) */
 var RETURN_ENTITY_MAX_DOC_BYTES=900000; /* Firestore hard limit is ~1 MiB/doc */
+/* Steady-state safety cap. A normal dual-write touches only what changed since
+   the last save (handful of docs); a full migration writes everything ONCE
+   (exempt via opts.full). If a NON-migration pass tries to write more than this,
+   something is amplifying (the memo random-id churn that burned the quota was
+   ~480 writes+tombstones/cycle) — abort, log loudly, and record it rather than
+   hammer Firestore. Generous headroom so legitimate bulk edits aren't blocked. */
+var RETURN_ENTITY_MAX_STEADY_OPS=600;
 /* Validate + queue a single entity doc. Firestore's batch.set() serializes and
    validates document data synchronously and RECURSIVELY, so a deeply-nested or
    cyclic entity (e.g. a task/inbox item carrying large inline base64) can throw
@@ -23435,7 +23461,9 @@ async function fbEntityWriteChanged(ref, opts){
   var batch=fbDb.batch(), ops=0, written=0, tombstoned=0, skips=[];
   async function commitIfFull(force){ if(ops&&(force||ops>=430)){ await batch.commit(); batch=fbDb.batch(); ops=0; } }
   var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
-  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
+  var aborted=false;
+  function overBudget(){ return !opts.full && (written+tombstoned)>=RETURN_ENTITY_MAX_STEADY_OPS; }
+  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length&&!aborted;s++){
     var spec=RETURN_ENTITY_COLLECTIONS[s];
     var docs=fbEntityBuildDocs(spec);
     var shadowKey='__entity_wshadow_'+spec.collection, shadow={};
@@ -23445,14 +23473,16 @@ async function fbEntityWriteChanged(ref, opts){
     for(eid in docs){ if(!Object.prototype.hasOwnProperty.call(docs,eid))continue;
       var ua=docs[eid].updatedAt||0;
       if(shadow[eid]===ua){ next[eid]=ua; continue; } /* unchanged — keep shadow, no write */
+      if(overBudget()){ aborted=true; break; }
       if(_entitySafeSet(batch, itemsCol.doc(fbEntityDocId(eid)), docs[eid], eid, spec.collection, skips)){
         next[eid]=ua; ops++; written++;
         await commitIfFull(false);
       } /* skipped docs are omitted from `next` so they're retried on a later save */
     }
     /* _eids that were mirrored before but are gone now → tombstone doc. */
-    for(eid in shadow){ if(!Object.prototype.hasOwnProperty.call(shadow,eid))continue;
+    if(!aborted) for(eid in shadow){ if(!Object.prototype.hasOwnProperty.call(shadow,eid))continue;
       if(Object.prototype.hasOwnProperty.call(docs,eid))continue;
+      if(overBudget()){ aborted=true; break; }
       var delAt=(tombs[eid]&&tombs[eid].deletedAt)||Date.now();
       if(_entitySafeSet(batch, itemsCol.doc(fbEntityDocId(eid)),
         {collection:spec.collection,_eid:eid,deletedAt:delAt,updatedAt:delAt,modifiedBy:FB_CLIENT_ID,_tombstone:true},
@@ -23461,16 +23491,25 @@ async function fbEntityWriteChanged(ref, opts){
         await commitIfFull(false);
       }
     }
-    try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
+    /* Persist the shadow only if this collection completed — a partial shadow
+       would drop unprocessed eids and re-write them next pass. */
+    if(!aborted){ try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){} }
   }
   await commitIfFull(true);
+  if(aborted){
+    /* Never silent: record the trip and emit a loud, single error. Under legacy
+       read mode the mirror is not consumed, so aborting protects the quota
+       without affecting what users see; the legacy blob remains authoritative. */
+    try{ var sk2=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]')||[]; sk2.unshift({reason:'circuit-breaker',ops:written+tombstoned,cap:RETURN_ENTITY_MAX_STEADY_OPS,at:Date.now()}); if(sk2.length>100)sk2=sk2.slice(0,100); setReturnStorageItem(RETURN_ENTITY_SKIP_KEY, JSON.stringify(sk2)); }catch(_e){}
+    try{ console.error('[entity] dual-write circuit breaker tripped at '+(written+tombstoned)+' ops (cap '+RETURN_ENTITY_MAX_STEADY_OPS+') — aborting to protect the Firestore write quota. Likely write amplification; see returnEntityMigrateSkips().'); }catch(_){}
+  }
   if(skips.length){
     /* persist a bounded skip log (non-synced) and emit ONE summary — never a
        silent failure, but no per-doc console spam on every save. */
     try{ var prev=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]')||[]; var all=skips.concat(prev); if(all.length>100)all=all.slice(0,100); setReturnStorageItem(RETURN_ENTITY_SKIP_KEY, JSON.stringify(all)); }catch(_e){}
     try{ console.warn('[entity] '+skips.length+' entity doc(s) skipped (legacy blob still holds them) — returnEntityMigrateSkips() for detail:', skips.slice(0,5)); }catch(_){}
   }
-  return {written:written,tombstoned:tombstoned,skipped:skips.length,skips:skips};
+  return {written:written,tombstoned:tombstoned,skipped:skips.length,skips:skips,aborted:aborted};
 }
 window.returnEntityMigrateSkips=function(){ var b=[]; try{ b=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]'); }catch(_e){} console.log('[entity] migrate skips',b.length,b); return b; };
 /* Read the per-entity mirror (verification only in 6c — NOT applied to state).
