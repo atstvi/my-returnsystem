@@ -7313,16 +7313,16 @@ function _initHome() {
   var el = document.getElementById('js-date');
   if (el) el.textContent = d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+days[d.getDay()]+'요일';
   requestAnimationFrame(function(){
-    try{ renderHomeBanner(); }catch(e){}
-    try{ refreshRepeatTasks(); applyActiveTaskRules(); }catch(e){}
-    try{ renderHomeTasks(); setHomeTaskView(localStorage.getItem('home_task_view') || 'eisen'); }catch(e){}
-    try{ renderHomeOpsPanel(); }catch(e){}
-    try{ normalizeHomeLayoutOrder(); }catch(e){}
-    try{ renderHomeSituation(); }catch(e){}
-    try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){}
-    try{ renderHomeTimeBlocks(); }catch(e){}
-    try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){}
-    try{ window.dispatchEvent(new Event('resize')); }catch(e){}
+    try{ renderHomeBanner(); }catch(e){ console.error('[home] renderHomeBanner failed:',e); }
+    try{ refreshRepeatTasks(); applyActiveTaskRules(); }catch(e){ console.error('[home] refreshRepeatTasks/applyActiveTaskRules failed:',e); }
+    try{ renderHomeTasks(); setHomeTaskView(localStorage.getItem('home_task_view') || 'eisen'); }catch(e){ console.error('[home] renderHomeTasks failed:',e); }
+    try{ renderHomeOpsPanel(); }catch(e){ console.error('[home] renderHomeOpsPanel failed:',e); }
+    try{ normalizeHomeLayoutOrder(); }catch(e){ console.error('[home] normalizeHomeLayoutOrder failed:',e); }
+    try{ renderHomeSituation(); }catch(e){ console.error('[home] renderHomeSituation failed:',e); }
+    try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){ console.error('[home] homeRenderTimeGrid failed:',e); }
+    try{ renderHomeTimeBlocks(); }catch(e){ console.error('[home] renderHomeTimeBlocks failed:',e); }
+    try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){ console.error('[home] renderHomeInbox failed:',e); }
+    try{ window.dispatchEvent(new Event('resize')); }catch(e){ console.error('[home] resize dispatch failed:',e); }
   });
 }
 
@@ -7362,7 +7362,7 @@ var musicModes=['Study','Routine','Planning','Rest','Focus'];
 function musicEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function musicId(){return 'music_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
 function musicLoad(){try{musicPlaylists=JSON.parse(localStorage.getItem(MUSIC_KEY)||'[]')||[];}catch(e){musicPlaylists=[];}musicPlaylists=musicPlaylists.filter(function(p){return p&&p.id;});}
-function musicSave(){try{localStorage.setItem(MUSIC_KEY,JSON.stringify(musicPlaylists));}catch(e){if(typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');return false;}try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}return true;}
+function musicSave(){var ok=setReturnStorageItem(MUSIC_KEY,JSON.stringify(musicPlaylists));if(!ok&&typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');try{if(ok&&typeof fbSaveAll==='function')fbSaveAll();}catch(e){}return ok;}
 function musicUrlObj(url){try{return new URL(String(url||''));}catch(e){try{return new URL(String(url||''),'https://youtube.com');}catch(_){return null;}}}
 function musicVideoId(url){var u=musicUrlObj(url);if(!u)return '';var host=u.hostname.replace(/^www\./,'');if(host==='youtu.be')return u.pathname.split('/').filter(Boolean)[0]||'';if(host.indexOf('youtube.com')>=0){if(u.searchParams.get('v'))return u.searchParams.get('v');var parts=u.pathname.split('/').filter(Boolean);if(parts[0]==='embed'||parts[0]==='shorts')return parts[1]||'';}return '';}
 function musicListId(url){var u=musicUrlObj(url);return u?u.searchParams.get('list')||'':'';}
@@ -7426,9 +7426,10 @@ musicLoad=function(){
   musicPlaylists=musicLibrary.playlists;
 };
 musicSave=function(){
-  try{localStorage.setItem(MUSIC_KEY,JSON.stringify(musicLibrary));}catch(e){if(typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');return false;}
-  try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
-  return true;
+  var ok=setReturnStorageItem(MUSIC_KEY,JSON.stringify(musicLibrary));
+  if(!ok&&typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');
+  try{if(ok&&typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
+  return ok;
 };
 function musicSongById(id){return (musicLibrary.songs||[]).find(function(s){return String(s.id)===String(id);})||null;}
 function musicPlaylistById(id){return (musicLibrary.playlists||[]).find(function(p){return String(p.id)===String(id);})||null;}
@@ -8354,14 +8355,14 @@ function homeSkippedDeadlineLinks(){
 function homeSkipDeadlineLink(task){
   var skipped = homeSkippedDeadlineLinks();
   skipped[String(task.id)] = Date.now();
-  localStorage.setItem('home_skipped_deadline_links', JSON.stringify(skipped));
+  setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(skipped));
   renderHomeSituation();
   homeToast('이 마감은 연결 필요에서 제외했어요');
 }
 function homeUnskipDeadlineLink(task){
   var skipped = homeSkippedDeadlineLinks();
   delete skipped[String(task.id)];
-  localStorage.setItem('home_skipped_deadline_links', JSON.stringify(skipped));
+  setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(skipped));
   renderHomeSituation();
   homeToast('패스를 취소했어요');
 }
@@ -8461,7 +8462,14 @@ function renderHomeSituation(){
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
       if (customAvatar && typeof themeStudioIconMarkup === 'function') {
-        avatar.innerHTML = themeStudioIconMarkup(customAvatar, defaultAvatar);
+        /* Use the stored base64 fallback (iconFallbacks.avatar) so the image
+           displays on devices that don't have this asset in their IndexedDB.
+           Falls back to themeStudioMediaFallbackForUrl (asset list lookup) or
+           the emoji only as a last resort. */
+        var avatarFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
+          || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
+          || '';
+        avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
         if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
         avatar.innerHTML = '<img src="' + customAvatar + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
@@ -8706,13 +8714,13 @@ function setHomeTaskView(view){
   if (list) list.style.display = isE ? 'none' : 'flex';
   document.getElementById('home-eisen-btn') && document.getElementById('home-eisen-btn').classList.toggle('active', isE);
   document.getElementById('home-list-btn') && document.getElementById('home-list-btn').classList.toggle('active', !isE);
-  try { localStorage.setItem('home_task_view', isE ? 'eisen' : 'list'); } catch(e) {}
+  setReturnStorageItem('home_task_view', isE ? 'eisen' : 'list');
 }
 document.getElementById('home-eisen-btn') && document.getElementById('home-eisen-btn').addEventListener('click', function(){ setHomeTaskView('eisen'); });
 document.getElementById('home-list-btn') && document.getElementById('home-list-btn').addEventListener('click', function(){ setHomeTaskView('list'); });
-function loadTaskRules(){ try{return JSON.parse(localStorage.getItem('task_rules_v1')||'[]');}catch(e){return [];} }
+function loadTaskRules(){ try{return JSON.parse(localStorage.getItem('task_rules_v1')||'[]');}catch(e){ console.error('[rules] loadTaskRules: corrupt data, resetting to []', e); return [];} }
 function saveTaskRules(rules){ var ok=setReturnStorageItem('task_rules_v1',JSON.stringify(rules));if(ok&&typeof repairGeneratedTasks==='function')repairGeneratedTasks({source:'saveTaskRules'});return ok; }
-function loadRepeatItems(){ try{return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]');}catch(e){return [];} }
+function loadRepeatItems(){ try{return JSON.parse(localStorage.getItem('repeat_items_v1')||'[]');}catch(e){ console.error('[repeat] loadRepeatItems: corrupt data, resetting to []', e); return [];} }
 function saveRepeatItems(items){ var ok=setReturnStorageItem('repeat_items_v1',JSON.stringify(items));if(ok&&typeof repairGeneratedTasks==='function')repairGeneratedTasks({source:'saveRepeatItems'});return ok; }
 function taskDateFromKey(key){
   var m=String(key||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -8749,8 +8757,12 @@ function repeatWeekdays(rep){
 }
 function repeatGenerationKey(rep,dkey){return String((rep&&rep.id)||'')+'|'+taskDateKeyLocal(dkey);}
 function activeRuleGenerationKey(ruleId,sourceId,dkey){return String(ruleId||'')+'|'+String(sourceId||'')+'|'+taskDateKeyLocal(dkey);}
-function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){return {};}}
-function saveRepeatSuppressions(map){try{localStorage.setItem('repeat_suppressions_v1',JSON.stringify(map||{}));}catch(e){}}
+function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadRepeatSuppressions: corrupt data, resetting to {}', e); return {};}}
+function saveRepeatSuppressions(map){
+  var ok=setReturnStorageItem('repeat_suppressions_v1',JSON.stringify(map||{}));
+  if(!ok)console.error('[repeat] saveRepeatSuppressions: storage write failed — suppression may re-generate on reload');
+  return ok;
+}
 function suppressRepeatOccurrence(task){
   if(!task||!task._repeatId)return;
   var occurrence=taskDateKeyLocal(task._repeatOccurrence||task.date);
@@ -8760,8 +8772,12 @@ function suppressRepeatOccurrence(task){
   map[key]={repeatId:task._repeatId,occurrence:occurrence,reason:'deleted',at:Date.now()};
   saveRepeatSuppressions(map);
 }
-function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){return {};}}
-function saveGeneratedTaskSuppressions(map){try{localStorage.setItem('generated_task_suppressions_v1',JSON.stringify(map||{}));}catch(e){}}
+function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadGeneratedTaskSuppressions: corrupt data, resetting to {}', e); return {};}}
+function saveGeneratedTaskSuppressions(map){
+  var ok=setReturnStorageItem('generated_task_suppressions_v1',JSON.stringify(map||{}));
+  if(!ok)console.error('[repeat] saveGeneratedTaskSuppressions: storage write failed — suppression may re-generate on reload');
+  return ok;
+}
 function generatedTaskKey(task){
   if(!task)return '';
   if(task.generationKey)return String(task.generationKey);
@@ -9397,6 +9413,39 @@ function editHomeRepeat(id){
   renderHomeOpsPanel();
 }
 
+/* Prune all suppression entries that belong to a specific repeat rule ID.
+   Called on rule deletion so the maps don't accumulate indefinitely. */
+function pruneStaleRepeatSuppressions(){
+  var cutoff=new Date(Date.now()-30*24*60*60*1000);
+  var dateRe=/\|(\d{4}-\d{2}-\d{2})$/;
+  var s=loadRepeatSuppressions(), sc=false;
+  Object.keys(s).forEach(function(k){
+    var m=k.match(dateRe);
+    if(m&&new Date(m[1])<cutoff){delete s[k];sc=true;}
+  });
+  if(sc)saveRepeatSuppressions(s);
+  var g=loadGeneratedTaskSuppressions(), gc=false;
+  Object.keys(g).forEach(function(k){
+    var m=k.match(dateRe);
+    if(m&&new Date(m[1])<cutoff){delete g[k];gc=true;}
+  });
+  if(gc)saveGeneratedTaskSuppressions(g);
+}
+
+function pruneRepeatSuppressions(ruleId){
+  var rid=String(ruleId||''); if(!rid)return;
+  var prefix=rid+'|';
+  var s=loadRepeatSuppressions(), sc=false;
+  Object.keys(s).forEach(function(k){ if(k.indexOf(prefix)===0){delete s[k];sc=true;} });
+  if(sc)saveRepeatSuppressions(s);
+  var g=loadGeneratedTaskSuppressions(), gc=false;
+  Object.keys(g).forEach(function(k){
+    var entry=g[k];
+    if(k.indexOf(prefix)===0||(entry&&String(entry.repeatRuleId||'')===rid)){delete g[k];gc=true;}
+  });
+  if(gc)saveGeneratedTaskSuppressions(g);
+}
+
 function deleteHomeRepeat(id){
   if (!confirm('이 반복 할일을 삭제할까요?')) return;
   var repeats = loadRepeatItems().filter(function(x){ return x.id !== id; });
@@ -9405,6 +9454,7 @@ function deleteHomeRepeat(id){
     tasks = tasks.filter(function(t){ return t._repeatId !== id || t.done; });
     if (typeof saveTaskData === 'function') saveTaskData();
   }
+  pruneRepeatSuppressions(id);
   renderHomeTasks();
   renderHomeTimeBlocks();
   renderHomeOpsPanel();
@@ -10116,7 +10166,7 @@ function getHomeTimeBlockPrefs(){
   return pref;
 }
 function saveHomeTimeBlockPrefs(pref){
-  try{localStorage.setItem('home_timeblock_prefs_v1',JSON.stringify(pref));}catch(e){}
+  setReturnStorageItem('home_timeblock_prefs_v1',JSON.stringify(pref));
 }
 function openHomeTimeBlockPrefs(){
   var pref=getHomeTimeBlockPrefs();
@@ -10975,7 +11025,7 @@ function returnMediaResolveUrlWithFallback(url,fallback){
   });
 }
 function loadHomeBanner(){
-  try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { hbState = {}; }
+  try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { console.error('[home] loadHomeBanner: corrupt banner state, resetting', e); hbState = {}; }
   if (!hbState.stickers) hbState.stickers = [];
   bannerDebugLog('home:load',{hasImage:!!hbState.imgUrl,imgLength:hbState.imgUrl?hbState.imgUrl.length:0,stickers:hbState.stickers.length,pos:hbState.bgPos||null});
 }
@@ -10996,8 +11046,8 @@ function setReturnStorageItem(key,value){
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
     }
   }
-  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){}
-  try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
+  try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
   return false;
@@ -11138,7 +11188,7 @@ document.getElementById('home-banner-pos-btn') && document.getElementById('home-
   homeToast(banner.dataset.mode==='position'?'배너를 드래그해 위치를 조정해요':'배너 위치 조정을 종료했어요');
 });
 document.getElementById('home-sticker-btn') && document.getElementById('home-sticker-btn').addEventListener('click', function(){
-  localStorage.setItem('global_sticker_edit_visible', '1');
+  setReturnStorageItem('global_sticker_edit_visible', '1');
   if (typeof renderGlobalStickers === 'function') renderGlobalStickers();
   if (typeof openGlobalStickerBoard === 'function') openGlobalStickerBoard();
 });
@@ -11237,6 +11287,23 @@ function _findStickerHost(page){
 function renderGlobalStickers(){
   if (!_currentPage) return;
   loadGlobalStickers();
+  /* Backfill missing syncDataUrls from the assets list so stickers received
+     via Firebase (which may have no inline syncDataUrl) can display on this
+     device using the asset's own syncDataUrl. */
+  try {
+    if(typeof isReturnMediaRef==='function'&&typeof themeStudioMediaFallbackForUrl==='function'){
+      var stickerChanged=false;
+      Object.keys(globalStickerState||{}).forEach(function(page){
+        (globalStickerState[page]||[]).forEach(function(s){
+          if(isReturnMediaRef(s.url)&&!s.syncDataUrl){
+            var fb=themeStudioMediaFallbackForUrl(s.url);
+            if(fb){s.syncDataUrl=fb;stickerChanged=true;}
+          }
+        });
+      });
+      if(stickerChanged)saveGlobalStickers();
+    }
+  } catch(e){}
   migrateGlobalStickerDataUrls();
   applyStickerShadowSetting();
   document.querySelectorAll('.gs-layer').forEach(function(x){ x.remove(); });
@@ -11256,7 +11323,7 @@ function renderGlobalStickers(){
   input.addEventListener('change', function(){
     var key = _currentPage;
     if (!globalStickerState[key]) globalStickerState[key] = [];
-    localStorage.setItem('global_sticker_edit_visible', '1');
+    setReturnStorageItem('global_sticker_edit_visible', '1');
     Array.from(input.files || []).forEach(function(file){
       placeGlobalStickerFromFile(file);
     });
@@ -11298,7 +11365,7 @@ function placeGlobalStickerFromUrl(url,syncDataUrl){
   loadGlobalStickers();
   var key=_currentPage;
   if(!globalStickerState[key])globalStickerState[key]=[];
-  localStorage.setItem('global_sticker_edit_visible','1');
+  setReturnStorageItem('global_sticker_edit_visible','1');
   var fallback = syncDataUrl||themeStudioMediaFallbackForUrl(url)||'';
   globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,syncDataUrl:fallback,x:48,y:140,w:72,r:0,opacity:1});
   if(!saveGlobalStickers() && typeof showToast==='function')showToast('스티커 저장 공간이 부족해요. 사용하지 않는 에셋을 정리해 주세요.');
@@ -11352,7 +11419,7 @@ function migrateGlobalStickerDataUrls(){
   });
 }
 function openGlobalStickerUpload(){
-  localStorage.setItem('global_sticker_edit_visible','1');
+  setReturnStorageItem('global_sticker_edit_visible','1');
   var input=document.createElement('input');
   input.type='file';
   input.accept='image/*';
@@ -11368,7 +11435,7 @@ function openGlobalStickerUpload(){
   input.click();
 }
 function openGlobalStickerBoard(){
-  localStorage.setItem('global_sticker_edit_visible','1');
+  setReturnStorageItem('global_sticker_edit_visible','1');
   if(typeof renderGlobalStickers==='function')renderGlobalStickers();
   var old=document.getElementById('global-sticker-board');if(old)old.remove();
   var assets=[];
@@ -11519,7 +11586,8 @@ function getCatMeta(catId) {
 }
 
 function saveCats() {
-  try { localStorage.setItem('return_inbox_cats', JSON.stringify(INBOX_CATS)); } catch(e) {}
+  var ok=setReturnStorageItem('return_inbox_cats',JSON.stringify(INBOX_CATS));
+  if(!ok)console.error('[inbox] return_inbox_cats save failed');
 }
 function loadCats() {
   try {
@@ -11664,7 +11732,7 @@ function renderFeed(opts) {
 
 function setInboxView(view){
   inboxView = view === 'board' ? 'board' : 'feed';
-  try{localStorage.setItem('inbox_view',inboxView);}catch(e){}
+  setReturnStorageItem('inbox_view',inboxView);
   var fb = document.getElementById('inbox-feed-view');
   var bb = document.getElementById('inbox-board-view');
   if (fb) fb.classList.toggle('active', inboxView === 'feed');
@@ -13090,7 +13158,7 @@ var newDeadlineTime = '';
 /* Load prefs */
 try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;weekStart=Number(_p.weekStart)===1?1:0;}catch(e){}
 
-function savePrefs(){try{localStorage.setItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks,weekStart:weekStart}));}catch(e){}}
+function savePrefs(){setReturnStorageItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks,weekStart:weekStart}));}
 function renderWeekStartControl(){
   var sel=document.getElementById('week-start-sel');
   if(sel)sel.value=String(weekStart);
@@ -15321,7 +15389,8 @@ function saveResult() {
   var lastSig = last ? JSON.stringify(last.answers || {}) + '|' + (last.commitment || '') : '';
   if (!(last && Date.now() - last.ts < 5000 && signature === lastSig)) checkLogs.push(log);
   if (checkLogs.length > 90) checkLogs = checkLogs.slice(-90);
-  try { localStorage.setItem('return_check_logs', JSON.stringify(checkLogs)); } catch(e) {}
+  var ckOk=setReturnStorageItem('return_check_logs',JSON.stringify(checkLogs));
+  if(!ckOk)console.error('[check] return_check_logs save failed');
 
   if (btn) { btn.dataset.saved = '1'; btn.textContent = '✓ 저장됨'; btn.style.background = 'var(--success)'; }
 }
@@ -15389,14 +15458,16 @@ function hobLoadCats() {
   return [{ id:'h_default', name:'취미', icon:'🎨', color:'#5B5FCF' }];
 }
 function saveCatsData(cats) {
-  try { localStorage.setItem('hobby_cats_v2', JSON.stringify(cats)); } catch(e) {}
+  var ok=setReturnStorageItem('hobby_cats_v2',JSON.stringify(cats));
+  if(!ok)console.error('[hobby] hobby_cats_v2 save failed');
 }
 function loadItems() {
   try { return JSON.parse(localStorage.getItem('hobby_items_v2')||'[]'); } catch(e) {}
   return [];
 }
 function saveItemsData(items) {
-  try { localStorage.setItem('hobby_items_v2', JSON.stringify(items)); } catch(e) {}
+  var ok=setReturnStorageItem('hobby_items_v2',JSON.stringify(items));
+  if(!ok)console.error('[hobby] hobby_items_v2 save failed');
 }
 
 /* ── State ── */
@@ -16013,7 +16084,7 @@ function deleteCat(){
 document.getElementById('hob-prev').addEventListener('click',function(){hobMonth=new Date(hobMonth.getFullYear(),hobMonth.getMonth()-1,1);hobRenderCal();renderSummary();});
 document.getElementById('hob-next').addEventListener('click',function(){hobMonth=new Date(hobMonth.getFullYear(),hobMonth.getMonth()+1,1);hobRenderCal();renderSummary();});
 document.getElementById('hob-today').addEventListener('click',function(){hobMonth=new Date();hobMonth.setDate(1);hobSelDate=HOB_TODAY;hobRenderCal();renderDayDetail();});
-document.getElementById('hob-full-toggle').addEventListener('click',function(){hobFullView=!hobFullView;localStorage.setItem('hobby_cal_full',hobFullView?'1':'0');hobRenderCal();});
+document.getElementById('hob-full-toggle').addEventListener('click',function(){hobFullView=!hobFullView;setReturnStorageItem('hobby_cal_full',hobFullView?'1':'0');hobRenderCal();});
 
 /* ── MODALS CLOSE ── */
 [document.getElementById('itemModal'),document.getElementById('catModal')].forEach(function(ov){
@@ -16150,7 +16221,7 @@ function initHobbyBanner(){
       function up(){
         document.removeEventListener('pointermove',move);
         document.removeEventListener('pointerup',up);
-        try{localStorage.setItem('hobby_banner_pos_v1',JSON.stringify(pos));}catch(err){}
+        setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify(pos));
       }
       document.addEventListener('pointermove',move);
       document.addEventListener('pointerup',up);
@@ -16215,7 +16286,8 @@ function loadDate(dk) {
   if (currentDate && currentDate !== dk) {
     commitCurrent();
     var saved=saveAll();
-    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    if(!saved && typeof showToast==='function') showToast('일기 저장 실패 — 저장공간을 확인해주세요');
+    if(saved && typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
   }
 
   currentDate = dk;
@@ -16311,7 +16383,7 @@ function pickContextCycle(field, pool, btn) {
   var cur = entries[currentDate][field] || '';
   var idx = pool.indexOf(cur);
   entries[currentDate][field] = pool[(idx+1) % pool.length];
-  saveAll();
+  if(!saveAll() && typeof showToast==='function') showToast('일기 저장 실패 — 저장공간을 확인해주세요');
   renderContextChips(currentDate);
 }
 function addDiaryTimelineManual(){
@@ -16392,22 +16464,24 @@ function diaryAutoSave(key, el) {
 
   saveTimer = setTimeout(function() {
     commitCurrent();
-    saveAll();
+    var saved = saveAll();
 
-    /* Clear dirty indicators */
-    if(saved)SECTIONS.forEach(function(k) {
-      var s = document.getElementById('ds-'+k);
-      if (s) s.classList.remove('dirty');
-    });
-
-    if (saveDot) saveDot.className = 'save-dot';
-    if (saveText) saveText.textContent = '모두 저장됨';
-
-    /* Update strip */
-    if(saved)renderStripEntries();
-    if(saved)renderStripDays();
-    if(!saved && saveDot) saveDot.className = 'save-dot saving';
-    if(!saved && saveText) saveText.textContent = 'Save failed';
+    if (saved) {
+      /* Clear dirty indicators */
+      SECTIONS.forEach(function(k) {
+        var s = document.getElementById('ds-'+k);
+        if (s) s.classList.remove('dirty');
+      });
+      if (saveDot) saveDot.className = 'save-dot';
+      if (saveText) saveText.textContent = '모두 저장됨';
+      /* Update strip */
+      renderStripEntries();
+      renderStripDays();
+    } else {
+      if (saveDot) saveDot.className = 'save-dot saving';
+      if (saveText) saveText.textContent = '저장 실패 — 저장공간 부족';
+      console.error('[diary] saveAll failed — storage quota likely exceeded');
+    }
   }, 4000);
 }
 
@@ -16819,8 +16893,9 @@ function scheduleBlockSave() {
   clearTimeout(blockSaveTimer);
   blockSaveTimer = setTimeout(function() {
     commitCurrent();
-    saveAll();
-    if(typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    var bsaved=saveAll();
+    if(bsaved && typeof queueDiaryNotionSave==='function')queueDiaryNotionSave(currentDate||TK);
+    if(!bsaved) console.error('[diary] scheduleBlockSave: saveAll failed');
   }, 2000);
 }
 
@@ -16859,10 +16934,10 @@ function loadTrackers() {
 }
 
 function saveTrackers() {
-  try {
-    localStorage.setItem('diary_trackers_v1', JSON.stringify(trackers));
-    localStorage.setItem('diary_tracker_values_v1', JSON.stringify(trackerValues));
-  } catch(e) {}
+  var ok1=setReturnStorageItem('diary_trackers_v1',JSON.stringify(trackers));
+  var ok2=setReturnStorageItem('diary_tracker_values_v1',JSON.stringify(trackerValues));
+  if(!ok1)console.error('[diary] diary_trackers_v1 save failed');
+  if(!ok2)console.error('[diary] diary_tracker_values_v1 save failed');
 }
 
 /* Check if tracker should appear on a given date based on freq */
@@ -17207,8 +17282,10 @@ function loadData() {
 }
 
 function saveData() {
-  try { localStorage.setItem('reward_data', JSON.stringify(rewardData)); } catch(e) {}
-  try { localStorage.setItem('recharge_reflects', JSON.stringify(reflects)); } catch(e) {}
+  var ok1=setReturnStorageItem('reward_data',JSON.stringify(rewardData));
+  var ok2=setReturnStorageItem('recharge_reflects',JSON.stringify(reflects));
+  if(!ok1)console.error('[reward] reward_data save failed');
+  if(!ok2)console.error('[reward] recharge_reflects save failed');
 }
 
 /* ── Helpers ── */
@@ -17257,8 +17334,8 @@ function selectEnergy(level) {
   try {
     var ev = JSON.parse(localStorage.getItem('recharge_energy') || '{}');
     ev[rcTodayStr()] = level;
-    localStorage.setItem('recharge_energy', JSON.stringify(ev));
-  } catch(e) {}
+    setReturnStorageItem('recharge_energy', JSON.stringify(ev));
+  } catch(e) { console.error('[recharge] energy save failed:',e); }
 }
 
 /* Restore today's energy */
@@ -17608,7 +17685,7 @@ function applyTtPalette(){
 }
 function saveTtPalette(colors){
   var clean = (colors||[]).map(function(c,i){return /^#[0-9a-f]{6}$/i.test(String(c||'')) ? c : TT_DEFAULT_PALETTE[i];}).slice(0, TT_COLORS.length);
-  if(clean.length) localStorage.setItem(TT_PALETTE_KEY, JSON.stringify(clean));
+  if(clean.length) setReturnStorageItem(TT_PALETTE_KEY, JSON.stringify(clean));
   else localStorage.removeItem(TT_PALETTE_KEY);
   applyTtPalette();
   renderTtPaletteEditor();
@@ -17655,7 +17732,7 @@ function themePaletteApplyPreset(kind,id){
   s.palettes=s.palettes||{};
   if(kind==='timetable'){
     s.palettes.timetable=(preset.value||[]).slice(0,TT_DEFAULT_PALETTE.length);
-    try{localStorage.setItem(TT_PALETTE_KEY,JSON.stringify(s.palettes.timetable));}catch(e){}
+    setReturnStorageItem(TT_PALETTE_KEY,JSON.stringify(s.palettes.timetable));
   }else{
     s.palettes.task=themeStudioClone(preset.value||{});
     if(typeof applyTaskCategoryPalette==='function')applyTaskCategoryPalette(s.palettes.task);
@@ -17714,7 +17791,7 @@ function themeStudioRenderTimetablePalette(){
       var s=themeStudioGet();
       s.palettes=s.palettes||{};
       s.palettes.timetable=next;
-      try{localStorage.setItem(TT_PALETTE_KEY,JSON.stringify(next));}catch(e){}
+      setReturnStorageItem(TT_PALETTE_KEY,JSON.stringify(next));
       themeStudioSet(s,true);
       themeStudioRenderTimetablePalette();
     });
@@ -18517,14 +18594,15 @@ function saveMemo() {
   var text = ta.value.trim();
   if (!text) return;
   memos.unshift({ text: text, ts: Date.now(), type: 'memo' });
-  try { localStorage.setItem('memos_v5', JSON.stringify(memos)); } catch(e) {}
+  var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
+  if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
   ta.value = '';
   renderMemos();
 }
 
 function deleteMemo(idx) {
   memos.splice(idx, 1);
-  try { localStorage.setItem('memos_v5', JSON.stringify(memos)); } catch(e) {}
+  setReturnStorageItem('memos_v5',JSON.stringify(memos));
   renderMemos();
 }
 
@@ -18634,7 +18712,8 @@ function deleteCheckLog(idx) {
   if (idx < 0 || idx >= checkLogs.length) return;
   if (!confirm('이 체크인 결과지를 삭제할까요?')) return;
   checkLogs.splice(idx, 1);
-  try { localStorage.setItem('return_check_logs', JSON.stringify(checkLogs)); } catch(e) {}
+  var ckOk=setReturnStorageItem('return_check_logs',JSON.stringify(checkLogs));
+  if(!ckOk)console.error('[check] return_check_logs save failed');
   renderInsights();
 }
 
@@ -18937,7 +19016,7 @@ function buildTrendCard(m, idx) {
     ;(function(type, b) {
       b.addEventListener('click', function() {
         metrics[idx].chartType = type;
-        try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+        setReturnStorageItem('metrics_v1', JSON.stringify(metrics));
         renderTrends();
       });
     })(pair[0], btn);
@@ -18996,7 +19075,7 @@ function buildTrendCard(m, idx) {
     delBtn.addEventListener('click', function() {
       if (!confirm('"' + metrics[i].name + '" 지표를 삭제할까요?')) return;
       metrics.splice(i, 1);
-      try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+      setReturnStorageItem('metrics_v1', JSON.stringify(metrics));
       renderTrends();
     });
   })(idx);
@@ -19182,10 +19261,12 @@ function saveMetricLog() {
     try{
       if(!diaryTrackerValues[today])diaryTrackerValues[today]={};
       diaryTrackerValues[today][m._trackerId]=String(val);
-      localStorage.setItem('diary_tracker_values_v1',JSON.stringify(diaryTrackerValues));
-    }catch(e){}
+      var tvOk=setReturnStorageItem('diary_tracker_values_v1',JSON.stringify(diaryTrackerValues));
+      if(!tvOk)console.error('[metrics] diary_tracker_values_v1 write failed — tracker value may be lost on reload');
+    }catch(e){ console.error('[metrics] diary tracker value save failed:',e); }
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+  var mvOk=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  if(!mvOk)console.error('[metrics] metrics_v1 write failed — metric value may be lost on reload');
   closeMetricModal();
   renderTrends();
 }
@@ -19234,7 +19315,10 @@ function saveMetricConfig(){
     else if (asDiary && m._trackerId) { var linked=diaryTrackers.find(function(tr){return tr.id===m._trackerId;}); if(linked){linked.name=name;linked.unit=unit;linked.chartType=chartType;} }
     if (target.idx == null) metrics.push(m);
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); localStorage.setItem('diary_trackers_v1', JSON.stringify(diaryTrackers)); } catch(e) {}
+  var mc1=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  var mc2=setReturnStorageItem('diary_trackers_v1',JSON.stringify(diaryTrackers));
+  if(!mc1)console.error('[metrics] metrics_v1 config save failed');
+  if(!mc2)console.error('[metrics] diary_trackers_v1 config save failed');
   closeMetricConfigModal(); loadAll(); renderTrends();
 }
 
@@ -19307,7 +19391,10 @@ saveMetricConfig=function(){
     else if (asDiary && m._trackerId) { var linked=diaryTrackers.find(function(tr){return tr.id===m._trackerId;}); if(linked){linked.name=name;linked.unit=unit;linked.chartType=chartType;linked.range=range;linked.axisMin=axisMin;linked.axisMax=axisMax;} }
     if (target.idx == null) metrics.push(m);
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); localStorage.setItem('diary_trackers_v1', JSON.stringify(diaryTrackers)); } catch(e) {}
+  var mc1b=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  var mc2b=setReturnStorageItem('diary_trackers_v1',JSON.stringify(diaryTrackers));
+  if(!mc1b)console.error('[metrics] metrics_v1 config save failed');
+  if(!mc2b)console.error('[metrics] diary_trackers_v1 config save failed');
   closeMetricConfigModal(); loadAll(); renderTrends();
 };
 
@@ -19442,7 +19529,7 @@ function addValue() {
       {key:'body', label:'내용', value:''}
     ], function(data){
       philCards.push({ tag:data.tag || '가치관', title:data.title || '', body:data.body || '' });
-      try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+      setReturnStorageItem('phil_cards',JSON.stringify(philCards));
       renderValues();
     });
     return;
@@ -19451,7 +19538,7 @@ function addValue() {
   var title = prompt('제목') || '';
   var body  = prompt('내용') || '';
   philCards.push({ tag:tag, title:title, body:body });
-  try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+  setReturnStorageItem('phil_cards',JSON.stringify(philCards));
   renderValues();
 }
 
@@ -19495,10 +19582,10 @@ function deleteProjectSafely(project){
     }
     var memosArr=projectReadArray('memos_v5'), changed=false;
     memosArr.forEach(function(m){if(String(m.projectId||'')===pid){delete m.projectId;changed=true;}});
-    if(changed){localStorage.setItem('memos_v5',JSON.stringify(memosArr));if(typeof memos!=='undefined')memos=memosArr;}
+    if(changed){setReturnStorageItem('memos_v5',JSON.stringify(memosArr));if(typeof memos!=='undefined')memos=memosArr;}
     var checksArr=projectReadArray('return_check_logs'); changed=false;
     checksArr.forEach(function(c){if(String(c.projectId||'')===pid){delete c.projectId;changed=true;}});
-    if(changed){localStorage.setItem('return_check_logs',JSON.stringify(checksArr));if(typeof checkLogs!=='undefined')checkLogs=checksArr;}
+    if(changed){setReturnStorageItem('return_check_logs',JSON.stringify(checksArr));if(typeof checkLogs!=='undefined')checkLogs=checksArr;}
     var diaryObj=projectReadDiary(); changed=false;
     Object.keys(diaryObj).forEach(function(k){if(String((diaryObj[k]||{}).projectId||'')===pid){delete diaryObj[k].projectId;changed=true;}});
     if(changed){setReturnStorageItem('diary_entries_v1',JSON.stringify(diaryObj));if(typeof entries!=='undefined')entries=diaryObj;}
@@ -19732,8 +19819,8 @@ function openProjectRecordLinker(project){
     if(e.target===ov){close();return;}
     var btn=e.target.closest('[data-type]'); if(!btn)return;
     var type=btn.dataset.type, key=btn.dataset.key;
-    if(type==='memo'){var m=memosArr[parseInt(key,10)]; if(m){ if(String(m.projectId||'')===String(project.id)) delete m.projectId; else m.projectId=project.id; localStorage.setItem('memos_v5',JSON.stringify(memosArr)); if(typeof memos!=='undefined')memos=memosArr; }}
-    if(type==='check'){var c=checksArr[parseInt(key,10)]; if(c){ if(String(c.projectId||'')===String(project.id)) delete c.projectId; else c.projectId=project.id; localStorage.setItem('return_check_logs',JSON.stringify(checksArr)); if(typeof checkLogs!=='undefined')checkLogs=checksArr; }}
+    if(type==='memo'){var m=memosArr[parseInt(key,10)]; if(m){ if(String(m.projectId||'')===String(project.id)) delete m.projectId; else m.projectId=project.id; setReturnStorageItem('memos_v5',JSON.stringify(memosArr)); if(typeof memos!=='undefined')memos=memosArr; }}
+    if(type==='check'){var c=checksArr[parseInt(key,10)]; if(c){ if(String(c.projectId||'')===String(project.id)) delete c.projectId; else c.projectId=project.id; setReturnStorageItem('return_check_logs',JSON.stringify(checksArr)); if(typeof checkLogs!=='undefined')checkLogs=checksArr; }}
     if(type==='diary'){var d=diaryObj[key]||(diaryObj[key]={}); if(String(d.projectId||'')===String(project.id)) delete d.projectId; else d.projectId=project.id; setReturnStorageItem('diary_entries_v1',JSON.stringify(diaryObj)); if(typeof entries!=='undefined')entries=diaryObj; }
     close(); renderProjects();
   });
@@ -20018,7 +20105,7 @@ function applyThemePalette(id, silent) {
   if (preset.id === 'red') {
     var existing = document.getElementById('theme-override');
     if (existing) existing.remove();
-    localStorage.setItem('return_theme_palette', 'red');
+    setReturnStorageItem('return_theme_palette', 'red');
     localStorage.removeItem('return_theme_color');
     if (!silent) renderThemeSwatches();
     if (typeof renderScheduleGrid === 'function') { try { renderScheduleGrid(); renderSlotList(); } catch(e) {} }
@@ -20039,7 +20126,7 @@ function applyThemePalette(id, silent) {
     + '--accent-hover:' + vars['--a-500'] + ';'
     + '}';
   document.head.appendChild(style);
-  localStorage.setItem('return_theme_palette', preset.id);
+  setReturnStorageItem('return_theme_palette', preset.id);
   localStorage.removeItem('return_theme_color');
   if (!silent) renderThemeSwatches();
   if (typeof renderScheduleGrid === 'function') { try { renderScheduleGrid(); renderSlotList(); } catch(e) {} }
@@ -20052,7 +20139,7 @@ function applyThemeColor(hex) {
   style.id = 'theme-override';
   style.textContent = ':root{--a-400:' + hex + ';--accent:' + hex + ';--accent-hover:' + hex + '}';
   document.head.appendChild(style);
-  localStorage.setItem('return_theme_color', hex);
+  setReturnStorageItem('return_theme_color', hex);
   localStorage.removeItem('return_theme_palette');
   renderThemeSwatches();
   document.getElementById('theme-custom-picker').value = hex;
@@ -20076,7 +20163,7 @@ document.getElementById('theme-custom-hex').addEventListener('input', function()
 
 function applyThemeMode(mode) {
   mode = mode || 'system';
-  localStorage.setItem('return_theme_mode', mode);
+  setReturnStorageItem('return_theme_mode', mode);
   var actual = mode;
   if(mode === 'system'){
     actual = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
@@ -20114,10 +20201,10 @@ function saveProfileName() {
   try {
     var p = JSON.parse(localStorage.getItem('profile_data') || '{}');
     p.name = name;
-    localStorage.setItem('profile_data', JSON.stringify(p));
+    var ok=setReturnStorageItem('profile_data', JSON.stringify(p));
     renderAccountProfile();
-    showToast('저장됐어요 ✓');
-  } catch(e) {}
+    showToast(ok ? '저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
+  } catch(e) { console.error('[profile] saveProfileName failed:',e); }
 }
 function renderAccountProfile(){
   var p={};
@@ -20198,10 +20285,10 @@ function addPhilCard() {
 }
 
 function savePhilCards() {
-  try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+  var ok=setReturnStorageItem('phil_cards',JSON.stringify(philCards));
   var count = document.getElementById('phil-count');
   if (count) count.textContent = philCards.length + '개';
-  showToast('가치관 저장됐어요 ✓');
+  showToast(ok ? '가치관 저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
 }
 
 /* ── API KEYS ── */
@@ -20215,11 +20302,11 @@ function saveApiKey(provider) {
   var inp = document.getElementById(provider + '-key');
   var val = inp ? inp.value.trim() : '';
   if (!val) return;
-  try { localStorage.setItem(KEY_MAP[provider], val); } catch(e) {}
+  var ok=setReturnStorageItem(KEY_MAP[provider], val);
   updateApiBadge(provider, true);
   updateAiStatus();
-  if(provider==='groq' && typeof fbSaveAll==='function') fbSaveAll();
-  showToast('저장됐어요 ✓');
+  if(ok && provider==='groq' && typeof fbSaveAll==='function') fbSaveAll();
+  showToast(ok ? '저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
 }
 
 function clearApiKey(provider) {
@@ -20283,7 +20370,7 @@ function savePw() {
   var p2 = document.getElementById('pw-inp2').value;
   if (!p1) { showToast('비밀번호를 입력해주세요'); return; }
   if (p1 !== p2) { showToast('비밀번호가 일치하지 않아요'); return; }
-  try { localStorage.setItem('app_password', btoa(p1)); } catch(e) {}
+  setReturnStorageItem('app_password', btoa(p1));
   showToast('저장됐어요 ✓');
 }
 
@@ -20314,7 +20401,7 @@ function loadNotifSettings() {
 
 function setInterval_(min, btn) {
   notifInterval = min;
-  localStorage.setItem('notif_interval', min);
+  setReturnStorageItem('notif_interval', min);
   document.querySelectorAll('.interval-chip').forEach(function(c) { c.classList.remove('active'); });
   btn.classList.add('active');
 }
@@ -20349,7 +20436,7 @@ var saveFbConfig, clearFbConfig, saveNotionConfig, testNotion, saveGcalKey;
 function toggleFocusMode(wrap) {
   var track = document.getElementById('focus-toggle');
   var isOn = track.classList.toggle('on');
-  localStorage.setItem('focus_mode', isOn ? '1' : '0');
+  setReturnStorageItem('focus_mode', isOn ? '1' : '0');
   document.documentElement.classList.toggle('focus-mode', isOn);
 }
 
@@ -20364,13 +20451,13 @@ function loadFocusMode(){
 function toggleStickerHandle(wrap) {
   var track = document.getElementById('sticker-toggle');
   var isOn = track.classList.toggle('on');
-  localStorage.setItem('global_sticker_edit_visible', isOn ? '1' : '0');
+  setReturnStorageItem('global_sticker_edit_visible', isOn ? '1' : '0');
   if (typeof renderGlobalStickers === 'function') renderGlobalStickers();
 }
 function toggleStickerShadow(wrap) {
   var track = document.getElementById('sticker-shadow-toggle');
   var isOn = track ? track.classList.toggle('on') : !stickerShadowEnabled();
-  localStorage.setItem('global_sticker_shadow', isOn ? '1' : '0');
+  setReturnStorageItem('global_sticker_shadow', isOn ? '1' : '0');
   applyStickerShadowSetting();
 }
 
@@ -20919,7 +21006,7 @@ function routineTimerLoad(){
   }catch(e){}
 }
 function routineTimerSave(){
-  try{localStorage.setItem(ROUTINE_TIMER_KEY,JSON.stringify({habitId:routineTimerState.habitId||'',startedAt:routineTimerState.startedAt||0,elapsed:routineTimerState.elapsed||0,paused:!!routineTimerState.paused}));}catch(e){}
+  setReturnStorageItem(ROUTINE_TIMER_KEY,JSON.stringify({habitId:routineTimerState.habitId||'',startedAt:routineTimerState.startedAt||0,elapsed:routineTimerState.elapsed||0,paused:!!routineTimerState.paused}));
 }
 function routineTimerMs(){
   return (routineTimerState.elapsed||0)+(routineTimerState.startedAt?Date.now()-routineTimerState.startedAt:0);
@@ -21091,17 +21178,15 @@ routineTimerLoad=function(){
   }catch(e){}
 };
 routineTimerSave=function(){
-  try{
-    localStorage.setItem(ROUTINE_TIMER_KEY,JSON.stringify({
-      bundleId:routineTimerState.bundleId||'',
-      habitId:routineTimerState.habitId||'',
-      index:Number(routineTimerState.index)||0,
-      startedAt:routineTimerState.startedAt||0,
-      elapsed:routineTimerState.elapsed||0,
-      paused:!!routineTimerState.paused,
-      view:routineTimerState.view==='compact'?'compact':'full'
-    }));
-  }catch(e){}
+  setReturnStorageItem(ROUTINE_TIMER_KEY,JSON.stringify({
+    bundleId:routineTimerState.bundleId||'',
+    habitId:routineTimerState.habitId||'',
+    index:Number(routineTimerState.index)||0,
+    startedAt:routineTimerState.startedAt||0,
+    elapsed:routineTimerState.elapsed||0,
+    paused:!!routineTimerState.paused,
+    view:routineTimerState.view==='compact'?'compact':'full'
+  }));
 };
 routineTimerHabit=function(){
   var habits=routineTimerHabits();
@@ -21572,7 +21657,7 @@ async function initFirebase(){
   }
   return true;
 }
-saveFbConfig=async function(){var cfg=readFbInputs();localStorage.setItem('fb_config',JSON.stringify(cfg));setFbStatus('Firebase 초기화 중...','saving');try{await initFirebase();showToast('Firebase 설정 저장됨');}catch(e){setFbStatus('Firebase 오류: '+e.message,'err');showToast('Firebase 오류: '+e.message);}};
+saveFbConfig=async function(){var cfg=readFbInputs();setReturnStorageItem('fb_config',JSON.stringify(cfg));setFbStatus('Firebase 초기화 중...','saving');try{await initFirebase();showToast('Firebase 설정 저장됨');}catch(e){setFbStatus('Firebase 오류: '+e.message,'err');showToast('Firebase 오류: '+e.message);}};
 clearFbConfig=function(){
   localStorage.removeItem('fb_config');
   if(_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
@@ -21602,7 +21687,7 @@ async function fbGoogleLogin(){
         _gcalTokenExp=Date.now()+55*60*1000;
         _gcalCfg._savedToken=_gcalToken;
         _gcalCfg._savedTokenExp=_gcalTokenExp;
-        localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+        setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
         gcalLoadConfig();
       }
     }catch(calErr){console.warn('calendar token from firebase login',calErr);}
@@ -21658,20 +21743,23 @@ function fbApplyCloudSettings(doc){
     var v=doc.settings[k];
     if(v==null)return;
     try{
+      var wv;
       if(k==='diary_notion_cfg'){
         var incoming=JSON.parse(v||'{}'), local=getNotionCfg();
         if(local.token)incoming.token=local.token;
-        localStorage.setItem(k,JSON.stringify(incoming));
+        wv=JSON.stringify(incoming);
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
         if(gIn.taskCalendarId==null && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
         if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
-        localStorage.setItem(k,JSON.stringify(gIn));
+        wv=JSON.stringify(gIn);
       }else{
-        localStorage.setItem(k,String(v));
+        wv=String(v);
       }
-      n++;
+      var sok=setReturnStorageItem(k,wv);
+      if(sok)n++;
+      else console.warn('[fb] fbApplyCloudSettings: write failed for key',k);
     }catch(e){console.warn('settings apply failed',k,e);}
   });
 try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
@@ -21735,6 +21823,34 @@ async function fbReadSplitData(ref){
   }
   return data;
 }
+/* Seed the local IndexedDB with any assets that arrived from Firebase carrying
+   a syncDataUrl. This makes return-media: references resolve on this device
+   without needing the original upload, enabling true cross-device image sync
+   for any asset that fits within the inline size budget. Fire-and-forget. */
+function _fbSeedMediaFromSyncedAssets(){
+  if(typeof returnMediaGet!=='function'||typeof returnMediaPut!=='function'||typeof isReturnMediaRef!=='function')return;
+  var raw;
+  try{raw=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');}catch(e){return;}
+  if(!Array.isArray(raw))return;
+  raw.forEach(function(asset){
+    if(!asset||!isReturnMediaRef(asset.url)||!asset.syncDataUrl)return;
+    if(!/^data:image/.test(asset.syncDataUrl))return;
+    var id=String(asset.url).replace(/^return-media:/,'');
+    returnMediaGet(id).then(function(existing){
+      if(existing)return; // already in IndexedDB
+      returnMediaPut({
+        id:id,type:asset.type||'image',role:asset.sourceTheme||'',
+        name:asset.name||'',dataUrl:asset.syncDataUrl,
+        createdAt:asset.createdAt||new Date().toISOString()
+      }).then(function(){
+        console.log('[media] seeded IndexedDB from synced asset: '+id);
+      }).catch(function(e){
+        console.warn('[media] IndexedDB seed failed for '+id+':', e&&e.message);
+      });
+    }).catch(function(){});
+  });
+}
+
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
@@ -21790,13 +21906,13 @@ function fbApplyData(data){
       }
     } catch(e) {}
     /* inbox categories (this is the actual loadCats function — inbox only) */
-    try { if(typeof loadCats==='function') loadCats(); } catch(e){}
+    try { if(typeof loadCats==='function') loadCats(); } catch(e){ console.warn('[fbApply] loadCats failed:',e&&e.message); }
     /* projects */
-    try { if(typeof loadProjects==='function') loadProjects(); } catch(e){}
+    try { if(typeof loadProjects==='function') loadProjects(); } catch(e){ console.warn('[fbApply] loadProjects failed:',e&&e.message); }
     /* routine */
-    try { if(typeof loadRoutineData==='function') loadRoutineData(); } catch(e){}
+    try { if(typeof loadRoutineData==='function') loadRoutineData(); } catch(e){ console.warn('[fbApply] loadRoutineData failed:',e&&e.message); }
     /* inbox */
-    try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){}
+    try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){ console.warn('[fbApply] loadInboxItems failed:',e&&e.message); }
     /* diary entries (inline; _initDiary also reloads trackers + currentDate) */
     try {
       if(typeof entries!=='undefined'){
@@ -21804,23 +21920,23 @@ function fbApplyData(data){
         if(rawDiary && typeof rawDiary==='object' && !Array.isArray(rawDiary)) entries=rawDiary;
       }
       if(typeof loadTrackers==='function') loadTrackers();
-    } catch(e){}
+    } catch(e){ console.warn('[fbApply] diary reload failed:',e&&e.message); }
     /* records (memos, metrics, phil cards, mood, values) */
-    try { if(typeof loadAll==='function') loadAll(); } catch(e){}
+    try { if(typeof loadAll==='function') loadAll(); } catch(e){ console.warn('[fbApply] loadAll (records) failed:',e&&e.message); }
     /* phil cards (separate load path on settings tab) */
-    try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){}
+    try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){ console.warn('[fbApply] loadPhilCards failed:',e&&e.message); }
     /* schedule / timetable */
     try {
       if(typeof loadTimetables==='function') loadTimetables();
       if(typeof reconcileTimetableTasks==='function') timetableRepairAfterFbApply=reconcileTimetableTasks({silent:true,source:'fbApplyData'});
-    } catch(e){}
+    } catch(e){ console.warn('[fbApply] loadTimetables/reconcile failed:',e&&e.message); }
     try { if(typeof applyTtPalette==='function') applyTtPalette(); } catch(e){}
     try { if(typeof renderTtPaletteEditor==='function') renderTtPaletteEditor(); } catch(e){}
     /* home banner + stickers */
-    try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){}
-    try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){}
+    try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){ console.warn('[fbApply] loadHomeBanner failed:',e&&e.message); }
+    try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){ console.warn('[fbApply] loadGlobalStickers failed:',e&&e.message); }
     /* hobby */
-    try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){}
+    try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){ console.warn('[fbApply] hobReloadFromStorage failed:',e&&e.message); }
     /* recharge */
     try { if(typeof loadData==='function') loadData(); } catch(e){}
     /* settings — theme, focus, notif, profile */
@@ -21829,6 +21945,10 @@ function fbApplyData(data){
     try { if(typeof loadNotifSettings==='function') loadNotifSettings(); } catch(e){}
     try { if(typeof loadProfile==='function') loadProfile(); } catch(e){}
     try { if(typeof loadCalendarPrefs==='function') loadCalendarPrefs(); } catch(e){}
+    /* Seed this device's IndexedDB from any asset syncDataUrls that arrived
+       via Firebase. Allows return-media: refs to resolve locally going forward,
+       even if this device never uploaded the original file. Fire-and-forget. */
+    try { _fbSeedMediaFromSyncedAssets(); } catch(e){}
   } finally {
     _applyingFbData = false;
   }
@@ -21910,6 +22030,17 @@ function fbStatusTime(prefix){
 async function fbLoadAll(){
   if(!fbDb||!fbUser)return;
   try{ if(window.SyncManager)SyncManager.beginHydration(); }catch(_e){}
+  /* Safety valve: if hydration doesn't complete or fail within 20 s
+     (e.g. Firestore promise never settles due to network), unblock saves
+     so the user's local edits are not silently queued forever. */
+  var _hydrateGuard=setTimeout(function(){
+    try{
+      if(window.SyncManager&&window.SyncManager.state.hydrating){
+        console.warn('[fb] hydration timeout (20s) — unblocking saves');
+        window.SyncManager.failHydration(new Error('hydration timeout'));
+      }
+    }catch(_){}
+  },20000);
   var ref=fbDb.collection('users').doc(fbUser.uid);
   setFbStatus('Firebase에서 불러오는 중...','saving');
   try{
@@ -21926,6 +22057,7 @@ async function fbLoadAll(){
     var splitData=await fbReadSplitData(ref);
     var splitCount=Object.keys(splitData.keys||{}).length;
     if(splitCount){fbApplyData(splitData);applied+=splitCount;}
+    clearTimeout(_hydrateGuard);
     try{ if(window.SyncManager)SyncManager.finishHydration({cloudKeyCount:splitCount}); }catch(_e){}
     setFbStatus(applied?fbStatusTime('Firebase 동기화됨'):fbStatusTime('Firebase 연결됨 · 아직 클라우드 데이터 없음'),'ok');
     if(_fbUnsubscribe)_fbUnsubscribe();
@@ -21963,6 +22095,7 @@ async function fbLoadAll(){
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
     });
   }catch(e){
+    clearTimeout(_hydrateGuard);
     var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
     setFbStatus('동기화 오류: '+msg,'err');
     try{ if(window.SyncManager)SyncManager.failHydration(e); }catch(_e){}
@@ -22084,7 +22217,7 @@ async function fbSaveNow(opts){
             try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
             absorbedToLocal.push(k);
           }
-        } catch(e){}
+        } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
         preservedFromCloud.push(k);
       } else {
         ourKeysToWrite[k] = ours;
@@ -22104,7 +22237,7 @@ async function fbSaveNow(opts){
             try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
             absorbedToLocal.push(k);
           }
-        } catch(e){}
+        } catch(e){ console.error('[fb] absorb cloud-only key "'+k+'" to local failed:', e); }
         preservedFromCloud.push(k);
       }
     });
@@ -22449,6 +22582,36 @@ function showFirebaseRulesHelp(){
 }
 var _rawSetItem = localStorage.setItem.bind(localStorage);
 
+/* Storage health report — callable from the browser console as
+   returnStorageReport() or returnStorageReport(true) to log a full breakdown.
+   Returns {totalKB, usedKeys, topKeys:[{key,kb}]} so callers can inspect
+   programmatically. Logs a console.warn if usage exceeds 80% of the typical
+   5 MB browser quota. */
+function returnStorageReport(verbose){
+  var total=0, keys=[];
+  try {
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      var v=localStorage.getItem(k)||'';
+      var sz=(k.length+v.length)*2; // UTF-16: 2 bytes per char
+      total+=sz;
+      keys.push({key:k,bytes:sz});
+    }
+  } catch(e){ console.error('[storage] returnStorageReport failed:',e); return null; }
+  keys.sort(function(a,b){return b.bytes-a.bytes;});
+  var KB=Math.round(total/1024);
+  var pct=Math.round(total/(5*1024*1024)*100);
+  var report={totalKB:KB,usedPct:pct,keyCount:keys.length,topKeys:keys.slice(0,10).map(function(x){return {key:x.key,kb:Math.round(x.bytes/1024)};})};
+  if(verbose){
+    console.group('[storage] returnStorageReport — '+KB+'KB / ~5120KB ('+pct+'%)');
+    report.topKeys.forEach(function(x){console.log(x.key+': '+x.kb+'KB');});
+    console.groupEnd();
+  }
+  if(pct>=80) console.warn('[storage] localStorage at '+pct+'% capacity ('+KB+'KB). Consider clearing old data.');
+  return report;
+}
+window.returnStorageReport=returnStorageReport;
+
 /* ── E2 FIX: Quota recovery for diary_entries_v1 ───────────────────────
    Diagnostic round captured 13 occurrences of
    `localStorage.setItem failed for diary_entries_v1 ... exceeded the quota`.
@@ -22660,7 +22823,7 @@ function getNotionCfg(){
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
 function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!val;else el.value=val||'';}
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — Worker 비밀 토큰 또는 로컬 토큰으로 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
-saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
+saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
 saveNotionConfig=function(silent){
   var prev=getNotionCfg();
   function valOr(id, fallback){
@@ -22701,7 +22864,7 @@ saveNotionConfig=function(silent){
        under stale comparison after the property mapping moves. */
     bodyHashes: propsChanged ? {} : (prev.bodyHashes||_diaryNotionCfg.bodyHashes||{})
   };
-  localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
+  setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
   if(document.getElementById('notion-worker-url'))loadDiaryNotionConfig();
   scheduleDiaryAutoSync();
   if(!silent)showToast('Notion 설정 저장됨');
@@ -23198,6 +23361,19 @@ async function _findOrCreateDiaryPage(dateKey, returnPage){
       properties:props
     });
   } catch(e){
+    /* Race condition: a concurrent sync call may have created the page between
+       our query and our create. Retry the lookup once before failing so we
+       don't surface an error or return a duplicate page. */
+    try {
+      var raceCheck=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+        filter:{property:dateProp, date:{equals:dateKey}},
+        page_size:1
+      });
+      if(raceCheck.results&&raceCheck.results[0]){
+        console.warn('[notion] _findOrCreateDiaryPage: creation failed but page exists (race) — using existing page');
+        return returnPage ? raceCheck.results[0] : raceCheck.results[0].id;
+      }
+    } catch(retryErr){}
     throw new Error('새 페이지 생성 실패: '+e.message);
   }
   return returnPage ? page : page.id;
@@ -23676,7 +23852,9 @@ async function syncDiaryToNotion(dateKey, opts){
         if(notionPage) propPulled=_pullDiaryPageProperties(notionPage, dateKey, cfg);
         pulled=await _pullDiaryPageBody(pageId, dateKey);
       } catch(e){
-        console.warn('pull step failed (continuing):', e&&e.message);
+        console.error('[notion] pull step failed:', e);
+        /* Abort rather than pushing potentially stale data over what Notion has. */
+        throw new Error('Notion에서 가져오기 실패 (푸시 중단): '+(e&&e.message||e));
       }
     }
 
@@ -23744,7 +23922,7 @@ async function syncDiaryToNotion(dateKey, opts){
     }
 
     _diaryNotionCfg.lastSync=Date.now();
-    try{ localStorage.setItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg)); }catch(e){}
+    setReturnStorageItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg));
 
     var timeStr=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     var msg='동기화 완료 '+timeStr
@@ -24005,8 +24183,8 @@ function gcalSaveConfig(silent){
   _gcalCfg.autoSync=elChecked('gcal-auto-sync',_gcalCfg.autoSync);
   _gcalCfg.reminderMin=reminderEl?(parseInt(reminderEl.value||'0',10)||0):(_gcalCfg.reminderMin||0);
   if(_gcalToken){_gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;}
-  localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
-  gcalLoadConfig(); if(!silent)showToast('Google Calendar 설정 저장됨');
+  var gcalOk=setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+  gcalLoadConfig(); if(!silent)showToast(gcalOk?'Google Calendar 설정 저장됨':'저장 실패 — 저장공간을 확인해주세요');
 }
 saveGcalKey=gcalSaveConfig;
 function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_gcalToken=null;_gcalTokenExp=0;gcalLoadConfig();showToast('Google Calendar 연동을 해제했어요');}
@@ -24027,7 +24205,7 @@ async function gcalEnsureToken(showUi){
             _gcalToken=resp.access_token;
             _gcalTokenExp=Date.now()+Number(resp.expires_in||3600)*1000;
             _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
-            try{localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));}catch(e){}
+            setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
             gcalLoadConfig();
             resolve(true);
           }else{
@@ -24088,7 +24266,7 @@ function gcalAuth(){
     _gcalToken=token;
     _gcalTokenExp=Date.now()+Number(expiresIn||3600)*1000;
     _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
-    try{ localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); }catch(e){}
+    setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
     gcalLoadConfig();
     showToast('Google Calendar 인증 완료 — 동기화를 시작해요');
     cleanup();
@@ -24346,7 +24524,7 @@ async function gcalRepairDuplicates(opts){
       _gcalCfg.eventMeta[ckey]=Object.assign({},_gcalCfg.eventMeta[ckey]||{},{eventId:ckeep.ev.id,calId:ckeep.calId,updatedAt:Date.now()});
     }
   }
-  try{localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));}catch(e){}
+  setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
   if(errors){
     gcalStatus('중복 정리 부분 완료: '+removed+'개 삭제, 오류 '+errors+'개','err');
     showToast('Google 중복 정리 부분 완료: '+removed+'개 삭제');
@@ -24377,7 +24555,7 @@ function gcalQueueTaskEventDeletion(t){
   }
   if(taskKey)delete _gcalCfg.eventMeta[taskKey];
   if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
-  try{localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));}catch(e){}
+  setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
 }
 function gcalEventFromTask(t, taskKey){
   var title=t.text||'Return';
@@ -24524,7 +24702,7 @@ async function gcalSync(opts){
     }
   }
   if(taskChanged&&typeof saveTaskData==='function')try{saveTaskData();}catch(e){}
-  try{ localStorage.setItem('gcal_cfg_v1',JSON.stringify(_gcalCfg)); }catch(e){}
+  setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
   if(err>0 && ok===0){
     gcalStatus('동기화 실패: '+errMsg,'err');
     if(!opts.silent)showToast('Google Calendar 동기화 실패: '+errMsg);
@@ -24577,10 +24755,15 @@ function handleImport(e) {
     try {
       var data = JSON.parse(ev.target.result);
       if (!confirm('백업 파일을 불러오면 현재 데이터가 덮어씌워져요. 계속할까요?')) return;
+      var failed=[];
       DATA_KEYS.forEach(function(k) {
-        if (data[k] != null) localStorage.setItem(k, JSON.stringify(data[k]));
+        if (data[k] != null) {
+          var ok=setReturnStorageItem(k, JSON.stringify(data[k]));
+          if(!ok) failed.push(k);
+        }
       });
-      showToast('데이터를 불러왔어요 ✓');
+      if(failed.length) showToast('일부 데이터를 불러오지 못했어요: '+failed.join(', '));
+      else showToast('데이터를 불러왔어요 ✓');
       calcDataSize();
     } catch(ex) { showToast('파일 형식 오류'); }
   };
@@ -24607,8 +24790,8 @@ function clearAllData() {
   try{
     var backup={_beforeClear:new Date().toISOString(),keys:{}};
     DATA_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)backup.keys[k]=v;});
-    localStorage.setItem('return_last_clear_backup',JSON.stringify(backup));
-  }catch(e){}
+    setReturnStorageItem('return_last_clear_backup',JSON.stringify(backup));
+  }catch(e){ console.error('[data] pre-clear backup save failed:',e); }
   DATA_KEYS.forEach(function(k) { localStorage.removeItem(k); });
   showToast('모든 기록이 삭제됐어요');
   calcDataSize();
@@ -25474,7 +25657,7 @@ function themeStudioApply(state){
   body.dataset.themeIntensity=(state.componentSkins&&state.componentSkins.intensity)||'balanced';
   body.dataset.themeDensity=state.density||'comfortable';
   body.dataset.themeRadius=state.radius||'soft';
-  localStorage.setItem('return_theme_color',c.accent||THEME_STUDIO_DEFAULT.colors.accent);
+  setReturnStorageItem('return_theme_color',c.accent||THEME_STUDIO_DEFAULT.colors.accent);
   themeStudioApplySkinSlots(state);
   themeStudioApplyBackground(state);
   themeStudioApplyBanner(state);
@@ -26644,6 +26827,10 @@ try {
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
   if (typeof themeStudioApply === 'function') themeStudioApply(themeStudioGet());
+  /* Proactive quota check on every boot — only logs if ≥80% used. */
+  try { returnStorageReport(false); } catch(_){}
+  /* Prune suppression entries older than 30 days to prevent unbounded growth. */
+  try { pruneStaleRepeatSuppressions(); } catch(_){}
 } catch(e) {}
 (function finalBoot(){
   var slug = window.__returnInitialPage || _currentPage || 'home';
