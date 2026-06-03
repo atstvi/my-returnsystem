@@ -23614,6 +23614,29 @@ function returnSyncSelfTest(){
   return out;
 }
 window.returnSyncSelfTest=returnSyncSelfTest;
+/* ── Flag-flip tooling (Stage 9 → flip prep) ──────────────────────────────
+   Lets the two-device matrix be run without editing code, and reverted
+   instantly. returnSyncModelSet('entity') opts THIS device into the per-entity
+   merge; ('legacy') reverts. The default in code stays 'legacy' until the
+   matrix is proven, so a device only joins the new path deliberately. */
+function returnSyncModelStatus(){
+  var conflicts=0; try{ conflicts=(JSON.parse(localStorage.getItem(RETURN_SYNC_CONFLICT_KEY)||'[]')||[]).length; }catch(_e){}
+  var tombs=0; try{ tombs=Object.keys((typeof tombstonesLoad==='function'?tombstonesLoad():{})||{}).length; }catch(_e){}
+  var info={ syncModel:RETURN_SYNC_MODEL, dualWrite:RETURN_ENTITY_DUALWRITE, conflictsLogged:conflicts, tombstones:tombs, mergeActive:(RETURN_SYNC_MODEL==='entity') };
+  try{ console.group('[sync] model status'); Object.keys(info).forEach(function(k){console.log('  '+k+':',info[k]);}); console.log('  → set with returnSyncModelSet("entity"|"legacy"); inspect conflicts with returnSyncConflicts()'); console.groupEnd(); }catch(_e){}
+  /* live mirror counts (async, best-effort) */
+  try{ if(fbDb&&fbUser&&typeof fbEntityReadAll==='function'){ fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){ try{console.log('[sync] entity mirror counts',r);}catch(_e){} }); } }catch(_e){}
+  return info;
+}
+function returnSyncModelSet(mode){
+  if(mode!=='legacy'&&mode!=='entity'){ try{console.warn('[sync] returnSyncModelSet expects "legacy" or "entity"');}catch(_e){} return false; }
+  try{ localStorage.setItem('return_sync_model', mode); }catch(e){ try{console.error('[sync] could not persist flag:',e&&e.message);}catch(_e){} return false; }
+  try{ console.log('[sync] RETURN_SYNC_MODEL → '+mode+'. Reloading to apply…'); }catch(_e){}
+  try{ if(typeof location!=='undefined'&&location.reload)setTimeout(function(){location.reload();},120); }catch(_e){}
+  return true;
+}
+window.returnSyncModelStatus=returnSyncModelStatus;
+window.returnSyncModelSet=returnSyncModelSet;
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {

@@ -23,10 +23,28 @@ flip, so this gate is what protects the flip.
   stale-suppressed-by-tombstone vs newer-edit-survives; delete-vs-edit by
   timestamp; cloud-only adopt + R3 suppression; diary per-date; conflict cap.
 
+## Console helpers (run the matrix without editing code)
+
+In the browser console on each device:
+
+- `returnSyncModelStatus()` — current flag, dual-write, conflict count, tombstone
+  count, and (async) live entity-mirror counts. Run this first on both devices.
+- `returnSyncModelSet('entity')` — opt **this device** into the per-entity merge
+  and reload. `returnSyncModelSet('legacy')` reverts instantly.
+- `returnSyncSelfTest()` — runs the single-device logic subset against the live
+  merge functions.
+- `returnSyncConflicts()` — dump the conflict ring buffer (winners/losers logged
+  during merges).
+- `fbEntityReadAll()` — per-collection live/tombstone counts in the cloud mirror.
+
+The code default stays `legacy`, so a device joins the new path only via the
+explicit `returnSyncModelSet('entity')` call — and any device can drop back with
+`returnSyncModelSet('legacy')` at any moment.
+
 ## Two-device matrix (must be green before flipping the flag)
 
-Run with two browser profiles signed into the **same** account. To exercise the
-new path, set `localStorage['return_sync_model']='entity'` on both and reload.
+Run with two browser profiles signed into the **same** account. On both, run
+`returnSyncModelSet('entity')` (auto-reloads) to exercise the new path.
 
 1. save survives refresh / browser restart
 2. A creates task → appears on B
