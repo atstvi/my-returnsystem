@@ -11907,6 +11907,133 @@ function _idbDelete(key){
   } catch(e){}
 }
 
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 1 — SOURCE-OF-TRUTH REGISTRY  (read-only; no behavior change)
+
+   One declarative map of every persisted domain: which storage layer owns
+   it, the read/write entry points, the cloud sync path, and known
+   reliability properties. This is the in-code counterpart to the audit
+   table so all future stabilization work has ONE authoritative reference
+   instead of re-deriving it each time.
+
+   Dump from the browser console:
+     returnDataMap()          → full table
+     returnDataMap('tasks')   → one domain
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_DATA_MAP = {
+  /* owner: where canonical data lives today (de-facto, pre-stabilization)
+     keys:  localStorage keys
+     read/write: entry-point functions
+     sync:  how it reaches other devices
+     media: inline base64 risk in localStorage
+     ids:   id stability across devices
+     versioned: has updatedAt/schemaVersion usable for merge
+     notes: known hazards (audit root-cause refs Rn) */
+  tasks:            {owner:'localStorage', keys:['task_items_v1'], read:'inline @load', write:'saveTaskData', sync:'firebase-blob', media:false, ids:'Date.now() (weak)', versioned:false, notes:'R5 dup; generated tasks reconciled post-sync'},
+  recurringRules:   {owner:'localStorage', keys:['task_rules_v1','repeat_items_v1'], read:'loadTaskRules/loadRepeatItems', write:'saveTaskRules/saveRepeatItems', sync:'firebase-blob', media:false, ids:'rule_/ri_+Date.now() (weak)', versioned:false, notes:'R5 id collision cross-device'},
+  generatedTasks:   {owner:'derived (in task_items_v1)', keys:['generated_task_suppressions_v1','repeat_suppressions_v1'], read:'reconcileGeneratedTasks', write:'via saveTaskData', sync:'firebase-blob', media:false, ids:'Date.now()+random', versioned:'generationKey only', notes:'R8 suppressions not pre-distributed'},
+  schedules:        {owner:'localStorage', keys:['timetables_v1','timetable_palette_v1'], read:'loadTimetables', write:'saveTimetables', sync:'firebase-blob', media:false, ids:'slot id includes Date.now()+random (UNSTABLE)', versioned:false, notes:'R5 slot-id regen → dup tasks'},
+  routines:         {owner:'localStorage', keys:['routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1'], read:'loadRoutineData', write:'saveRoutineData', sync:'firebase-blob', media:false, ids:'seeded/Date.now()', versioned:false, notes:'reseeds when empty'},
+  projects:         {owner:'localStorage', keys:['projects_v1'], read:'loadProjects', write:'saveProjects', sync:'firebase-blob', media:false, ids:'Date.now()', versioned:'updatedAt field unused for merge', notes:'manual CRUD'},
+  diaryRecords:     {owner:'localStorage + Notion', keys:['diary_entries_v1','diary_trackers_v1','diary_tracker_values_v1','memos_v5','metrics_v1','phil_cards','return_check_logs'], read:'loadAll/_initDiary', write:'saveAll/saveData', sync:'firebase-blob + notion-bidirectional', media:'INLINE images', ids:'date-keyed', versioned:'entry.updatedAt', notes:'R4 quota; R10 Notion second writer'},
+  themeSettings:    {owner:'localStorage', keys:['return_theme_studio_state_v1','return_theme_color','return_theme_mode','return_theme_palette'], read:'themeStudioGet', write:'themeStudioSet', sync:'firebase-blob + cloud-settings', media:'iconFallbacks ≤700KB INLINE', ids:'n/a', versioned:false, notes:'R4 quota'},
+  presets:          {owner:'localStorage', keys:['return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','theme_palette_presets_v1'], read:'themeStudioAllPresets', write:'themeStudio*Preset', sync:'firebase-blob', media:'possible inline', ids:'asset_+ts', versioned:false, notes:''},
+  assets:           {owner:'localStorage + IndexedDB', keys:['return_theme_studio_assets_v1'], read:'themeStudioAssets', write:'themeStudioSaveAssets', sync:'firebase-blob (incl syncDataUrl)', media:'syncDataUrl ≤220KB×N INLINE', ids:'asset_+ts+rand', versioned:'createdAt', notes:'R4 base64 dup vs media store'},
+  stickers:         {owner:'localStorage', keys:['global_stickers_v1','global_sticker_edit_visible','global_sticker_shadow'], read:'loadGlobalStickers', write:'saveGlobalStickers', sync:'firebase-blob', media:'syncDataUrl ≤220KB INLINE', ids:'gs_+ts+rand', versioned:false, notes:'R4 quota'},
+  banners:          {owner:'localStorage + IndexedDB', keys:['home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1'], read:'loadHomeBanner', write:'saveHomeBanner', sync:'firebase-blob', media:'syncDataUrl ≤180KB INLINE', ids:'return-media: ref', versioned:false, notes:'R4 quota'},
+  music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8'], read:'musicLoad', write:'musicSave', sync:'firebase-blob', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain'},
+  media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'LOCAL ONLY (not in cloud)', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
+  overflow:         {owner:'IndexedDB (return_overflow_v1)', keys:[], read:'_idbCache', write:'_idbSet', sync:'via firebase-blob from cache', media:'whatever overflowed', ids:'n/a', versioned:false, notes:'quota escape hatch'},
+  notionConfig:     {owner:'localStorage', keys:['diary_notion_cfg'], read:'getNotionCfg', write:'saveNotionConfig', sync:'sanitized settings doc', media:false, ids:'n/a', versioned:false, notes:'token kept local'},
+  googleConfig:     {owner:'localStorage', keys:['gcal_cfg_v1'], read:'gcalLoadConfig', write:'gcalSaveConfig', sync:'PARTIAL: eventMeta only (eventIds NOT synced)', media:false, ids:'n/a', versioned:false, notes:'R6 → duplicate calendar events cross-device'},
+  firebaseConfig:   {owner:'localStorage', keys:['fb_config','return_fb_client_id'], read:'fbConfig', write:'saveFbConfig', sync:'settings doc', media:false, ids:'deviceId',  versioned:false, notes:''}
+};
+function returnDataMap(filter){
+  var src=RETURN_DATA_MAP;
+  if(filter && src[filter]){ var o={}; o[filter]=src[filter]; src=o; }
+  try{
+    console.group('[RETURN_DATA_MAP] source-of-truth registry'+(filter?' · '+filter:''));
+    Object.keys(src).forEach(function(d){
+      var e=src[d];
+      console.log('%c'+d, 'font-weight:bold',
+        '\n  owner:     '+e.owner,
+        '\n  keys:      '+(e.keys.join(', ')||'(none)'),
+        '\n  read:      '+e.read,
+        '\n  write:     '+e.write,
+        '\n  sync:      '+e.sync,
+        '\n  media:     '+e.media,
+        '\n  ids:       '+e.ids,
+        '\n  versioned: '+e.versioned,
+        '\n  notes:     '+e.notes);
+    });
+    console.groupEnd();
+  }catch(_e){}
+  return src;
+}
+window.returnDataMap = returnDataMap;
+window.RETURN_DATA_MAP = RETURN_DATA_MAP;
+
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 2 — STORAGE HEALTH  (honest success/failure; no fake success,
+   no silent swallow)
+
+   The persistence layer previously reported success in two dishonest ways:
+     1. setReturnStorageItem returned `true` on the IndexedDB-overflow path
+        BEFORE the async write was confirmed (fake success).
+     2. The patched localStorage.setItem swallowed non-quota errors with only
+        a console.warn (silent failure).
+   This registry makes the real outcome observable so UI can show accurate
+   state and so later stages can build a durable outbox on top of it.
+   It changes NO persistence mechanics — it only records and exposes truth.
+
+   Console:  returnStorageHealth()
+   ════════════════════════════════════════════════════════════════════════ */
+window.__RETURN_STORAGE_HEALTH = window.__RETURN_STORAGE_HEALTH || {
+  lastWriteOk:true, lastWriteKey:'', lastWriteMode:'', lastError:'',
+  pendingIdb:0, degraded:false, lastQuotaKey:'',
+  counts:{localOk:0, idbOk:0, idbPending:0, failed:0, patchedSwallowed:0},
+  failures:[] /* ring buffer of {key,mode,error,at} */
+};
+function __storageHealthRecord(ev){
+  try{
+    var h=window.__RETURN_STORAGE_HEALTH; if(!h)return;
+    ev=ev||{};
+    h.lastWriteKey=ev.key||h.lastWriteKey;
+    h.lastWriteMode=ev.mode||h.lastWriteMode;
+    if(ev.mode==='local'){ h.lastWriteOk=true; h.counts.localOk++; }
+    else if(ev.mode==='idb-pending'){ h.counts.idbPending++; h.pendingIdb++; h.degraded=true; }
+    else if(ev.mode==='idb-ok'){ h.lastWriteOk=true; h.counts.idbOk++; if(h.pendingIdb>0)h.pendingIdb--; }
+    else if(ev.mode==='failed'){
+      h.lastWriteOk=false; h.counts.failed++; h.degraded=true;
+      h.lastError=ev.error||''; if(ev.key)h.lastQuotaKey=ev.key;
+      if(ev.idbWasPending && h.pendingIdb>0)h.pendingIdb--;
+    }
+    else if(ev.mode==='patched-swallowed'){ h.counts.patchedSwallowed++; h.lastError=ev.error||''; }
+    if(ev.ok===false){
+      h.failures.push({key:ev.key||'',mode:ev.mode||'',error:ev.error||'',at:Date.now()});
+      if(h.failures.length>40)h.failures.shift();
+    }
+    /* When the pending queue drains AND there are no recent failures, the
+       store is healthy again. */
+    if(h.pendingIdb<=0 && h.lastWriteOk) h.degraded = h.counts.failed>0 && (Date.now()-((h.failures[h.failures.length-1]||{}).at||0) < 60000);
+  }catch(_e){}
+}
+window.returnStorageHealth=function(){
+  var h=window.__RETURN_STORAGE_HEALTH;
+  try{ console.log('[storage-health]', JSON.stringify(h,null,2)); }catch(_e){}
+  return h;
+};
+/* True only when a write is fully durable in fast localStorage. Callers that
+   show a "saved" affirmation can use this to avoid claiming success while a
+   value is merely queued to the slower IndexedDB overflow or has failed. */
+function returnStorageWriteIsDurable(key){
+  var h=window.__RETURN_STORAGE_HEALTH;
+  if(!h)return true;
+  if(window.__staleQuotaKeys && key && window.__staleQuotaKeys[key])return false;
+  return h.lastWriteOk && h.lastWriteMode==='local';
+}
+window.returnStorageWriteIsDurable=returnStorageWriteIsDurable;
+
 function setReturnStorageItem(key,value){
   value=String(value==null?'':value);
   var old=null;
@@ -11934,33 +12061,43 @@ function setReturnStorageItem(key,value){
       try{queueDiaryNotionSave(typeof currentDate!=='undefined'?currentDate||null:null);}catch(e){}
     }
   }
-  try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); _afterWriteSideEffects(); return true; } }
+  try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } }
   catch(e){
     bannerDebugLog('storage:set-failed-once',{key:key,length:String(value||'').length,error:String(e&&e.message||e)});
-    try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); _afterWriteSideEffects(); return true; } }
+    try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } }
     catch(err){
       bannerDebugLog('storage:set-failed-final',{key:key,length:String(value||'').length,error:String(err&&err.message||err),oldLength:old?old.length:0});
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
     }
   }
-  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); _afterWriteSideEffects(); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
   try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
-  /* localStorage quota exceeded — fall back to IndexedDB overflow */
+  /* localStorage quota exceeded — fall back to IndexedDB overflow.
+     STAGE 2: we no longer claim plain success. The write is durable only
+     AFTER the async IDB commit resolves, so we record an honest 'idb-pending'
+     state now and flip to 'idb-ok' (or 'failed') when the promise settles.
+     The synchronous return value stays `true` so existing synchronous callers
+     don't treat a recoverable overflow as a hard failure — but UI that wants
+     to affirm "saved" can consult returnStorageWriteIsDurable(key), which is
+     false while pending or stale. */
   if(_idbOverflow){
+    __storageHealthRecord({key:key,mode:'idb-pending'});
     _idbSet(key, value).then(function(){
       if(typeof __clearStaleQuota==='function') __clearStaleQuota(key);
       bannerDebugLog('storage:idb-ok',{key:key,length:value.length});
+      __storageHealthRecord({key:key,mode:'idb-ok',ok:true});
       /* Trigger sync after IDB commit so fbCollectData finds the updated _idbCache */
       _afterWriteSideEffects();
     }).catch(function(e2){
       if(typeof __markStaleQuota==='function')__markStaleQuota(key);
+      __storageHealthRecord({key:key,mode:'failed',ok:false,idbWasPending:true,error:'idb-overflow: '+String(e2&&e2.message||e2)});
       console.error('[storage] IDB fallback also failed for key "'+key+'":', e2&&e2.message||e2);
     });
-    /* Return true optimistically — IDB write is async but will succeed */
     return true;
   }
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
+  __storageHealthRecord({key:key,mode:'failed',ok:false,error:'quota: localStorage full and no IndexedDB overflow available'});
   return false;
 }
 var HOME_BANNER_SYNC_MAX = 180000;
@@ -17421,8 +17558,18 @@ function diaryAutoSave(key, el) {
         var s = document.getElementById('ds-'+k);
         if (s) s.classList.remove('dirty');
       });
-      if (saveDot) saveDot.className = 'save-dot';
-      if (saveText) saveText.textContent = '모두 저장됨';
+      /* STAGE 2: distinguish a fully-durable localStorage save from one that
+         only landed in the slower IndexedDB overflow (quota pressure). The
+         data is still saved locally, but it is NOT in fast storage and the
+         user should know storage is tight rather than seeing a clean "saved". */
+      var durable = (typeof returnStorageWriteIsDurable!=='function') || returnStorageWriteIsDurable('diary_entries_v1');
+      if (durable) {
+        if (saveDot) saveDot.className = 'save-dot';
+        if (saveText) saveText.textContent = '모두 저장됨';
+      } else {
+        if (saveDot) saveDot.className = 'save-dot saving';
+        if (saveText) saveText.textContent = '저장됨 · 저장공간 부족(오프라인 보관, 압축 시도 중)';
+      }
       /* Update strip */
       renderStripEntries();
       renderStripDays();
@@ -23844,15 +23991,27 @@ localStorage.setItem = function(k,v){
   try{
     _rawSetItem(k, v);
     __clearStaleQuota(k);
+    if(typeof __storageHealthRecord==='function') __storageHealthRecord({key:k,mode:'local',ok:true});
   }catch(e){
     if (__isQuotaError(e)) {
       __markStaleQuota(k);
+      if(typeof __storageHealthRecord==='function') __storageHealthRecord({key:k,mode:'failed',ok:false,error:'quota (direct setItem): '+String(e&&e.message||e)});
       if (k === 'diary_entries_v1') {
         /* Background compression and retry — do not block the caller. */
         setTimeout(function(){ __compressDiaryImagesAndRetry(); }, 0);
       }
     } else {
+      /* STAGE 2: previously this branch swallowed non-quota write errors with
+         only a console.warn — a silent failure. Record it so it is visible
+         via returnStorageHealth() and surface a single toast the first time. */
       try{ console.warn('localStorage.setItem failed for', k, e && e.message); }catch(_){}
+      if(typeof __storageHealthRecord==='function') __storageHealthRecord({key:k,mode:'patched-swallowed',ok:false,error:String(e&&e.message||e)});
+      try{
+        if(!window.__nonQuotaWriteToastShown && typeof showToast==='function'){
+          window.__nonQuotaWriteToastShown=true;
+          showToast('저장 중 오류가 발생했어요. 콘솔에서 returnStorageHealth()로 확인할 수 있어요.');
+        }
+      }catch(_){}
     }
     return;
   }
