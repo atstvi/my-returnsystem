@@ -7167,7 +7167,7 @@ var musicModes=['Study','Routine','Planning','Rest','Focus'];
 function musicEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function musicId(){return 'music_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
 function musicLoad(){try{musicPlaylists=JSON.parse(localStorage.getItem(MUSIC_KEY)||'[]')||[];}catch(e){musicPlaylists=[];}musicPlaylists=musicPlaylists.filter(function(p){return p&&p.id;});}
-function musicSave(){try{localStorage.setItem(MUSIC_KEY,JSON.stringify(musicPlaylists));}catch(e){if(typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');return false;}try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}return true;}
+function musicSave(){var ok=setReturnStorageItem(MUSIC_KEY,JSON.stringify(musicPlaylists));if(!ok&&typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');try{if(ok&&typeof fbSaveAll==='function')fbSaveAll();}catch(e){}return ok;}
 function musicUrlObj(url){try{return new URL(String(url||''));}catch(e){try{return new URL(String(url||''),'https://youtube.com');}catch(_){return null;}}}
 function musicVideoId(url){var u=musicUrlObj(url);if(!u)return '';var host=u.hostname.replace(/^www\./,'');if(host==='youtu.be')return u.pathname.split('/').filter(Boolean)[0]||'';if(host.indexOf('youtube.com')>=0){if(u.searchParams.get('v'))return u.searchParams.get('v');var parts=u.pathname.split('/').filter(Boolean);if(parts[0]==='embed'||parts[0]==='shorts')return parts[1]||'';}return '';}
 function musicListId(url){var u=musicUrlObj(url);return u?u.searchParams.get('list')||'':'';}
@@ -7231,9 +7231,10 @@ musicLoad=function(){
   musicPlaylists=musicLibrary.playlists;
 };
 musicSave=function(){
-  try{localStorage.setItem(MUSIC_KEY,JSON.stringify(musicLibrary));}catch(e){if(typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');return false;}
-  try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
-  return true;
+  var ok=setReturnStorageItem(MUSIC_KEY,JSON.stringify(musicLibrary));
+  if(!ok&&typeof showToast==='function')showToast('음악 라이브러리를 저장하지 못했어요.');
+  try{if(ok&&typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
+  return ok;
 };
 function musicSongById(id){return (musicLibrary.songs||[]).find(function(s){return String(s.id)===String(id);})||null;}
 function musicPlaylistById(id){return (musicLibrary.playlists||[]).find(function(p){return String(p.id)===String(id);})||null;}
@@ -8159,14 +8160,14 @@ function homeSkippedDeadlineLinks(){
 function homeSkipDeadlineLink(task){
   var skipped = homeSkippedDeadlineLinks();
   skipped[String(task.id)] = Date.now();
-  localStorage.setItem('home_skipped_deadline_links', JSON.stringify(skipped));
+  setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(skipped));
   renderHomeSituation();
   homeToast('이 마감은 연결 필요에서 제외했어요');
 }
 function homeUnskipDeadlineLink(task){
   var skipped = homeSkippedDeadlineLinks();
   delete skipped[String(task.id)];
-  localStorage.setItem('home_skipped_deadline_links', JSON.stringify(skipped));
+  setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(skipped));
   renderHomeSituation();
   homeToast('패스를 취소했어요');
 }
@@ -11390,7 +11391,8 @@ function getCatMeta(catId) {
 }
 
 function saveCats() {
-  try { localStorage.setItem('return_inbox_cats', JSON.stringify(INBOX_CATS)); } catch(e) {}
+  var ok=setReturnStorageItem('return_inbox_cats',JSON.stringify(INBOX_CATS));
+  if(!ok)console.error('[inbox] return_inbox_cats save failed');
 }
 function loadCats() {
   try {
@@ -12961,7 +12963,7 @@ var newDeadlineTime = '';
 /* Load prefs */
 try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;weekStart=Number(_p.weekStart)===1?1:0;}catch(e){}
 
-function savePrefs(){try{localStorage.setItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks,weekStart:weekStart}));}catch(e){}}
+function savePrefs(){setReturnStorageItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks,weekStart:weekStart}));}
 function renderWeekStartControl(){
   var sel=document.getElementById('week-start-sel');
   if(sel)sel.value=String(weekStart);
@@ -15192,7 +15194,8 @@ function saveResult() {
   var lastSig = last ? JSON.stringify(last.answers || {}) + '|' + (last.commitment || '') : '';
   if (!(last && Date.now() - last.ts < 5000 && signature === lastSig)) checkLogs.push(log);
   if (checkLogs.length > 90) checkLogs = checkLogs.slice(-90);
-  try { localStorage.setItem('return_check_logs', JSON.stringify(checkLogs)); } catch(e) {}
+  var ckOk=setReturnStorageItem('return_check_logs',JSON.stringify(checkLogs));
+  if(!ckOk)console.error('[check] return_check_logs save failed');
 
   if (btn) { btn.dataset.saved = '1'; btn.textContent = '✓ 저장됨'; btn.style.background = 'var(--success)'; }
 }
@@ -15260,14 +15263,16 @@ function hobLoadCats() {
   return [{ id:'h_default', name:'취미', icon:'🎨', color:'#5B5FCF' }];
 }
 function saveCatsData(cats) {
-  try { localStorage.setItem('hobby_cats_v2', JSON.stringify(cats)); } catch(e) {}
+  var ok=setReturnStorageItem('hobby_cats_v2',JSON.stringify(cats));
+  if(!ok)console.error('[hobby] hobby_cats_v2 save failed');
 }
 function loadItems() {
   try { return JSON.parse(localStorage.getItem('hobby_items_v2')||'[]'); } catch(e) {}
   return [];
 }
 function saveItemsData(items) {
-  try { localStorage.setItem('hobby_items_v2', JSON.stringify(items)); } catch(e) {}
+  var ok=setReturnStorageItem('hobby_items_v2',JSON.stringify(items));
+  if(!ok)console.error('[hobby] hobby_items_v2 save failed');
 }
 
 /* ── State ── */
@@ -16730,10 +16735,10 @@ function loadTrackers() {
 }
 
 function saveTrackers() {
-  try {
-    localStorage.setItem('diary_trackers_v1', JSON.stringify(trackers));
-    localStorage.setItem('diary_tracker_values_v1', JSON.stringify(trackerValues));
-  } catch(e) {}
+  var ok1=setReturnStorageItem('diary_trackers_v1',JSON.stringify(trackers));
+  var ok2=setReturnStorageItem('diary_tracker_values_v1',JSON.stringify(trackerValues));
+  if(!ok1)console.error('[diary] diary_trackers_v1 save failed');
+  if(!ok2)console.error('[diary] diary_tracker_values_v1 save failed');
 }
 
 /* Check if tracker should appear on a given date based on freq */
@@ -17078,8 +17083,10 @@ function loadData() {
 }
 
 function saveData() {
-  try { localStorage.setItem('reward_data', JSON.stringify(rewardData)); } catch(e) {}
-  try { localStorage.setItem('recharge_reflects', JSON.stringify(reflects)); } catch(e) {}
+  var ok1=setReturnStorageItem('reward_data',JSON.stringify(rewardData));
+  var ok2=setReturnStorageItem('recharge_reflects',JSON.stringify(reflects));
+  if(!ok1)console.error('[reward] reward_data save failed');
+  if(!ok2)console.error('[reward] recharge_reflects save failed');
 }
 
 /* ── Helpers ── */
@@ -17128,8 +17135,8 @@ function selectEnergy(level) {
   try {
     var ev = JSON.parse(localStorage.getItem('recharge_energy') || '{}');
     ev[rcTodayStr()] = level;
-    localStorage.setItem('recharge_energy', JSON.stringify(ev));
-  } catch(e) {}
+    setReturnStorageItem('recharge_energy', JSON.stringify(ev));
+  } catch(e) { console.error('[recharge] energy save failed:',e); }
 }
 
 /* Restore today's energy */
@@ -18388,14 +18395,15 @@ function saveMemo() {
   var text = ta.value.trim();
   if (!text) return;
   memos.unshift({ text: text, ts: Date.now(), type: 'memo' });
-  try { localStorage.setItem('memos_v5', JSON.stringify(memos)); } catch(e) {}
+  var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
+  if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
   ta.value = '';
   renderMemos();
 }
 
 function deleteMemo(idx) {
   memos.splice(idx, 1);
-  try { localStorage.setItem('memos_v5', JSON.stringify(memos)); } catch(e) {}
+  setReturnStorageItem('memos_v5',JSON.stringify(memos));
   renderMemos();
 }
 
@@ -18505,7 +18513,8 @@ function deleteCheckLog(idx) {
   if (idx < 0 || idx >= checkLogs.length) return;
   if (!confirm('이 체크인 결과지를 삭제할까요?')) return;
   checkLogs.splice(idx, 1);
-  try { localStorage.setItem('return_check_logs', JSON.stringify(checkLogs)); } catch(e) {}
+  var ckOk=setReturnStorageItem('return_check_logs',JSON.stringify(checkLogs));
+  if(!ckOk)console.error('[check] return_check_logs save failed');
   renderInsights();
 }
 
@@ -19321,7 +19330,7 @@ function addValue() {
       {key:'body', label:'내용', value:''}
     ], function(data){
       philCards.push({ tag:data.tag || '가치관', title:data.title || '', body:data.body || '' });
-      try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+      setReturnStorageItem('phil_cards',JSON.stringify(philCards));
       renderValues();
     });
     return;
@@ -19330,7 +19339,7 @@ function addValue() {
   var title = prompt('제목') || '';
   var body  = prompt('내용') || '';
   philCards.push({ tag:tag, title:title, body:body });
-  try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+  setReturnStorageItem('phil_cards',JSON.stringify(philCards));
   renderValues();
 }
 
@@ -19993,10 +20002,10 @@ function saveProfileName() {
   try {
     var p = JSON.parse(localStorage.getItem('profile_data') || '{}');
     p.name = name;
-    localStorage.setItem('profile_data', JSON.stringify(p));
+    var ok=setReturnStorageItem('profile_data', JSON.stringify(p));
     renderAccountProfile();
-    showToast('저장됐어요 ✓');
-  } catch(e) {}
+    showToast(ok ? '저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
+  } catch(e) { console.error('[profile] saveProfileName failed:',e); }
 }
 function renderAccountProfile(){
   var p={};
@@ -20077,10 +20086,10 @@ function addPhilCard() {
 }
 
 function savePhilCards() {
-  try { localStorage.setItem('phil_cards', JSON.stringify(philCards)); } catch(e) {}
+  var ok=setReturnStorageItem('phil_cards',JSON.stringify(philCards));
   var count = document.getElementById('phil-count');
   if (count) count.textContent = philCards.length + '개';
-  showToast('가치관 저장됐어요 ✓');
+  showToast(ok ? '가치관 저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
 }
 
 /* ── API KEYS ── */
@@ -20798,7 +20807,7 @@ function routineTimerLoad(){
   }catch(e){}
 }
 function routineTimerSave(){
-  try{localStorage.setItem(ROUTINE_TIMER_KEY,JSON.stringify({habitId:routineTimerState.habitId||'',startedAt:routineTimerState.startedAt||0,elapsed:routineTimerState.elapsed||0,paused:!!routineTimerState.paused}));}catch(e){}
+  setReturnStorageItem(ROUTINE_TIMER_KEY,JSON.stringify({habitId:routineTimerState.habitId||'',startedAt:routineTimerState.startedAt||0,elapsed:routineTimerState.elapsed||0,paused:!!routineTimerState.paused}));
 }
 function routineTimerMs(){
   return (routineTimerState.elapsed||0)+(routineTimerState.startedAt?Date.now()-routineTimerState.startedAt:0);
@@ -20970,17 +20979,15 @@ routineTimerLoad=function(){
   }catch(e){}
 };
 routineTimerSave=function(){
-  try{
-    localStorage.setItem(ROUTINE_TIMER_KEY,JSON.stringify({
-      bundleId:routineTimerState.bundleId||'',
-      habitId:routineTimerState.habitId||'',
-      index:Number(routineTimerState.index)||0,
-      startedAt:routineTimerState.startedAt||0,
-      elapsed:routineTimerState.elapsed||0,
-      paused:!!routineTimerState.paused,
-      view:routineTimerState.view==='compact'?'compact':'full'
-    }));
-  }catch(e){}
+  setReturnStorageItem(ROUTINE_TIMER_KEY,JSON.stringify({
+    bundleId:routineTimerState.bundleId||'',
+    habitId:routineTimerState.habitId||'',
+    index:Number(routineTimerState.index)||0,
+    startedAt:routineTimerState.startedAt||0,
+    elapsed:routineTimerState.elapsed||0,
+    paused:!!routineTimerState.paused,
+    view:routineTimerState.view==='compact'?'compact':'full'
+  }));
 };
 routineTimerHabit=function(){
   var habits=routineTimerHabits();
