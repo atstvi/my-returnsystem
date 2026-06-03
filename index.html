@@ -9210,6 +9210,22 @@ function editHomeRepeat(id){
   renderHomeOpsPanel();
 }
 
+/* Prune all suppression entries that belong to a specific repeat rule ID.
+   Called on rule deletion so the maps don't accumulate indefinitely. */
+function pruneRepeatSuppressions(ruleId){
+  var rid=String(ruleId||''); if(!rid)return;
+  var prefix=rid+'|';
+  var s=loadRepeatSuppressions(), sc=false;
+  Object.keys(s).forEach(function(k){ if(k.indexOf(prefix)===0){delete s[k];sc=true;} });
+  if(sc)saveRepeatSuppressions(s);
+  var g=loadGeneratedTaskSuppressions(), gc=false;
+  Object.keys(g).forEach(function(k){
+    var entry=g[k];
+    if(k.indexOf(prefix)===0||(entry&&String(entry.repeatRuleId||'')===rid)){delete g[k];gc=true;}
+  });
+  if(gc)saveGeneratedTaskSuppressions(g);
+}
+
 function deleteHomeRepeat(id){
   if (!confirm('이 반복 할일을 삭제할까요?')) return;
   var repeats = loadRepeatItems().filter(function(x){ return x.id !== id; });
@@ -9218,6 +9234,7 @@ function deleteHomeRepeat(id){
     tasks = tasks.filter(function(t){ return t._repeatId !== id || t.done; });
     if (typeof saveTaskData === 'function') saveTaskData();
   }
+  pruneRepeatSuppressions(id);
   renderHomeTasks();
   renderHomeTimeBlocks();
   renderHomeOpsPanel();
@@ -22262,6 +22279,36 @@ function showFirebaseRulesHelp(){
 }
 var _rawSetItem = localStorage.setItem.bind(localStorage);
 
+/* Storage health report — callable from the browser console as
+   returnStorageReport() or returnStorageReport(true) to log a full breakdown.
+   Returns {totalKB, usedKeys, topKeys:[{key,kb}]} so callers can inspect
+   programmatically. Logs a console.warn if usage exceeds 80% of the typical
+   5 MB browser quota. */
+function returnStorageReport(verbose){
+  var total=0, keys=[];
+  try {
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      var v=localStorage.getItem(k)||'';
+      var sz=(k.length+v.length)*2; // UTF-16: 2 bytes per char
+      total+=sz;
+      keys.push({key:k,bytes:sz});
+    }
+  } catch(e){ console.error('[storage] returnStorageReport failed:',e); return null; }
+  keys.sort(function(a,b){return b.bytes-a.bytes;});
+  var KB=Math.round(total/1024);
+  var pct=Math.round(total/(5*1024*1024)*100);
+  var report={totalKB:KB,usedPct:pct,keyCount:keys.length,topKeys:keys.slice(0,10).map(function(x){return {key:x.key,kb:Math.round(x.bytes/1024)};})};
+  if(verbose){
+    console.group('[storage] returnStorageReport — '+KB+'KB / ~5120KB ('+pct+'%)');
+    report.topKeys.forEach(function(x){console.log(x.key+': '+x.kb+'KB');});
+    console.groupEnd();
+  }
+  if(pct>=80) console.warn('[storage] localStorage at '+pct+'% capacity ('+KB+'KB). Consider clearing old data.');
+  return report;
+}
+window.returnStorageReport=returnStorageReport;
+
 /* ── E2 FIX: Quota recovery for diary_entries_v1 ───────────────────────
    Diagnostic round captured 13 occurrences of
    `localStorage.setItem failed for diary_entries_v1 ... exceeded the quota`.
@@ -23011,6 +23058,19 @@ async function _findOrCreateDiaryPage(dateKey, returnPage){
       properties:props
     });
   } catch(e){
+    /* Race condition: a concurrent sync call may have created the page between
+       our query and our create. Retry the lookup once before failing so we
+       don't surface an error or return a duplicate page. */
+    try {
+      var raceCheck=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+        filter:{property:dateProp, date:{equals:dateKey}},
+        page_size:1
+      });
+      if(raceCheck.results&&raceCheck.results[0]){
+        console.warn('[notion] _findOrCreateDiaryPage: creation failed but page exists (race) — using existing page');
+        return returnPage ? raceCheck.results[0] : raceCheck.results[0].id;
+      }
+    } catch(retryErr){}
     throw new Error('새 페이지 생성 실패: '+e.message);
   }
   return returnPage ? page : page.id;
@@ -26459,6 +26519,8 @@ try {
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
   if (typeof themeStudioApply === 'function') themeStudioApply(themeStudioGet());
+  /* Proactive quota check on every boot — only logs if ≥80% used. */
+  try { returnStorageReport(false); } catch(_){}
 } catch(e) {}
 (function finalBoot(){
   var slug = window.__returnInitialPage || _currentPage || 'home';
