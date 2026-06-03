@@ -25620,7 +25620,51 @@ async function _notionImageToDataUrl(url){
   }catch(e){ return url; }
 }
 
-async function _pullDiaryPageBody(pageId, dateKey){
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 7 — guarded Notion two-way merge (closes R10: Notion as a silent
+   second writer). Two-way stays ON (you edit in both places), but a Notion
+   pull can no longer blindly clobber a local edit. We keep a per-entry
+   baseline of the values as of the last successful sync (`entry._nbase`) and
+   do a 3-way merge per section:
+     • Notion empty             → keep local            (pre-existing E6 rule)
+     • Notion == local          → nothing to do
+     • Notion == baseline       → Notion didn't change → keep local
+     • Notion changed, local unchanged vs baseline → adopt Notion (safe)
+     • both changed (conflict)  → newer wins by timestamp (Notion page
+                                  last_edited_time vs entry.updatedAt), logged
+   First sync (no baseline) falls back to timestamp, so a stale Notion page can
+   never overwrite a freshly-edited local entry. Conflicts are recorded in the
+   shared conflict ring buffer (returnSyncConflicts()). */
+var _NOTION_SECTION_KEYS=['sleep','morning','resolution','timeline','accomplishment','night','recap'];
+function _notionBlocksHash(blocks){ try{ return timetableTaskHash(JSON.stringify(blocks||[])); }catch(_e){ return ''; } }
+function _notionMergeSection(entry, key, notionVal, notionEditedMs, conflicts){
+  notionVal=(notionVal==null)?'':String(notionVal);
+  if(!notionVal.trim()) return 'keep-local-empty';          /* E6: empty never overwrites */
+  var local=(entry[key]==null)?'':String(entry[key]);
+  if(notionVal===local) return 'identical';
+  var hasBase=!!(entry._nbase&&Object.prototype.hasOwnProperty.call(entry._nbase,key));
+  var base=hasBase?String(entry._nbase[key]):null;
+  if(hasBase&&notionVal===base) return 'keep-local-notion-unchanged'; /* Notion side unchanged */
+  if(hasBase&&local===base){ entry[key]=notionVal; return 'adopt-notion'; } /* only Notion changed */
+  /* conflict: both changed since baseline, OR no baseline and they differ */
+  var localMs=Number(entry.updatedAt)||0, nMs=Number(notionEditedMs)||0;
+  if(nMs>localMs){ if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'notion',localMs:localMs,notionMs:nMs,at:Date.now()}); entry[key]=notionVal; return 'conflict-notion-wins'; }
+  if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'local',localMs:localMs,notionMs:nMs,at:Date.now()});
+  return 'conflict-local-wins';
+}
+/* Snapshot the merged entry as the new last-synced baseline. Called after a
+   successful sync/pull so the next pull can tell which side actually changed. */
+function _notionUpdateBaseline(entry){
+  if(!entry||typeof entry!=='object')return;
+  var b={};
+  for(var i=0;i<_NOTION_SECTION_KEYS.length;i++){ var k=_NOTION_SECTION_KEYS[i]; if(entry[k]!=null)b[k]=String(entry[k]); }
+  b._blocksHash=_notionBlocksHash(entry._blocks);
+  entry._nbase=b;
+}
+window._notionMergeSection=_notionMergeSection;
+window._notionUpdateBaseline=_notionUpdateBaseline;
+
+async function _pullDiaryPageBody(pageId, dateKey, notionEditedMs){
   if(!dateKey) return 0;
   if(typeof entries==='undefined') return 0;
   if(!entries[dateKey]) entries[dateKey]={};
@@ -25720,19 +25764,28 @@ async function _pullDiaryPageBody(pageId, dateKey){
      New rule: only replace when the pulled text is non-empty.
      This makes pull biased toward "use Notion when Notion has content,
      keep Return otherwise" — a natural two-way merge for text fields. */
+  /* Stage 7: guarded 3-way merge per section (was blind non-empty overwrite). */
+  var _bodyConflicts=[];
   Object.keys(sectionTexts).forEach(function(k){
     var pulled = (sectionTexts[k]||[]).join('\n\n');
-    if (pulled && pulled.trim().length) {
-      entry[k] = pulled;
-    }
-    /* else: keep entry[k] as-is. */
+    _notionMergeSection(entry, k, pulled, notionEditedMs, _bodyConflicts);
   });
+  if(_bodyConflicts.length&&typeof returnEntityLogConflicts==='function')returnEntityLogConflicts(_bodyConflicts);
 
-  /* Replace _blocks with the new free-blocks set. Keep app-only blocks
-     (those without _notionId) appended at the end so user-added local blocks
-     aren't lost. */
+  /* Replace _blocks with the new free-blocks set, but ONLY when that can't
+     clobber a local edit. Keep app-only blocks (no _notionId) appended so
+     locally-added blocks survive regardless. Stage 7 block guard:
+       • no baseline yet OR local blocks unchanged since last sync → safe to take Notion
+       • Notion page newer than the local entry → Notion wins
+       • otherwise (local edited since sync AND newer) → keep local blocks. */
   var appOnly=(entry._blocks||[]).filter(function(b){return b && !b._notionId;});
-  entry._blocks=freeBlocks.concat(appOnly);
+  var newBlocks=freeBlocks.concat(appOnly);
+  var baseBlocksHash=(entry._nbase&&entry._nbase._blocksHash!=null)?entry._nbase._blocksHash:null;
+  var localBlocksUnchanged=(baseBlocksHash!=null && _notionBlocksHash(entry._blocks)===baseBlocksHash);
+  var localMsB=Number(entry.updatedAt)||0, nMsB=Number(notionEditedMs)||0;
+  if(baseBlocksHash==null || localBlocksUnchanged || nMsB>localMsB){
+    entry._blocks=newBlocks;
+  } /* else: keep local blocks — edited since last sync and newer than Notion */
 
   /* Save state and refresh diary screen unconditionally if user is viewing it. */
   if(typeof _applyPulledDiaryEntry==='function') _applyPulledDiaryEntry(dateKey);
@@ -25778,15 +25831,22 @@ function _pullDiaryPageProperties(page, dateKey, cfg){
   if(!page||!dateKey||typeof entries==='undefined')return 0;
   var entry=entries[dateKey]||(entries[dateKey]={});
   var props=page.properties||{}, changed=0;
+  var notionEditedMs=page.last_edited_time?Date.parse(page.last_edited_time):0;
+  var conflicts=[];
   [['sleepProp','sleep'],['morningProp','morning'],['resolutionProp','resolution'],
    ['accomplishmentProp','accomplishment'],['nightProp','night'],['recapProp','recap'],
    ['timelineProp','timeline']].forEach(function(pair){
     var propName=(cfg||_diaryNotionCfg)[pair[0]];
     if(propName&&props[propName]){
       var v=_readNotionRichTextProp(props[propName]);
-      if(v && entry[pair[1]]!==v){entry[pair[1]]=v;changed++;}
+      if(v){
+        /* Stage 7: guarded merge instead of blind overwrite. */
+        var act=_notionMergeSection(entry, pair[1], v, notionEditedMs, conflicts);
+        if(act==='adopt-notion'||act==='conflict-notion-wins')changed++;
+      }
     }
   });
+  if(conflicts.length&&typeof returnEntityLogConflicts==='function')returnEntityLogConflicts(conflicts);
   if(changed)_applyPulledDiaryEntry(dateKey);
   return changed;
 }
@@ -25844,7 +25904,7 @@ async function syncDiaryToNotion(dateKey, opts){
       setStatus('Notion에서 가져오는 중...');
       try {
         if(notionPage) propPulled=_pullDiaryPageProperties(notionPage, dateKey, cfg);
-        pulled=await _pullDiaryPageBody(pageId, dateKey);
+        pulled=await _pullDiaryPageBody(pageId, dateKey, notionPage&&notionPage.last_edited_time?Date.parse(notionPage.last_edited_time):0);
       } catch(e){
         console.error('[notion] pull step failed:', e);
         /* Abort rather than pushing potentially stale data over what Notion has. */
@@ -25918,6 +25978,10 @@ async function syncDiaryToNotion(dateKey, opts){
     _diaryNotionCfg.lastSync=Date.now();
     setReturnStorageItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg));
 
+    /* Stage 7: record the just-synced state as the new merge baseline so the
+       next pull can tell which side changed. Safe under _notionSyncActive. */
+    try{ if(typeof entries!=='undefined'&&entries[dateKey]){ _notionUpdateBaseline(entries[dateKey]); setReturnStorageItem('diary_entries_v1', JSON.stringify(entries)); } }catch(_e){}
+
     var timeStr=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     var msg='동기화 완료 '+timeStr
       + (propPulled?' · 속성 '+propPulled:'')
@@ -25971,9 +26035,12 @@ async function pullDiaryFromNotion(dateKey, opts){
       return;
     }
     /* Also pull property values (Sleep/Morning/etc fields stored as properties) */
+    var notionEditedMs=page.last_edited_time?Date.parse(page.last_edited_time):0;
     var propPulled=_pullDiaryPageProperties(page, dateKey, cfg);
     /* Pull body blocks */
-    var pulled=await _pullDiaryPageBody(page.id, dateKey);
+    var pulled=await _pullDiaryPageBody(page.id, dateKey, notionEditedMs);
+    /* Stage 7: refresh the merge baseline after an explicit/auto pull. */
+    try{ if(entries[dateKey]){ _notionUpdateBaseline(entries[dateKey]); setReturnStorageItem('diary_entries_v1', JSON.stringify(entries)); } }catch(_e){}
     if(st)st.textContent='Notion 확인됨: 속성 '+propPulled+'개 · 본문 '+pulled+'개 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(row)row.setAttribute('data-state','ok');
     /* Force diary view refresh */
