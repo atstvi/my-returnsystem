@@ -12475,7 +12475,7 @@ function setReturnStorageItem(key,value){
       try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){}
     }
   }
-  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'":', finalErr); }
+  try { old=localStorage.getItem(key); localStorage.removeItem(key); if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } } catch(finalErr){ bannerDebugLog('storage:set-failed-final2',{key:key,error:String(finalErr&&finalErr.message||finalErr)}); /* Not a hard failure when IDB overflow is available — the fallback below makes this durable; only surface as an error if there is no overflow path. */ if(_idbOverflow){ console.warn('[storage] localStorage full for "'+key+'" — overflowing to IndexedDB'); } else { console.error('[storage] setReturnStorageItem final retry failed for key "'+key+'" (no IDB overflow available):', finalErr); } }
   try { if(old!=null) localStorage.setItem(key,old); } catch(restoreErr){ console.error('[storage] setReturnStorageItem could not restore old value for key "'+key+'":', restoreErr); }
   /* localStorage quota exceeded — fall back to IndexedDB overflow.
      STAGE 2: we no longer claim plain success. The write is durable only
@@ -24515,7 +24515,11 @@ async function runFirebaseDiagnostics(){
   listEl.appendChild(summary);
 }
 function showFirebaseRulesHelp(){
-  var rules="rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n      match /data/{docId} {\n        allow read, write: if request.auth != null && request.auth.uid == userId;\n      }\n      match /settings/{docId} {\n        allow read, write: if request.auth != null && request.auth.uid == userId;\n      }\n    }\n  }\n}";
+  /* Recursive wildcard covers the user doc AND every subcollection — data,
+     settings, and the per-entity sync layout (entities/**, meta/**). Still
+     scoped strictly to the signed-in user's own uid, so it is exactly as safe
+     as the old per-collection rules but won't deny new subcollections. */
+  var rules="rules_version = '2';\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /users/{userId} {\n      allow read, write: if request.auth != null && request.auth.uid == userId;\n      match /{document=**} {\n        allow read, write: if request.auth != null && request.auth.uid == userId;\n      }\n    }\n  }\n}";
   // Remove previous helper if open
   var prev=document.getElementById('fb-rules-modal'); if(prev) prev.remove();
   var ov=document.createElement('div');
@@ -24529,7 +24533,7 @@ function showFirebaseRulesHelp(){
   box.innerHTML=
     '<div style="padding:var(--sp-6) var(--sp-6) var(--sp-3);border-bottom:.5px solid var(--border)">'
       +'<div style="font-size:var(--text-md);font-weight:var(--fw-semibold);color:var(--fg)">Firestore 규칙 설정</div>'
-      +'<div style="font-size:var(--text-sm);color:var(--fg-3);margin-top:var(--sp-2);line-height:1.55">아래 규칙을 Firebase Console의 Firestore Rules에 붙여넣고 <strong>게시</strong>해 주세요. 로그인된 본인 데이터만 읽기/쓰기 가능하도록 안전하게 제한합니다.</div>'
+      +'<div style="font-size:var(--text-sm);color:var(--fg-3);margin-top:var(--sp-2);line-height:1.55">아래 규칙을 Firebase Console의 Firestore Rules에 붙여넣고 <strong>게시</strong>해 주세요. 로그인된 본인 데이터만 읽기/쓰기 가능하도록 안전하게 제한합니다. <strong>최근 업데이트로 새 동기화 경로가 추가되었으니, 이전에 설정했더라도 이 규칙으로 다시 게시해 주세요.</strong></div>'
     +'</div>'
     +'<div style="padding:var(--sp-5) var(--sp-6);overflow:auto;flex:1">'
       +'<textarea id="fb-rules-text" readonly class="mono" style="width:100%;min-height:240px;padding:var(--sp-4);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md);font-family:var(--font-mono);font-size:var(--text-xs);line-height:1.6;color:var(--fg);resize:vertical"></textarea>'
