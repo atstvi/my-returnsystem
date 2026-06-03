@@ -11918,6 +11918,74 @@ window.mediaSyncManifestReport=function(){
   try{ console.log('[media-sync] manifest',r); }catch(_e){}
   return r;
 };
+
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 5 — MediaStore ABSTRACTION
+
+   A single, documented facade over the media primitives that Stages prior
+   built piecemeal:
+     • binary durable cache   → IndexedDB 'return_media_store_v1' (returnMedia*)
+     • cross-device transport → dedup manifest 'return_media_sync_v1' (mediaSync*)
+
+   Rather than callers reaching into returnMediaStoreDataUrl / returnMediaGet /
+   returnMediaResolveUrlWithFallback / mediaSyncPut / mediaSyncResolve directly
+   (and each re-deriving ref parsing, fallbacks, and sync registration), they
+   can use one API with consistent semantics. This is intentionally a thin,
+   additive facade: existing call sites keep working unchanged, and later
+   stages (and new code) adopt MediaStore incrementally. No behavior change.
+
+   Layered resolution (MediaStore.resolve):
+     1) the value is already a displayable URL  → use as-is
+     2) IndexedDB binary (this device has it)    → use + nothing else needed
+     3) synced manifest (any device)             → use AND seed IndexedDB
+     4) caller-supplied inline fallback          → last resort
+   ════════════════════════════════════════════════════════════════════════ */
+var MediaStore = {
+  /* ref helpers */
+  isRef: function(v){ return isReturnMediaRef(v); },
+  refId: function(v){ return returnMediaRefId(v); },
+
+  /* Store a data: URL as durable media; returns a Promise<'return-media:id'>.
+     Small images are auto-registered in the sync manifest by
+     returnMediaStoreDataUrl so they are cross-device from creation. */
+  put: function(dataUrl, meta){ return returnMediaStoreDataUrl(dataUrl, meta||{}); },
+
+  /* Store a full media record (id + dataUrl + meta) directly in IndexedDB. */
+  putRecord: function(record){ return returnMediaPut(record); },
+
+  /* Get the raw IndexedDB record for an id or ref (Promise<record|null>). */
+  getRecord: function(idOrRef){
+    var id = isReturnMediaRef(idOrRef) ? returnMediaRefId(idOrRef) : String(idOrRef||'');
+    return returnMediaGet(id);
+  },
+
+  /* Async resolve to a displayable data/URL string. Walks IndexedDB → manifest
+     (seeding IndexedDB) → inline fallback. Returns Promise<string> ('' if none). */
+  resolve: function(refOrUrl, fallback){ return returnMediaResolveUrlWithFallback(refOrUrl, fallback); },
+
+  /* Synchronous best-effort resolve from the cross-device manifest only
+     (cache-backed). Useful where a Promise is impractical. '' if absent. */
+  resolveSync: function(refOrUrl){
+    if(isReturnDisplayableImageUrl(refOrUrl)) return String(refOrUrl||'');
+    return mediaSyncResolve(refOrUrl);
+  },
+
+  /* Is this ref currently resolvable without a network/original upload? i.e.
+     present in the synced manifest (so any device can render it). */
+  hasSynced: function(refOrUrl){ return !!mediaSyncResolve(refOrUrl); },
+
+  /* Register bytes for an id/ref in the cross-device manifest (deduplicated,
+     capped). Returns boolean. */
+  registerSynced: function(idOrRef, dataUrl){
+    var id = isReturnMediaRef(idOrRef) ? returnMediaRefId(idOrRef) : String(idOrRef||'');
+    return mediaSyncPut(id, dataUrl);
+  },
+
+  /* Diagnostics. */
+  manifestReport: function(){ return window.mediaSyncManifestReport(); }
+};
+window.MediaStore = MediaStore;
+
 function loadHomeBanner(){
   try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { console.error('[home] loadHomeBanner: corrupt banner state, resetting', e); hbState = {}; }
   if (!hbState.stickers) hbState.stickers = [];
