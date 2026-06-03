@@ -28872,6 +28872,91 @@ musicRender=function(){
 
 })();
 /* ── end Music UX v10 JS ─────────────────────────────────────────────── */
+
+/* ── Music UX v11: fix sidebar CD hover (stale _cdBtn closure bug) ───── */
+(function(){
+'use strict';
+
+setTimeout(function(){
+  /* Remove old button — v9/v10 left _cdBtn pointing to it in a stale closure */
+  var old=document.getElementById('music-sidebar-cd');
+  if(old)old.remove();
+
+  var tabMusic=document.getElementById('tab-music');
+  if(!tabMusic)return;
+
+  /* Fresh button: always look up by ID, no module-level variable */
+  var btn=document.createElement('button');
+  btn.type='button';
+  btn.id='music-sidebar-cd';
+  btn.className='music-sidebar-cd-btn';
+  btn.setAttribute('aria-label','미니 플레이어');
+  btn.innerHTML='<div class="music-scd-face" id="music-scd-face-el"></div>';
+  document.body.appendChild(btn);
+
+  var hideTimer=null;
+
+  function cdShow(){
+    clearTimeout(hideTimer);
+    var rect=tabMusic.getBoundingClientRect();
+    btn.style.top=(rect.top+rect.height/2-22)+'px';
+    btn.classList.add('visible');
+    cdSyncFace();
+  }
+  function cdHide(e){
+    var to=e&&e.relatedTarget;
+    if(to&&(to===btn||btn.contains(to)))return;
+    hideTimer=setTimeout(function(){btn.classList.remove('visible');},200);
+  }
+
+  tabMusic.addEventListener('mouseenter',cdShow);
+  tabMusic.addEventListener('mouseleave',cdHide);
+  btn.addEventListener('mouseenter',function(){clearTimeout(hideTimer);});
+  btn.addEventListener('mouseleave',function(e){
+    var to=e.relatedTarget;
+    if(to&&(to===tabMusic||tabMusic.contains(to)))return;
+    hideTimer=setTimeout(function(){btn.classList.remove('visible');},200);
+  });
+
+  btn.addEventListener('click',function(e){
+    e.stopPropagation();
+    var mini=document.getElementById('music-mini-player');
+    if(!mini)return;
+    if(!musicCurrent.playlistId){
+      var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+      if(rec&&rec.playlist&&typeof musicPlayPlaylist==='function')
+        musicPlayPlaylist(rec.playlist.id,0);
+      else if(rec&&rec.song&&typeof musicPlaySong==='function')
+        musicPlaySong(rec.song.id);
+    }
+    var ep=document.getElementById('music-ep-wrap');
+    if(mini.classList.contains('music-ep-open')){
+      mini.classList.remove('music-ep-open','active');
+      if(ep)ep.setAttribute('aria-hidden','true');
+    }else{
+      mini.classList.add('active','music-ep-open');
+      if(ep)ep.setAttribute('aria-hidden','false');
+      if(typeof musicUpdateMini==='function')musicUpdateMini(true);
+    }
+    btn.classList.remove('visible');
+  });
+
+  function cdSyncFace(){
+    var face=document.getElementById('music-scd-face-el');
+    if(!face)return;
+    var item=(typeof musicCurrentItem==='function')?musicCurrentItem():null;
+    var thumb=item&&item.thumbnail;
+    face.style.backgroundImage=thumb?'url("'+thumb+'")'  :'';
+    var playing=false;
+    try{playing=!!(window._ytPlayer&&_ytPlayer.getPlayerState&&_ytPlayer.getPlayerState()===1);}catch(ex){}
+    face.classList.toggle('music-scd-spinning',playing);
+  }
+  setInterval(cdSyncFace,900);
+
+},400);
+
+})();
+/* ── end Music UX v11 JS ─────────────────────────────────────────────── */
 </script>
 </body>
 </html>
