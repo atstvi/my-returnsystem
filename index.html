@@ -9708,7 +9708,7 @@ function openHomeRuleModal(){
     var match=(data.matchText||'').trim(), text=(data.taskText||'').trim();
     if(!match||!text)return;
     taskRules=loadTaskRules();
-    taskRules.push({id:'rule_'+Date.now(),matchText:match,taskText:text,taskCatId:'etc',taskPriority:'mid',offsetDays:parseInt(data.offsetDays,10)||0});
+    taskRules.push({id:returnNewId('rule_'),matchText:match,taskText:text,taskCatId:'etc',taskPriority:'mid',offsetDays:parseInt(data.offsetDays,10)||0});
     saveTaskRules(taskRules);
     applyActiveTaskRules();
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -9720,7 +9720,7 @@ function openHomeRuleModal(){
   if(!text)return;
   var offset=parseInt(prompt('며칠 전 할일로 만들까요? (0=당일)', '0'))||0;
   taskRules=loadTaskRules();
-  taskRules.push({id:'rule_'+Date.now(),matchText:match,taskText:text,taskCatId:'etc',taskPriority:'mid',offsetDays:offset});
+  taskRules.push({id:returnNewId('rule_'),matchText:match,taskText:text,taskCatId:'etc',taskPriority:'mid',offsetDays:offset});
   saveTaskRules(taskRules);
   renderHomeTasks();
   homeToast('활성 규칙을 저장했어요');
@@ -9741,7 +9741,7 @@ function openHomeRepeatModal(){
     if(!text)return;
     var freq=data.freq||'daily';
     var repeats=loadRepeatItems();
-    var entry={id:'ri_'+Date.now(),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:TK,endDate:data.endDate||''};
+    var entry={id:returnNewId('ri_'),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:TK,endDate:data.endDate||''};
     repeats.push(entry); saveRepeatItems(repeats);
     generateRepeatTasks(entry, TK, 21);
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -9751,7 +9751,7 @@ function openHomeRepeatModal(){
   if(!text)return;
   var freq=prompt('반복: daily / weekly / monthly', 'daily')||'daily';
   var repeats=loadRepeatItems();
-  var entry={id:'ri_'+Date.now(),text:text,catId:'etc',priority:'',freq:freq,startDate:TK,endDate:''};
+  var entry={id:returnNewId('ri_'),text:text,catId:'etc',priority:'',freq:freq,startDate:TK,endDate:''};
   repeats.push(entry); saveRepeatItems(repeats);
   tasks.unshift({id:Date.now(),text:text,catId:'etc',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'반복 할일',subs:[],_repeatId:entry.id,_repeat:{kind:freq},createdAt:Date.now(),updatedAt:Date.now()});
   if(typeof saveTaskData==='function')saveTaskData();
@@ -10325,7 +10325,7 @@ openHomeRuleModal=function(){
     var text=(data.taskText||'').trim();
     if((!match&&!weekdays)||!text)return;
     taskRules=loadTaskRules();
-    taskRules.push({id:'rule_'+Date.now(),triggerType:triggerType,matchText:match,weekdays:weekdays,taskText:text,taskCatId:data.taskCatId||'etc',taskPriority:data.taskPriority||'',offsetDays:parseInt(data.offsetDays,10)||0});
+    taskRules.push({id:returnNewId('rule_'),triggerType:triggerType,matchText:match,weekdays:weekdays,taskText:text,taskCatId:data.taskCatId||'etc',taskPriority:data.taskPriority||'',offsetDays:parseInt(data.offsetDays,10)||0});
     saveTaskRules(taskRules);
     applyActiveTaskRules();
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -10572,7 +10572,7 @@ function openHomeRuleEditor(ruleId){
   ], function(data){
     var type=data.triggerType==='weekday'?'weekday':'keyword';
     var next={
-      id:ruleId||('rule_'+Date.now()),
+      id:ruleId||(returnNewId('rule_')),
       triggerType:type,
       matchText:type==='keyword'?(data.matchText||'').trim():'',
       weekdays:type==='weekday'?(data.weekdays||'').trim():'',
@@ -12033,6 +12033,60 @@ function returnStorageWriteIsDurable(key){
   return h.lastWriteOk && h.lastWriteMode==='local';
 }
 window.returnStorageWriteIsDurable=returnStorageWriteIsDurable;
+
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 3 — STABLE ID + VERSIONING PRIMITIVES  (foundation for Stage 6 merge)
+
+   Collision-resistant IDs and entity stamping, adopted incrementally and
+   ONLY at sites proven safe in this stage:
+     • newly-created string-prefixed entities (recurring rules, repeat items,
+       routine habits/bundles) → returnNewId()
+     • timetable slot IDs made DETERMINISTIC so the same logical slot resolves
+       to the same id on every device — kills a duplicate-generation root
+       cause (audit R5: the id seed previously included Date.now()+Math.random
+       so two devices materializing the same synced slot diverged).
+
+   Deliberately NOT changed here — deferred to Stage 6, where every
+   data-id / Number(id) call site can be migrated together:
+     • numeric task IDs   (task-search modal does Number(x.id) lookups @14583)
+     • numeric project IDs
+     • generated-task IDs (intertwined with reconciliation matching)
+   Migrating those in isolation is precisely what regressed past attempts.
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_SCHEMA_VERSION = 1;
+function returnNewId(prefix){
+  var core;
+  try{
+    if(typeof crypto!=='undefined' && crypto && typeof crypto.randomUUID==='function'){
+      core=crypto.randomUUID();
+    } else if(typeof crypto!=='undefined' && crypto && crypto.getRandomValues){
+      var b=new Uint8Array(16); crypto.getRandomValues(b);
+      core=Array.prototype.map.call(b,function(x){return ('0'+x.toString(16)).slice(-2);}).join('');
+    }
+  }catch(_e){}
+  /* Fallback for ancient/embedded webviews without crypto: still far stronger
+     than bare Date.now() because of the random suffix. */
+  if(!core) core = Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10);
+  return (prefix||'id_')+core;
+}
+window.returnNewId=returnNewId;
+/* Stamp a brand-new entity (non-destructive: never overwrites existing createdAt). */
+function returnStampNew(obj){
+  if(!obj||typeof obj!=='object')return obj;
+  var now=Date.now();
+  if(obj.createdAt==null)obj.createdAt=now;
+  obj.updatedAt=now;
+  if(obj.schemaVersion==null)obj.schemaVersion=RETURN_SCHEMA_VERSION;
+  return obj;
+}
+function returnStampUpdate(obj){
+  if(!obj||typeof obj!=='object')return obj;
+  obj.updatedAt=Date.now();
+  if(obj.schemaVersion==null)obj.schemaVersion=RETURN_SCHEMA_VERSION;
+  return obj;
+}
+window.returnStampNew=returnStampNew;
+window.returnStampUpdate=returnStampUpdate;
 
 function setReturnStorageItem(key,value){
   value=String(value==null?'':value);
@@ -13888,7 +13942,12 @@ function ensureTimetableSlotIds(ttList){
     tt.slots.forEach(function(slot,idx){
       if(!slot)return;
       if(!slot._slotId&&!slot.id){
-        slot._slotId='slot_'+timetableTaskHash([tt.id,idx,slot.day,slot.timeStart,slot.timeEnd,slot.title,Date.now(),Math.random()].join('|'));
+        /* STAGE 3: deterministic seed (no Date.now()/Math.random()). The same
+           logical slot now hashes to the same _slotId on every device, so a
+           timetable synced before its slots had ids no longer diverges into
+           duplicate generated tasks. Still only assigned when missing, so
+           existing persisted slot ids are untouched. */
+        slot._slotId='slot_'+timetableTaskHash([tt.id,idx,slot.day,slot.timeStart,slot.timeEnd,slot.title].join('|'));
         changed=true;
       }
     });
@@ -21657,8 +21716,8 @@ function renderRoutineConditions(){var root=document.getElementById('routine-con
 function renderRoutineBundles(){var root=document.getElementById('routine-bundles');if(!root)return;if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}var log=routineTodayLog();root.innerHTML=routineBundles.map(function(bundle){var habits=routineBundleHabits(bundle), stat=routineStatsForBundle(bundle);var rows=habits.map(function(h){var state=(log[h.id]||{}).state||'';return '<div class="routine-habit" data-routine-habit="'+routineEsc(h.id)+'"><div class="routine-habit-main"><div class="routine-habit-title"><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span></div><div class="routine-habit-plan">'+routineEsc(routineHabitPlan(h))+'</div></div><div class="routine-state-actions"><button class="routine-state '+(state==='done'?'active':'')+'" data-routine-state="done">완료</button><button class="routine-state '+(state==='skip'?'active':'')+'" data-routine-state="skip">건너뜀</button><button class="routine-state '+(state==='rest'?'active':'')+'" data-routine-state="rest">쉼</button></div></div>';}).join('')||'<div class="routine-empty">묶음에 습관이 없습니다.</div>';return '<article class="routine-bundle" data-routine-bundle="'+routineEsc(bundle.id)+'"><div class="routine-bundle-head"><div><div class="routine-bundle-title">'+routineEsc(bundle.icon||'☀️')+' '+routineEsc(bundle.title)+'</div><div class="routine-muted">'+routineEsc(bundle.slot||'루틴')+' · '+stat.done+'/'+stat.total+' 완료</div></div><div class="routine-bundle-tools"><span class="routine-pill">'+stat.done+'/'+stat.total+'</span><button class="btn btn-ghost" type="button" data-routine-edit-bundle="'+routineEsc(bundle.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">삭제</button></div></div><div class="routine-habit-list">'+rows+'</div></article>';}).join('');root.querySelectorAll('[data-routine-state]').forEach(function(btn){btn.addEventListener('click',function(){var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};var next=btn.getAttribute('data-routine-state');log[id].state=(log[id].state===next?'':next);log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});root.querySelectorAll('[data-routine-edit-bundle]').forEach(function(btn){btn.addEventListener('click',function(){openRoutineBundleEditor(routineBundles.find(function(b){return String(b.id)===String(btn.getAttribute('data-routine-edit-bundle'));}));});});root.querySelectorAll('[data-routine-delete-bundle]').forEach(function(btn){btn.addEventListener('click',function(){deleteRoutineBundle(btn.getAttribute('data-routine-delete-bundle'));});});}
 function renderRoutineLibrary(){var root=document.getElementById('routine-habit-list');if(!root)return;root.innerHTML=routineHabits.map(function(h){return '<div class="routine-lib-item"><div><div class="routine-habit-title"><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span></div><div class="routine-muted">'+routineEsc(routineHabitPlan(h)||'설정 없음')+'</div></div><div class="routine-state-actions"><button class="btn btn-ghost" type="button" data-routine-edit-habit="'+routineEsc(h.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-habit="'+routineEsc(h.id)+'">삭제</button></div></div>';}).join('')||'<div class="routine-empty">습관이 없습니다.</div>';root.querySelectorAll('[data-routine-edit-habit]').forEach(function(btn){btn.addEventListener('click',function(){openRoutineHabitEditor(routineHabits.find(function(h){return String(h.id)===String(btn.getAttribute('data-routine-edit-habit'));}));});});root.querySelectorAll('[data-routine-delete-habit]').forEach(function(btn){btn.addEventListener('click',function(){deleteRoutineHabit(btn.getAttribute('data-routine-delete-habit'));});});}
 function renderRoutineStats(){var stats=document.getElementById('routine-stats'), week=document.getElementById('routine-week-grid');if(!stats||!week)return;var todayLog=routineTodayLog(), total=routineHabits.length, done=0, rest=0;routineHabits.forEach(function(h){var st=(todayLog[h.id]||{}).state||'';if(st==='done'||st==='skip')done++;if(st==='rest')rest++;});stats.innerHTML='<div class="routine-stat"><strong>'+done+'/'+total+'</strong><span class="routine-muted">오늘 완료</span></div><div class="routine-stat"><strong>'+rest+'</strong><span class="routine-muted">쉼</span></div><div class="routine-stat"><strong>'+routineEsc(routineCondition)+'</strong><span class="routine-muted">현재 강도</span></div>';var days=[], base=new Date();base.setHours(0,0,0,0);for(var i=6;i>=0;i--){var d=new Date(base);d.setDate(base.getDate()-i);days.push(d);}week.innerHTML=days.map(function(d){var key=routineDateKey(d), log=routineLogs[key]||{}, count=0;routineHabits.forEach(function(h){var st=(log[h.id]||{}).state||'';if(st==='done'||st==='skip')count++;});return '<div class="routine-day"><strong>'+String(d.getMonth()+1)+'/'+d.getDate()+'</strong>'+routineHabits.slice(0,8).map(function(h){var st=(log[h.id]||{}).state||'';return '<span class="routine-day-dot '+((st==='done'||st==='skip')?'done':'')+'"></span>';}).join('')+'<div class="routine-muted" style="margin-top:var(--sp-2)">'+count+'개</div></div>';}).join('');}
-function openRoutineHabitEditor(habit){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(habit?'습관 편집':'습관 추가',[{key:'title',label:'이름',value:habit?habit.title:''},{key:'icon',label:'아이콘',value:habit?habit.icon:'☀️'},{key:'mini',label:'Mini',value:habit?habit.mini:''},{key:'plus',label:'Plus',value:habit?habit.plus:''},{key:'max',label:'Max',value:habit?habit.max:''}],function(data){var title=(data.title||'').trim();if(!title)return;var next={id:habit?habit.id:'rh_'+Date.now(),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});else routineHabits.push(next);saveRoutineData();renderRoutine();});}
-function openRoutineBundleEditor(bundle){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(bundle?'루틴 묶음 편집':'루틴 묶음 추가',[{key:'title',label:'이름',value:bundle?bundle.title:''},{key:'icon',label:'아이콘',value:bundle?bundle.icon:'☀️'},{key:'slot',label:'언제',value:bundle?bundle.slot:''},{key:'habits',label:'포함할 습관 이름 또는 ID(쉼표 구분)',value:bundle?routineBundleHabits(bundle).map(function(h){return h.title;}).join(', '):routineHabits.slice(0,3).map(function(h){return h.title;}).join(', ')}],function(data){var title=(data.title||'').trim();if(!title)return;var names=String(data.habits||'').split(',').map(function(s){return s.trim();}).filter(Boolean);var ids=names.map(function(n){var h=routineHabits.find(function(x){return x.title===n||x.id===n;});return h&&h.id;}).filter(Boolean);var next={id:bundle?bundle.id:'rb_'+Date.now(),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:ids};if(bundle)routineBundles=routineBundles.map(function(b){return String(b.id)===String(bundle.id)?Object.assign({},b,next):b;});else routineBundles.push(next);saveRoutineData();renderRoutine();});}
+function openRoutineHabitEditor(habit){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(habit?'습관 편집':'습관 추가',[{key:'title',label:'이름',value:habit?habit.title:''},{key:'icon',label:'아이콘',value:habit?habit.icon:'☀️'},{key:'mini',label:'Mini',value:habit?habit.mini:''},{key:'plus',label:'Plus',value:habit?habit.plus:''},{key:'max',label:'Max',value:habit?habit.max:''}],function(data){var title=(data.title||'').trim();if(!title)return;var next={id:habit?habit.id:returnNewId('rh_'),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});else routineHabits.push(next);saveRoutineData();renderRoutine();});}
+function openRoutineBundleEditor(bundle){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(bundle?'루틴 묶음 편집':'루틴 묶음 추가',[{key:'title',label:'이름',value:bundle?bundle.title:''},{key:'icon',label:'아이콘',value:bundle?bundle.icon:'☀️'},{key:'slot',label:'언제',value:bundle?bundle.slot:''},{key:'habits',label:'포함할 습관 이름 또는 ID(쉼표 구분)',value:bundle?routineBundleHabits(bundle).map(function(h){return h.title;}).join(', '):routineHabits.slice(0,3).map(function(h){return h.title;}).join(', ')}],function(data){var title=(data.title||'').trim();if(!title)return;var names=String(data.habits||'').split(',').map(function(s){return s.trim();}).filter(Boolean);var ids=names.map(function(n){var h=routineHabits.find(function(x){return x.title===n||x.id===n;});return h&&h.id;}).filter(Boolean);var next={id:bundle?bundle.id:returnNewId('rb_'),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:ids};if(bundle)routineBundles=routineBundles.map(function(b){return String(b.id)===String(bundle.id)?Object.assign({},b,next):b;});else routineBundles.push(next);saveRoutineData();renderRoutine();});}
 function deleteRoutineHabit(id){var h=routineHabitById(id);if(!h)return;var run=function(){routineHabits=routineHabits.filter(function(x){return String(x.id)!==String(id);});routineBundles.forEach(function(b){b.habitIds=(b.habitIds||[]).filter(function(hid){return String(hid)!==String(id);});});Object.keys(routineLogs||{}).forEach(function(day){if(routineLogs[day])delete routineLogs[day][id];});saveRoutineData();renderRoutine();};if(typeof openConfirmDialog==='function')openConfirmDialog('습관 삭제',(h.title||'습관')+'을 삭제할까요?',run);else if(confirm('습관을 삭제할까요?'))run();}
 function deleteRoutineBundle(id){var b=routineBundles.find(function(x){return String(x.id)===String(id);});if(!b)return;var run=function(){routineBundles=routineBundles.filter(function(x){return String(x.id)!==String(id);});saveRoutineData();renderRoutine();};if(typeof openConfirmDialog==='function')openConfirmDialog('루틴 묶음 삭제',(b.title||'루틴')+'을 삭제할까요?',run);else if(confirm('루틴 묶음을 삭제할까요?'))run();}
 function _initRoutine(){loadRoutineData();var hb=document.getElementById('routine-new-habit');if(hb&&!hb.dataset.bound){hb.dataset.bound='1';hb.addEventListener('click',function(){openRoutineHabitEditor(null);});}var bb=document.getElementById('routine-new-bundle');if(bb&&!bb.dataset.bound){bb.dataset.bound='1';bb.addEventListener('click',function(){openRoutineBundleEditor(null);});}var rb=document.getElementById('routine-reset-today');if(rb&&!rb.dataset.bound){rb.dataset.bound='1';rb.addEventListener('click',function(){var run=function(){delete routineLogs[routineDateKey()];saveRoutineData();renderRoutine();};if(typeof openConfirmDialog==='function')openConfirmDialog('오늘 루틴 기록 초기화','오늘 체크 상태를 지울까요?',run);else if(confirm('오늘 루틴 기록을 지울까요?'))run();});}renderRoutine();}
@@ -21755,7 +21814,7 @@ openRoutineBundleEditor=function(bundle){
     {key:'slot',label:'언제',value:bundle?bundle.slot:''}
   ],function(data){
     var title=(data.title||'').trim();if(!title)return;
-    var next={id:bundle?bundle.id:'rb_'+Date.now(),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:bundle?(bundle.habitIds||[]):[]};
+    var next={id:bundle?bundle.id:returnNewId('rb_'),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:bundle?(bundle.habitIds||[]):[]};
     if(bundle)routineBundles=routineBundles.map(function(b){return String(b.id)===String(bundle.id)?Object.assign({},b,next):b;});
     else routineBundles.push(next);
     saveRoutineData();renderRoutine();
@@ -21868,7 +21927,7 @@ openRoutineHabitEditor=function(habit){
     {key:'max',label:'Max',value:habit?habit.max:''}
   ],function(data){
     var title=(data.title||'').trim();if(!title)return;
-    var next={id:habit?habit.id:'rh_'+Date.now(),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};
+    var next={id:habit?habit.id:returnNewId('rh_'),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};
     if(data.projectId)next.projectId=data.projectId;
     if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});
     else routineHabits.push(next);
@@ -21982,7 +22041,7 @@ function openRoutineBundleHabitPicker(bundleId){
     var title=(ov.querySelector('#routine-quick-title').value||'').trim();
     if(!title)return;
     var icon=(ov.querySelector('#routine-quick-icon').value||'☀️').trim()||'☀️';
-    var h={id:'rh_'+Date.now(),title:title,icon:icon,mini:'',plus:'',max:''};
+    var h={id:returnNewId('rh_'),title:title,icon:icon,mini:'',plus:'',max:''};
     routineHabits.push(h);
     bundle.habitIds=bundle.habitIds||[];
     bundle.habitIds.push(h.id);
@@ -22080,7 +22139,7 @@ openRoutineBundleEditor=function(bundle){
     {key:'slot',label:'언제',value:bundle?bundle.slot:''}
   ],function(data){
     var title=(data.title||'').trim();if(!title)return;
-    var next={id:bundle?bundle.id:'rb_'+Date.now(),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:bundle?(bundle.habitIds||[]):[]};
+    var next={id:bundle?bundle.id:returnNewId('rb_'),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:bundle?(bundle.habitIds||[]):[]};
     if(bundle)routineBundles=routineBundles.map(function(b){return String(b.id)===String(bundle.id)?Object.assign({},b,next):b;});
     else routineBundles.push(next);
     saveRoutineData();renderRoutine();
