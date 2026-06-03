@@ -12311,16 +12311,133 @@ function returnEntityStampChanged(collection, arr){
   try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
   return {stamped:stamped,removed:removed};
 }
-/* One call for save sites: backfill ids, then stamp changed entities. */
-function returnEntityPrepareForSave(collection, arr, prefix){
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 6b — TOMBSTONE REGISTRY  (so deletes stop resurrecting; root cause R3)
+
+   A delete is remembered as a tombstone {deletedAt, collection} keyed by _eid.
+   The registry (return_tombstones_v1) IS synced (return_ prefix), so other
+   devices learn the delete. A tombstone only "wins" over a surviving copy if
+   its deletedAt is newer than that copy's updatedAt — so re-creating an item
+   (which gets a fresh _eid anyway) is never suppressed.
+
+   Detection: returnEntityPrepareForSave already gets the set of _eids that
+   vanished since the last save (shadow-diff `removed`). For USER-OWNED
+   collections (projects, inbox, routines, diary) a vanished _eid means a real
+   delete, so we tombstone it automatically — no need to instrument every
+   delete call site. Collections with generation churn (TASKS) are excluded
+   (autoTombstone:false): a generated task disappearing is a reconcile, not a
+   user delete. Task deletes are handled in 6d alongside generated semantics.
+
+   IMPORTANT (still safe under legacy): the merge does not consult tombstones
+   yet — enforcement (filtering on load / blocking resurrection) flips on in
+   6d behind RETURN_SYNC_MODEL. 6b only RECORDS them. returnEntityFilterTombstoned
+   is provided + tested but not wired into any load path here.
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_TOMBSTONE_KEY='return_tombstones_v1';
+var RETURN_TOMBSTONE_TTL_MS=90*24*60*60*1000; /* 90 days (reviewed decision) */
+var _tombstones=null;
+function tombstonesLoad(){
+  if(_tombstones)return _tombstones;
+  try{ _tombstones=JSON.parse(localStorage.getItem(RETURN_TOMBSTONE_KEY)||'{}')||{}; }catch(e){ _tombstones={}; }
+  if(typeof _tombstones!=='object'||Array.isArray(_tombstones))_tombstones={};
+  return _tombstones;
+}
+function tombstonesSave(){ try{ return setReturnStorageItem(RETURN_TOMBSTONE_KEY,JSON.stringify(tombstonesLoad())); }catch(e){ return false; } }
+function returnTombstoneMarkMany(eids, collection){
+  if(!eids||!eids.length)return 0;
+  var t=tombstonesLoad(), now=Date.now(), n=0;
+  eids.forEach(function(eid){ if(!eid)return; if(!t[eid]||t[eid].deletedAt<now){ t[eid]={deletedAt:now,collection:collection||''}; n++; } });
+  if(n)tombstonesSave();
+  return n;
+}
+function returnTombstoneMark(eid, collection){ return returnTombstoneMarkMany([eid], collection)>0; }
+function returnTombstoneIsActive(eid, entityUpdatedAt){
+  if(!eid)return false;
+  var ts=tombstonesLoad()[eid];
+  if(!ts)return false;
+  return ts.deletedAt>=(Number(entityUpdatedAt)||0); /* delete wins only if newer than the live edit */
+}
+function returnTombstoneClear(eids){
+  if(!eids)return 0; if(!Array.isArray(eids))eids=[eids];
+  var t=tombstonesLoad(), n=0;
+  eids.forEach(function(eid){ if(t[eid]){ delete t[eid]; n++; } });
+  if(n)tombstonesSave();
+  return n;
+}
+function returnTombstoneGC(maxAgeMs){
+  maxAgeMs=maxAgeMs||RETURN_TOMBSTONE_TTL_MS;
+  var t=tombstonesLoad(), now=Date.now(), n=0;
+  Object.keys(t).forEach(function(eid){ if(now-(t[eid].deletedAt||0)>maxAgeMs){ delete t[eid]; n++; } });
+  if(n)tombstonesSave();
+  return n;
+}
+/* Filter out entities whose _eid is tombstoned by a delete newer than their
+   own updatedAt. Defined + tested; NOT wired into load paths until 6d. */
+function returnEntityFilterTombstoned(arr){
+  if(!Array.isArray(arr))return arr;
+  return arr.filter(function(e){ return !(e&&e._eid&&returnTombstoneIsActive(e._eid,e.updatedAt)); });
+}
+window.returnTombstoneMark=returnTombstoneMark;
+window.returnTombstoneGC=returnTombstoneGC;
+window.returnEntityFilterTombstoned=returnEntityFilterTombstoned;
+window.returnTombstonesReport=function(){ var t=tombstonesLoad(); var r={count:Object.keys(t).length}; try{console.log('[tombstones]',r,t);}catch(_e){} return r; };
+
+/* One call for save sites: backfill ids, stamp changed entities, and (for
+   user-owned collections) tombstone vanished _eids + clear tombstones for any
+   _eid that is present and live again. */
+function returnEntityPrepareForSave(collection, arr, prefix, opts){
+  opts=opts||{};
   try{
     returnEntityBackfillIds(arr, prefix);
-    return returnEntityStampChanged(collection, arr);
+    var res=returnEntityStampChanged(collection, arr);
+    if(opts.autoTombstone && res.removed && res.removed.length){
+      returnTombstoneMarkMany(res.removed, collection);
+    }
+    /* Any entity currently present cancels a stale tombstone for its _eid
+       (e.g. it came back from another device, or was recreated). */
+    if(Array.isArray(arr) && arr.length){
+      var present=[];
+      for(var i=0;i<arr.length;i++){ var e=arr[i]; if(e&&e._eid)present.push(e._eid); }
+      if(present.length){
+        var t=tombstonesLoad(), toClear=[];
+        for(var j=0;j<present.length;j++){ if(t[present[j]])toClear.push(present[j]); }
+        if(toClear.length)returnTombstoneClear(toClear);
+      }
+    }
+    return res;
   }catch(e){ try{console.warn('[entity] prepare failed for '+collection+':',e&&e.message);}catch(_){} return {stamped:0,removed:[]}; }
+}
+
+/* Object-collection variant for diary (entries keyed by date). Each date is an
+   entity with _eid='diary_'+date (deterministic → convergent). Diary manages
+   its own updatedAt (set in commitCurrent), so we only backfill identity and
+   detect removed dates for tombstones. */
+function returnEntityPrepareObjectForSave(collection, obj, prefix, opts){
+  opts=opts||{};
+  try{
+    if(!obj||typeof obj!=='object')return {removed:[]};
+    var shadowKey='__eid_shadow_'+collection, shadow={};
+    try{ shadow=JSON.parse(localStorage.getItem(shadowKey)||'{}')||{}; }catch(_e){ shadow={}; }
+    var keys=Object.keys(obj), seen={}, next={}, now=Date.now();
+    for(var i=0;i<keys.length;i++){
+      var k=keys[i], e=obj[k];
+      if(!e||typeof e!=='object')continue;
+      if(!e._eid)e._eid=prefix+String(k);
+      if(e.createdAt==null)e.createdAt=e.updatedAt||now;
+      if(e.schemaVersion==null)e.schemaVersion=RETURN_SCHEMA_VERSION;
+      seen[e._eid]=1; next[e._eid]=1;
+    }
+    var removed=[];
+    Object.keys(shadow).forEach(function(eid){ if(!seen[eid])removed.push(eid); });
+    if(opts.autoTombstone && removed.length)returnTombstoneMarkMany(removed, collection);
+    try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
+    return {removed:removed};
+  }catch(e){ try{console.warn('[entity] prepareObject failed for '+collection+':',e&&e.message);}catch(_){} return {removed:[]}; }
 }
 window.returnEntityBackfillIds=returnEntityBackfillIds;
 window.returnEntityStampChanged=returnEntityStampChanged;
 window.returnEntityPrepareForSave=returnEntityPrepareForSave;
+window.returnEntityPrepareObjectForSave=returnEntityPrepareObjectForSave;
 
 function setReturnStorageItem(key,value){
   value=String(value==null?'':value);
@@ -12955,7 +13072,7 @@ function loadInboxItems() {
   } catch(e) {}
 }
 function saveInboxItems() {
-  returnEntityPrepareForSave('inbox', inboxItems, 'ib_'); /* Stage 6a */
+  returnEntityPrepareForSave('inbox', inboxItems, 'ib_', {autoTombstone:true}); /* Stage 6a */
   var saved=setReturnStorageItem('inbox_v1', JSON.stringify(inboxItems));
   if(!saved)return false;
   if (typeof renderHomeInbox === 'function') renderHomeInbox();
@@ -17824,6 +17941,7 @@ function commitCurrent() {
 }
 
 function saveAll() {
+  if(typeof returnEntityPrepareObjectForSave==='function') returnEntityPrepareObjectForSave('diary', entries, 'diary_', {autoTombstone:true}); /* Stage 6b: per-date _eid + tombstones */
   var saved=setReturnStorageItem('diary_entries_v1', JSON.stringify(entries));
   if(!saved)return false;
   updateSectionChecklist(currentDate);
@@ -20955,7 +21073,7 @@ function _initRecords(){
    ═══════════════════════════════════════════════════════════ */
 var projects=[], activeProjectId=null;
 function loadProjects(){try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}}
-function saveProjects(){returnEntityPrepareForSave('projects', projects, 'p_');/* Stage 6a */return setReturnStorageItem('projects_v1',JSON.stringify(projects));}
+function saveProjects(){returnEntityPrepareForSave('projects', projects, 'p_', {autoTombstone:true});/* Stage 6a */return setReturnStorageItem('projects_v1',JSON.stringify(projects));}
 function projectEsc(v){return typeof tEscHtml==='function'?tEscHtml(v==null?'':String(v)):String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function projectTaskItems(project){return (typeof tasks!=='undefined'?tasks:[]).filter(function(t){return String(t.projectId||'')===String(project.id);});}
 function projectReadArray(key){try{return JSON.parse(localStorage.getItem(key)||'[]')||[];}catch(e){return [];}}
@@ -21879,7 +21997,7 @@ function routineDateKey(d){d=d||new Date();return d.getFullYear()+'-'+String(d.g
 function routineToast(msg){if(typeof showToast==='function')showToast(msg);else if(typeof homeToast==='function')homeToast(msg);}
 function routineReadJson(key, fallback){try{return JSON.parse(localStorage.getItem(key)||'')||fallback;}catch(e){return fallback;}}
 function loadRoutineData(){routineHabits=routineReadJson('routine_habits_v1',[]);routineBundles=routineReadJson('routine_bundles_v1',[]);routineLogs=routineReadJson('routine_logs_v1',{});routineCondition=localStorage.getItem('routine_condition_v1')||'plus';if(!routineHabits.length&&!routineBundles.length)seedRoutineData();}
-function saveRoutineData(){var ok=true;returnEntityPrepareForSave('routineHabits', routineHabits, 'rh_');returnEntityPrepareForSave('routineBundles', routineBundles, 'rb_');/* Stage 6a */ok=setReturnStorageItem('routine_habits_v1',JSON.stringify(routineHabits))&&ok;ok=setReturnStorageItem('routine_bundles_v1',JSON.stringify(routineBundles))&&ok;ok=setReturnStorageItem('routine_logs_v1',JSON.stringify(routineLogs))&&ok;ok=setReturnStorageItem('routine_condition_v1',routineCondition)&&ok;if(ok&&typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick();return ok;}
+function saveRoutineData(){var ok=true;returnEntityPrepareForSave('routineHabits', routineHabits, 'rh_', {autoTombstone:true});returnEntityPrepareForSave('routineBundles', routineBundles, 'rb_', {autoTombstone:true});/* Stage 6a */ok=setReturnStorageItem('routine_habits_v1',JSON.stringify(routineHabits))&&ok;ok=setReturnStorageItem('routine_bundles_v1',JSON.stringify(routineBundles))&&ok;ok=setReturnStorageItem('routine_logs_v1',JSON.stringify(routineLogs))&&ok;ok=setReturnStorageItem('routine_condition_v1',routineCondition)&&ok;if(ok&&typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick();return ok;}
 function seedRoutineData(){routineHabits=[{id:'rh_water',title:'물 한 컵',icon:'💧',mini:'한 모금 마시기',plus:'물 한 컵 마시기',max:'물병 채우고 한 컵 마시기'},{id:'rh_stretch',title:'몸 깨우기',icon:'🧘',mini:'목/어깨 1분',plus:'스트레칭 5분',max:'가벼운 운동 15분'},{id:'rh_plan',title:'오늘 보기',icon:'📝',mini:'할일 1개 고르기',plus:'오늘 할일 정리',max:'우선순위와 시간블록까지 정리'},{id:'rh_journal',title:'마감 정리',icon:'🌙',mini:'한 줄 회고',plus:'일기 타임라인 정리',max:'내일 첫 할일까지 정리'}];routineBundles=[{id:'rb_morning',title:'아침 루틴',icon:'☀️',slot:'일어나서',habitIds:['rh_water','rh_stretch','rh_plan']},{id:'rb_night',title:'저녁 루틴',icon:'🌙',slot:'자기 전',habitIds:['rh_journal']}];saveRoutineData();}
 function routineTodayLog(){var key=routineDateKey();routineLogs[key]=routineLogs[key]||{};return routineLogs[key];}
 function routineHabitById(id){return routineHabits.find(function(h){return String(h.id)===String(id);});}
@@ -28379,6 +28497,8 @@ try {
   try { returnStorageReport(false); } catch(_){}
   /* Prune suppression entries older than 30 days to prevent unbounded growth. */
   try { pruneStaleRepeatSuppressions(); } catch(_){}
+  /* Stage 6b: prune tombstones older than 90 days. */
+  try { if(typeof returnTombstoneGC==='function') returnTombstoneGC(); } catch(_){}
 } catch(e) {}
 (function finalBoot(){
   var slug = window.__returnInitialPage || _currentPage || 'home';
