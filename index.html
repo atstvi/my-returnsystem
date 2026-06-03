@@ -21445,6 +21445,7 @@ function _lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return nu
 function _lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
 var _scriptLoadPromises = {};
 function loadScript(src){
+  if(typeof _scriptLoadPromises !== 'object' || !_scriptLoadPromises) _scriptLoadPromises = {};
   if(_scriptLoadPromises[src]) return _scriptLoadPromises[src];
   _scriptLoadPromises[src] = new Promise(function(resolve,reject){
     var existing=[].filter.call(document.scripts,function(s){return s.src===src;})[0];
@@ -21631,18 +21632,26 @@ async function initFirebase(){
   }
   // If already initialized with same config and auth ready, skip reload.
   if(_fbInitOnce && fbAuth && fbDb){ return true; }
-  setFbStatus('Firebase 스크립트 로드 중...','saving');
-  try {
-    await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-    await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
-    await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
-  } catch(e){
-    setFbStatus('Firebase 연결 실패: '+(e&&e.message||'네트워크를 확인해주세요'),'err');
-    return false;
-  }
-  if(typeof firebase==='undefined'||!firebase.auth||!firebase.firestore){
-    setFbStatus('Firebase SDK load failed: auth/firestore unavailable','err');
-    return false;
+  /* Skip CDN fetch if Firebase SDK is already in memory (browser cached the
+     scripts from a previous page load or a prior initFirebase call that
+     completed the loadScript phase but then hit an error before _fbInitOnce
+     was set). */
+  var sdkReady = typeof firebase!=='undefined' && firebase.auth && firebase.firestore;
+  if(!sdkReady){
+    setFbStatus('Firebase 스크립트 로드 중...','saving');
+    try {
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+    } catch(e){
+      setFbStatus('Firebase 연결 실패 — 네트워크를 확인하고 재시도해주세요','err');
+      console.error('[fb] initFirebase loadScript failed:', e&&e.message||e);
+      return false;
+    }
+    if(typeof firebase==='undefined'||!firebase.auth||!firebase.firestore){
+      setFbStatus('Firebase SDK 로드 실패 — 재시도해주세요','err');
+      return false;
+    }
   }
   try{fbApp=firebase.app();}catch(e){fbApp=firebase.initializeApp(cfg);}
   fbAuth=firebase.auth();
