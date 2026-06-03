@@ -1944,6 +1944,19 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   position:absolute;top:2px;right:2px;
   font-size:8px;line-height:1;pointer-events:none;
 }
+/* Deadline view: cross-row badge overlay */
+#dl-badge-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:8;}
+.dlv-badge{
+  position:absolute;
+  font-size:8px;font-weight:700;
+  padding:1px 5px;border-radius:10px;
+  white-space:nowrap;line-height:1.5;
+  transform:translateY(-50%);
+  border:.5px solid transparent;
+}
+.dlv-badge-safe{background:rgba(209,250,229,.97);color:rgba(25,110,90,.95);border-color:rgba(42,157,128,.28)}
+.dlv-badge-soon,.dlv-badge-imminent{background:rgba(255,237,190,.97);color:rgba(140,65,0,.95);border-color:rgba(217,119,6,.28)}
+.dlv-badge-today,.dlv-badge-overdue{background:rgba(255,218,218,.99);color:rgba(185,28,28,.95);border-color:rgba(220,38,38,.28)}
 
 /* Section header overdue badge + 오늘로 button */
 .section-overdue-badge{
@@ -13462,13 +13475,25 @@ function renderDlCanvas(){
   if(!canvas||!container)return;
 
   container.classList.toggle('deadline-links-on',!!dlView);
+
+  /* Badge overlay: always manage so stale badges are cleaned up */
+  var badgeLayer=document.getElementById('dl-badge-layer');
+  if(!badgeLayer){
+    badgeLayer=document.createElement('div');
+    badgeLayer.id='dl-badge-layer';
+    container.appendChild(badgeLayer);
+  }
+  badgeLayer.innerHTML='';
+
   if(!dlView){canvas.classList.remove('visible');return;}
 
   var cw=container.offsetWidth||280;
   var ch=container.offsetHeight||200;
   var dpr=window.devicePixelRatio||1;
-  canvas.width=Math.max(1,Math.round(cw*dpr)); canvas.height=Math.max(1,Math.round(ch*dpr));
-  canvas.style.width=cw+'px'; canvas.style.height=ch+'px';
+  canvas.width=Math.max(1,Math.round(cw*dpr));
+  canvas.height=Math.max(1,Math.round(ch*dpr));
+  canvas.style.width=cw+'px';
+  canvas.style.height=ch+'px';
   canvas.style.zIndex='2';
   canvas.classList.add('visible');
 
@@ -13477,163 +13502,189 @@ function renderDlCanvas(){
   ctx.clearRect(0,0,cw,ch);
   var cr=container.getBoundingClientRect();
 
-  /* Find the rendered chip/pill for a task. Returns {x,y} pointing at the
-     right edge (source) or left edge (destination) of that element's vertical
-     center. Falls back to the date cell only when the task chip isn't visible
-     in the current view (e.g. truncated in a compact-view day). */
-  function itemAnchor(taskId, date, role, side){
-    /* Prefer the chip that matches BOTH taskId AND its role (task pill vs
-       deadline chip). Without role-matching, a task that's both a source AND
-       a dest can collapse onto the same chip. */
-    var el = container.querySelector('[data-task-id="'+taskId+'"][data-role="'+role+'"]')
-          || container.querySelector('[data-task-id="'+taskId+'"]');
-    if (el) {
+  function itemAnchor(taskId,date,role,side){
+    var el=container.querySelector('[data-task-id="'+taskId+'"][data-role="'+role+'"]')
+          ||container.querySelector('[data-task-id="'+taskId+'"]');
+    if(el){
       var r=el.getBoundingClientRect();
-      var x = side==='right' ? (r.right-cr.left-3) : (r.left-cr.left+3);
-      var y = r.top-cr.top + r.height/2;
-      return {x:Math.max(2,Math.min(x,cw-2)), y:Math.max(2,Math.min(y,ch-2)), exact:true};
+      var x=side==='right'?(r.right-cr.left-3):(r.left-cr.left+3);
+      var y=r.top-cr.top+r.height/2;
+      return {x:Math.max(2,Math.min(x,cw-2)),y:Math.max(2,Math.min(y,ch-2)),exact:true};
     }
-    /* Compact view: task is rendered as a tiny dot, no per-task element. Use
-       the date cell as a fallback — aim at the side edge so the arrow at
-       least points TO that cell, not just its center. */
     var cellEl=container.querySelector('[data-dk="'+date+'"]');
-    if(!cellEl) return null;
+    if(!cellEl)return null;
     var sr=cellEl.getBoundingClientRect();
-    var fx = side==='right' ? (sr.right-cr.left-6) : (sr.left-cr.left+6);
-    var fy = sr.top-cr.top + Math.min(sr.height*0.5, 40);
-    return {x:Math.max(2,Math.min(fx,cw-2)), y:Math.max(2,Math.min(fy,ch-2)), exact:false};
+    var fx=side==='right'?(sr.right-cr.left-6):(sr.left-cr.left+6);
+    var fy=sr.top-cr.top+Math.min(sr.height*0.5,40);
+    return {x:Math.max(2,Math.min(fx,cw-2)),y:Math.max(2,Math.min(fy,ch-2)),exact:false};
   }
   function cellBox(date){
     var cellEl=container.querySelector('[data-dk="'+date+'"]');
     if(!cellEl)return null;
     var r=cellEl.getBoundingClientRect();
-    return {
-      left:r.left-cr.left,
-      right:r.right-cr.left,
-      top:r.top-cr.top,
-      bottom:r.bottom-cr.top,
-      width:r.width,
-      height:r.height
-    };
+    return {left:r.left-cr.left,right:r.right-cr.left,top:r.top-cr.top,bottom:r.bottom-cr.top};
   }
 
+  var colorMap={
+    safe:'rgba(42,157,128,.88)',
+    soon:'rgba(217,119,6,.92)',
+    imminent:'rgba(180,80,0,.96)',
+    today:'rgba(220,38,38,.97)',
+    overdue:'rgba(180,20,20,.93)'
+  };
+  var bgMap={
+    safe:'rgba(209,250,229,.97)',
+    soon:'rgba(255,237,190,.97)',
+    imminent:'rgba(255,226,170,.99)',
+    today:'rgba(255,218,218,.99)',
+    overdue:'rgba(255,218,218,.98)'
+  };
+
+  /* ── Collect & categorise all connections ─────────────────────────── */
+  var sameRowConns=[],crossRowConns=[];
   tasks.forEach(function(task){
     if((!task.deadlineId&&!task.deadlineDate)||!task.date)return;
-    if(task.done) return; /* don't draw arrows from completed tasks */
-    var target=task.deadlineId?tasks.find(function(t){return String(t.id)===String(task.deadlineId);}):task;
+    if(task.done)return;
+    var target=task.deadlineId
+      ?tasks.find(function(t){return String(t.id)===String(task.deadlineId);})
+      :task;
     var targetDate=target?(target.deadlineDate||target.date):task.deadlineDate;
     if(!targetDate||task.date===targetDate)return;
-
-    /* Source = the prep TASK pill (right edge)
-       Dest   = the DEADLINE chip on the target date (left edge) */
-    var src=itemAnchor(task.id, task.date, 'task', 'right');
-    var dst=itemAnchor(target?target.id:task.deadlineId, targetDate, 'deadline', 'left');
-    if(!src||!dst)return;
-    var sx=src.x, sy=src.y, dx=dst.x, dy=dst.y;
-    if(Math.abs(sx-dx)<4&&Math.abs(sy-dy)<4)return;
-
-    var state=dlState((target&&target.deadlineDate)||task.deadlineDate||targetDate);
-    var colorMap={safe:'rgba(42,157,128,.86)', soon:'rgba(217,119,6,.90)',
-      imminent:'rgba(217,119,6,.96)', today:'rgba(220,38,38,.96)',
-      overdue:'rgba(220,38,38,.92)'};
-    var labelBgMap={safe:'rgba(214,250,238,.98)', soon:'rgba(255,237,190,.98)',
-      imminent:'rgba(255,226,170,.99)', today:'rgba(255,218,218,.99)',
-      overdue:'rgba(255,218,218,.98)'};
-    var col=colorMap[state||'safe'];
-
-    /* Orthogonal route: leave chip edges, travel on a quiet row lane, then
-       enter the deadline chip so the line does not run through task labels. */
-    var pad=10;
     var srcCell=cellBox(task.date);
     var dstCell=cellBox(targetDate);
-    var laneGap=18;
-    var sameRow=srcCell&&dstCell&&Math.abs(srcCell.top-dstCell.top)<8;
-    var laneY=sameRow ? Math.min(srcCell.bottom,dstCell.bottom)-8 : Math.min(sy,dy)-laneGap;
-    if(!sameRow&&laneY<10)laneY=Math.max(sy,dy)+laneGap;
-    if(laneY<8)laneY=8;
-    if(laneY>ch-8)laneY=ch-8;
-    var dir=dx>=sx?1:-1;
-    var outX=Math.max(4,Math.min(cw-4,sx+(dir*pad)));
-    var inX=Math.max(4,Math.min(cw-4,dx-(dir*pad)));
-    var points=[
-      {x:sx,y:sy},
-      {x:outX,y:sy},
-      {x:outX,y:laneY},
-      {x:inX,y:laneY},
-      {x:inX,y:dy},
-      {x:dx,y:dy}
-    ];
-    function drawRoute(){
-      ctx.beginPath();
-      ctx.moveTo(points[0].x,points[0].y);
-      for(var pi=1;pi<points.length;pi++)ctx.lineTo(points[pi].x,points[pi].y);
-    }
-
-    ctx.save();
-    ctx.globalCompositeOperation='source-over';
-    ctx.lineCap='round';
-    ctx.lineJoin='round';
-    ctx.setLineDash([9,5]);
-    drawRoute();
-    ctx.strokeStyle='rgba(255,255,255,.86)';
-    ctx.lineWidth=7;
-    ctx.stroke();
-    drawRoute();
-    ctx.strokeStyle=col;
-    ctx.globalAlpha=.18;
-    ctx.lineWidth=6;
-    ctx.stroke();
-    drawRoute();
-    ctx.strokeStyle=col;
-    ctx.globalAlpha=.98;
-    ctx.lineWidth=2.8;
-    ctx.stroke();
-    ctx.globalAlpha=1;
-
+    if(!srcCell)return;
+    var sameRow=!!(dstCell&&Math.abs(srcCell.top-dstCell.top)<8);
     var days=0;
     try{days=taskDaysBetweenKeys(task.date,targetDate);}catch(e){
       days=Math.round((new Date(targetDate+'T00:00')-new Date(task.date+'T00:00'))/86400000);
     }
-    var label=days===0?'오늘':(days>0?'D-'+days:'D+'+Math.abs(days));
-    if(days===0)label='오늘';
-    if(days===0)label='D-0';
-    var mx=(outX+inX)/2, my=laneY;
-    ctx.globalCompositeOperation='source-over';
-    ctx.font='900 11px var(--font-ui, system-ui)';
+    var state=dlState((target&&target.deadlineDate)||task.deadlineDate||targetDate);
+    var rec={task:task,target:target,targetDate:targetDate,
+             srcCell:srcCell,dstCell:dstCell,days:days,state:state};
+    if(sameRow&&dstCell)sameRowConns.push(rec);
+    else crossRowConns.push(rec);
+  });
+
+  /* ── Lane assignment: wider spans get higher laneIdx (further inward) */
+  sameRowConns.sort(function(a,b){
+    return Math.abs(b.dstCell.left-b.srcCell.left)-Math.abs(a.dstCell.left-a.srcCell.left);
+  });
+  var rowLaneCounts={};
+  sameRowConns.forEach(function(c){
+    var rk=Math.round(c.srcCell.top/5);
+    c.laneIdx=rowLaneCounts[rk]||0;
+    rowLaneCounts[rk]=(rowLaneCounts[rk]||0)+1;
+  });
+
+  /* ── Draw same-row connections as compact U-shaped arcs ─────────────
+     The horizontal lane runs near the bottom of the row cells so it
+     doesn't cross task labels. Each connection gets its own staggered
+     lane to avoid overlapping. Max 4 lanes per row. */
+  sameRowConns.forEach(function(c){
+    if(c.laneIdx>=4)return; /* skip overflow lanes */
+    var src=itemAnchor(c.task.id,c.task.date,'task','right');
+    var dst=itemAnchor(c.target?c.target.id:c.task.deadlineId,c.targetDate,'deadline','left');
+    if(!src||!dst)return;
+    var sx=src.x,sy=src.y,dx=dst.x,dy=dst.y;
+    var col=colorMap[c.state||'safe'];
+    var lbg=bgMap[c.state||'safe'];
+    var label=c.days===0?'D-0':(c.days>0?'D-'+c.days:'D+'+Math.abs(c.days));
+
+    /* Lane Y: staggered from cell bottom, staying within the row */
+    var rowBottom=Math.max(c.srcCell.bottom,c.dstCell.bottom);
+    var rowTop=Math.min(c.srcCell.top,c.dstCell.top);
+    var laneY=rowBottom-5-(c.laneIdx*11);
+    /* Never above mid-row */
+    laneY=Math.max(laneY,(rowTop+rowBottom)/2+4);
+    laneY=Math.min(laneY,rowBottom-4);
+
+    ctx.save();
+    ctx.lineCap='round';
+    ctx.lineJoin='round';
+
+    /* White backdrop so line is visible over any background */
+    ctx.beginPath();
+    ctx.moveTo(sx,sy);ctx.lineTo(sx,laneY);
+    ctx.lineTo(dx,laneY);ctx.lineTo(dx,dy);
+    ctx.strokeStyle='rgba(255,255,255,.78)';
+    ctx.lineWidth=3.5;
+    ctx.setLineDash([]);
+    ctx.stroke();
+
+    /* Dashed colour stroke */
+    ctx.beginPath();
+    ctx.moveTo(sx,sy);ctx.lineTo(sx,laneY);
+    ctx.lineTo(dx,laneY);ctx.lineTo(dx,dy);
+    ctx.strokeStyle=col;
+    ctx.lineWidth=1.6;
+    ctx.setLineDash([5,4]);
+    ctx.globalAlpha=.82;
+    ctx.stroke();
+    ctx.globalAlpha=1;
+
+    /* D-N label at midpoint of horizontal segment */
+    ctx.setLineDash([]);
+    var mx=(sx+dx)/2;
+    ctx.font='700 9px var(--font-ui,system-ui)';
     ctx.textAlign='center';
     ctx.textBaseline='middle';
-    var tw=ctx.measureText(label).width+16;
-    ctx.fillStyle=labelBgMap[state||'safe'];
+    var tw=ctx.measureText(label).width+8;
+    ctx.fillStyle=lbg;
     ctx.beginPath();
-    if(ctx.roundRect)ctx.roundRect(mx-tw/2,my-10,tw,20,10);
-    else ctx.rect(mx-tw/2,my-10,tw,20);
+    if(ctx.roundRect)ctx.roundRect(mx-tw/2,laneY-6,tw,12,6);
+    else ctx.rect(mx-tw/2,laneY-6,tw,12);
     ctx.fill();
-    ctx.strokeStyle='rgba(255,255,255,.88)';
-    ctx.lineWidth=2;
-    ctx.stroke();
     ctx.fillStyle=col;
-    ctx.fillText(label,mx,my);
+    ctx.fillText(label,mx,laneY);
 
-    /* Solid arrowhead at destination */
-    ctx.setLineDash([]);
-    var tx2=dx-inX, ty2=0;
-    if(Math.abs(tx2)<1){tx2=dx-inX;ty2=dy-laneY;}
-    var angle=Math.atan2(ty2,tx2);
-    var hs=7;
+    /* Arrowhead at deadline chip */
+    var ah=5,ang=(dy<laneY?-1:1)*Math.PI/2;
     ctx.fillStyle=col;
     ctx.beginPath();
     ctx.moveTo(dx,dy);
-    ctx.lineTo(dx-hs*Math.cos(angle-0.42), dy-hs*Math.sin(angle-0.42));
-    ctx.lineTo(dx-hs*Math.cos(angle+0.42), dy-hs*Math.sin(angle+0.42));
+    ctx.lineTo(dx-ah*Math.cos(ang-0.45),dy-ah*Math.sin(ang-0.45));
+    ctx.lineTo(dx-ah*Math.cos(ang+0.45),dy-ah*Math.sin(ang+0.45));
     ctx.closePath();
     ctx.fill();
 
     /* Source dot */
     ctx.beginPath();
-    ctx.arc(sx, sy, 3.2, 0, Math.PI*2);
+    ctx.arc(sx,sy,2.5,0,Math.PI*2);
+    ctx.fillStyle=col;
     ctx.fill();
 
     ctx.restore();
+  });
+
+  /* ── Cross-row connections: badge in overlay, no spaghetti lines ─────
+     A small coloured D-N chip is painted next to the source task pill so
+     the user can see the deadline distance without any lines crossing rows.
+     The deadline chip on its own date already shows the urgency state. */
+  crossRowConns.forEach(function(c){
+    var src=itemAnchor(c.task.id,c.task.date,'task','right');
+    if(!src)return;
+    var col=colorMap[c.state||'safe'];
+    var label=c.days>0?'D-'+c.days:(c.days<0?'D+'+Math.abs(c.days):'D-0');
+
+    /* Small source dot on canvas */
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(src.x,src.y,2.5,0,Math.PI*2);
+    ctx.fillStyle=col;
+    ctx.globalAlpha=.65;
+    ctx.fill();
+    ctx.restore();
+
+    /* Badge in the HTML overlay layer (above all day-cell overflow clips) */
+    if(src.exact){
+      var badge=document.createElement('span');
+      badge.className='dlv-badge dlv-badge-'+(c.state||'safe');
+      badge.textContent=label;
+      badge.title=(c.target&&c.target.text?c.target.text+' ':'')+'| '+label;
+      badge.style.left=(src.x+5)+'px';
+      badge.style.top=src.y+'px';
+      badgeLayer.appendChild(badge);
+    }
   });
 }
 
