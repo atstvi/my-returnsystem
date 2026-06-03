@@ -23877,6 +23877,11 @@ function fbApplyData(data){
      can decide whether to skip (echo-suppression grace period). Use the
      remote-claimed timestamp if present, else now. */
   _lastRemoteApplyMs = Number(data.updatedAtMs||0) || Date.now();
+  /* __noop: the caller (entity 6d merge on changedKeys>0) only wants
+     re-renders — NOT a repair pass. Skipping the repair prevents the
+     noop → reconcile → save → snapshot → noop loop that amplifies every
+     entity-mirror update into a save storm. */
+  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=Number(data.updatedAtMs||0)||Date.now(); setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); if(typeof loadDate==='function'&&typeof currentDate!=='undefined'&&currentDate)loadDate(currentDate); }catch(_e){} },0); return; }
   /* Hold the apply-lock across BOTH the localStorage writes and the
      subsequent reloader pass. Reloaders themselves can write to
      localStorage (e.g. normalizing migrated keys) and we don't want those
@@ -23984,8 +23989,14 @@ function fbApplyData(data){
   }
   if(generatedRepairAfterFbApply||timetableRepairAfterFbApply){
     try{
-      if(window.SyncManager&&typeof SyncManager.queuePostHydrationSave==='function')SyncManager.queuePostHydrationSave('repair-queued-after-remote-apply');
-      else if(typeof fbSaveAll==='function')setTimeout(function(){try{fbSaveAll();}catch(_e){}},650);
+      var now=Date.now();
+      if(now-_lastRepairSaveMs>10000){
+        _lastRepairSaveMs=now;
+        if(window.SyncManager&&typeof SyncManager.queuePostHydrationSave==='function')SyncManager.queuePostHydrationSave('repair-queued-after-remote-apply');
+        else if(typeof fbSaveAll==='function')setTimeout(function(){try{fbSaveAll();}catch(_e){}},650);
+      }else{
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','post-repair save suppressed (cooldown)',{msSinceLastRepair:now-_lastRepairSaveMs}); }catch(_e){}
+      }
     }catch(_e){}
   }
 
@@ -24175,6 +24186,11 @@ function fbSaveAll(){
    small enough that simultaneous edits on another device aren't silently
    dropped. */
 var _lastRemoteApplyMs=0;
+/* Timestamp of the last post-repair save. A repair discovered after
+   fbApplyData (e.g. reconcileTimetableTasks) should fire once per remote
+   change — not every apply cycle. A 10 s cooldown prevents a two-device
+   ping-pong where A's repair triggers B's repair triggers A's repair … */
+var _lastRepairSaveMs=0;
 async function fbSaveNow(opts){
   opts=opts||{};
   if(!fbDb||!fbUser||_applyingFbData)return false;
