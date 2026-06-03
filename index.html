@@ -11304,26 +11304,23 @@ var _idbReady = false;
     };
     req.onsuccess = function(e){
       _idbOverflow = e.target.result;
-      /* Preload all IDB entries into sync cache */
+      /* Preload all IDB entries into sync cache via tx.oncomplete (race-safe) */
       try {
         var tx = _idbOverflow.transaction('kv','readonly');
         var st = tx.objectStore('kv');
         var allKeys = st.getAllKeys();
         var allVals = st.getAll();
-        allVals.onsuccess = function(){
-          var vals = allVals.result;
-          allKeys.onsuccess = function(){
-            var keys = allKeys.result;
-            for(var i=0;i<keys.length;i++) _idbCache[keys[i]] = vals[i];
-            /* Patch localStorage.getItem to serve IDB-overflow values */
-            var _origGet = localStorage.getItem.bind(localStorage);
-            localStorage.getItem = function(k){
-              if(Object.prototype.hasOwnProperty.call(_idbCache, k)) return _idbCache[k];
-              return _origGet(k);
-            };
-            _idbReady = true;
-            try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','idb overflow ready, keys: '+keys.length); }catch(_e){}
+        tx.oncomplete = function(){
+          var keys = allKeys.result||[], vals = allVals.result||[];
+          for(var i=0;i<keys.length;i++) _idbCache[keys[i]] = vals[i];
+          /* Patch localStorage.getItem to serve IDB-overflow values */
+          var _origGet = localStorage.getItem.bind(localStorage);
+          localStorage.getItem = function(k){
+            if(Object.prototype.hasOwnProperty.call(_idbCache, k)) return _idbCache[k];
+            return _origGet(k);
           };
+          _idbReady = true;
+          try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','idb overflow ready, keys: '+keys.length); }catch(_e){}
         };
       } catch(e2){ console.warn('[idb] preload failed',e2); }
     };
@@ -22173,7 +22170,7 @@ function fbSanitizeNotionCfg(cfg){
 }
 function fbSanitizeGcalCfg(cfg){
   cfg=cfg||{};
-  return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',taskCalendarId:cfg.taskCalendarId||'',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0};
+  return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',taskCalendarId:cfg.taskCalendarId||'',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0,eventMeta:cfg.eventMeta||{}};
 }
 function fbCollectCloudSettings(){
   var out={updatedAtMs:Date.now(),settings:{}};
@@ -22201,7 +22198,7 @@ function fbApplyCloudSettings(doc){
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
-        if(gIn.taskCalendarId==null && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
+        if(!gIn.taskCalendarId && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
         if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
         wv=JSON.stringify(gIn);
       }else{
@@ -22318,8 +22315,17 @@ function fbApplyData(data){
   try {
     var _fbWriter = (typeof _rawSetItem === 'function') ? _rawSetItem : localStorage.setItem.bind(localStorage);
     Object.keys(data.keys).forEach(function(k){
-      try{ _fbWriter(k, data.keys[k]); }catch(e){
-        try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
+      try{
+        _fbWriter(k, data.keys[k]);
+        /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
+        if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
+      }catch(e){
+        if(typeof __isQuotaError==='function' && __isQuotaError(e) && window._idbOverflow){
+          /* Quota exceeded — redirect to IDB overflow so cross-device assets sync */
+          (function(key,val){ _idbSet(key,val).catch(function(e2){ console.warn('apply IDB fallback failed',key,e2&&e2.message); }); })(k,data.keys[k]);
+        } else {
+          try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
+        }
       }
     });
 
