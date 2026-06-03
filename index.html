@@ -11815,6 +11815,11 @@ function returnMediaStoreDataUrl(dataUrl,meta){
   if(!/^data:image/.test(String(dataUrl||'')))return Promise.resolve(dataUrl||'');
   var id=meta.id||('m_'+Date.now()+'_'+Math.random().toString(36).slice(2));
   return returnMediaPut({id:id,type:meta.type||'image',role:meta.role||'',name:meta.name||'',dataUrl:dataUrl,createdAt:new Date().toISOString()}).then(function(){
+    /* STAGE 4: if the image is small enough for the synced channel, register it
+       in the dedup manifest now so it is cross-device from creation without
+       inlining a per-entity copy. Larger images stay IndexedDB-local until the
+       background repair generates a compressed fallback for the manifest. */
+    try{ if(String(dataUrl).length<=MEDIA_SYNC_ITEM_MAX) mediaSyncPut(id,dataUrl); }catch(_e){}
     return 'return-media:'+id;
   }).catch(function(e){
     bannerDebugLog('media:store-failed',{error:String(e&&e.message||e),length:String(dataUrl||'').length});
@@ -11824,10 +11829,23 @@ function returnMediaStoreDataUrl(dataUrl,meta){
 function returnMediaResolveUrl(url){
   if(isReturnDisplayableImageUrl(url))return Promise.resolve(url||'');
   if(!isReturnMediaRef(url))return Promise.resolve('');
-  return returnMediaGet(returnMediaRefId(url)).then(function(record){
-    return record&&record.dataUrl&&isReturnDisplayableImageUrl(record.dataUrl)?record.dataUrl:'';
+  var id=returnMediaRefId(url);
+  return returnMediaGet(id).then(function(record){
+    if(record&&record.dataUrl&&isReturnDisplayableImageUrl(record.dataUrl))return record.dataUrl;
+    /* STAGE 4: IndexedDB miss (e.g. a fresh device that received the theme via
+       Firebase but never had the original upload). Fall back to the synced,
+       deduplicated media manifest, and seed IndexedDB so this device holds it
+       locally from now on. This is the single cross-device media channel. */
+    var fromManifest=mediaSyncGet(id);
+    if(fromManifest){
+      try{ returnMediaPut({id:id,type:'image',role:'',name:'',dataUrl:fromManifest,createdAt:new Date().toISOString()}); }catch(_e){}
+      return fromManifest;
+    }
+    return '';
   }).catch(function(e){
     bannerDebugLog('media:resolve-failed',{value:String(url||'').slice(0,48),error:String(e&&e.message||e)});
+    /* Last resort even on IDB error: the manifest may still have it. */
+    try{ var fb=mediaSyncGet(returnMediaRefId(url)); if(fb)return fb; }catch(_e){}
     return '';
   });
 }
@@ -11837,6 +11855,69 @@ function returnMediaResolveUrlWithFallback(url,fallback){
     return isReturnDisplayableImageUrl(fallback)?fallback:'';
   });
 }
+
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 4 — DEDUPLICATED MEDIA-SYNC MANIFEST  (root cause R4: quota traps +
+   duplicated base64 across entities)
+
+   Problem being fixed: the same image's base64 was inlined as `syncDataUrl`
+   into EVERY entity that used it (each theme asset, each sticker, icon
+   fallbacks, card-skin slots, banners) AND pushed through the Firebase blob
+   that many times. That is the localStorage quota trap and the sync bloat.
+
+   This manifest stores each image's (compressed) bytes ONCE, keyed by its
+   media id, in a single synced key. It is wired into the central resolver as
+   an additional source, so it is also the cross-device transport (there is no
+   Firebase Storage configured — `syncDataUrl` used to be the only channel).
+
+   Design guards (data safety):
+     • per-item cap: oversized images are NOT put on the synced channel; they
+       stay IndexedDB-local (still render on the device that has them).
+     • aggregate cap: refuses to grow the synced manifest past a budget rather
+       than risk blowing quota; never silently evicts existing entries.
+     • it is purely ADDITIVE to resolution — nothing is removed from an entity
+       until the identical bytes are confirmed readable back from the manifest
+       (see themeStudioEnsureMediaFallbacks migration).
+   ════════════════════════════════════════════════════════════════════════ */
+var MEDIA_SYNC_KEY='return_media_sync_v1';
+var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap on the synced channel */
+var MEDIA_SYNC_TOTAL_MAX=3500000;   /* aggregate budget to protect quota/blob */
+var _mediaSyncManifest=null;
+function mediaSyncLoad(){
+  if(_mediaSyncManifest)return _mediaSyncManifest;
+  try{ _mediaSyncManifest=JSON.parse(localStorage.getItem(MEDIA_SYNC_KEY)||'{}')||{}; }
+  catch(e){ _mediaSyncManifest={}; }
+  if(typeof _mediaSyncManifest!=='object'||Array.isArray(_mediaSyncManifest))_mediaSyncManifest={};
+  return _mediaSyncManifest;
+}
+function mediaSyncGet(id){
+  var m=mediaSyncLoad(); var v=id&&m[id];
+  return (typeof v==='string'&&/^data:image/.test(v))?v:'';
+}
+function _mediaSyncSize(m){ var t=0,k; for(k in m){ if(Object.prototype.hasOwnProperty.call(m,k))t+=(m[k]||'').length; } return t; }
+function mediaSyncPut(id,dataUrl){
+  if(!id||!/^data:image/.test(String(dataUrl||'')))return false;
+  if(dataUrl.length>MEDIA_SYNC_ITEM_MAX)return false; /* too large for synced channel; stays IDB-local */
+  var m=mediaSyncLoad();
+  if(m[id]===dataUrl)return true; /* already present → dedup, no rewrite */
+  if(!m[id] && _mediaSyncSize(m)+dataUrl.length>MEDIA_SYNC_TOTAL_MAX)return false; /* refuse, don't evict */
+  m[id]=dataUrl;
+  var ok=setReturnStorageItem(MEDIA_SYNC_KEY,JSON.stringify(m));
+  if(!ok){ delete m[id]; } /* roll the in-memory cache back if the write failed */
+  return ok;
+}
+/* Resolve a return-media: ref to bytes via the manifest (sync, cache-backed). */
+function mediaSyncResolve(ref){
+  var id=isReturnMediaRef(ref)?returnMediaRefId(ref):'';
+  return id?mediaSyncGet(id):'';
+}
+window.mediaSyncResolve=mediaSyncResolve;
+window.mediaSyncManifestReport=function(){
+  var m=mediaSyncLoad();
+  var r={entries:Object.keys(m).length,bytes:_mediaSyncSize(m)};
+  try{ console.log('[media-sync] manifest',r); }catch(_e){}
+  return r;
+};
 function loadHomeBanner(){
   try { hbState = JSON.parse(localStorage.getItem('home_banner_v1') || '{}') || {}; } catch(e) { console.error('[home] loadHomeBanner: corrupt banner state, resetting', e); hbState = {}; }
   if (!hbState.stickers) hbState.stickers = [];
@@ -11942,7 +12023,8 @@ var RETURN_DATA_MAP = {
   stickers:         {owner:'localStorage', keys:['global_stickers_v1','global_sticker_edit_visible','global_sticker_shadow'], read:'loadGlobalStickers', write:'saveGlobalStickers', sync:'firebase-blob', media:'syncDataUrl ≤220KB INLINE', ids:'gs_+ts+rand', versioned:false, notes:'R4 quota'},
   banners:          {owner:'localStorage + IndexedDB', keys:['home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1'], read:'loadHomeBanner', write:'saveHomeBanner', sync:'firebase-blob', media:'syncDataUrl ≤180KB INLINE', ids:'return-media: ref', versioned:false, notes:'R4 quota'},
   music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8'], read:'musicLoad', write:'musicSave', sync:'firebase-blob', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain'},
-  media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'LOCAL ONLY (not in cloud)', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
+  media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'via mediaSync manifest', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
+  mediaSync:        {owner:'localStorage→IDB overflow (return_media_sync_v1)', keys:['return_media_sync_v1'], read:'mediaSyncGet/mediaSyncResolve', write:'mediaSyncPut', sync:'firebase-blob (single dedup key)', media:'compressed bytes, ONE copy per id, capped', ids:'media id', versioned:false, notes:'Stage 4: single cross-device media channel; dedups inline syncDataUrl'},
   overflow:         {owner:'IndexedDB (return_overflow_v1)', keys:[], read:'_idbCache', write:'_idbSet', sync:'via firebase-blob from cache', media:'whatever overflowed', ids:'n/a', versioned:false, notes:'quota escape hatch'},
   notionConfig:     {owner:'localStorage', keys:['diary_notion_cfg'], read:'getNotionCfg', write:'saveNotionConfig', sync:'sanitized settings doc', media:false, ids:'n/a', versioned:false, notes:'token kept local'},
   googleConfig:     {owner:'localStorage', keys:['gcal_cfg_v1'], read:'gcalLoadConfig', write:'gcalSaveConfig', sync:'PARTIAL: eventMeta only (eventIds NOT synced)', media:false, ids:'n/a', versioned:false, notes:'R6 → duplicate calendar events cross-device'},
@@ -27172,11 +27254,30 @@ function themeStudioEnsureMediaFallbacks(){
   _themeStudioFallbackRepairRunning=true;
   var list=themeStudioAssets(), changed=false, jobs=[];
   list.forEach(function(asset){
-    if(!asset||!isReturnMediaRef(asset.url)||asset.syncDataUrl)return;
+    if(!asset||!isReturnMediaRef(asset.url))return;
+    /* STAGE 4 — dedup migration: if this asset still carries an inline
+       syncDataUrl, move it into the shared manifest (keyed by media id) and
+       strip the per-asset copy. The strip happens ONLY after the identical
+       bytes are confirmed readable back from the manifest, so the image can
+       never disappear. themeStudioMediaFallbackForUrl now resolves via the
+       manifest, so rendering is unaffected. */
+    if(asset.syncDataUrl){
+      try{
+        var mid=returnMediaRefId(asset.url);
+        if(mediaSyncPut(mid,asset.syncDataUrl) && mediaSyncGet(mid)===asset.syncDataUrl){
+          delete asset.syncDataUrl;
+          changed=true;
+        }
+      }catch(_e){}
+      return;
+    }
+    /* No inline copy and no manifest entry yet → generate a compressed
+       fallback once and register it in the manifest (not back on the asset). */
+    if(mediaSyncResolve(asset.url))return;
     jobs.push(returnMediaResolveUrl(asset.url).then(function(url){
       if(!url)return;
       return themeStudioCloudFallbackDataUrl(url,asset).then(function(fallback){
-        if(fallback){asset.syncDataUrl=fallback;changed=true;}
+        if(fallback){ try{ mediaSyncPut(returnMediaRefId(asset.url),fallback); }catch(_e){} }
       });
     }));
   });
@@ -27263,7 +27364,9 @@ function themeStudioMediaFallbackForUrl(url){
   if(!isReturnMediaRef(url))return '';
   var found=null;
   try{found=themeStudioAssets().find(function(a){return a.url===url;});}catch(e){}
-  return found&&(found.syncDataUrl||found.dataUrl)||'';
+  /* STAGE 4: prefer an inline copy if still present, but fall back to the
+     deduplicated manifest so stripping the per-asset copy stays safe. */
+  return (found&&(found.syncDataUrl||found.dataUrl))||mediaSyncResolve(url)||'';
 }
 function themeStudioImgTag(url,fallback){
   url=String(url||'');
