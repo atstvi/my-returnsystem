@@ -194,6 +194,11 @@ body.auth-locked #auth-gate{display:flex}
 .auth-copy{font-size:var(--text-sm);line-height:var(--lh-normal);color:var(--fg-3)}
 .auth-actions{display:flex;gap:var(--sp-3);flex-wrap:wrap}
 .auth-status{font-size:var(--text-xs);line-height:var(--lh-normal);color:var(--fg-4);min-height:18px}
+.auth-local-btn{margin-top:var(--sp-1);font-size:var(--text-xs);color:var(--fg-4);text-decoration:underline;background:none;border:none;cursor:pointer;padding:0}
+.auth-local-btn:hover{color:var(--fg-2)}
+#local-only-banner{display:none;position:fixed;bottom:0;left:0;right:0;z-index:400;background:var(--bg-card);border-top:1px solid var(--border);padding:var(--sp-2) var(--sp-4);font-size:var(--text-xs);color:var(--fg-3);align-items:center;gap:var(--sp-3);}
+#local-only-banner.show{display:flex}
+#local-only-banner button{font-size:var(--text-xs);color:var(--accent);text-decoration:underline;background:none;border:none;cursor:pointer;padding:0;flex-shrink:0}
 button,input,textarea { font-family:inherit; font-size:inherit; background:none; border:none; cursor:pointer; }
 textarea { resize:none; }
 input,textarea { outline:none; }
@@ -5104,7 +5109,13 @@ to{opacity:1;transform:translateY(0)}}
       <button class="btn btn-ghost" type="button" onclick="initFirebase()">연결 재시도</button>
     </div>
     <div class="auth-status" id="auth-status">연결 중... (안 되면 '연결 재시도' 눌러주세요)</div>
+    <button class="auth-local-btn" type="button" id="auth-local-btn" onclick="fbLocalOnlyMode()" style="display:none">로그인 없이 사용하기 (데이터는 이 기기에만 저장됩니다)</button>
   </div>
+</div>
+<div id="local-only-banner" role="status" aria-live="polite">
+  <span>☁️ 오프라인 모드 — 데이터는 이 기기에만 저장돼요</span>
+  <button type="button" onclick="fbGoogleLogin()">Google 로그인으로 동기화</button>
+  <button type="button" onclick="document.getElementById('local-only-banner').classList.remove('show')" style="color:var(--fg-4)">✕</button>
 </div>
 <!-- Home modals -->
 <!-- TASK EDIT MODAL -->
@@ -21764,11 +21775,32 @@ function setFbStatus(text, cls){
   var row=document.getElementById('fb-row');if(row)row.setAttribute('data-state', cls||'');
   var auth=document.getElementById('auth-status');if(auth&&!fbUser)auth.textContent=text||'로그인이 필요해요';
 }
+var _fbLocalOnly = false;
+function fbLocalOnlyMode(){
+  _fbLocalOnly = true;
+  try{ localStorage.setItem('_fb_local_only','1'); }catch(e){}
+  document.body.classList.remove('auth-locked');
+  var banner=document.getElementById('local-only-banner');
+  if(banner) banner.classList.add('show');
+  var btn=document.getElementById('auth-local-btn');
+  if(btn) btn.style.display='none';
+  if(typeof renderAccountProfile==='function') renderAccountProfile();
+  if(typeof updateGlobalCaptureVisibility==='function') updateGlobalCaptureVisibility();
+}
 function updateAuthGate(){
+  if(_fbLocalOnly){ document.body.classList.remove('auth-locked'); return; }
   var locked=!fbUser;
   document.body.classList.toggle('auth-locked',locked);
   var st=document.getElementById('auth-status');
   if(st)st.textContent=locked?'Google 로그인 후 Return을 사용할 수 있어요.':'로그인됨: '+(fbUser.email||fbUser.uid);
+  if(!locked){
+    var banner=document.getElementById('local-only-banner');
+    if(banner) banner.classList.remove('show');
+    var btn=document.getElementById('auth-local-btn');
+    if(btn) btn.style.display='none';
+    try{ localStorage.removeItem('_fb_local_only'); }catch(e){}
+    _fbLocalOnly=false;
+  }
   if(typeof renderAccountProfile==='function')renderAccountProfile();
   if(typeof updateGlobalCaptureVisibility==='function')updateGlobalCaptureVisibility();
 }
@@ -21794,12 +21826,16 @@ async function initFirebase(){
       await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
     } catch(e){
-      setFbStatus('Firebase 연결 실패 — 네트워크를 확인하고 재시도해주세요','err');
+      setFbStatus('Firebase 연결 실패 — 재시도하거나 로그인 없이 사용하세요','err');
       console.error('[fb] initFirebase loadScript failed:', e&&e.message||e);
+      var btn=document.getElementById('auth-local-btn');
+      if(btn) btn.style.display='';
       return false;
     }
     if(typeof firebase==='undefined'||!firebase.auth||!firebase.firestore){
-      setFbStatus('Firebase SDK 로드 실패 — 재시도해주세요','err');
+      setFbStatus('Firebase SDK 로드 실패 — 재시도하거나 로그인 없이 사용하세요','err');
+      var btn=document.getElementById('auth-local-btn');
+      if(btn) btn.style.display='';
       return false;
     }
   }
@@ -21813,8 +21849,9 @@ async function initFirebase(){
     /* Safety: if onAuthStateChanged never fires (rare Firebase Auth edge case),
        unblock the UI after 10s so the login button stays usable. */
     var _authTimeout=setTimeout(function(){
-      if(fbUser===null && document.getElementById('auth-status')){
+      if(fbUser===null && !_fbLocalOnly && document.getElementById('auth-status')){
         setFbStatus('로그인이 필요해요 — Google로 로그인 버튼을 눌러주세요','');
+        var _b=document.getElementById('auth-local-btn');if(_b)_b.style.display='';
       }
     },10000);
     fbAuth.onAuthStateChanged(function(user){
@@ -27004,7 +27041,17 @@ try {
   if (typeof loadThemeMode === 'function') loadThemeMode();
   if (typeof loadFocusMode === 'function') loadFocusMode();
   if (typeof loadCalendarPrefs === 'function') loadCalendarPrefs();
-  if (typeof fbConfig === 'function' && fbConfig().apiKey) initFirebase().catch(function(e){ setFbStatus('Firebase 오류: '+e.message,'err'); });
+  /* Restore local-only mode if user previously chose it */
+  if(typeof localStorage!=='undefined' && localStorage.getItem('_fb_local_only')==='1'){
+    _fbLocalOnly=true;
+    document.body.classList.remove('auth-locked');
+    var _lob=document.getElementById('local-only-banner');if(_lob)_lob.classList.add('show');
+  } else if (typeof fbConfig === 'function' && fbConfig().apiKey) {
+    initFirebase().catch(function(e){ setFbStatus('Firebase 오류: '+e.message,'err'); var b=document.getElementById('auth-local-btn');if(b)b.style.display=''; });
+  } else {
+    /* No Firebase config — show local-only button immediately so app is accessible */
+    var _alib=document.getElementById('auth-local-btn');if(_alib)_alib.style.display='';
+  }
   if (typeof loadDiaryNotionConfig === 'function') { loadDiaryNotionConfig(); scheduleDiaryAutoSync(); }
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
