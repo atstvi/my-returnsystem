@@ -5395,6 +5395,38 @@ to{opacity:1;transform:translateY(0)}}
 
 /* ── end Music UX v9 ────────────────────────────────────────────────── */
 
+/* ── Music UX v10 patch ──────────────────────────────────────────────── */
+
+/* 1. Mini player: further bottom-right, smaller margin */
+.music-mini-player{
+  bottom:8px!important;
+  right:8px!important;
+}
+
+/* 2. Remove CD disc (bottom-right stage-1) — sidebar CD button is enough */
+#music-disc-face{display:none!important}
+/* When ep-open, expanded panel shows; when just .active (no ep-open), hide entirely */
+.music-mini-player.active:not(.music-ep-open){
+  pointer-events:none!important;
+  opacity:0!important;
+}
+.music-mini-player.active.music-ep-open{
+  pointer-events:auto!important;
+  opacity:1!important;
+}
+
+/* 3. New playlist button: make it clearly accent-colored */
+#music-v8-pl-add-btn,
+.music-v8-add-btn#music-v8-pl-add-btn{
+  background:var(--accent,#7c6ef9)!important;
+  color:#fff!important;
+  border-color:transparent!important;
+  font-weight:600!important;
+}
+#music-v8-pl-add-btn:hover{filter:brightness(1.1)!important}
+
+/* ── end Music UX v10 ────────────────────────────────────────────────── */
+
 </style>
 </head>
 <body class="auth-locked">
@@ -28763,6 +28795,83 @@ setInterval(musicV9UpdateCDFace,800);
 
 })();
 /* ── end Music UX v9 JS ──────────────────────────────────────────────── */
+
+/* ── Music UX v10 patch JS ────────────────────────────────────────────── */
+(function(){
+'use strict';
+
+/* ── Sidebar CD: open expanded directly (no disc stage) ── */
+/* Override v9 CD click to always show expanded (skip disc visibility logic) */
+setTimeout(function(){
+  var cdBtn=document.getElementById('music-sidebar-cd');
+  if(!cdBtn||cdBtn.dataset.v10)return;
+  cdBtn.dataset.v10='1';
+  /* replace click listener */
+  var newBtn=cdBtn.cloneNode(true);
+  cdBtn.parentNode.replaceChild(newBtn,cdBtn);
+  newBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    var mini=document.getElementById('music-mini-player');
+    if(!mini)return;
+
+    /* Ensure something is loaded */
+    if(!musicCurrent.playlistId){
+      var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+      if(rec&&rec.playlist&&typeof musicPlayPlaylist==='function')
+        musicPlayPlaylist(rec.playlist.id,0);
+      else if(rec&&rec.song&&typeof musicPlaySong==='function')
+        musicPlaySong(rec.song.id);
+    }
+
+    var isOpen=mini.classList.contains('music-ep-open');
+    if(isOpen){
+      /* Close */
+      mini.classList.remove('music-ep-open');
+      mini.classList.remove('active');
+    }else{
+      /* Open expanded */
+      mini.classList.add('active');
+      mini.classList.add('music-ep-open');
+      var ep=document.getElementById('music-ep-wrap');
+      if(ep)ep.setAttribute('aria-hidden','false');
+    }
+  });
+},300);
+
+/* ── Ensure "새 플레이리스트" button exists and is wired ── */
+function musicV10EnsurePlBtn(){
+  var rightCol=document.querySelector('.music-v9-right');
+  if(!rightCol)return;
+  if(document.getElementById('music-v8-pl-add-btn'))return; /* already exists */
+  /* Inject a header with button above the playlist grid */
+  var plGrid=document.getElementById('music-playlist-grid');
+  if(!plGrid)return;
+  var existing=rightCol.querySelector('.music-v8-sec');
+  if(existing)return;
+  var hdr=document.createElement('div');
+  hdr.className='music-v8-sec';
+  hdr.style.cssText='display:flex;align-items:center;justify-content:space-between;padding:0 0 var(--sp-3);';
+  hdr.innerHTML=
+    '<span class="music-v8-sec-title" style="font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--fg-3)">플레이리스트</span>'+
+    '<button type="button" id="music-v8-pl-add-btn" class="music-v8-add-btn" '+
+    'style="background:var(--accent);color:#fff;border:none;border-radius:var(--r-lg);padding:3px 11px;font-size:.78rem;font-weight:600;cursor:pointer">+ 새 플레이리스트</button>';
+  rightCol.prepend(hdr);
+  hdr.querySelector('#music-v8-pl-add-btn').addEventListener('click',function(){
+    if(typeof musicSetPlCreateOpen==='function')musicSetPlCreateOpen(!musicIsPlCreateOpen());
+  });
+}
+
+setTimeout(musicV10EnsurePlBtn, 400);
+
+/* Also hook into render */
+var _origRenderV10=(typeof musicRender==='function')?musicRender:null;
+musicRender=function(){
+  if(_origRenderV10)_origRenderV10.apply(this,arguments);
+  setTimeout(musicV10EnsurePlBtn,80);
+};
+
+})();
+/* ── end Music UX v10 JS ─────────────────────────────────────────────── */
 </script>
 </body>
 </html>
