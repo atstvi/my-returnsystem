@@ -23603,7 +23603,11 @@ function _returnEntityDecide(eid,L,C,tombstones,collection,conflicts){
   return L||null;
 }
 /* Merge a local array against the cloud mirror. Preserves local order; items
-   without an _eid pass through untouched; cloud-only survivors appended. */
+   without an _eid pass through untouched; cloud-only survivors appended.
+   Adoption cap: if the cloud mirror is polluted (e.g. from write-amplification
+   churn) the cloud-only adoption loop is capped at max(localArr.length*3+100,200)
+   to prevent catastrophic local inflation. Excess adoptions are skipped and
+   logged; adoptionFloodAborted:true is set on the result. */
 function returnEntityMergeArray(localArr, cloudByEid, tombstones, collection){
   localArr=Array.isArray(localArr)?localArr:[]; cloudByEid=cloudByEid||{}; tombstones=tombstones||{};
   var conflicts=[], merged=[], handled={};
@@ -23614,12 +23618,18 @@ function returnEntityMergeArray(localArr, cloudByEid, tombstones, collection){
     var w=_returnEntityDecide(it._eid,it,cloudByEid[it._eid],tombstones,collection,conflicts);
     if(w)merged.push(w);
   }
+  var adoptCap=Math.max(localArr.length*3+100,200);
+  var adoptCount=0, adoptionFloodAborted=false;
   Object.keys(cloudByEid).forEach(function(eid){
     if(handled[eid])return;
+    if(adoptCount>=adoptCap){ adoptionFloodAborted=true; return; }
     var w=_returnEntityDecide(eid,null,cloudByEid[eid],tombstones,collection,conflicts);
-    if(w)merged.push(w);
+    if(w){ merged.push(w); adoptCount++; }
   });
-  return {merged:merged,conflicts:conflicts};
+  if(adoptionFloodAborted){
+    try{ console.error('[sync] returnEntityMergeArray: adoption flood aborted for "'+collection+'" — cloud had '+(Object.keys(cloudByEid).length-Object.keys(handled).length)+' unhandled docs, cap='+adoptCap+'. Entity mirror may be polluted. Adopted: '+adoptCount+'.'); }catch(_e){}
+  }
+  return {merged:merged,conflicts:conflicts,adoptionFloodAborted:adoptionFloodAborted};
 }
 /* Diary variant: date-keyed object; each date is an entity _eid=prefix+date. */
 function returnEntityMergeObject(localObj, cloudByEid, tombstones, collection, prefix){

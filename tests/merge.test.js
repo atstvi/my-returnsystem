@@ -78,4 +78,28 @@ t.ok('conflict buffer capped at 50', buf.length === 50 && buf[49]._eid === 'x59'
 
 t.ok('empty merge stable', returnEntityMergeArray([], {}, {}, 'x').merged.length === 0);
 
+// adoption flood guard — cap fires when cloud has >> local items
+(function(){
+  var localArr = [];
+  for(var i=0;i<10;i++) localArr.push({_eid:'local_'+i,title:'local '+i,updatedAt:1});
+  // cap = max(10*3+100, 200) = 200; add 300 cloud-only docs → should cap at 200
+  var cloudByEid = {};
+  for(var j=0;j<300;j++){
+    var eid='cloud_'+j;
+    cloudByEid[eid]={_eid:eid,payload:{title:'cloud '+j,updatedAt:2},updatedAt:2};
+  }
+  var r2 = returnEntityMergeArray(localArr, cloudByEid, {}, 'memos');
+  t.ok('adoption flood: aborted flag set', r2.adoptionFloodAborted === true, r2.adoptionFloodAborted);
+  t.ok('adoption flood: adopted exactly cap (200)', r2.merged.length === 10+200, r2.merged.length);
+})();
+
+// no false positive — small cloud-only set (within cap) must not abort
+(function(){
+  var local2 = [{_eid:'x_1',updatedAt:1}];
+  var cloud2 = {x_2:{_eid:'x_2',payload:{updatedAt:2},updatedAt:2},x_3:{_eid:'x_3',payload:{updatedAt:2},updatedAt:2}};
+  var r3 = returnEntityMergeArray(local2, cloud2, {}, 'tasks');
+  t.ok('no false positive: small adoption not aborted', r3.adoptionFloodAborted === false || r3.adoptionFloodAborted === undefined, r3.adoptionFloodAborted);
+  t.ok('no false positive: all cloud-only adopted', r3.merged.length === 3, r3.merged.length);
+})();
+
 t.done();
