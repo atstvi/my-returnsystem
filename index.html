@@ -12440,6 +12440,17 @@ window.returnEntityPrepareForSave=returnEntityPrepareForSave;
 window.returnEntityPrepareObjectForSave=returnEntityPrepareObjectForSave;
 
 function setReturnStorageItem(key,value){
+  /* Invalid-key guard. A caller passing an undefined/null key would otherwise
+     coerce to the literal string "undefined"/"null" and create a junk key (we
+     saw a 131KB base64 image stored under the key "undefined"). Reject it as an
+     honest failure (no silent junk write) and log a STACK TRACE so the offending
+     caller is pinpointed the next time it happens — rather than guessing which
+     call site is at fault. */
+  if(key==null||key===''||key==='undefined'||key==='null'){
+    try{ console.error('[storage] refused setItem with invalid key '+JSON.stringify(key)+' (valueLen='+String(value==null?'':value).length+'). Caller:\n'+(new Error().stack||'')); }catch(_e){}
+    try{ if(typeof __storageHealthRecord==='function')__storageHealthRecord({key:String(key),mode:'rejected',ok:false,error:'invalid-key'}); }catch(_e2){}
+    return false;
+  }
   value=String(value==null?'':value);
   var old=null;
   function verifiedWrite(){
@@ -24701,7 +24712,10 @@ window.returnStorageReport=returnStorageReport;
      • returnStoragePrune({apply:true}) downloads a consolidated JSON archive
        of every pruned key BEFORE deleting, so even the backups are recoverable.
        Pass {apply:true,archive:false} to skip the download. */
-function _storageIsOrphanBackup(k){ return /^_bk_\d+_/.test(k); }
+/* Orphan = a retired auto-backup snapshot (_bk_<ts>_*) OR a junk key created by
+   a now-guarded invalid-key write ("undefined"/"null"). No live code reads any
+   of these, so they're safe to reclaim. */
+function _storageIsOrphanBackup(k){ return /^_bk_\d+_/.test(k) || k==='undefined' || k==='null'; }
 function returnStoragePrune(opts){
   opts=opts||{};
   var apply=!!opts.apply, archive=(opts.archive!==false);

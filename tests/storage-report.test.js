@@ -39,6 +39,7 @@ const { store, ls } = makeLS({
   return_theme_color: '#fff',
   _bk_1778502000719_inbox_v1: 'y'.repeat(40000),         // orphaned backup → prunable
   _bk_1778504826377_task_items_v1: 'z'.repeat(20000),    // orphaned backup → prunable
+  undefined: 'data:image/png;base64,' + 'Q'.repeat(60000), // junk key from invalid-key write → prunable
 });
 const before = JSON.stringify(store);
 
@@ -79,17 +80,18 @@ t.ok('categories sorted desc', r.categories.length >= 4 && r.categories.every((c
 
 // ── orphaned-backup prune ──
 t.ok('orphan matcher: _bk_ts_ matches', _storageIsOrphanBackup('_bk_1778502000719_inbox_v1') === true);
-t.ok('orphan matcher: live key never matches', !_storageIsOrphanBackup('inbox_v1') && !_storageIsOrphanBackup('task_items_v1') && !_storageIsOrphanBackup('_bk_partial'), 'guard');
+t.ok('orphan matcher: junk "undefined"/"null" keys match', _storageIsOrphanBackup('undefined') === true && _storageIsOrphanBackup('null') === true);
+t.ok('orphan matcher: live key never matches', !_storageIsOrphanBackup('inbox_v1') && !_storageIsOrphanBackup('task_items_v1') && !_storageIsOrphanBackup('_bk_partial') && !_storageIsOrphanBackup('undefined_x'), 'guard');
 
 const beforePrune = JSON.stringify(store);
 const dry = returnStoragePrune(); // dry run
-t.ok('dry-run matches both backups', dry.matched === 2 && dry.applied === false, dry);
+t.ok('dry-run matches both backups + junk key', dry.matched === 3 && dry.applied === false, dry);
 t.ok('dry-run is read-only', JSON.stringify(store) === beforePrune);
 t.ok('dry-run reclaim > 0', dry.reclaimKB > 0, dry.reclaimKB);
 
 const applied = returnStoragePrune({ apply: true, archive: false }); // archive=false: no DOM in node
-t.ok('apply deletes both backups', applied.applied === true && applied.removed === 2);
-t.ok('backups gone from store', !('_bk_1778502000719_inbox_v1' in store) && !('_bk_1778504826377_task_items_v1' in store));
+t.ok('apply deletes backups + junk key', applied.applied === true && applied.removed === 3);
+t.ok('backups + junk gone from store', !('_bk_1778502000719_inbox_v1' in store) && !('_bk_1778504826377_task_items_v1' in store) && !('undefined' in store));
 t.ok('live keys untouched by prune', !!store.task_items_v1 && !!store.home_banner_v1 && !!store.return_media_sync_v1 && !!store.gcal_cfg_v1);
 t.ok('re-run prune is no-op', returnStoragePrune({ apply: true, archive: false }).matched === 0);
 
