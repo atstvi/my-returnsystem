@@ -9219,6 +9219,23 @@ function editHomeRepeat(id){
 
 /* Prune all suppression entries that belong to a specific repeat rule ID.
    Called on rule deletion so the maps don't accumulate indefinitely. */
+function pruneStaleRepeatSuppressions(){
+  var cutoff=new Date(Date.now()-30*24*60*60*1000);
+  var dateRe=/\|(\d{4}-\d{2}-\d{2})$/;
+  var s=loadRepeatSuppressions(), sc=false;
+  Object.keys(s).forEach(function(k){
+    var m=k.match(dateRe);
+    if(m&&new Date(m[1])<cutoff){delete s[k];sc=true;}
+  });
+  if(sc)saveRepeatSuppressions(s);
+  var g=loadGeneratedTaskSuppressions(), gc=false;
+  Object.keys(g).forEach(function(k){
+    var m=k.match(dateRe);
+    if(m&&new Date(m[1])<cutoff){delete g[k];gc=true;}
+  });
+  if(gc)saveGeneratedTaskSuppressions(g);
+}
+
 function pruneRepeatSuppressions(ruleId){
   var rid=String(ruleId||''); if(!rid)return;
   var prefix=rid+'|';
@@ -18791,7 +18808,7 @@ function buildTrendCard(m, idx) {
     ;(function(type, b) {
       b.addEventListener('click', function() {
         metrics[idx].chartType = type;
-        try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+        setReturnStorageItem('metrics_v1', JSON.stringify(metrics));
         renderTrends();
       });
     })(pair[0], btn);
@@ -18850,7 +18867,7 @@ function buildTrendCard(m, idx) {
     delBtn.addEventListener('click', function() {
       if (!confirm('"' + metrics[i].name + '" 지표를 삭제할까요?')) return;
       metrics.splice(i, 1);
-      try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+      setReturnStorageItem('metrics_v1', JSON.stringify(metrics));
       renderTrends();
     });
   })(idx);
@@ -19036,10 +19053,12 @@ function saveMetricLog() {
     try{
       if(!diaryTrackerValues[today])diaryTrackerValues[today]={};
       diaryTrackerValues[today][m._trackerId]=String(val);
-      localStorage.setItem('diary_tracker_values_v1',JSON.stringify(diaryTrackerValues));
-    }catch(e){}
+      var tvOk=setReturnStorageItem('diary_tracker_values_v1',JSON.stringify(diaryTrackerValues));
+      if(!tvOk)console.error('[metrics] diary_tracker_values_v1 write failed — tracker value may be lost on reload');
+    }catch(e){ console.error('[metrics] diary tracker value save failed:',e); }
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); } catch(e) {}
+  var mvOk=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  if(!mvOk)console.error('[metrics] metrics_v1 write failed — metric value may be lost on reload');
   closeMetricModal();
   renderTrends();
 }
@@ -19088,7 +19107,10 @@ function saveMetricConfig(){
     else if (asDiary && m._trackerId) { var linked=diaryTrackers.find(function(tr){return tr.id===m._trackerId;}); if(linked){linked.name=name;linked.unit=unit;linked.chartType=chartType;} }
     if (target.idx == null) metrics.push(m);
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); localStorage.setItem('diary_trackers_v1', JSON.stringify(diaryTrackers)); } catch(e) {}
+  var mc1=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  var mc2=setReturnStorageItem('diary_trackers_v1',JSON.stringify(diaryTrackers));
+  if(!mc1)console.error('[metrics] metrics_v1 config save failed');
+  if(!mc2)console.error('[metrics] diary_trackers_v1 config save failed');
   closeMetricConfigModal(); loadAll(); renderTrends();
 }
 
@@ -19161,7 +19183,10 @@ saveMetricConfig=function(){
     else if (asDiary && m._trackerId) { var linked=diaryTrackers.find(function(tr){return tr.id===m._trackerId;}); if(linked){linked.name=name;linked.unit=unit;linked.chartType=chartType;linked.range=range;linked.axisMin=axisMin;linked.axisMax=axisMax;} }
     if (target.idx == null) metrics.push(m);
   }
-  try { localStorage.setItem('metrics_v1', JSON.stringify(metrics)); localStorage.setItem('diary_trackers_v1', JSON.stringify(diaryTrackers)); } catch(e) {}
+  var mc1b=setReturnStorageItem('metrics_v1',JSON.stringify(metrics));
+  var mc2b=setReturnStorageItem('diary_trackers_v1',JSON.stringify(diaryTrackers));
+  if(!mc1b)console.error('[metrics] metrics_v1 config save failed');
+  if(!mc2b)console.error('[metrics] diary_trackers_v1 config save failed');
   closeMetricConfigModal(); loadAll(); renderTrends();
 };
 
@@ -21672,13 +21697,13 @@ function fbApplyData(data){
       }
     } catch(e) {}
     /* inbox categories (this is the actual loadCats function — inbox only) */
-    try { if(typeof loadCats==='function') loadCats(); } catch(e){}
+    try { if(typeof loadCats==='function') loadCats(); } catch(e){ console.warn('[fbApply] loadCats failed:',e&&e.message); }
     /* projects */
-    try { if(typeof loadProjects==='function') loadProjects(); } catch(e){}
+    try { if(typeof loadProjects==='function') loadProjects(); } catch(e){ console.warn('[fbApply] loadProjects failed:',e&&e.message); }
     /* routine */
-    try { if(typeof loadRoutineData==='function') loadRoutineData(); } catch(e){}
+    try { if(typeof loadRoutineData==='function') loadRoutineData(); } catch(e){ console.warn('[fbApply] loadRoutineData failed:',e&&e.message); }
     /* inbox */
-    try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){}
+    try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){ console.warn('[fbApply] loadInboxItems failed:',e&&e.message); }
     /* diary entries (inline; _initDiary also reloads trackers + currentDate) */
     try {
       if(typeof entries!=='undefined'){
@@ -21686,23 +21711,23 @@ function fbApplyData(data){
         if(rawDiary && typeof rawDiary==='object' && !Array.isArray(rawDiary)) entries=rawDiary;
       }
       if(typeof loadTrackers==='function') loadTrackers();
-    } catch(e){}
+    } catch(e){ console.warn('[fbApply] diary reload failed:',e&&e.message); }
     /* records (memos, metrics, phil cards, mood, values) */
-    try { if(typeof loadAll==='function') loadAll(); } catch(e){}
+    try { if(typeof loadAll==='function') loadAll(); } catch(e){ console.warn('[fbApply] loadAll (records) failed:',e&&e.message); }
     /* phil cards (separate load path on settings tab) */
-    try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){}
+    try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){ console.warn('[fbApply] loadPhilCards failed:',e&&e.message); }
     /* schedule / timetable */
     try {
       if(typeof loadTimetables==='function') loadTimetables();
       if(typeof reconcileTimetableTasks==='function') timetableRepairAfterFbApply=reconcileTimetableTasks({silent:true,source:'fbApplyData'});
-    } catch(e){}
+    } catch(e){ console.warn('[fbApply] loadTimetables/reconcile failed:',e&&e.message); }
     try { if(typeof applyTtPalette==='function') applyTtPalette(); } catch(e){}
     try { if(typeof renderTtPaletteEditor==='function') renderTtPaletteEditor(); } catch(e){}
     /* home banner + stickers */
-    try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){}
-    try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){}
+    try { if(typeof loadHomeBanner==='function') loadHomeBanner(); } catch(e){ console.warn('[fbApply] loadHomeBanner failed:',e&&e.message); }
+    try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){ console.warn('[fbApply] loadGlobalStickers failed:',e&&e.message); }
     /* hobby */
-    try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){}
+    try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){ console.warn('[fbApply] hobReloadFromStorage failed:',e&&e.message); }
     /* recharge */
     try { if(typeof loadData==='function') loadData(); } catch(e){}
     /* settings — theme, focus, notif, profile */
@@ -26577,6 +26602,8 @@ try {
   if (typeof themeStudioApply === 'function') themeStudioApply(themeStudioGet());
   /* Proactive quota check on every boot — only logs if ≥80% used. */
   try { returnStorageReport(false); } catch(_){}
+  /* Prune suppression entries older than 30 days to prevent unbounded growth. */
+  try { pruneStaleRepeatSuppressions(); } catch(_){}
 } catch(e) {}
 (function finalBoot(){
   var slug = window.__returnInitialPage || _currentPage || 'home';
