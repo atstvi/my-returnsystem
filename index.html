@@ -23315,6 +23315,146 @@ function fbCollectData(){
   }
   return data;
 }
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 6c — PER-ENTITY FIRESTORE DOCS (dual-write + dual-read + migration)
+
+   The legacy blob (users/{uid}/data/{key}) stays the AUTHORITATIVE sync path.
+   This stage adds a PARALLEL per-entity mirror at
+       users/{uid}/entities/{collection}/items/{_eid}
+   plus a guarded one-time migration and a dual-read verification pass.
+
+   Safety contract for 6c (why this cannot lose data):
+     • RETURN_SYNC_MODEL stays 'legacy' → the read/merge path NEVER applies
+       entity docs over the legacy blob. Entity docs are write-only mirror here.
+     • Every entity-layer call is isolated in try/catch around the legacy save
+       so an entity-write failure can never break the proven legacy path.
+     • Migration is idempotent + re-runnable, keyed on meta/sync.syncModel, and
+       NEVER deletes legacy docs.
+   The merge FLIP to per-entity LWW happens in 6d (behind the flag). 6c only
+   proves the format is writable/readable with no data delta.
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_ENTITY_DUALWRITE=(function(){ try{var v=localStorage.getItem('return_entity_dualwrite'); return v==null?true:(v!=='0'&&v!=='false'); }catch(e){ return true; } })();
+/* In-scope collections (design §2.3), each mapped to its localStorage key,
+   _eid prefix, and shape. 'object' = date-keyed (diary). */
+var RETURN_ENTITY_COLLECTIONS=[
+  {collection:'tasks',         key:'task_items_v1',     prefix:'t_',     type:'array'},
+  {collection:'projects',      key:'projects_v1',       prefix:'p_',     type:'array'},
+  {collection:'inbox',         key:'inbox_v1',          prefix:'ib_',    type:'array'},
+  {collection:'routineHabits', key:'routine_habits_v1', prefix:'rh_',    type:'array'},
+  {collection:'routineBundles',key:'routine_bundles_v1',prefix:'rb_',    type:'array'},
+  {collection:'memos',         key:'memos_v5',          prefix:'memo_',  type:'array'},
+  {collection:'metrics',       key:'metrics_v1',        prefix:'metric_',type:'array'},
+  {collection:'diary',         key:'diary_entries_v1',  prefix:'diary_', type:'object'}
+];
+/* Firestore doc ids cannot contain '/' and cannot be '.'/'..'. _eids are
+   prefix+id or prefix+date so this is almost always a no-op, but guard anyway. */
+function fbEntityDocId(eid){
+  var s=String(eid==null?'':eid);
+  if(s===''||s==='.'||s==='..')return 'eid_'+encodeURIComponent(s||'_');
+  return s.replace(/\//g,'%2F');
+}
+/* Build {_eid: doc} for one collection from its current localStorage value.
+   Reads only — never persists back (so it can't trigger a save loop). _eid is
+   taken as-is when present, else derived deterministically from the legacy id /
+   date key so two devices converge to the same doc id. */
+function fbEntityBuildDocs(spec){
+  var raw=null; try{ raw=localStorage.getItem(spec.key); }catch(e){ raw=null; }
+  if(raw==null) return {};
+  var parsed; try{ parsed=JSON.parse(raw); }catch(e){ return {}; }
+  var docs={}, now=Date.now();
+  function mk(eid, payload, ua, ca){
+    return {collection:spec.collection,_eid:eid,payload:payload,
+      updatedAt:Number(ua)||0,createdAt:Number(ca)||Number(ua)||0,
+      schemaVersion:(payload&&payload.schemaVersion)||RETURN_SCHEMA_VERSION,
+      modifiedBy:FB_CLIENT_ID};
+  }
+  if(spec.type==='object'){
+    if(!parsed||typeof parsed!=='object')return {};
+    Object.keys(parsed).forEach(function(dateKey){
+      var e=parsed[dateKey]; if(!e||typeof e!=='object')return;
+      var eid=e._eid||(spec.prefix+String(dateKey));
+      docs[eid]=mk(eid,e,e.updatedAt,e.createdAt);
+    });
+  }else{
+    if(!Array.isArray(parsed))return {};
+    for(var i=0;i<parsed.length;i++){
+      var it=parsed[i]; if(!it||typeof it!=='object')continue;
+      var id=it._eid||(it.id!=null&&String(it.id)!==''?(spec.prefix+String(it.id)):returnNewId(spec.prefix));
+      docs[id]=mk(id,it,it.updatedAt,it.createdAt);
+    }
+  }
+  return docs;
+}
+/* Dual-write: mirror only entities that CHANGED since our last entity-write
+   (per-collection write shadow {_eid:updatedAt}; __entity_wshadow_* keys are
+   NOT synced — they don't match shouldFbSyncKey). Vanished _eids become
+   tombstone docs (deletedAt from the registry, else now). Bounded by shadow so
+   steady-state writes are minimal. */
+async function fbEntityWriteChanged(ref, opts){
+  opts=opts||{};
+  if(!fbDb||!fbUser)return {written:0,tombstoned:0};
+  var batch=fbDb.batch(), ops=0, written=0, tombstoned=0;
+  async function commitIfFull(force){ if(ops&&(force||ops>=430)){ await batch.commit(); batch=fbDb.batch(); ops=0; } }
+  var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
+  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
+    var spec=RETURN_ENTITY_COLLECTIONS[s];
+    var docs=fbEntityBuildDocs(spec);
+    var shadowKey='__entity_wshadow_'+spec.collection, shadow={};
+    if(!opts.full){ try{ shadow=JSON.parse(localStorage.getItem(shadowKey)||'{}')||{}; }catch(_e){ shadow={}; } }
+    var itemsCol=ref.collection('entities').doc(spec.collection).collection('items');
+    var next={}, eid;
+    for(eid in docs){ if(!Object.prototype.hasOwnProperty.call(docs,eid))continue;
+      next[eid]=docs[eid].updatedAt||0;
+      if(shadow[eid]!==next[eid]){
+        batch.set(itemsCol.doc(fbEntityDocId(eid)), docs[eid]); ops++; written++;
+        await commitIfFull(false);
+      }
+    }
+    /* _eids that were mirrored before but are gone now → tombstone doc. */
+    for(eid in shadow){ if(!Object.prototype.hasOwnProperty.call(shadow,eid))continue;
+      if(Object.prototype.hasOwnProperty.call(docs,eid))continue;
+      var delAt=(tombs[eid]&&tombs[eid].deletedAt)||Date.now();
+      batch.set(itemsCol.doc(fbEntityDocId(eid)),
+        {collection:spec.collection,_eid:eid,deletedAt:delAt,updatedAt:delAt,modifiedBy:FB_CLIENT_ID,_tombstone:true},
+        {merge:true});
+      ops++; tombstoned++;
+      await commitIfFull(false);
+    }
+    try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
+  }
+  await commitIfFull(true);
+  return {written:written,tombstoned:tombstoned};
+}
+/* Read the per-entity mirror (verification only in 6c — NOT applied to state).
+   Returns {collection:{live,tombs}} so we can confirm the mirror matches local
+   counts after a migration (design §6, 6c verify: "no data delta after migrate"). */
+async function fbEntityReadAll(ref){
+  if(!fbDb||!fbUser)return {};
+  var out={};
+  for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
+    var spec=RETURN_ENTITY_COLLECTIONS[s], live=0, tombs=0;
+    try{
+      var snap=await ref.collection('entities').doc(spec.collection).collection('items').get();
+      snap.forEach(function(d){ var x=d.data()||{}; if(x._tombstone||x.deletedAt)tombs++; else live++; });
+    }catch(e){ out[spec.collection]={error:e&&e.message}; continue; }
+    out[spec.collection]={live:live,tombs:tombs};
+  }
+  return out;
+}
+/* Guarded one-time migration. Keyed on meta/sync.syncModel so it runs once per
+   account, is idempotent, and never deletes legacy docs. Clearing the write
+   shadows forces a full mirror write of the current local state. */
+async function fbEntityMigrateIfNeeded(ref){
+  if(!fbDb||!fbUser)return {migrated:false};
+  var metaRef=ref.collection('meta').doc('sync'), meta=null;
+  try{ var ms=await metaRef.get(); meta=ms.exists?ms.data():null; }catch(e){ meta=null; }
+  if(meta&&meta.syncModel==='entity-v1')return {migrated:false,already:true};
+  /* full mirror: ignore shadows so every current entity is written. */
+  var res=await fbEntityWriteChanged(ref,{full:true});
+  await metaRef.set({syncModel:'entity-v1',entityMigratedAtMs:Date.now(),entityClientId:FB_CLIENT_ID},{merge:true});
+  return {migrated:true,written:res.written,tombstoned:res.tombstoned};
+}
+window.fbEntityReadAll=function(){ if(!fbDb||!fbUser){console.warn('[entity] not signed in');return;} return fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){console.log('[entity] mirror report',r);return r;}); };
 function fbSanitizeNotionCfg(cfg){
   cfg=cfg||{};
   return {
@@ -23672,6 +23812,19 @@ async function fbLoadAll(){
     clearTimeout(_hydrateGuard);
     try{ if(window.SyncManager)SyncManager.finishHydration({cloudKeyCount:splitCount}); }catch(_e){}
     setFbStatus(applied?fbStatusTime('Firebase 동기화됨'):fbStatusTime('Firebase 연결됨 · 아직 클라우드 데이터 없음'),'ok');
+    /* Stage 6c: guarded one-time migration of the legacy blob into the
+       per-entity mirror, then a read-back verification. Isolated so a failure
+       never affects the (already-completed) legacy hydration above. The flag
+       stays 'legacy' — the mirror is not yet read into app state. */
+    if(RETURN_ENTITY_DUALWRITE){
+      try{
+        var mig=await fbEntityMigrateIfNeeded(ref);
+        var entReport=await fbEntityReadAll(ref);
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity 6c migrate+verify',{mig:mig,report:entReport}); }catch(_e){}
+      }catch(entErr){
+        try{ console.warn('[entity] 6c migrate/verify failed (legacy load unaffected):',entErr&&entErr.message); }catch(_){}
+      }
+    }
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotEvents++; window.__SYNC_DEBUG.state.timestamps.lastSnapshotAt=Date.now(); window.__SYNC_DEBUG.log('fb','onSnapshot fired',{exists:s.exists}); } }catch(_e){}
@@ -23919,6 +24072,18 @@ async function fbSaveNow(opts){
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
+    /* Stage 6c: dual-write per-entity mirror. Legacy blob above is already
+       committed and authoritative; this is an isolated best-effort mirror so a
+       failure here must NOT fail the save. */
+    if(RETURN_ENTITY_DUALWRITE){
+      try{
+        var ew=await fbEntityWriteChanged(ref);
+        if((ew.written||ew.tombstoned)&&window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity dual-write',{written:ew.written,tombstoned:ew.tombstoned});
+      }catch(entErr){
+        try{ console.warn('[entity] dual-write failed (legacy save unaffected):',entErr&&entErr.message); }catch(_){}
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('err','entity dual-write failed: '+(entErr&&entErr.message)); }catch(_){}
+      }
+    }
     var msg='Firebase 저장 완료';
     if (preservedFromCloud.length) msg += ' (다른 기기 변경 '+preservedFromCloud.length+'건 보존)';
     setFbStatus(fbStatusTime(msg),'ok');
