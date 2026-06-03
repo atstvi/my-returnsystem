@@ -23390,10 +23390,29 @@ function fbEntityBuildDocs(spec){
    NOT synced — they don't match shouldFbSyncKey). Vanished _eids become
    tombstone docs (deletedAt from the registry, else now). Bounded by shadow so
    steady-state writes are minimal. */
+var RETURN_ENTITY_SKIP_KEY='__entity_migrate_skips'; /* non-synced (double underscore) */
+var RETURN_ENTITY_MAX_DOC_BYTES=900000; /* Firestore hard limit is ~1 MiB/doc */
+/* Validate + queue a single entity doc. Firestore's batch.set() serializes and
+   validates document data synchronously and RECURSIVELY, so a deeply-nested or
+   cyclic entity (e.g. a task/inbox item carrying large inline base64) can throw
+   "Maximum call stack size exceeded" — which previously aborted the ENTIRE
+   migration loop, so the mirror never populated and the meta marker never set
+   (retried every boot). This isolates each doc: a poison/oversized entity is
+   skipped and recorded (never silently), the rest still mirror. The data is
+   never lost — the legacy blob remains authoritative and holds it. Returns true
+   iff the doc was queued. */
+function _entitySafeSet(batch, docRef, data, eid, collection, skips, setOpts){
+  var bytes=-1;
+  try{ bytes=JSON.stringify(data).length; }
+  catch(sz){ skips.push({collection:collection,_eid:eid,reason:'serialize-failed',error:String(sz&&sz.message||sz)}); return false; }
+  if(bytes>RETURN_ENTITY_MAX_DOC_BYTES){ skips.push({collection:collection,_eid:eid,reason:'too-large',bytes:bytes}); return false; }
+  try{ if(setOpts)batch.set(docRef,data,setOpts); else batch.set(docRef,data); return true; }
+  catch(setErr){ skips.push({collection:collection,_eid:eid,reason:'set-failed',bytes:bytes,error:String(setErr&&setErr.message||setErr)}); return false; }
+}
 async function fbEntityWriteChanged(ref, opts){
   opts=opts||{};
-  if(!fbDb||!fbUser)return {written:0,tombstoned:0};
-  var batch=fbDb.batch(), ops=0, written=0, tombstoned=0;
+  if(!fbDb||!fbUser)return {written:0,tombstoned:0,skipped:0};
+  var batch=fbDb.batch(), ops=0, written=0, tombstoned=0, skips=[];
   async function commitIfFull(force){ if(ops&&(force||ops>=430)){ await batch.commit(); batch=fbDb.batch(); ops=0; } }
   var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
   for(var s=0;s<RETURN_ENTITY_COLLECTIONS.length;s++){
@@ -23404,27 +23423,36 @@ async function fbEntityWriteChanged(ref, opts){
     var itemsCol=ref.collection('entities').doc(spec.collection).collection('items');
     var next={}, eid;
     for(eid in docs){ if(!Object.prototype.hasOwnProperty.call(docs,eid))continue;
-      next[eid]=docs[eid].updatedAt||0;
-      if(shadow[eid]!==next[eid]){
-        batch.set(itemsCol.doc(fbEntityDocId(eid)), docs[eid]); ops++; written++;
+      var ua=docs[eid].updatedAt||0;
+      if(shadow[eid]===ua){ next[eid]=ua; continue; } /* unchanged — keep shadow, no write */
+      if(_entitySafeSet(batch, itemsCol.doc(fbEntityDocId(eid)), docs[eid], eid, spec.collection, skips)){
+        next[eid]=ua; ops++; written++;
         await commitIfFull(false);
-      }
+      } /* skipped docs are omitted from `next` so they're retried on a later save */
     }
     /* _eids that were mirrored before but are gone now → tombstone doc. */
     for(eid in shadow){ if(!Object.prototype.hasOwnProperty.call(shadow,eid))continue;
       if(Object.prototype.hasOwnProperty.call(docs,eid))continue;
       var delAt=(tombs[eid]&&tombs[eid].deletedAt)||Date.now();
-      batch.set(itemsCol.doc(fbEntityDocId(eid)),
+      if(_entitySafeSet(batch, itemsCol.doc(fbEntityDocId(eid)),
         {collection:spec.collection,_eid:eid,deletedAt:delAt,updatedAt:delAt,modifiedBy:FB_CLIENT_ID,_tombstone:true},
-        {merge:true});
-      ops++; tombstoned++;
-      await commitIfFull(false);
+        eid, spec.collection, skips, {merge:true})){
+        ops++; tombstoned++;
+        await commitIfFull(false);
+      }
     }
     try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
   }
   await commitIfFull(true);
-  return {written:written,tombstoned:tombstoned};
+  if(skips.length){
+    /* persist a bounded skip log (non-synced) and emit ONE summary — never a
+       silent failure, but no per-doc console spam on every save. */
+    try{ var prev=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]')||[]; var all=skips.concat(prev); if(all.length>100)all=all.slice(0,100); setReturnStorageItem(RETURN_ENTITY_SKIP_KEY, JSON.stringify(all)); }catch(_e){}
+    try{ console.warn('[entity] '+skips.length+' entity doc(s) skipped (legacy blob still holds them) — returnEntityMigrateSkips() for detail:', skips.slice(0,5)); }catch(_){}
+  }
+  return {written:written,tombstoned:tombstoned,skipped:skips.length,skips:skips};
 }
+window.returnEntityMigrateSkips=function(){ var b=[]; try{ b=JSON.parse(localStorage.getItem(RETURN_ENTITY_SKIP_KEY)||'[]'); }catch(_e){} console.log('[entity] migrate skips',b.length,b); return b; };
 /* Read the per-entity mirror (verification only in 6c — NOT applied to state).
    Returns {collection:{live,tombs}} so we can confirm the mirror matches local
    counts after a migration (design §6, 6c verify: "no data delta after migrate"). */
@@ -23451,8 +23479,12 @@ async function fbEntityMigrateIfNeeded(ref){
   if(meta&&meta.syncModel==='entity-v1')return {migrated:false,already:true};
   /* full mirror: ignore shadows so every current entity is written. */
   var res=await fbEntityWriteChanged(ref,{full:true});
-  await metaRef.set({syncModel:'entity-v1',entityMigratedAtMs:Date.now(),entityClientId:FB_CLIENT_ID},{merge:true});
-  return {migrated:true,written:res.written,tombstoned:res.tombstoned};
+  /* Mark migrated even if some docs were skipped: the rest are mirrored, the
+     legacy blob still holds the skipped ones (no data loss), and steady-state
+     dual-write retries them. Marking avoids re-running a full mirror every boot.
+     The skip count is recorded so the partial result is never a silent success. */
+  await metaRef.set({syncModel:'entity-v1',entityMigratedAtMs:Date.now(),entityClientId:FB_CLIENT_ID,entitySkippedAtMigrate:res.skipped||0},{merge:true});
+  return {migrated:true,written:res.written,tombstoned:res.tombstoned,skipped:res.skipped||0};
 }
 window.fbEntityReadAll=function(){ if(!fbDb||!fbUser){console.warn('[entity] not signed in');return;} return fbEntityReadAll(fbDb.collection('users').doc(fbUser.uid)).then(function(r){console.log('[entity] mirror report',r);return r;}); };
 /* ════════════════════════════════════════════════════════════════════════

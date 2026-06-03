@@ -48,7 +48,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(block, sandbox);
-const { fbEntityMigrateIfNeeded, fbEntityWriteChanged, fbEntityReadAll, fbEntityBuildDocs, RETURN_ENTITY_COLLECTIONS, RETURN_ENTITY_DUALWRITE } = sandbox;
+const { fbEntityMigrateIfNeeded, fbEntityWriteChanged, fbEntityReadAll, fbEntityBuildDocs, RETURN_ENTITY_COLLECTIONS, RETURN_ENTITY_DUALWRITE, _entitySafeSet } = sandbox;
 
 const ref = docRef('users/u1');
 function countEntityDocs() {
@@ -106,6 +106,32 @@ const t = runner('Stage 6c — entity dual-write + migration');
   t.ok('dual-write flag default true', RETURN_ENTITY_DUALWRITE === true);
   const shadowKeys = Object.keys(store).filter((k) => k.startsWith('__entity_wshadow_'));
   t.ok('write-shadow keys non-synced-prefixed', shadowKeys.length >= 3 && shadowKeys.every((k) => k.startsWith('__entity_')), shadowKeys);
+
+  // ── resilience: a poison/oversized doc must not abort the whole write ──
+  // _entitySafeSet covers all three skip reasons.
+  let sk = [];
+  t.ok('safeSet: set-throw → set-failed (the stack-overflow case)',
+    _entitySafeSet({ set: () => { throw new RangeError('Maximum call stack size exceeded'); } }, {}, { a: 1 }, 'e1', 'tasks', sk) === false && sk[0].reason === 'set-failed', sk);
+  sk = [];
+  t.ok('safeSet: oversized → too-large',
+    _entitySafeSet({ set: () => {} }, {}, { big: 'x'.repeat(950000) }, 'e2', 'tasks', sk) === false && sk[0].reason === 'too-large', sk);
+  sk = [];
+  t.ok('safeSet: normal doc queued', _entitySafeSet({ set: () => {} }, {}, { ok: 1 }, 'e3', 'tasks', sk) === true && sk.length === 0);
+
+  // integration: an oversized entity is skipped, the migration still completes,
+  // and the legacy store still holds it (no data loss).
+  store['memos_v5'] = JSON.stringify([
+    { id: 'ok1', _eid: 'memo_ok1', text: 'small', updatedAt: 111 },
+    { id: 'big', _eid: 'memo_big', text: 'Z'.repeat(950000), updatedAt: 222 },
+  ]);
+  ew = await fbEntityWriteChanged(ref);
+  t.ok('oversized entity skipped (≥1)', ew.skipped >= 1, ew);
+  t.ok('good sibling still mirrored', 'users/u1/entities/memos/items/memo_ok1' in fsStore);
+  t.ok('oversized doc NOT in mirror', !('users/u1/entities/memos/items/memo_big' in fsStore));
+  t.ok('skip recorded to log', sandbox.window.returnEntityMigrateSkips().some((s) => s._eid === 'memo_big' && s.reason === 'too-large'));
+  t.ok('legacy store still holds the skipped entity (no data loss)', JSON.parse(store['memos_v5']).some((m) => m._eid === 'memo_big'));
+  // skipped doc omitted from shadow → retried next save (not silently dropped)
+  t.ok('skipped eid not in write-shadow', !(JSON.parse(store['__entity_wshadow_memos'] || '{}').memo_big));
 
   t.done();
 })();
