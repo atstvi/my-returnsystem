@@ -20103,11 +20103,11 @@ function saveApiKey(provider) {
   var inp = document.getElementById(provider + '-key');
   var val = inp ? inp.value.trim() : '';
   if (!val) return;
-  try { localStorage.setItem(KEY_MAP[provider], val); } catch(e) {}
+  var ok=setReturnStorageItem(KEY_MAP[provider], val);
   updateApiBadge(provider, true);
   updateAiStatus();
-  if(provider==='groq' && typeof fbSaveAll==='function') fbSaveAll();
-  showToast('저장됐어요 ✓');
+  if(ok && provider==='groq' && typeof fbSaveAll==='function') fbSaveAll();
+  showToast(ok ? '저장됐어요 ✓' : '저장 실패 — 저장공간을 확인해주세요');
 }
 
 function clearApiKey(provider) {
@@ -21544,20 +21544,23 @@ function fbApplyCloudSettings(doc){
     var v=doc.settings[k];
     if(v==null)return;
     try{
+      var wv;
       if(k==='diary_notion_cfg'){
         var incoming=JSON.parse(v||'{}'), local=getNotionCfg();
         if(local.token)incoming.token=local.token;
-        localStorage.setItem(k,JSON.stringify(incoming));
+        wv=JSON.stringify(incoming);
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
         if(gIn.taskCalendarId==null && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
         if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
-        localStorage.setItem(k,JSON.stringify(gIn));
+        wv=JSON.stringify(gIn);
       }else{
-        localStorage.setItem(k,String(v));
+        wv=String(v);
       }
-      n++;
+      var sok=setReturnStorageItem(k,wv);
+      if(sok)n++;
+      else console.warn('[fb] fbApplyCloudSettings: write failed for key',k);
     }catch(e){console.warn('settings apply failed',k,e);}
   });
 try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
@@ -22608,7 +22611,7 @@ function getNotionCfg(){
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
 function setNotionVal(id,val){var el=document.getElementById(id);if(!el)return;if(el.type==='checkbox')el.checked=!!val;else el.value=val||'';}
 function loadDiaryNotionConfig(){_diaryNotionCfg=getNotionCfg();setNotionVal('notion-worker-url',_diaryNotionCfg.workerUrl);setNotionVal('notion-token',_diaryNotionCfg.token);setNotionVal('notion-db',_diaryNotionCfg.dbId);setNotionVal('notion-date-prop',_diaryNotionCfg.dateProp||'날짜');setNotionVal('notion-timeline-prop',_diaryNotionCfg.timelineProp||'타임라인');setNotionVal('notion-sleep-prop',_diaryNotionCfg.sleepProp);setNotionVal('notion-morning-prop',_diaryNotionCfg.morningProp);setNotionVal('notion-resolution-prop',_diaryNotionCfg.resolutionProp);setNotionVal('notion-accomplishment-prop',_diaryNotionCfg.accomplishmentProp);setNotionVal('notion-night-prop',_diaryNotionCfg.nightProp);setNotionVal('notion-recap-prop',_diaryNotionCfg.recapProp);setNotionVal('notion-ai-prompt',_diaryNotionCfg.prompt);setNotionVal('notion-auto-sync',_diaryNotionCfg.autoSync);setNotionVal('notion-auto-time',_diaryNotionCfg.autoTime||'23:00');var st=document.getElementById('notion-status');var connected=!!(_diaryNotionCfg.workerUrl&&_diaryNotionCfg.dbId);if(st)st.textContent=connected?'연결 설정됨 — Worker 비밀 토큰 또는 로컬 토큰으로 동기화 가능':'설정 필요 — 일기를 Notion과 동기화해요';var row=document.getElementById('notion-row');if(row)row.setAttribute('data-state', connected?'ok':'');}
-saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
+saveNotionConfig=function(silent){_diaryNotionCfg={workerUrl:notionVal('notion-worker-url'),token:notionVal('notion-token'),dbId:notionVal('notion-db'),dateProp:notionVal('notion-date-prop')||'날짜',timelineProp:notionVal('notion-timeline-prop')||'타임라인',sleepProp:notionVal('notion-sleep-prop'),morningProp:notionVal('notion-morning-prop'),resolutionProp:notionVal('notion-resolution-prop'),accomplishmentProp:notionVal('notion-accomplishment-prop'),nightProp:notionVal('notion-night-prop'),recapProp:notionVal('notion-recap-prop'),prompt:notionVal('notion-ai-prompt'),autoSync:notionVal('notion-auto-sync'),autoTime:notionVal('notion-auto-time')||'23:00',lastSync:_diaryNotionCfg.lastSync||0,bodyHashes:_diaryNotionCfg.bodyHashes||{}};setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));loadDiaryNotionConfig();scheduleDiaryAutoSync();if(!silent)showToast('Notion 설정 저장됨');};
 saveNotionConfig=function(silent){
   var prev=getNotionCfg();
   function valOr(id, fallback){
@@ -22649,7 +22652,7 @@ saveNotionConfig=function(silent){
        under stale comparison after the property mapping moves. */
     bodyHashes: propsChanged ? {} : (prev.bodyHashes||_diaryNotionCfg.bodyHashes||{})
   };
-  localStorage.setItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
+  setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
   if(document.getElementById('notion-worker-url'))loadDiaryNotionConfig();
   scheduleDiaryAutoSync();
   if(!silent)showToast('Notion 설정 저장됨');
@@ -23707,7 +23710,7 @@ async function syncDiaryToNotion(dateKey, opts){
     }
 
     _diaryNotionCfg.lastSync=Date.now();
-    try{ localStorage.setItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg)); }catch(e){}
+    setReturnStorageItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg));
 
     var timeStr=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     var msg='동기화 완료 '+timeStr
@@ -24540,10 +24543,15 @@ function handleImport(e) {
     try {
       var data = JSON.parse(ev.target.result);
       if (!confirm('백업 파일을 불러오면 현재 데이터가 덮어씌워져요. 계속할까요?')) return;
+      var failed=[];
       DATA_KEYS.forEach(function(k) {
-        if (data[k] != null) localStorage.setItem(k, JSON.stringify(data[k]));
+        if (data[k] != null) {
+          var ok=setReturnStorageItem(k, JSON.stringify(data[k]));
+          if(!ok) failed.push(k);
+        }
       });
-      showToast('데이터를 불러왔어요 ✓');
+      if(failed.length) showToast('일부 데이터를 불러오지 못했어요: '+failed.join(', '));
+      else showToast('데이터를 불러왔어요 ✓');
       calcDataSize();
     } catch(ex) { showToast('파일 형식 오류'); }
   };
@@ -24570,8 +24578,8 @@ function clearAllData() {
   try{
     var backup={_beforeClear:new Date().toISOString(),keys:{}};
     DATA_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)backup.keys[k]=v;});
-    localStorage.setItem('return_last_clear_backup',JSON.stringify(backup));
-  }catch(e){}
+    setReturnStorageItem('return_last_clear_backup',JSON.stringify(backup));
+  }catch(e){ console.error('[data] pre-clear backup save failed:',e); }
   DATA_KEYS.forEach(function(k) { localStorage.removeItem(k); });
   showToast('모든 기록이 삭제됐어요');
   calcDataSize();
