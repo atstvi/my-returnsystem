@@ -48,7 +48,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(block, sandbox);
-const { fbEntityMigrateIfNeeded, fbEntityWriteChanged, fbEntityReadAll, fbEntityBuildDocs, RETURN_ENTITY_COLLECTIONS, RETURN_ENTITY_DUALWRITE, _entitySafeSet } = sandbox;
+const { fbEntityMigrateIfNeeded, fbEntityWriteChanged, fbEntityReadCounts, fbEntityBuildDocs, RETURN_ENTITY_COLLECTIONS, RETURN_ENTITY_DUALWRITE, _entitySafeSet } = sandbox;
 
 const ref = docRef('users/u1');
 function countEntityDocs() {
@@ -96,8 +96,17 @@ const t = runner('Stage 6c — entity dual-write + migration');
   c = countEntityDocs();
   t.ok('tasks 1 live + 1 tomb', c.tasks.live === 1 && c.tasks.tomb === 1, c.tasks);
 
-  const rep = await fbEntityReadAll(ref);
-  t.ok('readAll counts match mirror', rep.tasks.live === 1 && rep.tasks.tombs === 1 && rep.projects.live === 1, rep);
+  const rep = await fbEntityReadCounts(ref);
+  t.ok('readCounts match mirror', rep.tasks.live === 1 && rep.tasks.tombs === 1 && rep.projects.live === 1, rep);
+
+  // Regression (static source check): the console helper window.fbEntityReadAll
+  // must NOT share its name with the implementation, or — because a top-level
+  // `function fbEntityReadAll` becomes a global === window.fbEntityReadAll — the
+  // wrapper would overwrite the impl and then call ITSELF (infinite recursion,
+  // "Maximum call stack size exceeded"). The vm sandbox can't model the
+  // global/window aliasing, so we assert the source shape directly.
+  t.ok('no top-level `function fbEntityReadAll` declaration (collision)', !/\bfunction\s+fbEntityReadAll\s*\(/.test(html), 'found a colliding declaration');
+  t.ok('window.fbEntityReadAll delegates to fbEntityReadCounts (not itself)', /window\.fbEntityReadAll\s*=\s*function[\s\S]{0,200}fbEntityReadCounts\s*\(/.test(html));
 
   store['inbox_v1'] = JSON.stringify([{ id: 'abc', text: 'x' }]);
   const docs = fbEntityBuildDocs(RETURN_ENTITY_COLLECTIONS.find((s) => s.collection === 'inbox'));
