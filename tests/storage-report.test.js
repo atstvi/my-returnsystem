@@ -8,7 +8,7 @@ const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
-const block = sliceBlock(html, 'function _storageClassifyKey(', '\nwindow.returnStorageReport=returnStorageReport;');
+const block = sliceBlock(html, 'function _storageClassifyKey(', '\nwindow.returnStoragePrune=returnStoragePrune;');
 
 /* localStorage shim with length/key(i), which the report iterates over. */
 function makeLS(seed) {
@@ -37,6 +37,8 @@ const { store, ls } = makeLS({
   __sync_conflicts_v1: 'x'.repeat(60000),                // oversized bookkeeping → flag
   gcal_cfg_v1: JSON.stringify({ clientId: 'c' }),
   return_theme_color: '#fff',
+  _bk_1778502000719_inbox_v1: 'y'.repeat(40000),         // orphaned backup → prunable
+  _bk_1778504826377_task_items_v1: 'z'.repeat(20000),    // orphaned backup → prunable
 });
 const before = JSON.stringify(store);
 
@@ -45,7 +47,7 @@ sandbox.localStorage = ls;
 sandbox._idbCache = { someOverflowKey: 'z'.repeat(1000) };
 vm.createContext(sandbox);
 vm.runInContext(block, sandbox);
-const { returnStorageReport, _storageClassifyKey } = sandbox;
+const { returnStorageReport, _storageClassifyKey, returnStoragePrune, _storageIsOrphanBackup } = sandbox;
 
 const t = runner('Storage report diagnostic');
 
@@ -74,5 +76,21 @@ t.ok('oversized-bookkeeping flagged', r.flags.some((f) => f.key === '__sync_conf
 
 // categories rolled up and sorted desc
 t.ok('categories sorted desc', r.categories.length >= 4 && r.categories.every((c, i) => i === 0 || r.categories[i - 1].kb >= c.kb), r.categories);
+
+// ── orphaned-backup prune ──
+t.ok('orphan matcher: _bk_ts_ matches', _storageIsOrphanBackup('_bk_1778502000719_inbox_v1') === true);
+t.ok('orphan matcher: live key never matches', !_storageIsOrphanBackup('inbox_v1') && !_storageIsOrphanBackup('task_items_v1') && !_storageIsOrphanBackup('_bk_partial'), 'guard');
+
+const beforePrune = JSON.stringify(store);
+const dry = returnStoragePrune(); // dry run
+t.ok('dry-run matches both backups', dry.matched === 2 && dry.applied === false, dry);
+t.ok('dry-run is read-only', JSON.stringify(store) === beforePrune);
+t.ok('dry-run reclaim > 0', dry.reclaimKB > 0, dry.reclaimKB);
+
+const applied = returnStoragePrune({ apply: true, archive: false }); // archive=false: no DOM in node
+t.ok('apply deletes both backups', applied.applied === true && applied.removed === 2);
+t.ok('backups gone from store', !('_bk_1778502000719_inbox_v1' in store) && !('_bk_1778504826377_task_items_v1' in store));
+t.ok('live keys untouched by prune', !!store.task_items_v1 && !!store.home_banner_v1 && !!store.return_media_sync_v1 && !!store.gcal_cfg_v1);
+t.ok('re-run prune is no-op', returnStoragePrune({ apply: true, archive: false }).matched === 0);
 
 t.done();

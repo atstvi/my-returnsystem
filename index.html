@@ -24657,6 +24657,66 @@ function returnStorageReport(verbose){
 }
 window.returnStorageReport=returnStorageReport;
 
+/* Orphaned-backup prune — reclaims stale `_bk_<timestamp>_<key>` snapshots.
+   These are leftovers from a retired auto-backup mechanism; NO current code
+   creates, reads, or references them (verified by grep), so they are pure
+   dead weight. They were the dominant localStorage consumer in the 194%
+   report.
+
+   Safety contract (absolute priority #1 — no data loss):
+     • dry-run by default: returnStoragePrune() only REPORTS, never mutates.
+     • scoped strictly to /^_bk_\d+_/ — live keys can never match.
+     • returnStoragePrune({apply:true}) downloads a consolidated JSON archive
+       of every pruned key BEFORE deleting, so even the backups are recoverable.
+       Pass {apply:true,archive:false} to skip the download. */
+function _storageIsOrphanBackup(k){ return /^_bk_\d+_/.test(k); }
+function returnStoragePrune(opts){
+  opts=opts||{};
+  var apply=!!opts.apply, archive=(opts.archive!==false);
+  var victims=[], bytes=0, archiveObj={_prunedAt:new Date().toISOString(),keys:{}};
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(!_storageIsOrphanBackup(k)) continue;
+      var v=localStorage.getItem(k)||'';
+      victims.push({key:k,kb:Math.round((k.length+v.length)*2/1024)});
+      bytes+=(k.length+v.length)*2;
+      archiveObj.keys[k]=v;
+    }
+  }catch(e){ console.error('[storage] prune scan failed:',e); return null; }
+  victims.sort(function(a,b){return b.kb-a.kb;});
+  var reclaimKB=Math.round(bytes/1024);
+  var plan={matched:victims.length,reclaimKB:reclaimKB,keys:victims,applied:false};
+
+  if(!apply){
+    console.group('[storage] returnStoragePrune (DRY RUN) — '+victims.length+' orphaned backups, '+reclaimKB+'KB reclaimable');
+    victims.forEach(function(x){console.log(x.kb+'KB  '+x.key);});
+    console.groupEnd();
+    if(victims.length) console.log('%cTo delete (archive auto-downloads first): returnStoragePrune({apply:true})','color:#16a085');
+    return plan;
+  }
+
+  // archive before deleting so nothing is irrecoverable
+  if(archive && victims.length){
+    try{
+      var blob=new Blob([JSON.stringify(archiveObj,null,2)],{type:'application/json'});
+      var url=URL.createObjectURL(blob), a=document.createElement('a');
+      a.href=url; a.download='return_pruned_backups_'+new Date().toISOString().slice(0,19).replace(/[:T]/g,'-')+'.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){URL.revokeObjectURL(url);},1000);
+      console.log('[storage] archived '+victims.length+' backup key(s) to download before deletion');
+    }catch(arErr){ console.error('[storage] archive failed — aborting prune to avoid data loss:',arErr); plan.error='archive-failed'; return plan; }
+  }
+
+  var removed=0;
+  victims.forEach(function(x){ try{ localStorage.removeItem(x.key); removed++; }catch(rmErr){ console.warn('[storage] failed to remove',x.key,rmErr); } });
+  plan.applied=true; plan.removed=removed;
+  console.log('%c[storage] pruned '+removed+' orphaned backup(s), reclaimed ~'+reclaimKB+'KB','color:#16a085;font-weight:bold');
+  try{ returnStorageReport(false); }catch(_e){}
+  return plan;
+}
+window.returnStoragePrune=returnStoragePrune;
+
 /* ── E2 FIX: Quota recovery for diary_entries_v1 ───────────────────────
    Diagnostic round captured 13 occurrences of
    `localStorage.setItem failed for diary_entries_v1 ... exceeded the quota`.
