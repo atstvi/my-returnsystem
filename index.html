@@ -9261,9 +9261,26 @@ function renderHomeSituation(){
           || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
           || '';
         var _avExisting = avatar.querySelector('img[data-return-media-src]');
-        if (!_avExisting || _avExisting.getAttribute('data-return-media-src') !== customAvatar) {
+        /* Guard: skip only when the same ref is already resolved (has src).
+           If src is empty the previous resolve attempt failed — re-attempt so
+           a later Firebase sync that populated the manifest gets applied. */
+        var _avResolved = _avExisting
+          && _avExisting.getAttribute('data-return-media-src') === customAvatar
+          && _avExisting.src;
+        if (!_avResolved) {
           avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
-          if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
+          var _avImg = avatar.querySelector('img[data-return-media-src]');
+          /* Immediately show fallback so avatar is never blank while async resolves */
+          if (_avImg && avatarFallback && !_avImg.src) _avImg.src = avatarFallback;
+          /* Async: upgrade to full quality; show emoji if resolution fails entirely */
+          if (typeof returnMediaResolveUrlWithFallback === 'function' && _avImg) {
+            returnMediaResolveUrlWithFallback(customAvatar, avatarFallback).then(function(url) {
+              if (url) { _avImg.src = url; }
+              else if (!_avImg.src && avatar.querySelector('img') === _avImg) {
+                avatar.textContent = defaultAvatar;
+              }
+            });
+          }
         }
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
         avatar.innerHTML = '<img src="' + customAvatar + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
@@ -28189,6 +28206,7 @@ var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routin
     var el=document.querySelector('#'+map[k]+' .tab-icon');
     if(el&&icons[k]){
       var _ti=el.querySelector('img[data-return-media-src]');
+      /* Skip only if same ref AND already resolved (has src) */
       if(!(_ti&&_ti.getAttribute('data-return-media-src')===icons[k]&&_ti.src))
         el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
     }
