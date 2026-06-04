@@ -18000,6 +18000,11 @@ function diaryAutoSave(key, el) {
       /* Update strip */
       renderStripEntries();
       renderStripDays();
+      /* Notion auto-sync: explicit call so typing always triggers sync regardless
+         of _afterWriteSideEffects chain state. Debounced inside queueDiaryNotionSave. */
+      if (typeof queueDiaryNotionSave === 'function') {
+        try { queueDiaryNotionSave(currentDate || TK); } catch(e) {}
+      }
     } else {
       if (saveDot) saveDot.className = 'save-dot saving';
       if (saveText) saveText.textContent = '저장 실패 — 저장공간 부족';
@@ -25088,10 +25093,10 @@ var _diaryNotionCfg={};
 function getNotionCfg(){
   var c={};
   try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
-  /* F2 fix: auto-sync defaults to ON when the user hasn't set it. The user
-     reported they expected diary edits to sync continuously without having
-     to press a button. We only treat an explicit `false` as off. */
-  if (c.autoSync === undefined) c.autoSync = true;
+  /* F2 fix: auto-sync defaults to ON unless explicitly set to false.
+     We only treat a literal boolean false as "off" — undefined/null/'' all
+     mean the user never explicitly disabled it, so treat as enabled. */
+  if (c.autoSync !== false) c.autoSync = true;
   return c;
 }
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
