@@ -9256,30 +9256,39 @@ function renderHomeSituation(){
     try {
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
-      if (customAvatar && typeof themeStudioIconMarkup === 'function') {
-        var avatarFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
-          || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
-          || '';
+      if (customAvatar && typeof isReturnMediaRef === 'function' && isReturnMediaRef(customAvatar)) {
         var _avExisting = avatar.querySelector('img[data-return-media-src]');
-        /* Guard: skip only when the same ref is already resolved (has src).
-           If src is empty the previous resolve attempt failed — re-attempt so
-           a later Firebase sync that populated the manifest gets applied. */
         var _avResolved = _avExisting
           && _avExisting.getAttribute('data-return-media-src') === customAvatar
           && _avExisting.src;
         if (!_avResolved) {
-          avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
-          var _avImg = avatar.querySelector('img[data-return-media-src]');
-          /* Immediately show fallback so avatar is never blank while async resolves */
-          if (_avImg && avatarFallback && !_avImg.src) _avImg.src = avatarFallback;
-          /* Async: upgrade to full quality; show emoji if resolution fails entirely */
-          if (typeof returnMediaResolveUrlWithFallback === 'function' && _avImg) {
-            returnMediaResolveUrlWithFallback(customAvatar, avatarFallback).then(function(url) {
-              if (url) { _avImg.src = url; }
-              else if (!_avImg.src && avatar.querySelector('img') === _avImg) {
-                avatar.textContent = defaultAvatar;
-              }
-            });
+          var _avFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
+            || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
+            || '';
+          if (_avFallback) {
+            /* Fallback available — render image synchronously, no async gap */
+            var _avEsc = _avFallback.replace(/"/g, '&quot;');
+            var _avRefEsc = customAvatar.replace(/"/g, '&quot;');
+            avatar.innerHTML = '<img src="' + _avEsc + '" data-return-media-src="' + _avRefEsc + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" onerror="this.parentNode.textContent=\'' + defaultAvatar.replace(/'/g,"\\'") + '\'">';
+          } else {
+            /* No fallback — show emoji immediately, then upgrade async if image resolves */
+            avatar.textContent = defaultAvatar;
+            if (typeof returnMediaResolveUrlWithFallback === 'function') {
+              var _avRef = customAvatar;
+              var _avDefault = defaultAvatar;
+              returnMediaResolveUrlWithFallback(_avRef, '').then(function(url) {
+                if (!url) return;
+                /* Only apply if this avatar ref is still current */
+                try {
+                  var _cur = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}');
+                  if ((_cur.icons && _cur.icons.avatar) !== _avRef) return;
+                } catch(e) {}
+                if (!avatar.querySelector('img[data-return-media-src="' + _avRef + '"]')) {
+                  var _avRefEsc2 = _avRef.replace(/"/g, '&quot;');
+                  avatar.innerHTML = '<img src="' + url + '" data-return-media-src="' + _avRefEsc2 + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit" onerror="this.parentNode.textContent=\'' + _avDefault.replace(/'/g,"\\'") + '\'">';
+                }
+              });
+            }
           }
         }
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
