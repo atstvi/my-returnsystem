@@ -23833,6 +23833,12 @@ function fbApplyCloudSettings(doc){
       if(k==='diary_notion_cfg'){
         var incoming=JSON.parse(v||'{}'), local=getNotionCfg();
         if(local.token)incoming.token=local.token;
+        /* F3: normalize autoSync to true. The source bug (syncDiaryToNotion calling
+           saveNotionConfig for auto-triggered syncs) has been fixed, but any
+           existing false values in the cloud must be cleared. autoSync is a
+           UI preference that defaults to on; the user can disable it explicitly
+           from the settings form and that action re-saves correctly. */
+        incoming.autoSync=true;
         wv=JSON.stringify(incoming);
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
@@ -26187,7 +26193,12 @@ async function syncDiaryToNotion(dateKey, opts){
      and survive the re-write. Callers may still pass pullFirst:false for the
      rare case where Return must truly clobber Notion. */
   if(opts.pullFirst==null) opts.pullFirst=true;
-  saveNotionConfig(!!opts.silent);
+  /* Auto-triggered syncs (from typing / queueDiaryNotionSave) must NOT call
+     saveNotionConfig: the settings form may not be open, so reading the DOM
+     could silently save autoSync:false (unchecked default) and permanently
+     disable auto-sync. Manual saves read the form intentionally. */
+  if(!opts.auto) saveNotionConfig(!!opts.silent);
+  if(!_diaryNotionCfg||!_diaryNotionCfg.workerUrl)_diaryNotionCfg=getNotionCfg();
   var cfg=_diaryNotionCfg;
   dateKey=dateKey||currentDate||TK;
   /* If we're on today's diary screen, commit unsaved input first */
@@ -28220,9 +28231,28 @@ var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routin
         el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
     }
   });
-  document.querySelectorAll('.auth-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
-  document.querySelectorAll('.sb-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
-  document.querySelectorAll('.sit-avatar').forEach(function(el){if(icons.avatar)el.innerHTML=themeStudioIconMarkup(icons.avatar,iconFallback('avatar'));});
+  (function(){
+    if(!icons.app)return;
+    var _fb=iconFallback('app');
+    document.querySelectorAll('.auth-logo,.sb-logo').forEach(function(el){
+      if(_fb){
+        el.innerHTML=themeStudioIconMarkup(icons.app,_fb);
+      } else if(isReturnMediaRef(icons.app)){
+        /* No sync fallback — show 'R' immediately, replace when IDB resolves */
+        el.textContent='R';
+        (function(_el,_ref){
+          returnMediaResolveUrlWithFallback(_ref,'').then(function(url){
+            if(url)_el.innerHTML='<img src="'+themeStudioEsc(url)+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
+          });
+        })(el,icons.app);
+      } else {
+        el.innerHTML=themeStudioIconMarkup(icons.app,'R');
+      }
+    });
+  })();
+  /* .sit-avatar is exclusively managed by renderHomeSituation which has its own
+     sync+async resolution path. Writing here races with that function and causes
+     a no-src <img> to overwrite the emoji fallback, resulting in a blank circle. */
   themeStudioApplyFavicon(icons.app||'R',iconFallback('app'));
   themeStudioResolveMediaPreviews(document.body);
 }
