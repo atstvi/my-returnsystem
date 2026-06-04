@@ -248,5 +248,41 @@ const t = runner('Stage 6c — entity dual-write + migration');
     t.ok('_eid stamp: memos key in changedKeys', mr.changedKeys && mr.changedKeys.indexOf('memos_v5') >= 0, mr);
   }
 
+  // ════════════════════════════════════════════════════════════════════════
+  // _returnResyncEidShadow: after a merge, shadow is updated so the next
+  // dual-write does not spuriously re-stamp already-seen entities.
+  // ════════════════════════════════════════════════════════════════════════
+  const { _returnResyncEidShadow } = sandbox;
+
+  // array type: shadow = {_eid: payloadHash}
+  {
+    delete store['__eid_shadow_tasks'];
+    const merged = [
+      { _eid: 't_1', title: 'A', updatedAt: 100 },
+      { _eid: 't_2', title: 'B', updatedAt: 200 },
+      { title: 'no-eid', updatedAt: 0 },  // no _eid → not included in shadow
+    ];
+    _returnResyncEidShadow('tasks', merged, 'array', 't_');
+    const shadow = JSON.parse(store['__eid_shadow_tasks'] || '{}');
+    t.ok('resync shadow: array has t_1 entry', 't_1' in shadow, Object.keys(shadow));
+    t.ok('resync shadow: array has t_2 entry', 't_2' in shadow, Object.keys(shadow));
+    t.ok('resync shadow: no-eid item not in shadow', !Object.keys(shadow).some((k) => shadow[k] === 'no-eid'), shadow);
+    t.ok('resync shadow: shadow values are hashes (non-empty strings)', typeof shadow['t_1'] === 'string' && shadow['t_1'].length > 0, shadow['t_1']);
+  }
+
+  // object type (diary): shadow = {eid: 1}
+  {
+    delete store['__eid_shadow_diary'];
+    const mergedDiary = {
+      '2026-03-01': { _eid: 'diary_2026-03-01', text: 'x', updatedAt: 1 },
+      '2026-03-02': { text: 'no-eid-day', updatedAt: 2 },  // fallback: prefix+dateKey
+    };
+    _returnResyncEidShadow('diary', mergedDiary, 'object', 'diary_');
+    const dshadow = JSON.parse(store['__eid_shadow_diary'] || '{}');
+    t.ok('resync shadow: diary eid entry present', 'diary_2026-03-01' in dshadow, Object.keys(dshadow));
+    t.ok('resync shadow: diary fallback eid present', 'diary_2026-03-02' in dshadow, Object.keys(dshadow));
+    t.ok('resync shadow: diary values are 1', dshadow['diary_2026-03-01'] === 1, dshadow);
+  }
+
   t.done();
 })();
