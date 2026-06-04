@@ -9257,15 +9257,31 @@ function renderHomeSituation(){
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
       if (customAvatar && typeof themeStudioIconMarkup === 'function') {
-        /* Use the stored base64 fallback (iconFallbacks.avatar) so the image
-           displays on devices that don't have this asset in their IndexedDB.
-           Falls back to themeStudioMediaFallbackForUrl (asset list lookup) or
-           the emoji only as a last resort. */
         var avatarFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
           || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
           || '';
-        avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
-        if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
+        var _avExisting = avatar.querySelector('img[data-return-media-src]');
+        /* Guard: skip only when the same ref is already resolved (has src).
+           If src is empty the previous resolve attempt failed — re-attempt so
+           a later Firebase sync that populated the manifest gets applied. */
+        var _avResolved = _avExisting
+          && _avExisting.getAttribute('data-return-media-src') === customAvatar
+          && _avExisting.src;
+        if (!_avResolved) {
+          avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
+          var _avImg = avatar.querySelector('img[data-return-media-src]');
+          /* Immediately show fallback so avatar is never blank while async resolves */
+          if (_avImg && avatarFallback && !_avImg.src) _avImg.src = avatarFallback;
+          /* Async: upgrade to full quality; show emoji if resolution fails entirely */
+          if (typeof returnMediaResolveUrlWithFallback === 'function' && _avImg) {
+            returnMediaResolveUrlWithFallback(customAvatar, avatarFallback).then(function(url) {
+              if (url) { _avImg.src = url; }
+              else if (!_avImg.src && avatar.querySelector('img') === _avImg) {
+                avatar.textContent = defaultAvatar;
+              }
+            });
+          }
+        }
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
         avatar.innerHTML = '<img src="' + customAvatar + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
       } else {
@@ -18001,6 +18017,11 @@ function diaryAutoSave(key, el) {
       /* Update strip */
       renderStripEntries();
       renderStripDays();
+      /* Notion auto-sync: explicit call so typing always triggers sync regardless
+         of _afterWriteSideEffects chain state. Debounced inside queueDiaryNotionSave. */
+      if (typeof queueDiaryNotionSave === 'function') {
+        try { queueDiaryNotionSave(currentDate || TK); } catch(e) {}
+      }
     } else {
       if (saveDot) saveDot.className = 'save-dot saving';
       if (saveText) saveText.textContent = '저장 실패 — 저장공간 부족';
@@ -25089,10 +25110,10 @@ var _diaryNotionCfg={};
 function getNotionCfg(){
   var c={};
   try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
-  /* F2 fix: auto-sync defaults to ON when the user hasn't set it. The user
-     reported they expected diary edits to sync continuously without having
-     to press a button. We only treat an explicit `false` as off. */
-  if (c.autoSync === undefined) c.autoSync = true;
+  /* F2 fix: auto-sync defaults to ON unless explicitly set to false.
+     We only treat a literal boolean false as "off" — undefined/null/'' all
+     mean the user never explicitly disabled it, so treat as enabled. */
+  if (c.autoSync !== false) c.autoSync = true;
   return c;
 }
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
@@ -28183,7 +28204,12 @@ function themeStudioApplyIcons(state){
 var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routine',tasks:'tab-tasks',projects:'tab-projects',schedule:'tab-schedule',hobby:'tab-hobby',music:'tab-music',recharge:'tab-recharge',records:'tab-records',settings:'tab-settings'};
   Object.keys(map).forEach(function(k){
     var el=document.querySelector('#'+map[k]+' .tab-icon');
-    if(el&&icons[k])el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
+    if(el&&icons[k]){
+      var _ti=el.querySelector('img[data-return-media-src]');
+      /* Skip only if same ref AND already resolved (has src) */
+      if(!(_ti&&_ti.getAttribute('data-return-media-src')===icons[k]&&_ti.src))
+        el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
+    }
   });
   document.querySelectorAll('.auth-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
   document.querySelectorAll('.sb-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
@@ -28347,7 +28373,8 @@ function themeStudioResolveMediaPreviews(root){
   root.querySelectorAll('[data-return-media-src]').forEach(function(img){
     var ref=img.getAttribute('data-return-media-src')||'';
     var fallback=img.getAttribute('data-return-media-fallback')||themeStudioMediaFallbackForUrl(ref)||'';
-    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else img.classList.add('is-missing-media');});
+    if(fallback&&!img.src)img.src=fallback;
+    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else if(!img.src)img.classList.add('is-missing-media');});
   });
   root.querySelectorAll('[data-return-media-bg]').forEach(function(el){
     var ref=el.getAttribute('data-return-media-bg')||'';
