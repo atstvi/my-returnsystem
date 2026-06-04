@@ -28366,7 +28366,11 @@ function themeStudioEnsureMediaFallbacks(){
   Promise.all(jobs).then(function(){
     if(changed)themeStudioSaveAssets(list);
     var cur=themeStudioGet(), dirty=false;
-    function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return a&&(a.syncDataUrl||a.dataUrl)||'';}
+    /* After Stage 4 migration strips syncDataUrl from asset records, a.syncDataUrl
+       is gone. Check the manifest (mediaSyncResolve) so iconFallbacks still gets
+       populated, themeStudioApply is re-called, and icons render without waiting
+       for an IDB async round-trip. */
+    function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return (a&&(a.syncDataUrl||a.dataUrl))||mediaSyncResolve(ref)||'';}
     themeStudioEnsureIconsState(cur);
     Object.keys(cur.icons||{}).forEach(function(k){
       var v=cur.icons[k], fb=fallbackFor(v);
@@ -28386,7 +28390,15 @@ function themeStudioEnsureMediaFallbacks(){
     if(cur.banner&&cur.banner.hobbyImage&&!cur.banner.hobbySyncDataUrl){
       var hobfb=fallbackFor(cur.banner.hobbyImage);if(hobfb){cur.banner.hobbySyncDataUrl=hobfb;dirty=true;}
     }
-    if(dirty){themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);themeStudioApply(cur);}
+    if(dirty){
+      themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);
+      themeStudioApply(cur);
+      /* Avatar (.sit-avatar) is managed by renderHomeSituation, which reads
+         iconFallbacks from localStorage at call time. Now that iconFallbacks is
+         populated, trigger a re-render so the avatar switches from emoji to the
+         actual image without requiring a navigation. */
+      try{if(typeof renderHomeSituation==='function')renderHomeSituation();}catch(_e){}
+    }
     try{if(changed||dirty){if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)fbSaveCloudSettings(fbDb.collection('users').doc(fbUser.uid));if(typeof fbSaveAll==='function')fbSaveAll();}}catch(e){}
   }).finally(function(){_themeStudioFallbackRepairRunning=false;});
 }
