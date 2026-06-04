@@ -23690,6 +23690,22 @@ async function fbEntityMergeIntoLocal(ref){
     var spec=RETURN_ENTITY_COLLECTIONS[s];
     var raw=null; try{ raw=localStorage.getItem(spec.key); }catch(_e){ raw=null; }
     var parsed; try{ parsed=JSON.parse(raw||(spec.type==='object'?'{}':'[]')); }catch(_e){ parsed=spec.type==='object'?{}:[]; }
+    /* Stamp _eid onto array items that have id/no _eid before merging.
+       Items without _eid are passthrough in returnEntityMergeArray and
+       cannot be matched against cloud docs — so cloud copies get adopted
+       as duplicates. Stamping here uses the same derivation as
+       fbEntityBuildDocs so the ids are stable and consistent. */
+    if(spec.type==='array'&&Array.isArray(parsed)){
+      var _sd={};
+      for(var _si=0;_si<parsed.length;_si++){
+        var _si_it=parsed[_si]; if(!_si_it||typeof _si_it!=='object'||_si_it._eid)continue;
+        var _si_id;
+        if(_si_it.id!=null&&String(_si_it.id)!==''){ _si_id=spec.prefix+String(_si_it.id); }
+        else{ _si_id=spec.prefix+'h'+_entityPayloadHash(_si_it); }
+        if(_sd[_si_id]!=null){ _si_id=_si_id+'__dup'+(++_sd[_si_id]); }else{ _sd[_si_id]=0; }
+        _si_it._eid=_si_id;
+      }
+    }
     var r=(spec.type==='object')
       ? returnEntityMergeObject(parsed, cloud[spec.collection], tombs, spec.collection, spec.prefix)
       : returnEntityMergeArray(parsed, cloud[spec.collection], tombs, spec.collection);
