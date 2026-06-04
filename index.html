@@ -28170,7 +28170,11 @@ function themeStudioIconMarkup(value,fallback){
   if(isReturnMediaRef(value)){
     var mediaFallback=themeStudioMediaFallbackForUrl(value);
     if(!mediaFallback&&isReturnDisplayableImageUrl(fallback))mediaFallback=fallback;
-    return '<img data-return-media-src="'+themeStudioEsc(value)+'"'+(mediaFallback?' data-return-media-fallback="'+themeStudioEsc(mediaFallback)+'"':'')+' alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
+    /* Set src= to the fallback immediately so the image renders on first paint.
+       Without this, browsers return the document URL for img.src when no src
+       attribute is present — making !img.src truthy-false and causing the sync
+       fallback path in themeStudioResolveMediaPreviews to silently skip. */
+    return '<img'+(mediaFallback?' src="'+themeStudioEsc(mediaFallback)+'"':'')+' data-return-media-src="'+themeStudioEsc(value)+'"'+(mediaFallback?' data-return-media-fallback="'+themeStudioEsc(mediaFallback)+'"':'')+' alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
   }
   if(/^data:image|^blob:|^https?:|^media:/.test(value))return '<img src="'+themeStudioEsc(value)+'" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
   return themeStudioEsc(value);
@@ -28446,8 +28450,10 @@ function themeStudioResolveMediaPreviews(root){
   root.querySelectorAll('[data-return-media-src]').forEach(function(img){
     var ref=img.getAttribute('data-return-media-src')||'';
     var fallback=img.getAttribute('data-return-media-fallback')||themeStudioMediaFallbackForUrl(ref)||'';
-    if(fallback&&!img.src)img.src=fallback;
-    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else if(!img.src)img.classList.add('is-missing-media');});
+    /* Use getAttribute('src') not img.src: a src-less <img> returns the document
+       URL for img.src (truthy), which would silently skip the fallback assignment. */
+    if(fallback&&!img.getAttribute('src'))img.src=fallback;
+    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else if(!img.getAttribute('src'))img.classList.add('is-missing-media');});
   });
   root.querySelectorAll('[data-return-media-bg]').forEach(function(el){
     var ref=el.getAttribute('data-return-media-bg')||'';
