@@ -9257,15 +9257,14 @@ function renderHomeSituation(){
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
       if (customAvatar && typeof themeStudioIconMarkup === 'function') {
-        /* Use the stored base64 fallback (iconFallbacks.avatar) so the image
-           displays on devices that don't have this asset in their IndexedDB.
-           Falls back to themeStudioMediaFallbackForUrl (asset list lookup) or
-           the emoji only as a last resort. */
         var avatarFallback = (themeState.iconFallbacks && themeState.iconFallbacks.avatar)
           || (typeof themeStudioMediaFallbackForUrl === 'function' ? themeStudioMediaFallbackForUrl(customAvatar) : '')
           || '';
-        avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
-        if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
+        var _avExisting = avatar.querySelector('img[data-return-media-src]');
+        if (!_avExisting || _avExisting.getAttribute('data-return-media-src') !== customAvatar) {
+          avatar.innerHTML = themeStudioIconMarkup(customAvatar, avatarFallback);
+          if (typeof themeStudioResolveMediaPreviews === 'function') themeStudioResolveMediaPreviews(avatar);
+        }
       } else if (customAvatar && /^data:image|^blob:|^https?:/.test(customAvatar)) {
         avatar.innerHTML = '<img src="' + customAvatar + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
       } else {
@@ -28183,7 +28182,11 @@ function themeStudioApplyIcons(state){
 var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routine',tasks:'tab-tasks',projects:'tab-projects',schedule:'tab-schedule',hobby:'tab-hobby',music:'tab-music',recharge:'tab-recharge',records:'tab-records',settings:'tab-settings'};
   Object.keys(map).forEach(function(k){
     var el=document.querySelector('#'+map[k]+' .tab-icon');
-    if(el&&icons[k])el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
+    if(el&&icons[k]){
+      var _ti=el.querySelector('img[data-return-media-src]');
+      if(!(_ti&&_ti.getAttribute('data-return-media-src')===icons[k]&&_ti.src))
+        el.innerHTML=themeStudioIconMarkup(icons[k],iconFallback(k));
+    }
   });
   document.querySelectorAll('.auth-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
   document.querySelectorAll('.sb-logo').forEach(function(el){if(icons.app)el.innerHTML=themeStudioIconMarkup(icons.app,iconFallback('app')||'R');});
@@ -28347,7 +28350,8 @@ function themeStudioResolveMediaPreviews(root){
   root.querySelectorAll('[data-return-media-src]').forEach(function(img){
     var ref=img.getAttribute('data-return-media-src')||'';
     var fallback=img.getAttribute('data-return-media-fallback')||themeStudioMediaFallbackForUrl(ref)||'';
-    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else img.classList.add('is-missing-media');});
+    if(fallback&&!img.src)img.src=fallback;
+    returnMediaResolveUrlWithFallback(ref,fallback).then(function(url){if(url)img.src=url;else if(!img.src)img.classList.add('is-missing-media');});
   });
   root.querySelectorAll('[data-return-media-bg]').forEach(function(el){
     var ref=el.getAttribute('data-return-media-bg')||'';
