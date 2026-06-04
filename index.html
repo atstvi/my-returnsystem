@@ -12500,9 +12500,12 @@ function setReturnStorageItem(key,value){
       if(typeof fbSaveAll==='function')try{fbSaveAll();}catch(e){}
     }
     if(key==='task_items_v1'&&typeof gcalQueueAutoSync==='function')try{gcalQueueAutoSync();}catch(e){}
-    /* Notion diary auto-save: only when not already mid-sync to prevent re-entry loops.
-       _notionSyncActive is set by syncDiaryToNotion while it is in progress. */
-    if(key==='diary_entries_v1'&&!window._notionSyncActive&&typeof queueDiaryNotionSave==='function'){
+    /* Notion diary auto-save: guard against re-entry from both push and pull.
+       _notionSyncActive: set by syncDiaryToNotion (push in progress).
+       _notionPullActive: set by pullDiaryFromNotion (pull writing to storage).
+       Without the pull guard, a scheduled pull writes diary_entries_v1, which
+       triggers this code, which queues a push, closing the feedback loop. */
+    if(key==='diary_entries_v1'&&!window._notionSyncActive&&!window._notionPullActive&&typeof queueDiaryNotionSave==='function'){
       try{queueDiaryNotionSave(typeof currentDate!=='undefined'?currentDate||null:null);}catch(e){}
     }
   }
@@ -26181,9 +26184,11 @@ function _pullDiaryPageProperties(page, dateKey, cfg){
 
 async function syncDiaryToNotion(dateKey, opts){
   opts=opts||{};
-  /* Guard flag: prevents setReturnStorageItem's _afterWriteSideEffects from
-     re-queuing queueDiaryNotionSave while this function is already running,
-     which would cause an infinite sync loop when saveAll() is called mid-sync. */
+  /* Re-entrancy guard: if a previous instance is still mid-flight, bail.
+     Concurrent instances each write diary_entries_v1 at the end, which triggers
+     _afterWriteSideEffects → queueDiaryNotionSave → a new syncDiaryToNotion
+     → infinite loop with Firebase quota exhaustion. */
+  if(window._notionSyncActive) return;
   window._notionSyncActive = true;
   try {
   /* Default to bidirectional sync. The previous "비상시 동기화" path used
@@ -26342,6 +26347,17 @@ async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElem
    directly in Notion and wants to see it in the app. */
 async function pullDiaryFromNotion(dateKey, opts){
   opts=opts||{};
+  /* Skip auto-pulls if the user is currently typing (saveTimer is pending) or
+     if a push sync is already running. Overwriting an in-progress edit with
+     Notion content causes the "diary scrolls back" symptom. Manual pulls
+     (opts.auto falsy) always proceed so the user's explicit action is honoured. */
+  if(opts.auto && (window._notionSyncActive || (typeof saveTimer!=='undefined' && saveTimer))){
+    return;
+  }
+  /* Re-entrancy guard: prevent the pull itself from stacking. */
+  if(window._notionPullActive) return;
+  window._notionPullActive = true;
+  try {
   saveNotionConfig(true);
   var cfg=_diaryNotionCfg;
   dateKey=dateKey||currentDate||TK;
@@ -26387,6 +26403,9 @@ async function pullDiaryFromNotion(dateKey, opts){
     if(st)st.textContent='가져오기 실패: '+e.message;
     if(row)row.setAttribute('data-state','err');
     if(!opts.silent)showToast('Notion 가져오기 실패: '+e.message);
+  }
+  } finally {
+    window._notionPullActive = false;
   }
 }
 async function diaryAutoDetectProps(){
@@ -26500,6 +26519,9 @@ function scheduleDiaryAutoSync(){
         await runDiaryAiTimeline(today,true);
         localStorage.setItem(dailyKey,'1');
       }else{
+        /* auto:true — pullDiaryFromNotion will skip if _notionSyncActive or
+           saveTimer is set, preventing pull-overwrites-typed-content and the
+           pull→_afterWriteSideEffects→push feedback loop. */
         await pullDiaryFromNotion(currentDate||today,{silent:true,auto:true,reason:'interval'});
       }
     }catch(e){
@@ -28344,7 +28366,11 @@ function themeStudioEnsureMediaFallbacks(){
   Promise.all(jobs).then(function(){
     if(changed)themeStudioSaveAssets(list);
     var cur=themeStudioGet(), dirty=false;
-    function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return a&&(a.syncDataUrl||a.dataUrl)||'';}
+    /* After Stage 4 migration strips syncDataUrl from asset records, a.syncDataUrl
+       is gone. Check the manifest (mediaSyncResolve) so iconFallbacks still gets
+       populated, themeStudioApply is re-called, and icons render without waiting
+       for an IDB async round-trip. */
+    function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return (a&&(a.syncDataUrl||a.dataUrl))||mediaSyncResolve(ref)||'';}
     themeStudioEnsureIconsState(cur);
     Object.keys(cur.icons||{}).forEach(function(k){
       var v=cur.icons[k], fb=fallbackFor(v);
@@ -28364,7 +28390,15 @@ function themeStudioEnsureMediaFallbacks(){
     if(cur.banner&&cur.banner.hobbyImage&&!cur.banner.hobbySyncDataUrl){
       var hobfb=fallbackFor(cur.banner.hobbyImage);if(hobfb){cur.banner.hobbySyncDataUrl=hobfb;dirty=true;}
     }
-    if(dirty){themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);themeStudioApply(cur);}
+    if(dirty){
+      themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);
+      themeStudioApply(cur);
+      /* Avatar (.sit-avatar) is managed by renderHomeSituation, which reads
+         iconFallbacks from localStorage at call time. Now that iconFallbacks is
+         populated, trigger a re-render so the avatar switches from emoji to the
+         actual image without requiring a navigation. */
+      try{if(typeof renderHomeSituation==='function')renderHomeSituation();}catch(_e){}
+    }
     try{if(changed||dirty){if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)fbSaveCloudSettings(fbDb.collection('users').doc(fbUser.uid));if(typeof fbSaveAll==='function')fbSaveAll();}}catch(e){}
   }).finally(function(){_themeStudioFallbackRepairRunning=false;});
 }
@@ -29282,6 +29316,11 @@ try {
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
   if (typeof themeStudioApply === 'function') themeStudioApply(themeStudioGet());
+  /* Run the media-fallback repair immediately at boot so icons backed by the
+     dedup manifest (return_media_sync_v1) show on first render, before Firebase
+     sync completes. On sessions where the manifest is already in localStorage
+     the Promise.all resolves in the next microtask and icons appear instantly. */
+  if (typeof themeStudioEnsureMediaFallbacks === 'function') { try { themeStudioEnsureMediaFallbacks(); } catch(_){} }
   /* Proactive quota check on every boot — only logs if ≥80% used. */
   try { returnStorageReport(false); } catch(_){}
   /* Prune suppression entries older than 30 days to prevent unbounded growth. */
