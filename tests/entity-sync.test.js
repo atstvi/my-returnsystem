@@ -197,5 +197,56 @@ const t = runner('Stage 6c — entity dual-write + migration');
   t.ok('fbEntityBuildDocs no longer mints returnNewId() inline',
     !/function fbEntityBuildDocs[\s\S]*?returnNewId\(/.test(html.slice(html.indexOf('function fbEntityBuildDocs'), html.indexOf('function fbEntityBuildDocs') + 1200)));
 
+  // ════════════════════════════════════════════════════════════════════════
+  // Regression: fbEntityMergeIntoLocal must NOT inflate array collections
+  // when local items have id but no _eid.
+  //
+  // Root cause: returnEntityMergeArray passthroughs items without _eid
+  // instead of matching them against cloud docs. Without the pre-merge
+  // _eid stamp, a 36-memo array + 36-doc cloud mirror → 72 merged items.
+  // Fix: fbEntityMergeIntoLocal stamps _eids (using same derivation as
+  // fbEntityBuildDocs) before calling returnEntityMergeArray.
+  // ════════════════════════════════════════════════════════════════════════
+  {
+    // Set up: 3 local memos without _eid (id-bearing + id-less)
+    // Local has higher updatedAt so local wins LWW → returned item retains
+    // the stamped _eid (cloud payload would strip envelope fields including _eid)
+    const mergeLocalMemos = [
+      { id: 1001, text: 'memo A', ts: 100, updatedAt: 500 },
+      { id: 1002, text: 'memo B', ts: 200, updatedAt: 500 },
+      { text: 'memo C (no id)', ts: 300, updatedAt: 500 },
+    ];
+    store['memos_v5'] = JSON.stringify(mergeLocalMemos);
+
+    // Set up matching cloud entity mirror docs (same 3 memos, older updatedAt)
+    const memoH = (it) => {
+      const env = ['_eid','updatedAt','createdAt','deletedAt','schemaVersion','_rev','modifiedBy'];
+      const c = {}; Object.keys(it).forEach((k) => { if(env.indexOf(k)<0) c[k]=it[k]; });
+      const s = JSON.stringify(c); let h = 7; for (let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0;
+      return 'H'+s.length+'_'+h;
+    };
+    // Clear memo mirror region and write matching cloud docs
+    Object.keys(fsStore).forEach((k) => { if (k.indexOf('/entities/memos/') >= 0) delete fsStore[k]; });
+    delete store['__entity_wshadow_memos'];
+    fsStore['users/u1/entities/memos/items/memo_1001'] = { _eid:'memo_1001', collection:'memos', payload:{id:1001,text:'memo A',ts:100,updatedAt:100}, updatedAt:100 };
+    fsStore['users/u1/entities/memos/items/memo_1002'] = { _eid:'memo_1002', collection:'memos', payload:{id:1002,text:'memo B',ts:200,updatedAt:200}, updatedAt:200 };
+    const hC = 'memo_h' + memoH({ text:'memo C (no id)', ts:300 });
+    fsStore['users/u1/entities/memos/items/'+hC] = { _eid:hC, collection:'memos', payload:{text:'memo C (no id)',ts:300,updatedAt:300}, updatedAt:300 };
+
+    // Wire up remaining stubs fbEntityMergeIntoLocal needs
+    sandbox.RETURN_SYNC_MODEL = 'entity';
+    sandbox._rawSetItem = (k, v) => { store[k] = String(v); };
+    sandbox._applyingFbData = false;
+
+    const { fbEntityMergeIntoLocal } = sandbox;
+    const mr = await fbEntityMergeIntoLocal(ref);
+
+    const afterMerge = JSON.parse(store['memos_v5'] || '[]');
+    t.ok('_eid stamp: no inflation — merged count === local count (3)', afterMerge.length === 3, afterMerge.length);
+    t.ok('_eid stamp: id-bearing item got _eid assigned', afterMerge.some((m) => m.id === 1001 && m._eid === 'memo_1001'), afterMerge.map((m)=>m._eid));
+    t.ok('_eid stamp: id-less item got hash _eid assigned', afterMerge.some((m) => m.text === 'memo C (no id)' && m._eid === hC), afterMerge.map((m)=>m._eid));
+    t.ok('_eid stamp: memos key in changedKeys', mr.changedKeys && mr.changedKeys.indexOf('memos_v5') >= 0, mr);
+  }
+
   t.done();
 })();
