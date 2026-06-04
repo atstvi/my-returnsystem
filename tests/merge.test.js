@@ -70,6 +70,21 @@ t.ok('diary new cloud date adopted', dr.merged['2026-01-02'] && dr.merged['2026-
 dr = returnEntityMergeObject({ '2026-01-03': { _eid: 'diary_2026-01-03', text: 'old', updatedAt: 100 } }, {}, { 'diary_2026-01-03': { deletedAt: 200 } }, 'diary', 'diary_');
 t.ok('diary date suppressed by tombstone', !dr.merged['2026-01-03'], dr.merged);
 
+// §7.8 extension — legacy diary entries lacking _eid use prefix+dateKey fallback
+// (mirrors the `e._eid || (prefix+dk)` path in returnEntityMergeObject)
+dr = returnEntityMergeObject(
+  { '2026-02-01': { text: 'no-eid-local', updatedAt: 50 } },   // no _eid
+  { 'diary_2026-02-01': { _eid: 'diary_2026-02-01', payload: { text: 'cloud', updatedAt: 200 }, updatedAt: 200 } },
+  {}, 'diary', 'diary_');
+t.ok('legacy diary (no _eid) matched via prefix+dateKey — no inflation', Object.keys(dr.merged).length === 1, Object.keys(dr.merged));
+t.ok('legacy diary (no _eid): cloud newer wins LWW', dr.merged['2026-02-01'] && dr.merged['2026-02-01'].text === 'cloud', dr.merged['2026-02-01']);
+
+// local-only diary entry (no cloud counterpart) kept as-is
+dr = returnEntityMergeObject(
+  { '2026-02-02': { text: 'local-only', updatedAt: 100 } },
+  {}, {}, 'diary', 'diary_');
+t.ok('local-only diary entry (no _eid) preserved', dr.merged['2026-02-02'] && dr.merged['2026-02-02'].text === 'local-only', dr.merged);
+
 // conflict ring buffer cap 50
 const big = []; for (let i = 0; i < 60; i++) big.push({ collection: 'tasks', _eid: 'x' + i });
 returnEntityLogConflicts(big);
