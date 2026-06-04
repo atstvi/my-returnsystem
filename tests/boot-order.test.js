@@ -38,6 +38,7 @@ t.ok('task_items_v1 still syncs (regex fallback)', r3 === true);
 t.ok('gcal_cfg_v1 excluded', r4 === false);
 t.ok('unknown key not synced', r5 === false);
 t.ok('falsy key → false', shouldFbSyncKey('') === false && shouldFbSyncKey(null) === false);
+t.ok('return_sync_model not synced (device-local flag)', shouldFbSyncKey('return_sync_model') === false);
 
 // once the arrays ARE assigned, explicit membership still works
 sandbox.CLOUD_SETTING_KEYS = ['notif_interval'];

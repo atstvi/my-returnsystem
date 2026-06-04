@@ -23151,7 +23151,9 @@ var SyncManager=(function(){
 })();
 function shouldFbSyncKey(k){
   if(!k)return false;
-  if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id'].indexOf(k)>=0)return false;
+  if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id',
+      'return_sync_model' /* device-local feature flag — each device opts in/out independently */
+     ].indexOf(k)>=0)return false;
   /* Null-safe against boot ordering: a #settings deep-link runs goPage() during
      initial parse, which can persist (theme/cats) BEFORE the module-level
      CLOUD_SETTING_KEYS / FB_DATA_KEYS arrays are assigned further down the file.
@@ -23910,7 +23912,12 @@ function fbApplyData(data){
   var timetableRepairAfterFbApply = 0;
   try {
     var _fbWriter = (typeof _rawSetItem === 'function') ? _rawSetItem : localStorage.setItem.bind(localStorage);
+    /* Keys that must never be overwritten from a cloud blob — they are device-local
+       flags. Blobs written before this fix may still carry them; skip on apply so
+       a cloud value of e.g. 'entity' cannot re-enable entity mode on reload. */
+    var _fbApplySkip = {'return_sync_model': true};
     Object.keys(data.keys).forEach(function(k){
+      if(_fbApplySkip[k]) return;
       try{
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
