@@ -12282,7 +12282,7 @@ window.returnStampUpdate=returnStampUpdate;
    a bug here cannot lose data; worst case is a wrong timestamp that no code
    reads. The legacy numeric `id` is never touched.
    ════════════════════════════════════════════════════════════════════════ */
-var RETURN_SYNC_MODEL=(function(){ try{return localStorage.getItem('return_sync_model')||'legacy';}catch(e){return 'legacy';} })();
+var RETURN_SYNC_MODEL=(function(){ try{return localStorage.getItem('return_sync_model')||'entity';}catch(e){return 'entity';} })();
 var RETURN_ENVELOPE_FIELDS=['_eid','updatedAt','createdAt','deletedAt','schemaVersion','_rev','modifiedBy'];
 
 /* Assign `_eid` where missing. Deterministic from the legacy id so two devices
@@ -18054,6 +18054,10 @@ SECTIONS.forEach(function(key) {
 
 /* ── RIGHT PANEL ── */
 function updateRightMeta(dk) {
+  /* Boot-order guard: same as renderStripEntries — deep-link boot can call
+     loadDate before SECTIONS/entries are assigned (var-hoisted as undefined). */
+  if(typeof SECTIONS==='undefined'||!Array.isArray(SECTIONS))return;
+  if(typeof entries==='undefined'||!entries||typeof entries!=='object')return;
   var el = document.getElementById('right-meta');
   if (!el) return;
   var entry = entries[dk] || {};
@@ -18084,6 +18088,8 @@ function updateRightMeta(dk) {
 }
 
 function updateSectionChecklist(dk) {
+  if(typeof SECTIONS==='undefined'||!Array.isArray(SECTIONS))return;
+  if(typeof entries==='undefined'||!entries||typeof entries!=='object')return;
   var el = document.getElementById('section-checklist');
   if (!el) return;
   var entry = entries[dk] || {};
@@ -23057,6 +23063,10 @@ function loadScript(src){
   return _scriptLoadPromises[src];
 }
 var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+/* Circuit breaker: when Firestore returns resource-exhausted, halt auto-saves
+   for 30 minutes so we don't keep burning quota on doomed retries. Force-sync
+   (manual 지금 올리기) bypasses this so the user can explicitly retry. */
+var _fbQuotaBackoffUntil=0;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
@@ -23918,29 +23928,35 @@ async function fbReadSplitData(ref){
   }
   return data;
 }
-/* Seed the local IndexedDB with any assets that arrived from Firebase carrying
-   a syncDataUrl. This makes return-media: references resolve on this device
-   without needing the original upload, enabling true cross-device image sync
-   for any asset that fits within the inline size budget. Fire-and-forget. */
+/* Seed the local IndexedDB with any assets that arrived from Firebase.
+   Checks both the legacy per-asset syncDataUrl (pre-Stage-4) and the
+   deduplicated manifest (post-Stage-4, where syncDataUrl has been stripped).
+   This makes return-media: references resolve on new/other devices without
+   needing the original upload. Fire-and-forget. */
 function _fbSeedMediaFromSyncedAssets(){
   if(typeof returnMediaGet!=='function'||typeof returnMediaPut!=='function'||typeof isReturnMediaRef!=='function')return;
   var raw;
   try{raw=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');}catch(e){return;}
   if(!Array.isArray(raw))return;
   raw.forEach(function(asset){
-    if(!asset||!isReturnMediaRef(asset.url)||!asset.syncDataUrl)return;
-    if(!/^data:image/.test(asset.syncDataUrl))return;
-    var id=String(asset.url).replace(/^return-media:/,'');
+    if(!asset||!isReturnMediaRef(asset.url))return;
+    var id=returnMediaRefId(asset.url);
+    /* Stage 4 strips syncDataUrl from asset records and moves bytes into the
+       shared manifest. Fall back to mediaSyncGet so cross-device IDB seeding
+       still works after migration — not just for legacy per-asset copies. */
+    var dataUrl=(asset.syncDataUrl&&/^data:image/.test(asset.syncDataUrl))
+      ?asset.syncDataUrl:mediaSyncGet(id);
+    if(!dataUrl||!/^data:image/.test(dataUrl))return;
     returnMediaGet(id).then(function(existing){
-      if(existing)return; // already in IndexedDB
+      if(existing)return;
       returnMediaPut({
         id:id,type:asset.type||'image',role:asset.sourceTheme||'',
-        name:asset.name||'',dataUrl:asset.syncDataUrl,
+        name:asset.name||'',dataUrl:dataUrl,
         createdAt:asset.createdAt||new Date().toISOString()
       }).then(function(){
-        console.log('[media] seeded IndexedDB from synced asset: '+id);
+        try{console.log('[media] seeded IDB from manifest: '+id);}catch(_){}
       }).catch(function(e){
-        console.warn('[media] IndexedDB seed failed for '+id+':', e&&e.message);
+        try{console.warn('[media] IDB seed failed for '+id+':',e&&e.message);}catch(_){}
       });
     }).catch(function(){});
   });
@@ -23974,6 +23990,22 @@ function fbApplyData(data){
     Object.keys(data.keys).forEach(function(k){
       if(_fbApplySkip[k]) return;
       try{
+        /* MEDIA_SYNC_KEY is a union-merge key: never let cloud overwrite local
+           entries. Cloud may carry an older snapshot (saved before images were
+           uploaded, or before quota recovered), so a blind replace would silently
+           wipe locally-added images whose bytes haven't landed in Firestore yet.
+           Strategy: start from local, overlay cloud on top — locally-added IDs
+           survive, cloud-added IDs arrive, no entry is ever deleted by apply. */
+        if(k===MEDIA_SYNC_KEY){
+          var localM={},cloudM={};
+          try{localM=JSON.parse(localStorage.getItem(MEDIA_SYNC_KEY)||'{}');}catch(_e){}
+          try{cloudM=JSON.parse(data.keys[k]||'{}');}catch(_e){}
+          var mergedM=Object.assign({},localM,cloudM);
+          _fbWriter(MEDIA_SYNC_KEY,JSON.stringify(mergedM));
+          _mediaSyncManifest=null;  /* invalidate cache to pick up merged value */
+          if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+          return;
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
@@ -24275,6 +24307,11 @@ async function fbSaveNow(opts){
   opts=opts||{};
   if(!fbDb||!fbUser||_applyingFbData)return false;
   if(window.SyncManager&&!SyncManager.canSave(opts))return false;
+  /* Circuit breaker: skip auto-saves during quota backoff window. */
+  if(!opts.force && Date.now()<_fbQuotaBackoffUntil){
+    setFbStatus('Firebase 저장 일시 중단 (할당량 초과 — 자동 복구 대기 중)','err');
+    return false;
+  }
   /* Echo-suppression grace period. Note: this only suppresses saves
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
@@ -24481,8 +24518,15 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markSaved(); }catch(_e){}
     return true;
   }catch(e){
-    var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
-    setFbStatus('동기화 오류: '+msg,'err');
+    if(e&&e.code==='resource-exhausted'){
+      /* Quota exceeded: halt auto-saves for 30 minutes to avoid hammering a
+         dead write channel and burning reads on collection.get() retries. */
+      _fbQuotaBackoffUntil=Date.now()+30*60*1000;
+      setFbStatus('Firebase 저장 중단: 일일 할당량 초과. 30분 후 자동 재시도해요. (수동 올리기는 즉시 가능)','err');
+    }else{
+      var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
+      setFbStatus('동기화 오류: '+msg,'err');
+    }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
     return false;
   }
@@ -28472,7 +28516,11 @@ function themeStudioMediaFallbackForUrl(url){
 function themeStudioImgTag(url,fallback){
   url=String(url||'');
   fallback=fallback||themeStudioMediaFallbackForUrl(url);
-  if(isReturnMediaRef(url))return '<img data-return-media-src="'+themeStudioEsc(url)+'"'+(fallback?' data-return-media-fallback="'+themeStudioEsc(fallback)+'"':'')+' alt="">';
+  /* Set src= immediately so the image renders on first paint without waiting for
+     themeStudioResolveMediaPreviews. Same fix as themeStudioIconMarkup (PR #58):
+     a src-less <img> returns the document URL for img.src, making !img.src
+     truthy-false and silently skipping the fallback assignment. */
+  if(isReturnMediaRef(url))return '<img'+(fallback?' src="'+themeStudioEsc(fallback)+'"':'')+' data-return-media-src="'+themeStudioEsc(url)+'"'+(fallback?' data-return-media-fallback="'+themeStudioEsc(fallback)+'"':'')+' alt="">';
   return '<img src="'+themeStudioEsc(url)+'" alt="">';
 }
 function themeStudioBgAttr(url,fallback){
