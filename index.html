@@ -24379,8 +24379,20 @@ var _lastRemoteApplyMs=0;
    change — not every apply cycle. A 10 s cooldown prevents a two-device
    ping-pong where A's repair triggers B's repair triggers A's repair … */
 var _lastRepairSaveMs=0;
+/* Re-entrancy guard: fbSaveNow is async and a cold-cache save can take
+   1-5+ seconds. Without this flag, a new fbSaveAll timer firing during
+   that window starts a second concurrent fbSaveNow — doubling write quota
+   and causing interleaved batch commits that corrupt the doc cache. */
+var _fbSaveNowBusy=false;
 async function fbSaveNow(opts){
   opts=opts||{};
+  /* If a non-forced save is already running, re-queue for after it finishes
+     so edits that arrived during the save are not silently dropped. */
+  if(_fbSaveNowBusy && !opts.force){
+    clearTimeout(_fbSaveTimer);
+    _fbSaveTimer=setTimeout(fbSaveNow,650);
+    return false;
+  }
   if(!fbDb||!fbUser||_applyingFbData)return false;
   if(window.SyncManager&&!SyncManager.canSave(opts))return false;
   /* Circuit breaker: skip auto-saves during quota backoff window. */
@@ -24397,6 +24409,7 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
+  _fbSaveNowBusy=true;
   try{
     setFbStatus('Firebase 저장 중...','saving');
     var ref=fbDb.collection('users').doc(fbUser.uid);
@@ -24671,6 +24684,8 @@ async function fbSaveNow(opts){
     }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
     return false;
+  }finally{
+    _fbSaveNowBusy=false;
   }
 }
 async function fbForceSync(){
