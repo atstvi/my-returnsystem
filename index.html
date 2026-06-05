@@ -23984,6 +23984,22 @@ function fbApplyData(data){
     Object.keys(data.keys).forEach(function(k){
       if(_fbApplySkip[k]) return;
       try{
+        /* MEDIA_SYNC_KEY is a union-merge key: never let cloud overwrite local
+           entries. Cloud may carry an older snapshot (saved before images were
+           uploaded, or before quota recovered), so a blind replace would silently
+           wipe locally-added images whose bytes haven't landed in Firestore yet.
+           Strategy: start from local, overlay cloud on top — locally-added IDs
+           survive, cloud-added IDs arrive, no entry is ever deleted by apply. */
+        if(k===MEDIA_SYNC_KEY){
+          var localM={},cloudM={};
+          try{localM=JSON.parse(localStorage.getItem(MEDIA_SYNC_KEY)||'{}');}catch(_e){}
+          try{cloudM=JSON.parse(data.keys[k]||'{}');}catch(_e){}
+          var mergedM=Object.assign({},localM,cloudM);
+          _fbWriter(MEDIA_SYNC_KEY,JSON.stringify(mergedM));
+          _mediaSyncManifest=null;  /* invalidate cache to pick up merged value */
+          if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+          return;
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
@@ -23996,16 +24012,6 @@ function fbApplyData(data){
         }
       }
     });
-
-    /* Invalidate the media-sync manifest cache when Firebase supplied a new
-       copy. fbApplyData writes via _rawSetItem (bypasses setReturnStorageItem
-       and _afterWriteSideEffects), so _mediaSyncManifest is never updated.
-       Without this, themeStudioMediaFallbackForUrl keeps returning '' even
-       after the manifest lands in localStorage — icons stay blank until a
-       page reload forces the cache to re-hydrate. */
-    if(typeof _mediaSyncManifest !== 'undefined' && Object.prototype.hasOwnProperty.call(data.keys, MEDIA_SYNC_KEY)){
-      _mediaSyncManifest = null;
-    }
 
     /* ── Refresh in-memory module state ─────────────────────────────────
        Several modules cache their data in module-scoped variables (tasks,
