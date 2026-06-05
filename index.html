@@ -24067,6 +24067,20 @@ function fbApplyData(data){
         }
       }
     });
+    /* Update the delta-filter snapshot with the cloud-side values we just
+       received. Without this, the next auto-save's delta filter treats all
+       received remote keys as "locally changed" and writes them back to
+       Firestore — doubling write cost on every cross-device sync.
+       Use data.keys[k] (the raw cloud value) so that union-merge keys like
+       MEDIA_SYNC_KEY — where localStorage ends up with the MERGED result —
+       still appear "changed" (merged != cloud) and get pushed on the next
+       save. Skip __noop applies (they carry no data.keys). */
+    if(!data.__noop && typeof _fbLastPushedSnapshot !== 'undefined' && _fbLastPushedSnapshot !== null){
+      Object.keys(data.keys).forEach(function(k){
+        if(_fbApplySkip[k])return;
+        _fbLastPushedSnapshot[k]=data.keys[k];
+      });
+    }
 
     /* ── Refresh in-memory module state ─────────────────────────────────
        Several modules cache their data in module-scoped variables (tasks,
@@ -24630,6 +24644,12 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markSaved(); }catch(_e){}
     return true;
   }catch(e){
+    /* Invalidate the doc cache so the next save re-reads cloud state.
+       A failed batch commit (network error, permission denied mid-write)
+       may have left Firestore partially updated; forcing a fresh read on
+       the next attempt prevents the delta filter from treating un-written
+       keys as "already synced" and skipping them. */
+    _fbCloudDocCache=null;
     if(e&&(e.code==='resource-exhausted'||String(e.message||'').indexOf('Write stream exhausted')>=0)){
       /* Quota exceeded: halt auto-saves for 30 minutes to avoid hammering a
          dead write channel and burning reads on collection.get() retries.
