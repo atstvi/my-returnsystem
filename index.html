@@ -28506,29 +28506,33 @@ function themeStudioEnsureMediaFallbacks(){
   var list=themeStudioAssets(), changed=false, jobs=[];
   list.forEach(function(asset){
     if(!asset||!isReturnMediaRef(asset.url))return;
-    /* STAGE 4 — dedup migration: if this asset still carries an inline
-       syncDataUrl, move it into the shared manifest (keyed by media id) and
-       strip the per-asset copy. The strip happens ONLY after the identical
-       bytes are confirmed readable back from the manifest, so the image can
-       never disappear. themeStudioMediaFallbackForUrl now resolves via the
-       manifest, so rendering is unaffected. */
+    /* Keep an inline syncDataUrl copy on every asset so that
+       return_theme_studio_assets_v1 is self-sufficient for cross-device
+       rendering — the other device sees images as soon as this key lands in
+       Firebase, without depending on return_media_sync_v1 also arriving.
+       Also register bytes in the manifest as a lightweight deduplicated
+       channel for extra redundancy. */
     if(asset.syncDataUrl){
-      try{
-        var mid=returnMediaRefId(asset.url);
-        if(mediaSyncPut(mid,asset.syncDataUrl) && mediaSyncGet(mid)===asset.syncDataUrl){
-          delete asset.syncDataUrl;
-          changed=true;
-        }
-      }catch(_e){}
+      /* Already has inline copy. Register in manifest too if not yet there. */
+      try{ mediaSyncPut(returnMediaRefId(asset.url),asset.syncDataUrl); }catch(_e){}
       return;
     }
-    /* No inline copy and no manifest entry yet → generate a compressed
-       fallback once and register it in the manifest (not back on the asset). */
-    if(mediaSyncResolve(asset.url))return;
+    /* No inline copy. Restore from manifest if available (handles assets
+       that were previously stripped by the old Stage 4 migration). */
+    var fromManifest=mediaSyncResolve(asset.url);
+    if(fromManifest){
+      if(String(fromManifest).length<=MEDIA_SYNC_ITEM_MAX){ asset.syncDataUrl=fromManifest; changed=true; }
+      return;
+    }
+    /* Not in manifest either — resolve from IDB and generate a compressed
+       fallback, then register in both manifest and inline copy. */
     jobs.push(returnMediaResolveUrl(asset.url).then(function(url){
       if(!url)return;
       return themeStudioCloudFallbackDataUrl(url,asset).then(function(fallback){
-        if(fallback){ try{ mediaSyncPut(returnMediaRefId(asset.url),fallback); }catch(_e){} }
+        if(fallback){
+          try{ mediaSyncPut(returnMediaRefId(asset.url),fallback); }catch(_e){}
+          if(String(fallback).length<=MEDIA_SYNC_ITEM_MAX){ asset.syncDataUrl=fallback; changed=true; }
+        }
       });
     }));
   });
