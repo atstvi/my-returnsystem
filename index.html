@@ -23938,6 +23938,7 @@ function _fbSeedMediaFromSyncedAssets(){
   var raw;
   try{raw=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');}catch(e){return;}
   if(!Array.isArray(raw))return;
+  var seedPromises=[];
   raw.forEach(function(asset){
     if(!asset||!isReturnMediaRef(asset.url))return;
     var id=returnMediaRefId(asset.url);
@@ -23947,19 +23948,39 @@ function _fbSeedMediaFromSyncedAssets(){
     var dataUrl=(asset.syncDataUrl&&/^data:image/.test(asset.syncDataUrl))
       ?asset.syncDataUrl:mediaSyncGet(id);
     if(!dataUrl||!/^data:image/.test(dataUrl))return;
-    returnMediaGet(id).then(function(existing){
-      if(existing)return;
-      returnMediaPut({
+    var p=returnMediaGet(id).then(function(existing){
+      if(existing)return false;
+      return returnMediaPut({
         id:id,type:asset.type||'image',role:asset.sourceTheme||'',
         name:asset.name||'',dataUrl:dataUrl,
         createdAt:asset.createdAt||new Date().toISOString()
       }).then(function(){
         try{console.log('[media] seeded IDB from manifest: '+id);}catch(_){}
+        return true;
       }).catch(function(e){
         try{console.warn('[media] IDB seed failed for '+id+':',e&&e.message);}catch(_){}
+        return false;
       });
-    }).catch(function(){});
+    }).catch(function(){return false;});
+    seedPromises.push(p);
   });
+  /* After all seeds complete, refresh any data-return-media-src elements that
+     were rendered without a src (e.g. first paint before IDB was populated).
+     This makes icons/stickers/card images appear without a page reload. */
+  if(seedPromises.length){
+    Promise.all(seedPromises).then(function(results){
+      var anySeeded=results.some(function(r){return r===true;});
+      if(!anySeeded)return;
+      try{
+        if(typeof themeStudioApplyIcons==='function'&&typeof themeStudioGet==='function')
+          themeStudioApplyIcons(themeStudioGet());
+      }catch(_e){}
+      try{
+        if(typeof themeStudioResolveMediaPreviews==='function')
+          themeStudioResolveMediaPreviews(document.body);
+      }catch(_e){}
+    });
+  }
 }
 
 function fbApplyData(data){
@@ -24175,7 +24196,14 @@ function fbApplyData(data){
   /* Recharge tab */
   safeCall('renderAll');
   safeCall('renderReflects');
-    try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); if(typeof themeStudioRenderTimetablePalette==='function') themeStudioRenderTimetablePalette(); if(typeof themeStudioRenderTaskPalette==='function') themeStudioRenderTaskPalette(); if(typeof themeStudioRender==='function') themeStudioRender(); } catch(e){ console.warn('themeStudio render failed:', e&&e.message); }
+  /* Theme: apply icon/color/skin state first (separate try so a crash in
+     themeStudioRender doesn't prevent icon application). */
+  try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); } catch(e){ console.warn('themeStudio apply failed:', e&&e.message); }
+  /* Resolve any data-return-media-src elements that got a src after manifest
+     arrived — this covers icons, stickers, and card images whose IDB entry
+     was either just seeded or whose manifest fallback is now readable. */
+  try { if(typeof themeStudioResolveMediaPreviews==='function') themeStudioResolveMediaPreviews(document.body); } catch(e){}
+  try { if(typeof themeStudioRenderTimetablePalette==='function') themeStudioRenderTimetablePalette(); if(typeof themeStudioRenderTaskPalette==='function') themeStudioRenderTaskPalette(); if(typeof themeStudioRender==='function') themeStudioRender(); } catch(e){ console.warn('themeStudio render failed:', e&&e.message); }
 }
 function fbStatusTime(prefix){
   return prefix+' · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
