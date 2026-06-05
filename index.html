@@ -24379,8 +24379,20 @@ var _lastRemoteApplyMs=0;
    change — not every apply cycle. A 10 s cooldown prevents a two-device
    ping-pong where A's repair triggers B's repair triggers A's repair … */
 var _lastRepairSaveMs=0;
+/* Re-entrancy guard: fbSaveNow is async and a cold-cache save can take
+   1-5+ seconds. Without this flag, a new fbSaveAll timer firing during
+   that window starts a second concurrent fbSaveNow — doubling write quota
+   and causing interleaved batch commits that corrupt the doc cache. */
+var _fbSaveNowBusy=false;
 async function fbSaveNow(opts){
   opts=opts||{};
+  /* If a non-forced save is already running, re-queue for after it finishes
+     so edits that arrived during the save are not silently dropped. */
+  if(_fbSaveNowBusy && !opts.force){
+    clearTimeout(_fbSaveTimer);
+    _fbSaveTimer=setTimeout(fbSaveNow,650);
+    return false;
+  }
   if(!fbDb||!fbUser||_applyingFbData)return false;
   if(window.SyncManager&&!SyncManager.canSave(opts))return false;
   /* Circuit breaker: skip auto-saves during quota backoff window. */
@@ -24397,6 +24409,7 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
+  _fbSaveNowBusy=true;
   try{
     setFbStatus('Firebase 저장 중...','saving');
     var ref=fbDb.collection('users').doc(fbUser.uid);
@@ -24671,6 +24684,8 @@ async function fbSaveNow(opts){
     }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
     return false;
+  }finally{
+    _fbSaveNowBusy=false;
   }
 }
 async function fbForceSync(){
@@ -31309,6 +31324,45 @@ musicRender=function(){
 
 })();
 /* ── end Routine + Recharge v14 JS ──────────────────────────────────── */
+
+/* ── Tab visibility re-sync (mobile reliability) ────────────────────────
+   On mobile (especially iOS Safari) the Firebase onSnapshot WebSocket
+   connection is severed when the tab is backgrounded for an extended
+   period. Without this handler, returning to the app shows stale data
+   and local edits silently queue up without ever reaching Firestore.
+
+   On visibility:
+   1. Pull fresh data from Firestore so the user sees any changes made on
+      other devices while this tab was hidden.
+   2. Flush any local edits that were queued (debounced) while hidden.
+   Debounced at 2s so rapid app-switches (notification center peek, etc.)
+   don't trigger unnecessary reads. Rate-limited to once per 30s so a
+   user who rapidly switches won't spam the quota. ──────────────────── */
+(function installVisibilityResync(){
+  var _lastVisibilityResync=0;
+  var _visibilityResyncTimer=null;
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState!=='visible')return;
+    var now=Date.now();
+    if(now-_lastVisibilityResync<30000)return; /* rate-limit: 30s minimum */
+    clearTimeout(_visibilityResyncTimer);
+    _visibilityResyncTimer=setTimeout(function(){
+      _lastVisibilityResync=Date.now();
+      /* Pull: re-hydrate from Firestore to get changes from other devices. */
+      try{
+        if(typeof fbForcePull==='function'&&typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb){
+          fbForcePull().catch(function(e){console.warn('[visibility] fbForcePull failed:',e&&e.message);});
+        }
+      }catch(e){}
+      /* Push: flush any locally queued edits. */
+      try{
+        if(typeof fbSaveAll==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser){
+          fbSaveAll();
+        }
+      }catch(e){}
+    },2000);
+  });
+})();
 </script>
 </body>
 </html>
