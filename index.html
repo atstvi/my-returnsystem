@@ -23959,34 +23959,80 @@ async function fbReadSplitData(ref){
 /* Seed the local IndexedDB with any assets that arrived from Firebase.
    Checks both the legacy per-asset syncDataUrl (pre-Stage-4) and the
    deduplicated manifest (post-Stage-4, where syncDataUrl has been stripped).
-   This makes return-media: references resolve on new/other devices without
-   needing the original upload. Fire-and-forget. */
+   Also covers stickers whose syncDataUrl was stripped (>220KB) — their
+   return-media: refs must be seeded from the manifest so they resolve on
+   new/other devices without the original upload. Fire-and-forget. */
 function _fbSeedMediaFromSyncedAssets(){
   if(typeof returnMediaGet!=='function'||typeof returnMediaPut!=='function'||typeof isReturnMediaRef!=='function')return;
-  var raw;
-  try{raw=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');}catch(e){return;}
-  if(!Array.isArray(raw))return;
+  /* Collect all return-media: refs that need IDB seeding. Sources:
+     1. Theme studio assets  2. Global stickers */
+  var mediaItems=[]; /* [{id, dataUrl, type, name, createdAt}] */
+  /* Source 1: theme studio assets */
+  try{
+    var rawAssets=JSON.parse(localStorage.getItem('return_theme_studio_assets_v1')||'[]');
+    if(Array.isArray(rawAssets)){
+      rawAssets.forEach(function(asset){
+        if(!asset||!isReturnMediaRef(asset.url))return;
+        var id=returnMediaRefId(asset.url);
+        var dataUrl=(asset.syncDataUrl&&/^data:image/.test(asset.syncDataUrl))
+          ?asset.syncDataUrl:mediaSyncGet(id);
+        if(!dataUrl||!/^data:image/.test(dataUrl))return;
+        mediaItems.push({id:id,dataUrl:dataUrl,type:asset.type||'image',
+          role:asset.sourceTheme||'',name:asset.name||'',
+          createdAt:asset.createdAt||new Date().toISOString()});
+      });
+    }
+  }catch(e){}
+  /* Source 2: global stickers — syncDataUrl stripped for images >220KB */
+  try{
+    var rawStickers=JSON.parse(localStorage.getItem('global_stickers_v1')||'{}');
+    if(rawStickers&&typeof rawStickers==='object'){
+      Object.keys(rawStickers).forEach(function(page){
+        (rawStickers[page]||[]).forEach(function(s){
+          if(!s||!isReturnMediaRef(s.url))return;
+          if(s.syncDataUrl&&/^data:image/.test(s.syncDataUrl))return; /* inline — already visible */
+          var id=returnMediaRefId(s.url);
+          var dataUrl=mediaSyncGet(id);
+          if(!dataUrl||!/^data:image/.test(dataUrl))return;
+          mediaItems.push({id:id,dataUrl:dataUrl,type:'image',
+            role:'sticker',name:s.id||'',createdAt:new Date().toISOString()});
+        });
+      });
+    }
+  }catch(e){}
+  /* Source 3: home/hobby banners — syncDataUrl stripped for images >180KB */
+  try{
+    ['home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1'].forEach(function(bannerKey){
+      var rawBanner=null;
+      try{rawBanner=JSON.parse(localStorage.getItem(bannerKey)||'null');}catch(_e){}
+      if(!rawBanner||typeof rawBanner!=='object')return;
+      var imgUrl=rawBanner.imgUrl;
+      if(!imgUrl||!isReturnMediaRef(imgUrl))return;
+      if(rawBanner.syncDataUrl&&/^data:image/.test(rawBanner.syncDataUrl))return; /* inline — already visible */
+      var id=returnMediaRefId(imgUrl);
+      var dataUrl=mediaSyncGet(id);
+      if(!dataUrl||!/^data:image/.test(dataUrl))return;
+      mediaItems.push({id:id,dataUrl:dataUrl,type:'image',
+        role:'banner',name:bannerKey,createdAt:new Date().toISOString()});
+    });
+  }catch(e){}
   var seedPromises=[];
-  raw.forEach(function(asset){
-    if(!asset||!isReturnMediaRef(asset.url))return;
-    var id=returnMediaRefId(asset.url);
-    /* Stage 4 strips syncDataUrl from asset records and moves bytes into the
-       shared manifest. Fall back to mediaSyncGet so cross-device IDB seeding
-       still works after migration — not just for legacy per-asset copies. */
-    var dataUrl=(asset.syncDataUrl&&/^data:image/.test(asset.syncDataUrl))
-      ?asset.syncDataUrl:mediaSyncGet(id);
-    if(!dataUrl||!/^data:image/.test(dataUrl))return;
-    var p=returnMediaGet(id).then(function(existing){
+  /* Deduplicate by id so an image used in multiple places is only written once */
+  var seenIds={};
+  mediaItems.forEach(function(item){
+    if(seenIds[item.id])return;
+    seenIds[item.id]=true;
+    var p=returnMediaGet(item.id).then(function(existing){
       if(existing)return false;
       return returnMediaPut({
-        id:id,type:asset.type||'image',role:asset.sourceTheme||'',
-        name:asset.name||'',dataUrl:dataUrl,
-        createdAt:asset.createdAt||new Date().toISOString()
+        id:item.id,type:item.type,role:item.role,
+        name:item.name,dataUrl:item.dataUrl,
+        createdAt:item.createdAt
       }).then(function(){
-        try{console.log('[media] seeded IDB from manifest: '+id);}catch(_){}
+        try{console.log('[media] seeded IDB from manifest: '+item.id);}catch(_){}
         return true;
       }).catch(function(e){
-        try{console.warn('[media] IDB seed failed for '+id+':',e&&e.message);}catch(_){}
+        try{console.warn('[media] IDB seed failed for '+item.id+':',e&&e.message);}catch(_){}
         return false;
       });
     }).catch(function(){return false;});
@@ -24006,6 +24052,12 @@ function _fbSeedMediaFromSyncedAssets(){
       try{
         if(typeof themeStudioResolveMediaPreviews==='function')
           themeStudioResolveMediaPreviews(document.body);
+      }catch(_e){}
+      try{
+        if(typeof renderGlobalStickers==='function') renderGlobalStickers();
+      }catch(_e){}
+      try{
+        if(typeof loadHomeBanner==='function') loadHomeBanner();
       }catch(_e){}
     });
   }
@@ -24709,16 +24761,17 @@ async function fbForceSync(){
    to another device (e.g. you edited a project on phone but desktop still
    shows the old version). This calls the same fbLoadAll() that runs on
    login, but does so on demand. */
-async function fbForcePull(){
+async function fbForcePull(opts){
+  opts=opts||{};
   try{
     if(!fbAuth){var ok=await initFirebase();if(!ok)return;}
-    if(!fbUser){showToast('먼저 Google 로그인을 해주세요');return;}
+    if(!fbUser){if(!opts.silent)showToast('먼저 Google 로그인을 해주세요');return;}
     setFbStatus('Firebase에서 가져오는 중...','saving');
     await fbLoadAll();
-    showToast('Firebase에서 다시 가져왔어요. 다른 탭의 변경이 화면에 반영되어야 해요.');
+    if(!opts.silent)showToast('Firebase에서 다시 가져왔어요. 다른 탭의 변경이 화면에 반영되어야 해요.');
   }catch(e){
     setFbStatus('Firebase 오류: '+e.message,'err');
-    showToast('Firebase 오류: '+e.message);
+    if(!opts.silent)showToast('Firebase 오류: '+e.message);
   }
 }
 
@@ -31351,7 +31404,7 @@ musicRender=function(){
       /* Pull: re-hydrate from Firestore to get changes from other devices. */
       try{
         if(typeof fbForcePull==='function'&&typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb){
-          fbForcePull().catch(function(e){console.warn('[visibility] fbForcePull failed:',e&&e.message);});
+          fbForcePull({silent:true}).catch(function(e){console.warn('[visibility] fbForcePull failed:',e&&e.message);});
         }
       }catch(e){}
       /* Push: flush any locally queued edits. */
