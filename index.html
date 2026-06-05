@@ -24509,6 +24509,12 @@ async function fbSaveNow(opts){
             absorbedToLocal.push(k);
           }
         } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
+        /* Stamp the snapshot with the cloud value we just absorbed so the
+           delta filter on the NEXT save sees this key as "already at cloud
+           value" and skips it. Without this, the snapshot still holds our
+           old stale local value, making the next save re-push the cloud
+           value back — an unnecessary echo write. */
+        if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         preservedFromCloud.push(k);
       } else {
         ourKeysToWrite[k] = ours;
@@ -24529,6 +24535,8 @@ async function fbSaveNow(opts){
             absorbedToLocal.push(k);
           }
         } catch(e){ console.error('[fb] absorb cloud-only key "'+k+'" to local failed:', e); }
+        /* Same snapshot stamp for cloud-only keys. */
+        if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         preservedFromCloud.push(k);
       }
     });
@@ -27049,7 +27057,13 @@ async function gcalDeleteReturnEventsByKey(taskKey, preferredCalId, keepId){
   }
   return removed;
 }
+var _gcalRepairBusy=false;
 async function gcalRepairDuplicates(opts){
+  if(_gcalRepairBusy){console.warn('[gcal] repair already in progress, skipping');return;}
+  _gcalRepairBusy=true;
+  try{return await _gcalRepairDuplicatesInner(opts);}finally{_gcalRepairBusy=false;}
+}
+async function _gcalRepairDuplicatesInner(opts){
   opts=opts||{};
   gcalSaveConfig(true);
   if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
@@ -27208,12 +27222,18 @@ async function gcalApiCal(method,path,body,calId){
 }
 var _gcalAutoTimer=null;
 var _gcalDedupedThisSession=false;
+var _gcalSyncBusy=false;
 function gcalQueueAutoSync(){
   if(!_gcalCfg||!_gcalCfg.autoSync||!_gcalToken||Date.now()>_gcalTokenExp-60000)return;
   clearTimeout(_gcalAutoTimer);
   _gcalAutoTimer=setTimeout(function(){gcalSync({silent:true,auto:true}).catch(function(e){console.warn('gcal auto sync',e);});},2500);
 }
 async function gcalSync(opts){
+  if(_gcalSyncBusy){console.warn('[gcal] sync already in progress, skipping concurrent call');return;}
+  _gcalSyncBusy=true;
+  try{return await _gcalSyncInner(opts);}finally{_gcalSyncBusy=false;}
+}
+async function _gcalSyncInner(opts){
   opts=opts||{};
   gcalSaveConfig(true);
   if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
