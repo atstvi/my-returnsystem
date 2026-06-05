@@ -23972,7 +23972,7 @@ function fbApplyData(data){
      re-renders — NOT a repair pass. Skipping the repair prevents the
      noop → reconcile → save → snapshot → noop loop that amplifies every
      entity-mirror update into a save storm. */
-  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=Number(data.updatedAtMs||0)||Date.now(); setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); if(typeof loadDate==='function'&&typeof currentDate!=='undefined'&&currentDate)loadDate(currentDate); }catch(_e){} },0); return; }
+  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=Number(data.updatedAtMs||0)||Date.now(); setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
   /* Hold the apply-lock across BOTH the localStorage writes and the
      subsequent reloader pass. Reloaders themselves can write to
      localStorage (e.g. normalizing migrated keys) and we don't want those
@@ -24518,9 +24518,11 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markSaved(); }catch(_e){}
     return true;
   }catch(e){
-    if(e&&e.code==='resource-exhausted'){
+    if(e&&(e.code==='resource-exhausted'||String(e.message||'').indexOf('Write stream exhausted')>=0)){
       /* Quota exceeded: halt auto-saves for 30 minutes to avoid hammering a
-         dead write channel and burning reads on collection.get() retries. */
+         dead write channel and burning reads on collection.get() retries.
+         Catches both 'resource-exhausted' code and the Firestore client error
+         "Write stream exhausted maximum allowed queued writes". */
       _fbQuotaBackoffUntil=Date.now()+30*60*1000;
       setFbStatus('Firebase 저장 중단: 일일 할당량 초과. 30분 후 자동 재시도해요. (수동 올리기는 즉시 가능)','err');
     }else{
@@ -25229,6 +25231,7 @@ saveNotionConfig=function(silent){
 var _notionSaveTimer=null;
 var _notionPullTimer=null;
 var _notionPullBusy=false;
+var _lastNotionPullQueuedMs=0;
 function queueDiaryNotionSave(dateKey){
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
@@ -25248,6 +25251,12 @@ function queueDiaryNotionPull(dateKey, reason, delay){
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
   if(window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1'])return;
+  /* Rate-limit automated pulls: background triggers (fbApplyData re-renders,
+     date switches from sync) must not fire more than once per 30s. Only
+     explicit user actions (reason==='user'/'manual') bypass this gate. */
+  var _nplNow=Date.now();
+  if(reason!=='user'&&reason!=='manual'&&_nplNow-_lastNotionPullQueuedMs<30000)return;
+  _lastNotionPullQueuedMs=_nplNow;
   clearTimeout(_notionPullTimer);
   _notionPullTimer=setTimeout(async function(){
     if(_notionPullBusy)return;
