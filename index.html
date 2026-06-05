@@ -31324,6 +31324,45 @@ musicRender=function(){
 
 })();
 /* ── end Routine + Recharge v14 JS ──────────────────────────────────── */
+
+/* ── Tab visibility re-sync (mobile reliability) ────────────────────────
+   On mobile (especially iOS Safari) the Firebase onSnapshot WebSocket
+   connection is severed when the tab is backgrounded for an extended
+   period. Without this handler, returning to the app shows stale data
+   and local edits silently queue up without ever reaching Firestore.
+
+   On visibility:
+   1. Pull fresh data from Firestore so the user sees any changes made on
+      other devices while this tab was hidden.
+   2. Flush any local edits that were queued (debounced) while hidden.
+   Debounced at 2s so rapid app-switches (notification center peek, etc.)
+   don't trigger unnecessary reads. Rate-limited to once per 30s so a
+   user who rapidly switches won't spam the quota. ──────────────────── */
+(function installVisibilityResync(){
+  var _lastVisibilityResync=0;
+  var _visibilityResyncTimer=null;
+  document.addEventListener('visibilitychange',function(){
+    if(document.visibilityState!=='visible')return;
+    var now=Date.now();
+    if(now-_lastVisibilityResync<30000)return; /* rate-limit: 30s minimum */
+    clearTimeout(_visibilityResyncTimer);
+    _visibilityResyncTimer=setTimeout(function(){
+      _lastVisibilityResync=Date.now();
+      /* Pull: re-hydrate from Firestore to get changes from other devices. */
+      try{
+        if(typeof fbForcePull==='function'&&typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb){
+          fbForcePull().catch(function(e){console.warn('[visibility] fbForcePull failed:',e&&e.message);});
+        }
+      }catch(e){}
+      /* Push: flush any locally queued edits. */
+      try{
+        if(typeof fbSaveAll==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser){
+          fbSaveAll();
+        }
+      }catch(e){}
+    },2000);
+  });
+})();
 </script>
 </body>
 </html>
