@@ -23067,6 +23067,19 @@ var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsub
    for 30 minutes so we don't keep burning quota on doomed retries. Force-sync
    (manual 지금 올리기) bypasses this so the user can explicitly retry. */
 var _fbQuotaBackoffUntil=0;
+/* Cloud doc state cache — populated once by fbReadSplitData (called from fbLoadAll
+   and each onSnapshot), then kept current after every successful fbSaveNow write.
+   Shape: {key: {fullValue:string, updatedAtMs:number, docIds:string[]}}
+   Eliminates the ref.collection('data').get() that used to happen on EVERY save. */
+var _fbCloudDocCache=null;
+/* Last values we confirmed written to Firestore. On non-force saves fbSaveNow
+   only pushes keys whose current localStorage value differs from this snapshot,
+   turning every save from "push all 54 keys" into "push 1-3 changed keys". */
+var _fbLastPushedSnapshot=null;
+/* Throttle fbSaveCloudSettings — it writes settings/main on every save but the
+   contents rarely change. Only re-write after this interval (ms). */
+var _fbCloudSettingsLastSavedMs=0;
+var _FB_CLOUD_SETTINGS_INTERVAL=120000;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
@@ -23406,7 +23419,10 @@ function fbCollectData(){
    The merge FLIP to per-entity LWW happens in 6d (behind the flag). 6c only
    proves the format is writable/readable with no data delta.
    ════════════════════════════════════════════════════════════════════════ */
-var RETURN_ENTITY_DUALWRITE=(function(){ try{var v=localStorage.getItem('return_entity_dualwrite'); return v==null?true:(v!=='0'&&v!=='false'); }catch(e){ return true; } })();
+/* Default OFF — dual-write doubles per-save write quota cost with no user benefit
+   while the entity model stays experimental (RETURN_SYNC_MODEL === 'legacy').
+   Opt in explicitly via localStorage.setItem('return_entity_dualwrite','true'). */
+var RETURN_ENTITY_DUALWRITE=(function(){ try{var v=localStorage.getItem('return_entity_dualwrite'); return v!=null&&v!=='0'&&v!=='false'; }catch(e){ return false; } })();
 /* In-scope collections (design §2.3), each mapped to its localStorage key,
    _eid prefix, and shape. 'object' = date-keyed (diary). */
 var RETURN_ENTITY_COLLECTIONS=[
@@ -23902,18 +23918,30 @@ async function fbReadSplitData(ref){
   var data={keys:{}};
   try{
     var qs=await ref.collection('data').get();
-    var chunks={};
+    /* Build the cloud doc cache as a free side-effect of the read we already
+       paid for. Subsequent fbSaveNow calls use the cache and skip this get(). */
+    var cacheNew={}, chunks={};
     qs.forEach(function(doc){
       var d=doc.data()||{}, id=doc.id;
-      if(d.key&&d.value!=null){data.keys[d.key]=d.value;return;}
-      if(d.key&&d.part!=null){if(!chunks[d.key])chunks[d.key]=[];chunks[d.key][d.part]=d.value||'';}
+      var key=d.key; if(!key)return;
+      if(!cacheNew[key])cacheNew[key]={fullValue:'',updatedAtMs:0,docIds:[]};
+      cacheNew[key].docIds.push(id);
+      var ts=Number(d.updatedAtMs||0);if(ts>cacheNew[key].updatedAtMs)cacheNew[key].updatedAtMs=ts;
+      if(d.value!=null&&d.part==null){data.keys[key]=d.value;cacheNew[key].fullValue=d.value;return;}
+      if(d.part!=null){if(!chunks[key])chunks[key]=[];chunks[key][d.part]=d.value||'';}
       else if(id.indexOf('__')>0&&d.value!=null){
-        var raw=id.split('__')[0], key=decodeURIComponent(raw);
+        var raw=id.split('__')[0], dkey=decodeURIComponent(raw);
         var part=parseInt(id.split('__')[1],10)||0;
-        if(!chunks[key])chunks[key]=[];chunks[key][part]=d.value||'';
+        if(!chunks[dkey])chunks[dkey]=[];chunks[dkey][part]=d.value||'';
+        if(!cacheNew[dkey])cacheNew[dkey]={fullValue:'',updatedAtMs:0,docIds:[]};
+        cacheNew[dkey].docIds.push(id);
       }
     });
-    Object.keys(chunks).forEach(function(k){data.keys[k]=chunks[k].join('');});
+    Object.keys(chunks).forEach(function(k){
+      data.keys[k]=chunks[k].join('');
+      if(cacheNew[k])cacheNew[k].fullValue=data.keys[k];
+    });
+    _fbCloudDocCache=cacheNew;
   }catch(e){
     // Permission-denied here means the Firestore rules need updating — surface
     // that to the UI instead of silently swallowing it (only the visible status
@@ -24236,6 +24264,12 @@ async function fbLoadAll(){
     var snap=await ref.get();
     if(snap.exists&&snap.data()&&snap.data().keys){fbApplyData(snap.data());applied+=Object.keys(snap.data().keys||{}).length;}
     var splitData=await fbReadSplitData(ref);
+    /* Seed the last-pushed snapshot from cloud state so the first auto-save
+       after login uses the delta filter instead of pushing all ~54 keys. */
+    if (_fbLastPushedSnapshot === null) {
+      _fbLastPushedSnapshot = {};
+      Object.assign(_fbLastPushedSnapshot, splitData.keys);
+    }
     var splitCount=Object.keys(splitData.keys||{}).length;
     if(splitCount){fbApplyData(splitData);applied+=splitCount;}
     clearTimeout(_hydrateGuard);
@@ -24389,31 +24423,53 @@ async function fbSaveNow(opts){
          local state authoritatively, since user explicitly asked. */
     var data=fbCollectData();
 
-    /* Inline read of current cloud state. */
-    var cloudSnap = await ref.collection('data').get();
+    /* Use the doc cache built by fbReadSplitData (populated on login and by
+       each onSnapshot). Avoids an extra collection.get() on every save — the
+       single read that happens at login now covers every subsequent save until
+       the onSnapshot listener refreshes the cache. Fall back to a live read
+       only if the cache hasn't been populated yet (first save after cold load
+       before fbLoadAll has finished — rare but safe). */
     var cloudByKey = {}; // key -> {fullValue, updatedAtMs, docIds:[]}
-    cloudSnap.forEach(function(doc){
-      var d = doc.data() || {};
-      var key = d.key; if (!key) return;
-      if (!cloudByKey[key]) cloudByKey[key] = {parts: {}, updatedAtMs: 0, docIds: []};
-      var entry = cloudByKey[key];
-      entry.docIds.push(doc.id);
-      if (d.part != null) entry.parts[d.part] = d.value || '';
-      else entry.parts[0] = d.value || '';
-      var ms = Number(d.updatedAtMs||0);
-      if (ms > entry.updatedAtMs) entry.updatedAtMs = ms;
-    });
-    /* Reassemble full value strings from split parts. */
-    Object.keys(cloudByKey).forEach(function(k){
-      var entry = cloudByKey[k];
-      var partKeys = Object.keys(entry.parts).map(Number).sort(function(a,b){return a-b;});
-      entry.fullValue = partKeys.map(function(p){ return entry.parts[p]; }).join('');
-    });
+    if (_fbCloudDocCache !== null) {
+      Object.keys(_fbCloudDocCache).forEach(function(k){
+        var c = _fbCloudDocCache[k];
+        cloudByKey[k] = {fullValue: c.fullValue, updatedAtMs: c.updatedAtMs, docIds: c.docIds.slice()};
+      });
+    } else {
+      /* Cold path: cache not ready — read live, then seed the cache. */
+      var _coldSnap = await ref.collection('data').get();
+      var _coldCache = {}, _coldChunks = {};
+      _coldSnap.forEach(function(doc){
+        var d = doc.data() || {}, id = doc.id;
+        var key = d.key; if (!key) return;
+        if (!cloudByKey[key]) cloudByKey[key] = {fullValue:'', updatedAtMs:0, docIds:[]};
+        cloudByKey[key].docIds.push(id);
+        var ms = Number(d.updatedAtMs||0);
+        if (ms > cloudByKey[key].updatedAtMs) cloudByKey[key].updatedAtMs = ms;
+        if (d.part != null) { if(!_coldChunks[key])_coldChunks[key]=[]; _coldChunks[key][Number(d.part)]=d.value||''; }
+        else { cloudByKey[key].fullValue = d.value||''; }
+        if (!_coldCache[key]) _coldCache[key] = {fullValue:'', updatedAtMs:0, docIds:[]};
+        _coldCache[key].docIds.push(id);
+        if (ms > _coldCache[key].updatedAtMs) _coldCache[key].updatedAtMs = ms;
+      });
+      Object.keys(_coldChunks).forEach(function(k){
+        cloudByKey[k].fullValue = _coldChunks[k].join('');
+      });
+      Object.keys(_coldCache).forEach(function(k){
+        _coldCache[k].fullValue = cloudByKey[k] ? cloudByKey[k].fullValue : '';
+      });
+      _fbCloudDocCache = _coldCache;
+    }
     if(window.SyncManager&&!SyncManager.protectCloudOverwrite(data,cloudByKey,opts)){
       setFbStatus('Firebase 저장 보류: 빈 로컬 데이터가 클라우드를 덮지 않도록 막았어요.','err');
       return false;
     }
-    await fbSaveCloudSettings(ref);
+    /* Throttle settings write — contents rarely change; 2 min interval prevents
+       a separate Firestore write on every single save. Force-syncs always write. */
+    if (opts.force || Date.now() - _fbCloudSettingsLastSavedMs >= _FB_CLOUD_SETTINGS_INTERVAL) {
+      await fbSaveCloudSettings(ref);
+      _fbCloudSettingsLastSavedMs = Date.now();
+    }
 
     /* Conflict resolution. */
     var preservedFromCloud = []; // keys we did NOT overwrite
@@ -24482,6 +24538,23 @@ async function fbSaveNow(opts){
       try { window.fbApplyData({keys:{}, updatedAtMs: Date.now(), __noop:true}); } catch(_e){}
     }
 
+    /* Delta filter: skip keys whose value is identical to what we last
+       confirmed writing. Typical user edit changes 1-3 keys; this turns
+       every save from ~54 writes down to just those changed keys. */
+    if (!opts.force && _fbLastPushedSnapshot !== null) {
+      var _deltaFiltered = {};
+      Object.keys(ourKeysToWrite).forEach(function(k){
+        if (ourKeysToWrite[k] !== _fbLastPushedSnapshot[k]) _deltaFiltered[k] = ourKeysToWrite[k];
+      });
+      ourKeysToWrite = _deltaFiltered;
+    }
+    /* Early exit: nothing to write and nothing absorbed from cloud. */
+    if (Object.keys(ourKeysToWrite).length === 0 && absorbedToLocal.length === 0) {
+      try{ if(window.SyncManager)SyncManager.markIdle('delta-no-change'); }catch(_e){}
+      setFbStatus(fbStatusTime('Firebase 동기화됨 (변경 없음)'),'ok');
+      return true;
+    }
+
     var batch=fbDb.batch(), ops=0;
     async function commitIfFull(force){
       if(ops && (force || ops>=430)){await batch.commit();batch=fbDb.batch();ops=0;}
@@ -24524,6 +24597,17 @@ async function fbSaveNow(opts){
       }
     }
     await commitIfFull(true);
+    /* Update caches so the next save can use the delta filter correctly. */
+    if (_fbCloudDocCache !== null) {
+      Object.keys(ourKeysToWrite).forEach(function(k){
+        var _parts = fbSplitValue(ourKeysToWrite[k]);
+        var _base = fbDocIdForKey(k);
+        var _docIds = _parts.length === 1 ? [_base] : _parts.map(function(_v,pi){ return _base+'__'+pi; });
+        _fbCloudDocCache[k] = {fullValue: ourKeysToWrite[k], updatedAtMs: data.updatedAtMs, docIds: _docIds};
+      });
+    }
+    if (_fbLastPushedSnapshot === null) _fbLastPushedSnapshot = {};
+    Object.keys(ourKeysToWrite).forEach(function(k){ _fbLastPushedSnapshot[k] = ourKeysToWrite[k]; });
     await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
