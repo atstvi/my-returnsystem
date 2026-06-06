@@ -7948,7 +7948,7 @@ to{opacity:1;transform:translateY(0)}}
               <div id="notion-preview" class="field-help" style="display:none;margin-top:var(--sp-3);padding:var(--sp-4);background:var(--bg-raised);border-radius:var(--r-md);white-space:pre-wrap;max-height:220px;overflow:auto"></div>
               <div class="field-label" style="margin-top:var(--sp-4)">05 자동 동기화</div>
               <div style="display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap">
-                <label class="field-help"><input type="checkbox" id="notion-auto-sync"> 자동 동기화</label>
+                <label class="field-help"><input type="checkbox" id="notion-auto-sync" checked> 자동 동기화</label>
                 <input class="set-inp mono" id="notion-auto-time" style="width:110px" placeholder="23:00">
                 <span class="field-help">앱이 열려 있을 때 실행</span>
               </div>
@@ -27411,7 +27411,17 @@ async function pullDiaryFromNotion(dateKey, opts){
   if(window._notionPullActive) return;
   window._notionPullActive = true;
   try {
-  saveNotionConfig(true);
+  /* Only persist DOM form state on MANUAL pulls. Auto pulls (the 60s interval,
+     loadDate, fbApplyData) must NOT call saveNotionConfig: the settings form
+     may be empty/unpopulated, so reading the DOM can silently overwrite stored
+     config — most damagingly flipping autoSync to the checkbox's unchecked HTML
+     default, which makes queueDiaryNotionSave bail and kills the diary→Notion
+     push entirely (the exact "일기→노션 안 됨" symptom, while pull keeps working).
+     It would also re-run scheduleDiaryAutoSync on every tick, stacking a runaway
+     ~3s pull loop. Mirror the push path (syncDiaryToNotion) which guards the
+     same way; use the cached/stored cfg as the source of truth instead. */
+  if(!opts.auto) saveNotionConfig(true);
+  if(!_diaryNotionCfg||!_diaryNotionCfg.workerUrl)_diaryNotionCfg=getNotionCfg();
   var cfg=_diaryNotionCfg;
   dateKey=dateKey||currentDate||TK;
   var st=document.getElementById('notion-sync-status');
