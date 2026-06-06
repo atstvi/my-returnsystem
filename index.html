@@ -24226,6 +24226,32 @@ function fbApplyData(data){
             }
           }catch(_de){}
         }
+        /* routine_logs_v1 and diary_tracker_values_v1 are date-keyed objects;
+           same per-date union-merge strategy as diary_entries_v1. For same-date
+           conflicts the sub-objects are merged (cloud wins on same sub-key). */
+        if(k==='routine_logs_v1'||k==='diary_tracker_values_v1'){
+          try{
+            var _cloudDKO=JSON.parse(data.keys[k]||'{}')||{};
+            var _localDKO=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudDKO==='object'&&!Array.isArray(_cloudDKO)&&
+               typeof _localDKO==='object'&&!Array.isArray(_localDKO)){
+              var _mergedDKO=Object.assign({},_localDKO);
+              var _dkoChanged=false;
+              Object.keys(_cloudDKO).forEach(function(date){
+                var cd=_cloudDKO[date], ld=_localDKO[date];
+                if(!ld||typeof ld!=='object'){_mergedDKO[date]=cd;}
+                else{_mergedDKO[date]=Object.assign({},ld,cd);}
+              });
+              Object.keys(_localDKO).forEach(function(date){
+                if(!_cloudDKO.hasOwnProperty(date))_dkoChanged=true;
+              });
+              _fbWriter(k,JSON.stringify(_mergedDKO));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_dkoChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_dko){}
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
@@ -24743,6 +24769,22 @@ async function fbSaveNow(opts){
             }
           }catch(_de){}
         }
+        if(k==='routine_logs_v1'||k==='diary_tracker_values_v1'){
+          try{
+            var _snCloudDKO=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursDKO=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudDKO==='object'&&!Array.isArray(_snCloudDKO)&&
+               typeof _snOursDKO==='object'&&!Array.isArray(_snOursDKO)){
+              var _snMergedDKO=Object.assign({},_snOursDKO);
+              Object.keys(_snCloudDKO).forEach(function(date){
+                var cd=_snCloudDKO[date], od=_snOursDKO[date];
+                if(!od||typeof od!=='object'){_snMergedDKO[date]=cd;}
+                else{_snMergedDKO[date]=Object.assign({},od,cd);}
+              });
+              valueToAbsorb=JSON.stringify(_snMergedDKO);
+            }
+          }catch(_dko2){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
@@ -24757,7 +24799,7 @@ async function fbSaveNow(opts){
            it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         /* For union-merge keys, push the merged value outbound. */
-        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1') && valueToAbsorb !== cloud.fullValue){
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
