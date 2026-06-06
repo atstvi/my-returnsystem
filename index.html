@@ -24585,24 +24585,42 @@ async function fbSaveNow(opts){
       var ours = data.keys[k];
       var cloud = cloudByKey[k];
       if (!opts.force && cloud && cloud.updatedAtMs > localApplyBaseline && cloud.fullValue !== ours) {
-        /* Cloud is newer for this key (another device changed it). Keep
-           cloud, absorb to local. */
+        /* Cloud is newer for this key (another device changed it).
+           For union-merge keys (media manifest) perform a merge so locally-added
+           images survive even when cloud is authoritative. For all other keys,
+           accept cloud as-is. */
+        var valueToAbsorb = cloud.fullValue;
+        if(k === MEDIA_SYNC_KEY){
+          /* Union-merge: start from local (ours), overlay cloud on top.
+             Local-only images survive; cloud-added images arrive. */
+          try{
+            var _lm={}, _cm={};
+            try{_lm=JSON.parse(ours||'{}')||{};}catch(_e){}
+            try{_cm=JSON.parse(cloud.fullValue||'{}')||{};}catch(_e){}
+            var _merged=Object.assign({},_lm,_cm);
+            valueToAbsorb=JSON.stringify(_merged);
+          }catch(_me){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
-          if (prev !== cloud.fullValue) {
+          if (prev !== valueToAbsorb) {
             _applyingFbData = true;
-            try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
+            try { _rawSetItem(k, valueToAbsorb); } finally { _applyingFbData = false; }
             absorbedToLocal.push(k);
           }
         } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
-        /* Stamp the snapshot with the cloud value we just absorbed so the
-           delta filter on the NEXT save sees this key as "already at cloud
-           value" and skips it. Without this, the snapshot still holds our
-           old stale local value, making the next save re-push the cloud
-           value back — an unnecessary echo write. */
+        /* Stamp the snapshot with the cloud value (not the merged value) so the
+           delta filter sees the merged result as "different from cloud" and pushes
+           it on the next save — propagating our local-only images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
-        preservedFromCloud.push(k);
+        /* For media sync, we need to push the merged value outbound so our
+           local images reach cloud. Add to ourKeysToWrite instead of preservedFromCloud. */
+        if(k === MEDIA_SYNC_KEY && valueToAbsorb !== cloud.fullValue){
+          ourKeysToWrite[k] = valueToAbsorb;
+        } else {
+          preservedFromCloud.push(k);
+        }
       } else {
         ourKeysToWrite[k] = ours;
       }
