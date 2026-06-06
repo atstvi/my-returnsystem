@@ -27601,8 +27601,17 @@ function clearDone() {
   if (!confirm('완료된 할일을 모두 삭제할까요?')) return;
   try {
     var items = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
+    var removed = items.filter(function(t){ return t && t.done; });
     items = items.filter(function(t){ return !t.done; });
     setReturnStorageItem('task_items_v1', JSON.stringify(items));
+    /* Clean up Google Calendar events and eventMeta for deleted done tasks */
+    if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
+      removed.forEach(function(t){ try{ gcalQueueTaskEventDeletion(t); }catch(_e){} });
+    }
+    /* Keep in-memory tasks in sync */
+    if(typeof tasks !== 'undefined' && Array.isArray(tasks)){
+      tasks = tasks.filter(function(t){ return !t.done; });
+    }
     showToast('완료 할일이 삭제됐어요 ✓');
     calcDataSize();
   } catch(e) {}
