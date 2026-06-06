@@ -14,6 +14,10 @@ const authInitBlock = sliceBlock(html, 'var _fbInitOnce = false;', '\nsaveFbConf
 t.ok('Firebase auth tracks redirect result handling', /_fbRedirectHandled/.test(authInitBlock));
 t.ok('initFirebase processes getRedirectResult', /getRedirectResult\(\)/.test(authInitBlock));
 t.ok('calendar credential handling is shared', /function fbHandleCalendarCredential/.test(authInitBlock));
+t.ok('Firebase modular SDK loader exists for CSP-safe auth', /async function loadFirebaseModularSdk/.test(authInitBlock));
+t.ok('Firebase modular SDK imports non-compat modules', /firebase-app\.js/.test(authInitBlock) && /firebase-auth\.js/.test(authInitBlock) && /firebase-firestore\.js/.test(authInitBlock), authInitBlock.match(/firebase-[^']+/g));
+t.ok('Firebase compat SDK is fallback-only', /loadFirebaseModularSdk\(\)[\s\S]*firebase-app-compat\.js/.test(authInitBlock));
+t.ok('app code avoids CSP eval APIs', !/\beval\s*\(|new Function|Function\s*\(/.test(html));
 
 const loginBlock = sliceBlock(html, 'async function fbGoogleLogin(){', '\nfunction fbCollectData(){');
 t.ok('Google login first tries popup', /signInWithPopup\(provider\)/.test(loginBlock));

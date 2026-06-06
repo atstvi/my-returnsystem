@@ -23265,6 +23265,85 @@ function updateAuthGate(){
 var _fbInitOnce = false;
 var _fbAuthSubscribed = false;
 var _fbRedirectHandled = false;
+var _fbModularSdkLoading = null;
+async function loadFirebaseModularSdk(){
+  if(typeof firebase!=='undefined'&&firebase.auth&&firebase.firestore)return true;
+  if(_fbModularSdkLoading)return _fbModularSdkLoading;
+  _fbModularSdkLoading=(async function(){
+    var appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    var authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+    var fsMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    var currentApp=null,currentAuth=null,currentDb=null;
+    function modularApp(cfg){
+      if(currentApp)return currentApp;
+      try{currentApp=appMod.getApp();}catch(_e){currentApp=appMod.initializeApp(cfg||fbConfig());}
+      return currentApp;
+    }
+    function modularAuth(){currentAuth=currentAuth||authMod.getAuth(modularApp());return currentAuth;}
+    function modularDb(){currentDb=currentDb||fsMod.getFirestore(modularApp());return currentDb;}
+    function wrapDocSnap(s){return {id:s.id,exists:s.exists(),data:function(){return s.data();}};}
+    function wrapQuerySnap(s){return {size:s.size,empty:s.empty,forEach:function(cb){s.forEach(function(d){cb(wrapDocSnap(d));});}};}
+    function rawRef(ref){return ref&&ref._ref?ref._ref:ref;}
+    function wrapDocRef(ref){
+      return {
+        _ref:ref,
+        id:ref.id,
+        collection:function(path){return wrapColRef(fsMod.collection(ref,path));},
+        set:function(data,opts){return fsMod.setDoc(ref,data,opts);},
+        delete:function(){return fsMod.deleteDoc(ref);},
+        get:function(){return fsMod.getDoc(ref).then(wrapDocSnap);},
+        onSnapshot:function(next,err){return fsMod.onSnapshot(ref,function(s){next(wrapDocSnap(s));},err);}
+      };
+    }
+    function wrapColRef(ref){
+      return {
+        _ref:ref,
+        id:ref.id,
+        doc:function(id){return wrapDocRef(id?fsMod.doc(ref,id):fsMod.doc(ref));},
+        get:function(){return fsMod.getDocs(ref).then(wrapQuerySnap);},
+        onSnapshot:function(next,err){return fsMod.onSnapshot(ref,function(s){next(wrapQuerySnap(s));},err);}
+      };
+    }
+    function AuthProvider(){this._provider=new authMod.GoogleAuthProvider();}
+    AuthProvider.prototype.addScope=function(scope){this._provider.addScope(scope);};
+    AuthProvider.credentialFromResult=function(result){return authMod.GoogleAuthProvider.credentialFromResult(result);};
+    function authFacade(){
+      var auth=modularAuth();
+      return {
+        onAuthStateChanged:function(cb){return authMod.onAuthStateChanged(auth,cb);},
+        signOut:function(){return authMod.signOut(auth);},
+        signInWithPopup:function(provider){return authMod.signInWithPopup(auth,provider&&provider._provider?provider._provider:provider);},
+        signInWithRedirect:function(provider){return authMod.signInWithRedirect(auth,provider&&provider._provider?provider._provider:provider);},
+        getRedirectResult:function(){return authMod.getRedirectResult(auth);}
+      };
+    }
+    authFacade.GoogleAuthProvider=AuthProvider;
+    function firestoreFacade(){
+      var db=modularDb();
+      return {
+        collection:function(path){return wrapColRef(fsMod.collection(db,path));},
+        batch:function(){
+          var batch=fsMod.writeBatch(db);
+          return {
+            set:function(ref,data,opts){return batch.set(rawRef(ref),data,opts);},
+            delete:function(ref){return batch.delete(rawRef(ref));},
+            commit:function(){return batch.commit();}
+          };
+        }
+      };
+    }
+    firestoreFacade.FieldValue={delete:function(){return fsMod.deleteField();}};
+    window.firebase={
+      apps:[],
+      initializeApp:function(cfg){currentApp=appMod.initializeApp(cfg);this.apps=[currentApp];return currentApp;},
+      app:function(){var app=modularApp();this.apps=[app];return app;},
+      auth:authFacade,
+      firestore:firestoreFacade
+    };
+    return true;
+  })();
+  return _fbModularSdkLoading;
+}
 function fbHandleCalendarCredential(result){
   try{
     var cred=result&&firebase.auth.GoogleAuthProvider.credentialFromResult(result);
@@ -23295,9 +23374,14 @@ async function initFirebase(){
   if(!sdkReady){
     setFbStatus('Firebase 스크립트 로드 중...','saving');
     try {
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
-      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+      try{
+        await loadFirebaseModularSdk();
+      }catch(modularErr){
+        console.warn('[fb] modular Firebase SDK load failed; trying compat fallback:', modularErr&&modularErr.message||modularErr);
+        await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+        await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
+        await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+      }
     } catch(e){
       setFbStatus('Firebase 연결 실패 — 재시도하거나 로그인 없이 사용하세요','err');
       console.error('[fb] initFirebase loadScript failed:', e&&e.message||e);
