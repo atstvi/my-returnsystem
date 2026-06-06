@@ -24646,12 +24646,13 @@ async function fbSaveNow(opts){
     _fbSaveTimer=setTimeout(fbSaveNow,650);
     return false;
   }
-  if(!fbDb||!fbUser||_applyingFbData)return false;
-  if(window.SyncManager&&!SyncManager.canSave(opts))return false;
+  if(!fbDb||!fbUser||_applyingFbData){clearTimeout(_fbSaveTimer);return false;}
+  if(window.SyncManager&&!SyncManager.canSave(opts)){clearTimeout(_fbSaveTimer);return false;}
   /* Circuit breaker: skip auto-saves during quota/permission backoff window.
      Schedule a retry save for when the window expires so unsaved changes are
      not silently dropped if the user stops interacting during backoff. */
   if(!opts.force && Date.now()<_fbQuotaBackoffUntil){
+    clearTimeout(_fbSaveTimer);
     var _backoffRemainMs=_fbQuotaBackoffUntil-Date.now();
     var _backoffRemainMin=Math.ceil(_backoffRemainMs/60000);
     setFbStatus('Firebase 저장 일시 중단 (오류로 인한 자동 백오프 — '+_backoffRemainMin+'분 후 재시도)','err');
@@ -24669,6 +24670,7 @@ async function fbSaveNow(opts){
      swallow a real edit a user makes right after seeing the remote update.
      Manual "지금 올리기" and pre-suspend flush bypass with force/flushBeforeSuspend. */
   if(!opts.force && !opts.flushBeforeSuspend && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
+    clearTimeout(_fbSaveTimer);
     try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
