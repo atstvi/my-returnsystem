@@ -26670,19 +26670,22 @@ async function runNotionDiagnostics(){
     typeof queueDiaryNotionSave==='function'?'queueDiaryNotionSave 사용 가능':'queueDiaryNotionSave 누락 — 빌드 문제');
 
   /* === Step 11: real Notion→diary PULL (non-destructive) ===
-     Tests the Notion→app direction directly: reads today's Notion page and
-     merges into the local entry. Does NOT push, so it never overwrites a
-     Notion-side edit (the old destructive push step did, which made the diary
-     never seem to receive Notion changes). The per-section merge DECISIONS are
-     recorded in the Step 12 trace (merge:adopt-notion / keep-local-… / conflict-…). */
+     Tests the Notion→app direction directly: reads the page for the date the
+     user is ACTUALLY VIEWING (currentDate — which honors the 4am day boundary,
+     so it can differ from the calendar date TK) and merges into the local entry.
+     Does NOT push, so it never overwrites a Notion-side edit (the old destructive
+     push step did, which made the diary never seem to receive Notion changes).
+     Per-section merge DECISIONS are in the Step 12 trace. */
+  var pullDate=(typeof currentDate!=='undefined'&&currentDate)?currentDate:today;
   try{
     var _pullBefore=(window._autoPushTrace||[]).length;
-    await pullDiaryFromNotion(today,{silent:true,auto:true,reason:'diagnostic'});
+    await pullDiaryFromNotion(pullDate,{silent:true,auto:true,reason:'diagnostic'});
     var _adopted=(window._autoPushTrace||[]).slice(_pullBefore).filter(function(e){return e.stage==='merge:adopt-notion'||e.stage==='merge:adopt-notion-nobaseline'||e.stage==='merge:conflict-notion-wins';}).length;
     var _kept=(window._autoPushTrace||[]).slice(_pullBefore).filter(function(e){return e.stage==='merge:keep-local-notion-unchanged'||e.stage==='merge:conflict-local-wins';}).length;
-    add('실제 Notion→일기 가져오기 (pull)', _adopted?'ok':'warn',
+    add('실제 Notion→일기 가져오기 (pull · '+pullDate+(pullDate!==today?' · 보고 있는 날짜':'')+')', _adopted?'ok':'warn',
       _adopted? ('Notion 변경 '+_adopted+'개 섹션을 일기로 가져옴 — 일기 화면을 확인하세요')
-              : ('Notion에서 새로 가져올 변경 없음'+(_kept?(' (로컬 유지 '+_kept+'개: Notion이 기준값과 같거나 로컬이 더 최신)'):'')+'. Notion에서 섹션을 수정한 뒤 이 진단을 다시 실행해 비교해보세요'));
+              : ('이 날짜('+pullDate+')에 Notion에서 새로 가져올 변경 없음'+(_kept?(' (로컬 유지 '+_kept+'개: Notion이 기준값과 같거나 로컬이 더 최신)'):'')+'. 일기에서 보고 있는 바로 그 날짜의 Notion 페이지를 수정한 뒤 다시 실행해보세요'));
+    if(pullDate!==today) add('날짜 경계 안내','warn','앱은 "새벽 4시 기준"으로 오늘을 '+pullDate+'로 보고 있는데, 달력 날짜는 '+today+'예요. Notion에서 '+pullDate+' 페이지(앱이 보는 날짜)를 수정해야 일기에 반영됩니다.');
   }catch(pe){
     add('실제 Notion→일기 가져오기 (pull)','err',(pe&&pe.message||pe));
   }
