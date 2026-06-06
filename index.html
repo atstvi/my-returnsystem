@@ -26692,6 +26692,21 @@ async function runNotionDiagnostics(){
     add('실제 Notion→일기 가져오기 (pull)','err',(pe&&pe.message||pe));
   }
 
+  /* === Step 11b: multi-date sweep (any recently-edited Notion date) === */
+  try{
+    var _swBefore=(window._autoPushTrace||[]).length;
+    /* Force a full re-scan in the diagnostic regardless of the last-sweep
+       timestamp, so the user can verify other dates pull too. */
+    try{ if(_diaryNotionCfg){ _diaryNotionCfg.lastSweepMs=0; } }catch(_e){}
+    if(typeof diaryNotionSweepRecent==='function') await diaryNotionSweepRecent({reason:'diagnostic'});
+    var _swEv=(window._autoPushTrace||[]).slice(_swBefore).filter(function(e){return e.stage==='sweep:done'||e.stage==='sweep:error';});
+    var _swMsg=_swEv.length?(_swEv[_swEv.length-1].detail||''):'실행됨';
+    add('여러 날짜 일괄 가져오기 (sweep)', _swEv.length&&_swEv[_swEv.length-1].stage==='sweep:error'?'err':'ok',
+      '최근 7일 내 Notion에서 수정된 모든 날짜를 검사 — '+_swMsg+'. (앱에서 보지 않는 날짜를 Notion에서 고쳐도 이 검사/앱 복귀 시 자동 반영됩니다)');
+  }catch(se){
+    add('여러 날짜 일괄 가져오기 (sweep)','err',(se&&se.message||se));
+  }
+
   /* === Step 12: real edit→push breadcrumb trace ===
      Shows what the PRODUCTION edit path actually did (queueDiaryNotionSave →
      timer fire → syncDiaryToNotion). If a real diary edit isn't reaching Notion,
@@ -27649,6 +27664,57 @@ async function pullDiaryFromNotion(dateKey, opts){
     window._notionPullActive = false;
   }
 }
+/* Multi-date sweep: pull EVERY diary date recently edited in Notion, not just
+   the one the user is currently viewing. The user pointed out they can't predict
+   which date they'll edit in Notion — and the single-date pull only covered the
+   viewed date, so edits to other dates' pages never reached the app until they
+   navigated there. This does ONE DB query sorted by last_edited_time and merges
+   the SECTION PROPERTIES of each page edited since the last sweep (properties
+   come back with the query — no extra per-page API calls). Body blocks for the
+   viewed date are still handled by pullDiaryFromNotion. Cheap and covers all
+   dates' section content. */
+var _notionSweepBusy=false;
+async function diaryNotionSweepRecent(opts){
+  opts=opts||{};
+  if(window._notionSyncActive||window._notionPullActive||_notionSweepBusy) return;
+  var cfg=(_diaryNotionCfg&&_diaryNotionCfg.workerUrl)?_diaryNotionCfg:getNotionCfg();
+  if(!cfg.workerUrl||!cfg.dbId) return;
+  if(typeof entries==='undefined') return;
+  _notionSweepBusy=true; window._notionPullActive=true;
+  try{
+    var dateProp=cfg.dateProp||'날짜';
+    var res=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+      sorts:[{timestamp:'last_edited_time',direction:'descending'}],
+      page_size:20
+    });
+    var pages=res.results||[];
+    /* 2-min grace against clock skew; default to last 7 days on first sweep. */
+    var graceMs=2*60*1000;
+    var lastSweep=Number(cfg.lastSweepMs||0);
+    var sinceMs = lastSweep ? (lastSweep-graceMs) : (Date.now()-7*24*3600*1000);
+    var totalAdopted=0, datesTouched=[];
+    for(var i=0;i<pages.length;i++){
+      var pg=pages[i];
+      var em = pg.last_edited_time?Date.parse(pg.last_edited_time):0;
+      if(em && em<=sinceMs) break;            /* sorted desc → everything after is older */
+      var dprop = pg.properties && pg.properties[dateProp];
+      var dk = (dprop && dprop.date && dprop.date.start) ? String(dprop.date.start).slice(0,10) : null;
+      if(!dk) continue;
+      if(!entries[dk]) entries[dk]={};
+      var adopted=_pullDiaryPageProperties(pg, dk, cfg);  /* merges + refreshes if ===currentDate */
+      if(adopted){ totalAdopted+=adopted; datesTouched.push(dk); try{ _notionUpdateBaseline(entries[dk]); }catch(_e){} }
+    }
+    _diaryNotionCfg=cfg; _diaryNotionCfg.lastSweepMs=Date.now();
+    try{ setReturnStorageItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg)); }catch(_e){}
+    if(totalAdopted){ try{ setReturnStorageItem('diary_entries_v1', JSON.stringify(entries)); }catch(_e){} }
+    if(typeof _apTrace==='function') _apTrace('sweep:done','채택 '+totalAdopted+(datesTouched.length?' · 날짜 '+datesTouched.join(','):' · 변경없음'));
+  }catch(e){
+    if(typeof _apTrace==='function') _apTrace('sweep:error', e&&e.message||e);
+  }finally{
+    _notionSweepBusy=false; window._notionPullActive=false;
+  }
+}
+window.diaryNotionSweepRecent=diaryNotionSweepRecent;
 async function diaryAutoDetectProps(){
   saveNotionConfig();
   try {
@@ -27766,6 +27832,9 @@ function scheduleDiaryAutoSync(){
            saveTimer is set, preventing pull-overwrites-typed-content and the
            pull→_afterWriteSideEffects→push feedback loop. */
         await pullDiaryFromNotion(currentDate||today,{silent:true,auto:true,reason:'interval'});
+        /* Also sweep ALL recently-edited dates so an edit to any other date's
+           Notion page (not just the viewed one) reaches the app. */
+        try{ if(typeof diaryNotionSweepRecent==='function') await diaryNotionSweepRecent({reason:'interval'}); }catch(_e){}
       }
     }catch(e){
       console.warn('diary auto sync failed:',e&&e.message||e);
@@ -27791,7 +27860,12 @@ function _diaryNotionFocusPull(){
     var now=Date.now();
     if(now-_lastFocusPullMs<5000) return;
     _lastFocusPullMs=now;
+    /* Pull the viewed date now (body + props)… */
     if(typeof queueDiaryNotionPull==='function') queueDiaryNotionPull((typeof currentDate!=='undefined'&&currentDate)||TK,'focus',300);
+    /* …and sweep all recently-edited dates so an edit to ANY date's Notion page
+       reflects when the user returns to the app (they can't predict which date
+       they'll have edited). Slight delay so it runs after the focused pull. */
+    if(typeof diaryNotionSweepRecent==='function') setTimeout(function(){ try{ diaryNotionSweepRecent({reason:'focus'}); }catch(_e){} }, 800);
   }catch(_e){}
 }
 if(typeof document!=='undefined' && document.addEventListener){
