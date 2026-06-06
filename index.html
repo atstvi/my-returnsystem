@@ -12503,6 +12503,44 @@ window.returnTombstoneGC=returnTombstoneGC;
 window.returnEntityFilterTombstoned=returnEntityFilterTombstoned;
 window.returnTombstonesReport=function(){ var t=tombstonesLoad(); var r={count:Object.keys(t).length}; try{console.log('[tombstones]',r,t);}catch(_e){} return r; };
 
+/* Collapse duplicate entries in an array collection that share the same id
+   (or _eid). Earlier broken sync rounds appended the same item multiple times
+   (cloud blob A concatenated onto cloud blob B, both already containing the
+   item), so the user sees the same project / routine 3-4×. We keep ONE copy
+   per id — the one with the newest updatedAt (falling back to last-seen) —
+   preserving array order by the first position the id appeared at.
+   Returns {arr:dedupedArray, removed:countCollapsed}. Pure: never writes. */
+function returnDedupById(arr){
+  if(!Array.isArray(arr))return {arr:arr,removed:0};
+  var byKey={}, order=[], removed=0;
+  for(var i=0;i<arr.length;i++){
+    var e=arr[i];
+    if(!e||typeof e!=='object'){ /* keep non-objects as-is, unkeyed */ order.push({__raw:e}); continue; }
+    var key=(e.id!=null?'id:'+String(e.id):(e._eid!=null?'eid:'+String(e._eid):null));
+    if(key==null){ order.push({__keep:e}); continue; } /* unkeyed: always keep */
+    if(!byKey.hasOwnProperty(key)){
+      byKey[key]={e:e,pos:order.length};
+      order.push({__ref:key});
+    }else{
+      removed++;
+      /* Keep whichever copy is newer by updatedAt; ties keep the existing
+         (earlier-positioned) one so order is stable. */
+      var prev=byKey[key].e;
+      var pu=Number((prev&&prev.updatedAt)||0), cu=Number((e&&e.updatedAt)||0);
+      if(cu>pu)byKey[key].e=e;
+    }
+  }
+  var out=[];
+  for(var j=0;j<order.length;j++){
+    var slot=order[j];
+    if(slot.__ref!=null)out.push(byKey[slot.__ref].e);
+    else if(slot.hasOwnProperty('__keep'))out.push(slot.__keep);
+    else if(slot.hasOwnProperty('__raw'))out.push(slot.__raw);
+  }
+  return {arr:out,removed:removed};
+}
+window.returnDedupById=returnDedupById;
+
 /* One call for save sites: backfill ids, stamp changed entities, and (for
    user-owned collections) tombstone vanished _eids + clear tombstones for any
    _eid that is present and live again. */
@@ -21322,7 +21360,21 @@ function _initRecords(){
    Additive project/goal layer. Existing items work without projectId.
    ═══════════════════════════════════════════════════════════ */
 var projects=[], activeProjectId=null;
-function loadProjects(){try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}}
+function loadProjects(){
+  try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}
+  /* Heal duplicate projects left behind by earlier broken sync rounds (same id
+     appearing 2-4×). Collapse to one copy per id, then persist + resync so the
+     cleaned list propagates to the cloud and other devices. Guard against the
+     apply-lock so we don't fight an in-flight fbApplyData write. */
+  try{
+    var _dp=returnDedupById(projects);
+    if(_dp.removed>0){
+      projects=_dp.arr;
+      if(!window._applyingFbData){ try{ saveProjects(); }catch(_e){} }
+      try{ console.log('[dedup] projects: collapsed '+_dp.removed+' duplicate(s)'); }catch(_e){}
+    }
+  }catch(_e){}
+}
 function saveProjects(){returnEntityPrepareForSave('projects', projects, 'p_', {autoTombstone:true});/* Stage 6a */return setReturnStorageItem('projects_v1',JSON.stringify(projects));}
 function projectEsc(v){return typeof tEscHtml==='function'?tEscHtml(v==null?'':String(v)):String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function projectTaskItems(project){return (typeof tasks!=='undefined'?tasks:[]).filter(function(t){return String(t.projectId||'')===String(project.id);});}
@@ -22252,6 +22304,27 @@ function loadRoutineData(){
   routineBundles=routineReadJson('routine_bundles_v1',[]);
   routineLogs=routineReadJson('routine_logs_v1',{});
   routineCondition=localStorage.getItem('routine_condition_v1')||'plus';
+  /* Heal duplicate routines/habits left behind by earlier broken sync rounds
+     (same id appearing 3-4×, e.g. seed bundles re-concatenated). Collapse to one
+     copy per id; also drop any habitIds inside a bundle that point to a habit no
+     longer present, and de-dup repeated habitIds within a bundle. Persist +
+     resync only when something actually changed. */
+  try{
+    var _dh=returnDedupById(routineHabits), _db=returnDedupById(routineBundles);
+    var _routineChanged=(_dh.removed>0||_db.removed>0);
+    routineHabits=_dh.arr; routineBundles=_db.arr;
+    /* de-dup habitIds within each bundle (kept positionally stable) */
+    routineBundles.forEach(function(b){
+      if(!b||!Array.isArray(b.habitIds))return;
+      var seen={}, cleaned=[];
+      b.habitIds.forEach(function(id){var s=String(id);if(seen[s])return;seen[s]=1;cleaned.push(id);});
+      if(cleaned.length!==b.habitIds.length){b.habitIds=cleaned;_routineChanged=true;}
+    });
+    if(_routineChanged){
+      if(!window._applyingFbData){ try{ saveRoutineData(); }catch(_e){} }
+      try{ console.log('[dedup] routines: collapsed habits='+_dh.removed+' bundles='+_db.removed); }catch(_e){}
+    }
+  }catch(_e){}
   /* Only seed when the key has never been written — null means first launch.
      An empty array ([]) means the user intentionally deleted all routines. */
   if(_rawHabits===null&&!routineHabits.length&&!routineBundles.length)seedRoutineData();
@@ -24453,14 +24526,36 @@ function fbApplyData(data){
                 var created=Number(t.createdAt||t.ts||0);
                 return created>_prevRemoteApplyMs;
               });
-              if(_localArrOnly.length){
-                _fbWriter(k,JSON.stringify(_cloudArr.concat(_localArrOnly)));
+              /* Dedup the merged result: the cloud blob itself may still carry
+                 duplicate ids from earlier broken sync rounds, and the concat
+                 could reintroduce them. Collapse to one copy per id and push the
+                 cleaned value back to cloud when anything changed. */
+              var _mergedArr=_cloudArr.concat(_localArrOnly);
+              var _dd=returnDedupById(_mergedArr);
+              if(_localArrOnly.length||_dd.removed>0){
+                _fbWriter(k,JSON.stringify(_dd.arr));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
           }catch(_te){}
+        }
+        /* routine_habits_v1 / routine_bundles_v1: simple overwrite from cloud,
+           but the cloud blob may still hold duplicate ids from earlier broken
+           sync rounds. Dedup before writing so localStorage stays clean, and
+           push the cleaned value back when duplicates were collapsed. */
+        if(k==='routine_habits_v1'||k==='routine_bundles_v1'){
+          try{
+            var _rCloud=JSON.parse(data.keys[k]||'[]')||[];
+            if(Array.isArray(_rCloud)){
+              var _rdd=returnDedupById(_rCloud);
+              _fbWriter(k,JSON.stringify(_rdd.arr));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_rdd.removed>0)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_re){}
         }
         /* diary_entries_v1 is a date-keyed object; per-date LWW merge prevents
            one device's write from wiping dates only edited on the other device.
