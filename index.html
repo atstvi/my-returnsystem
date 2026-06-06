@@ -7890,6 +7890,7 @@ to{opacity:1;transform:translateY(0)}}
                 <button class="set-btn btn-ghost" onclick="fbForceSync()">⬆ 지금 올리기</button>
                 <button class="set-btn btn-ghost" onclick="fbForcePull()">⬇ 지금 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="runFirebaseDiagnostics()">🔬 진단 실행</button>
+                <button class="set-btn btn-ghost" onclick="runImageDiagnostics()">🖼 이미지 진단</button>
                 <button class="set-btn btn-ghost" onclick="clearFbConfig()">연결 해제</button>
                 <button class="set-btn btn-ghost" onclick="showFirebaseRulesHelp()">규칙 보기</button>
               </div>
@@ -29422,6 +29423,70 @@ function themeStudioMediaFallbackForUrl(url){
      deduplicated manifest so stripping the per-asset copy stays safe. */
   return (found&&(found.syncDataUrl||found.dataUrl))||mediaSyncResolve(url)||'';
 }
+/* ─────────────────────────────────────────────────────────────────────────
+   IMAGE DIAGNOSTICS — shows, per image, which sync channel holds its bytes so
+   we can see exactly where cross-device rendering breaks. Run on BOTH a device
+   where images show and one where they don't, then compare.
+   ─────────────────────────────────────────────────────────────────────── */
+async function runImageDiagnostics(){
+  var ov=document.getElementById('img-diag-modal');
+  if(ov)ov.remove();
+  ov=document.createElement('div');
+  ov.id='img-diag-modal';
+  ov.style.cssText='position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg-card);color:var(--fg);border-radius:14px;box-shadow:var(--elev-3);max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden';
+  box.innerHTML='<div style="padding:18px 18px 10px;border-bottom:.5px solid var(--border)"><div style="font-size:15px;font-weight:600">🖼 이미지 동기화 진단</div><div style="font-size:11px;color:var(--fg-4);margin-top:4px;line-height:1.5">각 이미지의 바이트가 어느 동기화 채널에 있는지 보여줍니다. fb(아이콘fallback)·mf(manifest)·as(asset)·idb(이기기) 중 하나라도 있어야 표시됩니다.</div></div><div id="img-diag-list" style="padding:14px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:8px;font-size:11px;line-height:1.5"></div><div style="padding:10px 18px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:.5px solid var(--border);background:var(--bg-raised)"><button class="set-btn btn-ghost" id="img-diag-copy">결과 복사</button><button class="set-btn btn-primary" id="img-diag-close">닫기</button></div>';
+  ov.appendChild(box);document.body.appendChild(ov);
+  ov.querySelector('#img-diag-close').onclick=function(){ov.remove();};
+  var listEl=ov.querySelector('#img-diag-list'),results=[];
+  function add(label,state,detail){
+    var icon=state==='ok'?'✓':state==='warn'?'⚠':state==='err'?'✗':'…';
+    var color=state==='ok'?'var(--success)':state==='warn'?'var(--warning)':state==='err'?'var(--danger)':'var(--fg-4)';
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:6px;background:'+(state==='err'?'var(--d-50)':state==='ok'?'var(--t-50)':'var(--bg-raised)')+';word-break:break-word';
+    row.innerHTML='<span style="color:'+color+';font-weight:bold">'+icon+'</span><div style="flex:1;min-width:0"><div style="font-weight:600">'+label+'</div>'+(detail?'<div style="margin-top:2px;color:var(--fg-3);font-family:var(--font-mono)">'+detail.replace(/[<>&]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;'}[c];})+'</div>':'')+'</div>';
+    listEl.appendChild(row);
+    results.push((state==='ok'?'[OK] ':state==='err'?'[MISSING] ':state==='warn'?'[WARN] ':'')+label+(detail?' — '+detail:''));
+  }
+  ov.querySelector('#img-diag-copy').onclick=function(){try{navigator.clipboard.writeText(results.join('\n'));showToast('진단 결과 복사됨');}catch(e){window.prompt('복사하세요:',results.join('\n'));}};
+  function fmt(n){return n?(Math.round(n/1024)+'KB'):'0';}
+  async function idbLen(id){try{var r=await returnMediaGet(id);return r&&r.dataUrl?r.dataUrl.length:0;}catch(e){return 0;}}
+  var state=themeStudioGet(),icons=state.icons||{},fb=state.iconFallbacks||{};
+  var assets=[];try{assets=themeStudioAssets();}catch(e){}
+  var manifest={};try{manifest=JSON.parse(localStorage.getItem(MEDIA_SYNC_KEY)||'{}')||{};}catch(e){}
+  add('로그인 상태',fbUser?'ok':'err',fbUser?('연결됨 '+(fbUser.email||'')):'로그인 안 됨 — 동기화 불가');
+  add('manifest 총량','warn',Object.keys(manifest).length+'개 / '+fmt(JSON.stringify(manifest).length));
+  // helper to diagnose one ref
+  async function diagRef(label,val){
+    if(!val){add(label,'warn','(설정 안 됨)');return;}
+    if(!isReturnMediaRef(val)){
+      add(label,/^data:image|^https?:|^blob:/.test(val)?'ok':'warn','inline '+(/^data:/.test(val)?'dataURL':'url')+' '+fmt(val.length));
+      return;
+    }
+    var id=returnMediaRefId(val);
+    var inFb=(fb[label]&&fb[label].length)||0; // fallback keyed by icon name
+    var inFbAny=0;Object.keys(fb).forEach(function(k){if(fb[k]&&fb[k].length>inFbAny&&label.indexOf(k)>=0)inFbAny=fb[k].length;});
+    var asset=assets.find(function(a){return a.url===val;});
+    var inAs=asset&&(asset.syncDataUrl||asset.dataUrl)?(asset.syncDataUrl||asset.dataUrl).length:0;
+    var inMf=manifest[id]?manifest[id].length:0;
+    var inIdb=await idbLen(id);
+    var synced=inFb||inFbAny||inAs||inMf; // channels that reach other devices
+    var here=synced||inIdb;
+    add(label,synced?'ok':(here?'err':'err'),'id='+id.slice(0,10)+' · fb='+fmt(inFb||inFbAny)+' mf='+fmt(inMf)+' as='+fmt(inAs)+' idb='+fmt(inIdb)+(synced?'':' ← 다른 기기로 전송되는 사본 없음'));
+  }
+  // icons (app, avatar, tabs...)
+  for(var k in icons){ if(Object.prototype.hasOwnProperty.call(icons,k)) await diagRef('아이콘:'+k,icons[k]); }
+  if(!Object.keys(icons).length)add('아이콘','warn','커스텀 아이콘 없음');
+  // home banner
+  try{await diagRef('홈 배너',localStorage.getItem('home_banner_v1')||(state.banner&&state.banner.image)||'');}catch(e){}
+  // stickers
+  var st=[];try{st=JSON.parse(localStorage.getItem('global_stickers_v1')||'[]')||[];}catch(e){}
+  if(!st.length)add('스티커','warn','스티커 없음');
+  for(var i=0;i<st.length;i++){ await diagRef('스티커 '+(i+1),st[i]&&(st[i].url||'')); }
+}
+window.runImageDiagnostics=runImageDiagnostics;
 function themeStudioImgTag(url,fallback){
   url=String(url||'');
   fallback=fallback||themeStudioMediaFallbackForUrl(url);
