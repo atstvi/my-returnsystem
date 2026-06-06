@@ -10932,7 +10932,7 @@ function expectedForExistingGenerated(t, expectedMap){
   return null;
 }
 function createGeneratedTaskFromExpected(exp){
-  var base=Object.assign({id:Date.now()+Math.random(),createdAt:Date.now(),updatedAt:Date.now()},exp.task||{});
+  var base=Object.assign({id:'gen_'+Date.now()+'_'+Math.random().toString(36).slice(2,11),createdAt:Date.now(),updatedAt:Date.now()},exp.task||{});
   normalizeGeneratedTaskMeta(base,exp);
   return base;
 }
@@ -11786,6 +11786,10 @@ async function homeCaptureAI(raw){
     +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
 
   try {
+    /* 20s abort: a hung capture-AI call should fall back to plain add rather
+       than leaving the UI spinner running indefinitely. */
+    var _captureAbort=typeof AbortController!=='undefined'?new AbortController():null;
+    var _captureAbortTimer=_captureAbort?setTimeout(function(){_captureAbort.abort();},20000):null;
     var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
@@ -11797,8 +11801,10 @@ async function homeCaptureAI(raw){
           {role:'system',content:systemPrompt},
           {role:'user',content:'파싱: '+text}
         ]
-      })
+      }),
+      signal:_captureAbort?_captureAbort.signal:undefined
     });
+    clearTimeout(_captureAbortTimer);
     var data = await resp.json();
     var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
     /* Strip markdown code fences if any */
@@ -17539,7 +17545,7 @@ function saveItem(){
     }
   } else {
     var newId='h_'+Date.now()+'_'+Math.floor(Math.random()*999);
-    var newIt={id:newId,text:text,catId:catId,type:draftType,date:date,timeStart:ts,timeEnd:te,note:note,done:false};
+    var newIt={id:newId,text:text,catId:catId,type:draftType,date:date,timeStart:ts,timeEnd:te,note:note,done:false,createdAt:Date.now()};
     if(repObj) newIt._repeat=repObj;
 
     items.push(newIt);
@@ -20199,7 +20205,7 @@ function saveMemo() {
   var ta = document.getElementById('capture-ta');
   var text = ta.value.trim();
   if (!text) return;
-  memos.unshift({ text: text, ts: Date.now(), type: 'memo' });
+  memos.unshift({ id: 'm_'+Date.now()+'_'+Math.floor(Math.random()*9999), text: text, ts: Date.now(), type: 'memo' });
   var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
   if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
   ta.value = '';
@@ -23200,6 +23206,10 @@ var SyncManager=(function(){
     return true;
   }
   function canSave(opts){
+    /* Forced saves (user clicked 지금 올리기) bypass hydration guard.
+       Real safety is provided by the !fbDb/!fbUser/_applyingFbData checks
+       inside fbSaveNow itself, so returning true here can't cause a bad write. */
+    if(opts&&opts.force)return true;
     if(!state.savingEnabled||state.hydrating||!state.hydrationComplete){
       state.blockedSaves++;
       update({dirty:true,lastSyncStatus:'save-blocked-before-hydration'});
@@ -23264,7 +23274,8 @@ var SyncManager=(function(){
 function shouldFbSyncKey(k){
   if(!k)return false;
   if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id',
-      'return_sync_model' /* device-local feature flag — each device opts in/out independently */
+      'return_sync_model', /* device-local feature flag — each device opts in/out independently */
+      'return_fb_sync_ts'  /* device-local sync baseline — survives page reloads, must not propagate to other devices */
      ].indexOf(k)>=0)return false;
   /* Null-safe against boot ordering: a #settings deep-link runs goPage() during
      initial parse, which can persist (theme/cats) BEFORE the module-level
@@ -23374,6 +23385,19 @@ async function initFirebase(){
         setFbStatus('연결됨 — '+(user.email||'Google 계정'),'ok');
         fbLoadAll();
       } else {
+        /* Unsubscribe the Firestore listener on sign-out so it doesn't keep
+           firing and attempting reads (which would either fail with
+           permission-denied or spuriously apply data from a stale session).
+           fbLoadAll re-subscribes on the next sign-in. */
+        if(_fbUnsubscribe){try{_fbUnsubscribe();}catch(_e){} _fbUnsubscribe=null;}
+        clearTimeout(_fbSaveTimer); _fbSaveTimer=null;
+        /* Reset per-session caches so re-login (possibly different account) starts
+           with a clean slate. fbLoadAll re-seeds these from cloud on next sign-in.
+           Without this, a cross-account switch could attempt to delete docs from
+           the old account using stale _fbCloudDocCache docIds, triggering a
+           permission-denied backoff for the new account. */
+        _fbCloudDocCache=null;
+        _fbLastPushedSnapshot=null;
         setFbStatus('설정 저장됨 — Google 로그인이 필요해요','');
       }
     });
@@ -23442,8 +23466,7 @@ function fbCollectData(){
       }
       continue;
     }
-    var v = localStorage.getItem(k);
-    if (v != null) data.keys[k] = v;
+    try{ var v = localStorage.getItem(k); if (v != null) data.keys[k] = v; }catch(_lge){}
   }
   /* Also include any IDB-only keys (not in localStorage at all) */
   if(window._idbCache){
@@ -24130,7 +24153,13 @@ function fbApplyData(data){
      re-renders — NOT a repair pass. Skipping the repair prevents the
      noop → reconcile → save → snapshot → noop loop that amplifies every
      entity-mirror update into a save storm. */
-  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=Number(data.updatedAtMs||0)||Date.now(); setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
+  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=_prevRemoteApplyMs; setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
+  /* Persist the baseline immediately after a real remote apply (non-noop).
+     Survives page reloads so the union-merge guard works correctly even on
+     the first fbApplyData call of the next session — prevents cloud data from
+     silently overwriting locally-created items when _prevRemoteApplyMs would
+     otherwise be 0 after a reload. */
+  try{(typeof _rawSetItem==='function'?_rawSetItem:localStorage.setItem.bind(localStorage))('return_fb_sync_ts',String(_lastRemoteApplyMs));}catch(_e){}
   /* Hold the apply-lock across BOTH the localStorage writes and the
      subsequent reloader pass. Reloaders themselves can write to
      localStorage (e.g. normalizing migrated keys) and we don't want those
@@ -24195,12 +24224,124 @@ function fbApplyData(data){
             }
           }catch(_te){}
         }
+        /* diary_entries_v1 is a date-keyed object; per-date LWW merge prevents
+           one device's write from wiping dates only edited on the other device.
+           Only triggers a push-back save when merged result differs from cloud. */
+        if(k==='diary_entries_v1'){
+          try{
+            var _cloudDiary=JSON.parse(data.keys[k]||'{}')||{};
+            var _localDiary=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudDiary==='object'&&!Array.isArray(_cloudDiary)&&
+               typeof _localDiary==='object'&&!Array.isArray(_localDiary)){
+              var _mergedDiary=Object.assign({},_localDiary);
+              var _diaryMergeChanged=false;
+              Object.keys(_cloudDiary).forEach(function(date){
+                var ce=_cloudDiary[date], le=_localDiary[date];
+                if(!le){_mergedDiary[date]=ce;}
+                else{
+                  var cu=Number((ce&&ce.updatedAt)||0), lu=Number((le&&le.updatedAt)||0);
+                  if(cu>=lu){_mergedDiary[date]=ce;}
+                  else{_diaryMergeChanged=true;} /* local entry is newer for this date */
+                }
+              });
+              /* local has dates not in cloud → merged will differ from cloud */
+              Object.keys(_localDiary).forEach(function(date){
+                if(!_cloudDiary.hasOwnProperty(date))_diaryMergeChanged=true;
+              });
+              _fbWriter(k,JSON.stringify(_mergedDiary));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_diaryMergeChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_de){}
+        }
+        /* routine_logs_v1 and diary_tracker_values_v1 are date-keyed objects;
+           same per-date union-merge strategy as diary_entries_v1. For same-date
+           conflicts the sub-objects are merged (cloud wins on same sub-key). */
+        if(k==='routine_logs_v1'||k==='diary_tracker_values_v1'||k==='recharge_energy'){
+          try{
+            var _cloudDKO=JSON.parse(data.keys[k]||'{}')||{};
+            var _localDKO=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudDKO==='object'&&!Array.isArray(_cloudDKO)&&
+               typeof _localDKO==='object'&&!Array.isArray(_localDKO)){
+              var _mergedDKO=Object.assign({},_localDKO);
+              var _dkoChanged=false;
+              Object.keys(_cloudDKO).forEach(function(date){
+                var cd=_cloudDKO[date], ld=_localDKO[date];
+                if(cd!==null&&typeof cd==='object'){
+                  if(!ld||typeof ld!=='object'){_mergedDKO[date]=cd;}
+                  else{_mergedDKO[date]=Object.assign({},ld,cd);}
+                } else {
+                  _mergedDKO[date]=cd; /* scalar value — cloud wins */
+                }
+              });
+              Object.keys(_localDKO).forEach(function(date){
+                if(!_cloudDKO.hasOwnProperty(date))_dkoChanged=true;
+              });
+              _fbWriter(k,JSON.stringify(_mergedDKO));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_dkoChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_dko){}
+        }
+        /* hobby_items_v2 and memos_v5 union-merge: preserve items created on this
+           device after the last remote apply that haven't reached cloud yet.
+           hobby items use createdAt; memos use ts. Items without a creation
+           timestamp are treated as pre-sync and are not re-added if missing. */
+        if(k==='hobby_items_v2'||k==='memos_v5'){
+          try{
+            var _hobIsArray=k==='hobby_items_v2';
+            var _hmCloud=JSON.parse(data.keys[k]||'[]')||[];
+            var _hmLocal=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)&&_prevRemoteApplyMs>0){
+              var _hmCloudIds={};
+              _hmCloud.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_hmCloudIds[String(t.id!=null?t.id:t.ts)]=true;});
+              var _hmLocalOnly=_hmLocal.filter(function(t){
+                if(!t)return false;
+                var key=t.id!=null?t.id:t.ts;
+                if(key==null)return false;
+                if(_hmCloudIds[String(key)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>_prevRemoteApplyMs;
+              });
+              if(_hmLocalOnly.length){
+                _fbWriter(k,JSON.stringify(_hmCloud.concat(_hmLocalOnly)));
+                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                taskUnionMergeAfterFbApply=true;
+                return;
+              }
+            }
+          }catch(_hm){}
+        }
+        /* repeat_suppressions_v1 / generated_task_suppressions_v1 are additive:
+           once an occurrence is suppressed it must stay suppressed on all devices.
+           Union all keys from local and cloud so neither device's deletions are lost. */
+        if(k==='repeat_suppressions_v1'||k==='generated_task_suppressions_v1'){
+          try{
+            var _cloudSupp=JSON.parse(data.keys[k]||'{}')||{};
+            var _localSupp=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudSupp==='object'&&!Array.isArray(_cloudSupp)&&
+               typeof _localSupp==='object'&&!Array.isArray(_localSupp)){
+              var _mergedSupp=Object.assign({},_cloudSupp,_localSupp);
+              var _suppChanged=false;
+              Object.keys(_localSupp).forEach(function(sk){if(!_cloudSupp.hasOwnProperty(sk))_suppChanged=true;});
+              _fbWriter(k,JSON.stringify(_mergedSupp));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_suppChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_supp){}
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
       }catch(e){
         if(typeof __isQuotaError==='function' && __isQuotaError(e) && window._idbOverflow){
-          /* Quota exceeded — redirect to IDB overflow so cross-device assets sync */
+          /* Quota exceeded — redirect to IDB overflow so cross-device assets sync.
+             Mark the key stale in localStorage so fbCollectData reads from IDB
+             rather than the old stale localStorage value on the next push. */
+          if(typeof __markStaleQuota==='function')__markStaleQuota(k);
           (function(key,val){ _idbSet(key,val).catch(function(e2){ console.warn('apply IDB fallback failed',key,e2&&e2.message); }); })(k,data.keys[k]);
         } else {
           try{ console.warn('apply setItem failed', k, e && e.message); }catch(_){}
@@ -24514,7 +24655,12 @@ function fbSaveAll(){
    small (300ms) — large enough to absorb the synchronous reload pass,
    small enough that simultaneous edits on another device aren't silently
    dropped. */
-var _lastRemoteApplyMs=0;
+/* Restore the sync baseline from the previous session so the union-merge
+   guard (_prevRemoteApplyMs>0) works correctly on the very first fbApplyData
+   call after a page reload or re-login.  Without this, every page reload
+   resets the baseline to 0 and the guard skips the merge, letting cloud data
+   silently overwrite locally-created items that haven't been pushed yet. */
+var _lastRemoteApplyMs=(function(){try{var v=parseInt(localStorage.getItem('return_fb_sync_ts'),10);return(v>0?v:0);}catch(_e){return 0;}})();
 /* Timestamp of the last post-repair save. A repair discovered after
    fbApplyData (e.g. reconcileTimetableTasks) should fire once per remote
    change — not every apply cycle. A 10 s cooldown prevents a two-device
@@ -24534,20 +24680,31 @@ async function fbSaveNow(opts){
     _fbSaveTimer=setTimeout(fbSaveNow,650);
     return false;
   }
-  if(!fbDb||!fbUser||_applyingFbData)return false;
-  if(window.SyncManager&&!SyncManager.canSave(opts))return false;
-  /* Circuit breaker: skip auto-saves during quota/permission backoff window. */
+  if(!fbDb||!fbUser||_applyingFbData){clearTimeout(_fbSaveTimer);return false;}
+  if(window.SyncManager&&!SyncManager.canSave(opts)){clearTimeout(_fbSaveTimer);return false;}
+  /* Circuit breaker: skip auto-saves during quota/permission backoff window.
+     Schedule a retry save for when the window expires so unsaved changes are
+     not silently dropped if the user stops interacting during backoff. */
   if(!opts.force && Date.now()<_fbQuotaBackoffUntil){
-    var _backoffRemainMin=Math.ceil((_fbQuotaBackoffUntil-Date.now())/60000);
+    clearTimeout(_fbSaveTimer);
+    var _backoffRemainMs=_fbQuotaBackoffUntil-Date.now();
+    var _backoffRemainMin=Math.ceil(_backoffRemainMs/60000);
     setFbStatus('Firebase 저장 일시 중단 (오류로 인한 자동 백오프 — '+_backoffRemainMin+'분 후 재시도)','err');
+    if(!window._fbBackoffRetryTimer){
+      window._fbBackoffRetryTimer=setTimeout(function(){
+        window._fbBackoffRetryTimer=null;
+        if(typeof fbSaveAll==='function')try{fbSaveAll();}catch(_e){}
+      },_backoffRemainMs+500);
+    }
     return false;
   }
   /* Echo-suppression grace period. Note: this only suppresses saves
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
      swallow a real edit a user makes right after seeing the remote update.
-     Manual "지금 올리기" still bypasses with force:true. */
-  if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
+     Manual "지금 올리기" and pre-suspend flush bypass with force/flushBeforeSuspend. */
+  if(!opts.force && !opts.flushBeforeSuspend && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
+    clearTimeout(_fbSaveTimer);
     try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
@@ -24605,7 +24762,12 @@ async function fbSaveNow(opts){
         cloudByKey[k] = {fullValue: c.fullValue, updatedAtMs: c.updatedAtMs, docIds: c.docIds.slice()};
       });
     } else {
-      /* Cold path: cache not ready — read live, then seed the cache. */
+      /* Cold path: cache not ready — read live, then seed the cache.
+         Isolated try/catch prevents a quota-exhausted cold read from
+         propagating to the outer catch and setting a new backoff window.
+         On failure we leave cloudByKey empty so no absorb happens and
+         the save proceeds as a full push — better than a retry loop. */
+      try{
       var _coldSnap = await ref.collection('data').get();
       var _coldCache = {}, _coldChunks = {};
       _coldSnap.forEach(function(doc){
@@ -24628,16 +24790,24 @@ async function fbSaveNow(opts){
         _coldCache[k].fullValue = cloudByKey[k] ? cloudByKey[k].fullValue : '';
       });
       _fbCloudDocCache = _coldCache;
+      }catch(_coldErr){
+        /* Cold read failed (network/quota). Leave cloudByKey empty and
+           _fbCloudDocCache as null so the next save retries the cold read.
+           The save will proceed as a full push with no absorb. */
+        try{ console.warn('[fb] cold path read failed, proceeding as full push:',_coldErr&&_coldErr.message); }catch(_){}
+      }
     }
     if(window.SyncManager&&!SyncManager.protectCloudOverwrite(data,cloudByKey,opts)){
       setFbStatus('Firebase 저장 보류: 빈 로컬 데이터가 클라우드를 덮지 않도록 막았어요.','err');
+      /* Notify SyncManager so the UI doesn't stay in a permanent "saving" state. */
+      try{if(typeof SyncManager.markIdle==='function')SyncManager.markIdle('protected-empty-overwrite');}catch(_e){}
       return false;
     }
     /* Throttle settings write — contents rarely change; 2 min interval prevents
        a separate Firestore write on every single save. Force-syncs always write. */
     if (opts.force || Date.now() - _fbCloudSettingsLastSavedMs >= _FB_CLOUD_SETTINGS_INTERVAL) {
-      await fbSaveCloudSettings(ref);
-      _fbCloudSettingsLastSavedMs = Date.now();
+      try{ await fbSaveCloudSettings(ref); _fbCloudSettingsLastSavedMs = Date.now(); }
+      catch(_cse){ try{console.warn('[fb] settings write failed (main save unaffected):',_cse&&_cse.message);}catch(_){} }
     }
 
     /* Conflict resolution. */
@@ -24669,6 +24839,101 @@ async function fbSaveNow(opts){
             valueToAbsorb=JSON.stringify(_merged);
           }catch(_me){}
         }
+        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'){
+          /* Union-merge: preserve locally-created items not yet in cloud.
+             Items created after localApplyBaseline that are absent from cloud
+             are appended to the cloud array, then pushed outbound. */
+          try{
+            var _snCloudArr=JSON.parse(cloud.fullValue||'[]')||[];
+            var _snOursArr=JSON.parse(ours||'[]')||[];
+            if(Array.isArray(_snCloudArr)&&Array.isArray(_snOursArr)&&localApplyBaseline>0){
+              var _snCloudIds={};
+              _snCloudArr.forEach(function(t){if(t&&t.id!=null)_snCloudIds[String(t.id)]=true;});
+              var _snLocalOnly=_snOursArr.filter(function(t){
+                if(!t||t.id==null)return false;
+                if(_snCloudIds[String(t.id)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>localApplyBaseline;
+              });
+              if(_snLocalOnly.length){
+                valueToAbsorb=JSON.stringify(_snCloudArr.concat(_snLocalOnly));
+              }
+            }
+          }catch(_ae){}
+        }
+        if(k==='diary_entries_v1'){
+          /* Per-date LWW merge: dates only on one device are preserved; same-date
+             conflicts resolved by updatedAt (cloud wins on tie). */
+          try{
+            var _snCloudDiary=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursDiary=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudDiary==='object'&&!Array.isArray(_snCloudDiary)&&
+               typeof _snOursDiary==='object'&&!Array.isArray(_snOursDiary)){
+              var _snMergedDiary=Object.assign({},_snOursDiary);
+              Object.keys(_snCloudDiary).forEach(function(date){
+                var ce=_snCloudDiary[date], oe=_snOursDiary[date];
+                if(!oe){_snMergedDiary[date]=ce;}
+                else{
+                  var cu=Number((ce&&ce.updatedAt)||0), ou=Number((oe&&oe.updatedAt)||0);
+                  if(cu>=ou)_snMergedDiary[date]=ce;
+                }
+              });
+              valueToAbsorb=JSON.stringify(_snMergedDiary);
+            }
+          }catch(_de){}
+        }
+        if(k==='routine_logs_v1'||k==='diary_tracker_values_v1'||k==='recharge_energy'){
+          try{
+            var _snCloudDKO=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursDKO=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudDKO==='object'&&!Array.isArray(_snCloudDKO)&&
+               typeof _snOursDKO==='object'&&!Array.isArray(_snOursDKO)){
+              var _snMergedDKO=Object.assign({},_snOursDKO);
+              Object.keys(_snCloudDKO).forEach(function(date){
+                var cd=_snCloudDKO[date], od=_snOursDKO[date];
+                if(cd!==null&&typeof cd==='object'){
+                  if(!od||typeof od!=='object'){_snMergedDKO[date]=cd;}
+                  else{_snMergedDKO[date]=Object.assign({},od,cd);}
+                } else {
+                  _snMergedDKO[date]=cd; /* scalar value — cloud wins */
+                }
+              });
+              valueToAbsorb=JSON.stringify(_snMergedDKO);
+            }
+          }catch(_dko2){}
+        }
+        if(k==='repeat_suppressions_v1'||k==='generated_task_suppressions_v1'){
+          try{
+            var _snCloudSupp=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursSupp=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudSupp==='object'&&!Array.isArray(_snCloudSupp)&&
+               typeof _snOursSupp==='object'&&!Array.isArray(_snOursSupp)){
+              var _snMergedSupp=Object.assign({},_snCloudSupp,_snOursSupp);
+              valueToAbsorb=JSON.stringify(_snMergedSupp);
+            }
+          }catch(_supp2){}
+        }
+        if(k==='hobby_items_v2'||k==='memos_v5'){
+          try{
+            var _snCloudHM=JSON.parse(cloud.fullValue||'[]')||[];
+            var _snOursHM=JSON.parse(ours||'[]')||[];
+            if(Array.isArray(_snCloudHM)&&Array.isArray(_snOursHM)&&localApplyBaseline>0){
+              var _snCloudHMIds={};
+              _snCloudHM.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_snCloudHMIds[String(t.id!=null?t.id:t.ts)]=true;});
+              var _snLocalOnlyHM=_snOursHM.filter(function(t){
+                if(!t)return false;
+                var key=t.id!=null?t.id:t.ts;
+                if(key==null)return false;
+                if(_snCloudHMIds[String(key)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>localApplyBaseline;
+              });
+              if(_snLocalOnlyHM.length){
+                valueToAbsorb=JSON.stringify(_snCloudHM.concat(_snLocalOnlyHM));
+              }
+            }
+          }catch(_hm2){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
@@ -24680,11 +24945,10 @@ async function fbSaveNow(opts){
         } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
         /* Stamp the snapshot with the cloud value (not the merged value) so the
            delta filter sees the merged result as "different from cloud" and pushes
-           it on the next save — propagating our local-only images to cloud. */
+           it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
-        /* For media sync, we need to push the merged value outbound so our
-           local images reach cloud. Add to ourKeysToWrite instead of preservedFromCloud. */
-        if(k === MEDIA_SYNC_KEY && valueToAbsorb !== cloud.fullValue){
+        /* For union-merge keys, push the merged value outbound. */
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1' || k==='hobby_items_v2' || k==='memos_v5') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
@@ -24811,8 +25075,10 @@ async function fbSaveNow(opts){
       await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
     }
     /* Treat our own write as the new "last applied" baseline so subsequent
-       saves don't think they're racing themselves. */
+       saves don't think they're racing themselves. Persist so the baseline
+       survives a page reload and the union-merge guard stays accurate. */
     _lastRemoteApplyMs=data.updatedAtMs;
+    try{(typeof _rawSetItem==='function'?_rawSetItem:localStorage.setItem.bind(localStorage))('return_fb_sync_ts',String(_lastRemoteApplyMs));}catch(_e){}
     /* Stage 6c: dual-write per-entity mirror. Legacy blob above is already
        committed and authoritative; this is an isolated best-effort mirror so a
        failure here must NOT fail the save. */
@@ -24831,12 +25097,14 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markSaved(); }catch(_e){}
     return true;
   }catch(e){
-    /* Invalidate the doc cache so the next save re-reads cloud state.
-       A failed batch commit (network error, permission denied mid-write)
-       may have left Firestore partially updated; forcing a fresh read on
-       the next attempt prevents the delta filter from treating un-written
-       keys as "already synced" and skipping them. */
+    /* Invalidate the doc cache and pushed-snapshot so the next save
+       re-reads cloud state and re-evaluates the delta filter from scratch.
+       _fbLastPushedSnapshot is updated BEFORE ref.set() so if the write
+       fails the snapshot would incorrectly treat those keys as already
+       synced and the delta filter would silently skip them. Resetting
+       both ensures the full state is pushed on the next attempt. */
     _fbCloudDocCache=null;
+    _fbLastPushedSnapshot=null;
     if(e&&(e.code==='resource-exhausted'||String(e.message||'').indexOf('Write stream exhausted')>=0)){
       /* Quota exceeded: halt auto-saves for 30 minutes to avoid hammering a
          dead write channel and burning reads on collection.get() retries.
@@ -25647,25 +25915,34 @@ async function _diaryNotionApi(method,path,body){
   var fullPath = apiPath.startsWith('/notion') ? apiPath : '/notion'+apiPath;
   var headers={'Content-Type':'application/json'};
   if(cfg.token)headers['X-Notion-Token']=cfg.token;
+  /* 30s abort timeout: prevents a hung connection from holding _notionSyncActive
+     true forever and blocking all future auto-syncs until page reload. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
   var res;
   try {
     res=await fetch(base+fullPath,{
       method:method,
       headers:headers,
-      body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+      body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined,
+      signal:_abortCtrl?_abortCtrl.signal:undefined
     });
     if(res.status===404 && fullPath!==apiPath){
       res=await fetch(base+apiPath,{
         method:method,
         headers:headers,
-        body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+        body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined,
+        signal:_abortCtrl?_abortCtrl.signal:undefined
       });
     }
   } catch(netErr){
+    clearTimeout(_abortTimer);
     /* Network-level failure (CORS, DNS, offline). Most common when the
        Worker URL is wrong or worker isn't deployed. */
-    throw new Error('Worker 연결 실패. URL이 맞는지, /ping 으로 워커가 살아있는지 확인해주세요. ('+(netErr&&netErr.message||'네트워크 오류')+')');
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'Notion 요청 시간 초과 (30초). Worker가 응답이 없어요. URL을 확인해주세요.':'Worker 연결 실패. URL이 맞는지, /ping 으로 워커가 살아있는지 확인해주세요. ('+(netErr&&netErr.message||'네트워크 오류')+')');
   }
+  clearTimeout(_abortTimer);
   /* Read body as text first. Some endpoints (DELETE, 204) return empty body,
      and the user's Worker pipes through whatever Notion returns — that may
      not be valid JSON. Tolerate empty / non-JSON responses gracefully. */
@@ -25960,15 +26237,28 @@ async function runNotionDiagnostics(){
 async function callAI(prompt, maxTokens){
   var key=localStorage.getItem('groq_api_key')||'';
   if(!key) return prompt; /* No key → return raw */
-  var res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({
-      model:'llama-3.3-70b-versatile',
-      max_tokens:maxTokens||800,
-      messages:[{role:'user',content:prompt}]
-    })
-  });
+  /* 30s abort timeout: prevents a hung Groq call from blocking diary
+     timeline AI formatting indefinitely. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
+  var res;
+  try{
+    res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        max_tokens:maxTokens||800,
+        messages:[{role:'user',content:prompt}]
+      }),
+      signal:_abortCtrl?_abortCtrl.signal:undefined
+    });
+  }catch(netErr){
+    clearTimeout(_abortTimer);
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'AI 요청 시간 초과 (30초). 네트워크 연결 또는 Groq API 상태를 확인해주세요.':'AI 연결 실패: '+(netErr&&netErr.message||'알 수 없는 오류'));
+  }
+  clearTimeout(_abortTimer);
   var data=await res.json();
   var text=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
   if(!text) throw new Error('AI 응답 없음');
@@ -26322,7 +26612,14 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
    failure so the image still renders at least immediately. */
 async function _notionImageToDataUrl(url){
   try{
-    var res=await fetch(url);
+    /* 15s abort: Notion image URLs expire after 1h; a hung fetch should not
+       block the Notion pull indefinitely — return the original URL as fallback. */
+    var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+    var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},15000):null;
+    var res;
+    try{res=await fetch(url,{signal:_abortCtrl?_abortCtrl.signal:undefined});}
+    catch(_e){clearTimeout(_abortTimer);return url;}
+    clearTimeout(_abortTimer);
     if(!res.ok) return url;
     var blob=await res.blob();
     if(blob.size > 3*1024*1024) return url; /* skip huge images, keep URL */
@@ -26874,6 +27171,7 @@ async function diaryAutoDetectProps(){
   }
 }
 var _diaryAutoTimer=null;
+var _diaryAutoInitTimer=null;
 var _diaryAutoBusy=false;
 async function runDiaryAiTimeline(dateKey, silent){
   dateKey=dateKey||currentDate||TK;
@@ -26895,6 +27193,7 @@ async function runDiaryAiTimeline(dateKey, silent){
   return true;
 }
 function scheduleDiaryAutoSync(){
+  clearTimeout(_diaryAutoInitTimer); _diaryAutoInitTimer=null;
   clearInterval(_diaryAutoTimer);
   var cfg=getNotionCfg();
   if(!cfg.autoSync)return;
@@ -26923,7 +27222,7 @@ function scheduleDiaryAutoSync(){
       _diaryAutoBusy=false;
     }
   }
-  setTimeout(tick,3000);
+  _diaryAutoInitTimer=setTimeout(tick,3000);
   _diaryAutoTimer=setInterval(tick,60000);
 }
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
@@ -26933,6 +27232,7 @@ var _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1
 var _gcalToken=_gcalCfg._savedToken||null;
 var _gcalTokenExp=_gcalCfg._savedTokenExp||0;
 var _gcalTokenClient=null;
+var _gcalEnsureTokenPromise=null;
 function gcalStatus(text, cls){
   var row=document.getElementById('gcal-status');
   var detail=document.getElementById('gcal-sync-status');
@@ -27001,36 +27301,43 @@ function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_g
 async function gcalEnsureToken(showUi){
   if(_gcalToken&&Date.now()<_gcalTokenExp-60000)return true;
   if(!_gcalCfg.clientId)return false;
-  try{
-    await loadScript('https://accounts.google.com/gsi/client');
-    if(!window.google||!google.accounts||!google.accounts.oauth2)return false;
-    return await new Promise(function(resolve){
-      var finished=false;
-      _gcalTokenClient=google.accounts.oauth2.initTokenClient({
-        client_id:_gcalCfg.clientId,
-        scope:'https://www.googleapis.com/auth/calendar.events',
-        callback:function(resp){
-          finished=true;
-          if(resp&&resp.access_token){
-            _gcalToken=resp.access_token;
-            _gcalTokenExp=Date.now()+Number(resp.expires_in||3600)*1000;
-            _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
-            setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
-            gcalLoadConfig();
-            resolve(true);
-          }else{
-            resolve(false);
-          }
-        },
-        error_callback:function(){finished=true;resolve(false);}
+  /* Coalesce concurrent refresh attempts into a single OAuth request so that
+     parallel gcalApiCal calls don't each fire separate requestAccessToken()
+     calls, which would open multiple OAuth popups/redirects. */
+  if(_gcalEnsureTokenPromise)return _gcalEnsureTokenPromise;
+  _gcalEnsureTokenPromise=(async function(){
+    try{
+      await loadScript('https://accounts.google.com/gsi/client');
+      if(!window.google||!google.accounts||!google.accounts.oauth2)return false;
+      return await new Promise(function(resolve){
+        var finished=false;
+        _gcalTokenClient=google.accounts.oauth2.initTokenClient({
+          client_id:_gcalCfg.clientId,
+          scope:'https://www.googleapis.com/auth/calendar.events',
+          callback:function(resp){
+            finished=true;
+            if(resp&&resp.access_token){
+              _gcalToken=resp.access_token;
+              _gcalTokenExp=Date.now()+Number(resp.expires_in||3600)*1000;
+              _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
+              setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+              gcalLoadConfig();
+              resolve(true);
+            }else{
+              resolve(false);
+            }
+          },
+          error_callback:function(){finished=true;resolve(false);}
+        });
+        _gcalTokenClient.requestAccessToken({prompt:''});
+        setTimeout(function(){if(!finished)resolve(false);},12000);
       });
-      _gcalTokenClient.requestAccessToken({prompt:''});
-      setTimeout(function(){if(!finished)resolve(false);},12000);
-    });
-  }catch(e){
-    console.warn('gcal token refresh',e);
-    return false;
-  }
+    }catch(e){
+      console.warn('gcal token refresh',e);
+      return false;
+    }
+  })();
+  try{return await _gcalEnsureTokenPromise;}finally{_gcalEnsureTokenPromise=null;}
 }
 function gcalAuth(){
   gcalSaveConfig();
@@ -27404,11 +27711,24 @@ async function gcalApiCal(method,path,body,calId){
     throw new Error('Google 인증이 만료됐어요. 설정 > Google Calendar > Google 로그인을 눌러주세요.');
   }
   var base='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId||_gcalCfg.calendarId||'primary')+'/events';
-  var res=await fetch(base+(path||''),{
-    method:method,
-    headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},
-    body:body?JSON.stringify(body):undefined
-  });
+  /* 30s abort timeout: prevents a hung connection from holding _gcalSyncBusy
+     true forever and blocking all future GCal syncs until page reload. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
+  var res;
+  try{
+    res=await fetch(base+(path||''),{
+      method:method,
+      headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):undefined,
+      signal:_abortCtrl?_abortCtrl.signal:undefined
+    });
+  }catch(netErr){
+    clearTimeout(_abortTimer);
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'Google Calendar 요청 시간 초과 (30초). 네트워크 연결을 확인해주세요.':'Google Calendar 연결 실패: '+(netErr&&netErr.message||'알 수 없는 오류'));
+  }
+  clearTimeout(_abortTimer);
   var txt=await res.text(), data={};
   try{data=txt?JSON.parse(txt):{};}catch(e){data={message:txt};}
   if(res.status===401){
@@ -31536,6 +31856,27 @@ musicRender=function(){
   var _lastVisibilityResync=0;
   var _visibilityResyncTimer=null;
   document.addEventListener('visibilitychange',function(){
+    /* ── Tab hidden: flush pending saves before suspension (mobile critical).
+       The debounce timer (_fbSaveTimer) will be killed when the tab suspends,
+       so we fire fbSaveNow immediately with force:true to push any unsaved
+       localStorage changes to Firestore before the page is frozen. ── */
+    if(document.visibilityState==='hidden'){
+      /* Flush diary debounce (4s timer) synchronously before suspension.
+         commitCurrent() pulls textarea values into the entries object;
+         saveAll() persists them to localStorage. Without this, typing in
+         the diary and switching apps within 4s silently loses the edit. */
+      try{
+        if(typeof saveTimer!=='undefined'&&saveTimer){clearTimeout(saveTimer);saveTimer=null;}
+        if(typeof commitCurrent==='function')commitCurrent();
+        if(typeof saveAll==='function')saveAll();
+      }catch(_de){}
+      try{
+        if(typeof fbSaveNow==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser&&!window._fbSaveNowBusy){
+          fbSaveNow({flushBeforeSuspend:true}).catch(function(e){console.warn('[visibility] pre-suspend save failed:',e&&e.message);});
+        }
+      }catch(e){}
+      return;
+    }
     if(document.visibilityState!=='visible')return;
     var now=Date.now();
     if(now-_lastVisibilityResync<30000)return; /* rate-limit: 30s minimum */
