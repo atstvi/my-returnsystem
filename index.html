@@ -12981,11 +12981,20 @@ function renderGlobalStickers(){
   });
   layer.appendChild(input);
   layer.appendChild(add);
+  /* Position is stored as a viewport-independent PERCENTAGE (xPct/yPct) of the
+     host so a sticker lands in the same relative spot on every device. Legacy
+     records carry absolute pixels (x/y) — migrate them once using the current
+     host size. The host rect is measured before the layer is appended; .gs-layer
+     is inset:0 over the host so percentages map to the same box at drag time. */
+  var _hostRect = host.getBoundingClientRect();
+  var _stickersMigrated = false;
   (globalStickerState[_currentPage] || []).forEach(function(s){
     var el = document.createElement('div');
     el.className = 'gs-page-sticker';
-    el.style.left = (s.x || 48) + 'px';
-    el.style.top = (s.y || 140) + 'px';
+    if(s.xPct==null && _hostRect.width){ s.xPct = Math.max(0, Math.min(100, (s.x||0)/_hostRect.width*100)); _stickersMigrated = true; }
+    if(s.yPct==null && _hostRect.height){ s.yPct = Math.max(0, Math.min(100, (s.y||0)/_hostRect.height*100)); _stickersMigrated = true; }
+    el.style.left = (s.xPct!=null ? s.xPct + '%' : (s.x || 48) + 'px');
+    el.style.top  = (s.yPct!=null ? s.yPct + '%' : (s.y || 140) + 'px');
     el.style.width = (s.w || 72) + 'px';
     el.style.height = (s.w || 72) + 'px';
     el.style.setProperty('--rot', (s.r || 0) + 'deg');
@@ -13009,6 +13018,8 @@ function renderGlobalStickers(){
   // Attach the layer inside the scrolling host so stickers move with the page content.
   host.appendChild(layer);
   if(typeof themeStudioResolveMediaPreviews==='function')themeStudioResolveMediaPreviews(layer);
+  /* Persist the px→% migration once so the percentage coords sync to other devices. */
+  if(_stickersMigrated){ try{ saveGlobalStickers(); }catch(e){} }
 }
 function placeGlobalStickerFromUrl(url,syncDataUrl){
   if(!_currentPage||!url)return;
@@ -13173,10 +13184,25 @@ function globalStickerUnbindMove(mv,up){
 function dragGlobalSticker(e, s, el){
   if (!stickerEditingEnabled() || e.target.closest('button')) return;
   e.preventDefault();
-  /* Drag uses delta between pointer movements, so it remains correct whether the
-     coordinate space is viewport or scrolled content. */
-  var p=globalStickerPoint(e), sx = p.x, sy = p.y, ox = s.x || 0, oy = s.y || 0;
-  function mv(ev){ ev.preventDefault&&ev.preventDefault(); var q=globalStickerPoint(ev); s.x = Math.max(0, ox + q.x - sx); s.y = Math.max(0, oy + q.y - sy); el.style.left = s.x + 'px'; el.style.top = s.y + 'px'; }
+  /* Store position as a PERCENTAGE of the host (el.offsetParent = the inset:0
+     .gs-layer), so the same drag lands in the same relative place on every
+     device regardless of screen width. Keep the grab offset so the sticker
+     stays under the pointer instead of jumping its top-left corner. */
+  var host = el.offsetParent || el.parentElement;
+  var hr = host ? host.getBoundingClientRect() : {left:0,top:0,width:(window.innerWidth||1),height:(window.innerHeight||1)};
+  var elRect = el.getBoundingClientRect();
+  var start = globalStickerPoint(e);
+  var grabX = start.x - elRect.left, grabY = start.y - elRect.top;
+  function mv(ev){
+    ev.preventDefault&&ev.preventDefault();
+    var q=globalStickerPoint(ev);
+    var w = hr.width||1, h = hr.height||1;
+    s.xPct = Math.max(0, Math.min(100, ((q.x - grabX) - hr.left) / w * 100));
+    s.yPct = Math.max(0, Math.min(100, ((q.y - grabY) - hr.top)  / h * 100));
+    delete s.x; delete s.y; /* legacy px no longer authoritative */
+    el.style.left = s.xPct + '%';
+    el.style.top  = s.yPct + '%';
+  }
   function up(){ globalStickerUnbindMove(mv,up); saveGlobalStickers(); }
   globalStickerBindMove(mv,up);
 }
