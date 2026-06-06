@@ -26187,6 +26187,31 @@ saveNotionConfig=function(silent){
   scheduleDiaryAutoSync();
   if(!silent)showToast('Notion 설정 저장됨');
 };
+/* One-time heal: a prior bug (the auto Notion PULL called saveNotionConfig
+   against an unpopulated settings form) could persist autoSync:false to
+   diary_notion_cfg. That silently killed the diary→Notion PUSH — queueDiaryNotionSave
+   bails on `if(!cfg.autoSync) return` — while the already-scheduled pull interval
+   kept working, producing the "노션→일기는 되는데 일기→노션은 안 됨" symptom.
+   The root cause is fixed (pullDiaryFromNotion no longer writes config on auto),
+   but configs already flipped off stay stuck false. Re-enable auto-sync exactly
+   once for connected configs so the push resumes; the toggle still lets the user
+   turn it back off intentionally afterward. */
+function _healNotionAutoSyncOnce(){
+  try{
+    if(localStorage.getItem('_notion_autosync_heal_v1')==='1') return;
+    var raw=localStorage.getItem('diary_notion_cfg');
+    if(raw){
+      var c=JSON.parse(raw||'{}')||{};
+      if(c && c.workerUrl && c.dbId && c.autoSync===false){
+        c.autoSync=true;
+        localStorage.setItem('diary_notion_cfg', JSON.stringify(c));
+        _diaryNotionCfg=c;
+      }
+    }
+    localStorage.setItem('_notion_autosync_heal_v1','1');
+  }catch(_e){}
+}
+window._healNotionAutoSyncOnce=_healNotionAutoSyncOnce;
 var _notionSaveTimer=null;
 var _notionPullTimer=null;
 var _notionPullBusy=false;
@@ -26574,6 +26599,40 @@ async function runNotionDiagnostics(){
     } catch(e){
       add('블록 archived (PATCH /blocks/{id})','err',e.message+' — Worker가 PATCH 메서드를 차단했을 수 있어요');
     }
+  }
+
+  /* === Step 10: auto-push (diary→Notion) readiness ===
+     Steps 6-9 already proved the Notion write path works. If real diary edits
+     still don't reach Notion, the culprit is the auto-push TRIGGER being off:
+     queueDiaryNotionSave bails when getNotionCfg().autoSync is false. Report it
+     and, since the user is actively diagnosing, heal it on the spot. */
+  var liveCfg=getNotionCfg();
+  if(liveCfg.autoSync){
+    add('자동 푸시 (일기→Notion) 활성화','ok','autoSync=true — 일기를 수정하면 약 0.9초 뒤 자동 전송됩니다');
+  } else {
+    try{
+      var hc=getNotionCfg(); hc.autoSync=true;
+      setReturnStorageItem('diary_notion_cfg', JSON.stringify(hc));
+      _diaryNotionCfg=hc;
+      try{ localStorage.setItem('_notion_autosync_heal_v1','1'); }catch(_h){}
+      if(typeof setNotionVal==='function') setNotionVal('notion-auto-sync', true);
+      if(typeof scheduleDiaryAutoSync==='function') scheduleDiaryAutoSync();
+      add('자동 푸시 (일기→Notion) 활성화','warn','autoSync가 꺼져 있어서 방금 다시 켰어요 — 이제 일기를 수정하면 자동 전송됩니다');
+    }catch(he){
+      add('자동 푸시 (일기→Notion) 활성화','err','autoSync가 꺼져 있고 자동 복구에 실패했어요: '+(he&&he.message||he));
+    }
+  }
+  add('푸시 트리거 함수', typeof queueDiaryNotionSave==='function'?'ok':'err',
+    typeof queueDiaryNotionSave==='function'?'queueDiaryNotionSave 사용 가능':'queueDiaryNotionSave 누락 — 빌드 문제');
+
+  /* === Step 11: real diary push end-to-end ===
+     Run the actual production push for today's entry so the diagnostic reflects
+     the true edit→Notion path (not just the synthetic block test above). */
+  try{
+    await syncDiaryToNotion(today,{silent:true,auto:true,skipAI:true,pullFirst:false});
+    add('실제 일기 푸시 (syncDiaryToNotion)','ok','오늘 일기를 Notion으로 전송 완료 — Notion 페이지를 확인해보세요');
+  }catch(pe){
+    add('실제 일기 푸시 (syncDiaryToNotion)','err',(pe&&pe.message||pe));
   }
 
   /* Summary */
@@ -30560,6 +30619,7 @@ function _initSettings(){
     ['loadApiKeys',         function(){ if (typeof loadApiKeys==='function') loadApiKeys(); }],
     ['loadNotifSettings',   function(){ if (typeof loadNotifSettings==='function') loadNotifSettings(); }],
     ['fillFbInputs',        function(){ if (typeof fillFbInputs==='function') fillFbInputs(); }],
+    ['healNotionAutoSync',  function(){ if (typeof _healNotionAutoSyncOnce==='function') _healNotionAutoSyncOnce(); }],
     ['loadDiaryNotionConfig',function(){ if (typeof loadDiaryNotionConfig==='function') loadDiaryNotionConfig(); }],
     ['simplifySyncSettingsUI',function(){ if (typeof simplifySyncSettingsUI==='function') simplifySyncSettingsUI(); }],
     ['updateAuthLockCopy',  function(){ if (typeof updateAuthLockCopy==='function') updateAuthLockCopy(); }],
@@ -30601,6 +30661,7 @@ try {
     /* No Firebase config — show local-only button immediately so app is accessible */
     var _alib=document.getElementById('auth-local-btn');if(_alib)_alib.style.display='';
   }
+  if (typeof _healNotionAutoSyncOnce === 'function') _healNotionAutoSyncOnce();
   if (typeof loadDiaryNotionConfig === 'function') { loadDiaryNotionConfig(); scheduleDiaryAutoSync(); }
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
