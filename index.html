@@ -24616,10 +24616,19 @@ async function fbSaveNow(opts){
   }
   if(!fbDb||!fbUser||_applyingFbData)return false;
   if(window.SyncManager&&!SyncManager.canSave(opts))return false;
-  /* Circuit breaker: skip auto-saves during quota/permission backoff window. */
+  /* Circuit breaker: skip auto-saves during quota/permission backoff window.
+     Schedule a retry save for when the window expires so unsaved changes are
+     not silently dropped if the user stops interacting during backoff. */
   if(!opts.force && Date.now()<_fbQuotaBackoffUntil){
-    var _backoffRemainMin=Math.ceil((_fbQuotaBackoffUntil-Date.now())/60000);
+    var _backoffRemainMs=_fbQuotaBackoffUntil-Date.now();
+    var _backoffRemainMin=Math.ceil(_backoffRemainMs/60000);
     setFbStatus('Firebase 저장 일시 중단 (오류로 인한 자동 백오프 — '+_backoffRemainMin+'분 후 재시도)','err');
+    if(!window._fbBackoffRetryTimer){
+      window._fbBackoffRetryTimer=setTimeout(function(){
+        window._fbBackoffRetryTimer=null;
+        if(typeof fbSaveAll==='function')try{fbSaveAll();}catch(_e){}
+      },_backoffRemainMs+500);
+    }
     return false;
   }
   /* Echo-suppression grace period. Note: this only suppresses saves
