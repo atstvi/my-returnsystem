@@ -29358,6 +29358,51 @@ function themeStudioEnsureMediaFallbacks(){
       try{if(typeof renderHomeSituation==='function')renderHomeSituation();}catch(_e){}
     }
     try{if(changed||dirty){if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)fbSaveCloudSettings(fbDb.collection('users').doc(fbUser.uid));if(typeof fbSaveAll==='function')fbSaveAll();}}catch(e){}
+
+    /* ── IDB async pass for icons ────────────────────────────────────────
+       fallbackFor() only checks assets+manifest, NOT IndexedDB. Icons are
+       stored as return-media: refs in IDB only (no asset record, not in
+       manifest) — so iconFallbacks stays empty and cross-device rendering
+       breaks. This pass resolves each icon ref from IDB, compresses it to
+       fit the sync channels (≤220KB), writes iconFallbacks+manifest, and
+       triggers a Firebase save so other devices can pick it up. */
+    var cur2=themeStudioGet();
+    themeStudioEnsureIconsState(cur2);
+    var iconKeys=Object.keys(cur2.icons||{}).filter(function(k){
+      return isReturnMediaRef(cur2.icons[k]) && !(cur2.iconFallbacks&&cur2.iconFallbacks[k]);
+    });
+    if(iconKeys.length){
+      var iconJobs=iconKeys.map(function(k){
+        var ref=cur2.icons[k];
+        var id=returnMediaRefId(ref);
+        return returnMediaResolveUrl(ref).then(function(url){
+          if(!url)return;
+          return themeStudioCloudFallbackDataUrl(url,{}).then(function(fb){
+            if(!fb)return;
+            /* Register in manifest so every device that already has the
+               manifest (472KB in this case) can resolve it without IDB. */
+            try{mediaSyncPut(id,fb);}catch(_e){}
+            /* Store in iconFallbacks which is inside the theme state blob
+               (return_theme_studio_state_v1) — synced to Firebase. */
+            cur2.iconFallbacks=cur2.iconFallbacks||{};
+            if(!cur2.iconFallbacks[k]&&fb.length<700000){
+              cur2.iconFallbacks[k]=fb;
+            }
+          });
+        });
+      });
+      Promise.all(iconJobs).then(function(){
+        themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur2);
+        themeStudioApply(cur2);
+        try{if(typeof renderHomeSituation==='function')renderHomeSituation();}catch(_e){}
+        /* Persist to Firebase so other devices receive the fallbacks */
+        try{
+          if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)
+            fbSaveCloudSettings(fbDb.collection('users').doc(fbUser.uid));
+          if(typeof fbSaveAll==='function')fbSaveAll();
+        }catch(e){}
+      }).catch(function(e){console.warn('icon fallback IDB pass failed:',e&&e.message);});
+    }
   }).finally(function(){_themeStudioFallbackRepairRunning=false;});
 }
 function themeStudioAddMediaAssetRef(ref,name,kind,role,sourceTheme){
