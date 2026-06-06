@@ -24732,7 +24732,12 @@ async function fbSaveNow(opts){
         cloudByKey[k] = {fullValue: c.fullValue, updatedAtMs: c.updatedAtMs, docIds: c.docIds.slice()};
       });
     } else {
-      /* Cold path: cache not ready — read live, then seed the cache. */
+      /* Cold path: cache not ready — read live, then seed the cache.
+         Isolated try/catch prevents a quota-exhausted cold read from
+         propagating to the outer catch and setting a new backoff window.
+         On failure we leave cloudByKey empty so no absorb happens and
+         the save proceeds as a full push — better than a retry loop. */
+      try{
       var _coldSnap = await ref.collection('data').get();
       var _coldCache = {}, _coldChunks = {};
       _coldSnap.forEach(function(doc){
@@ -24755,6 +24760,12 @@ async function fbSaveNow(opts){
         _coldCache[k].fullValue = cloudByKey[k] ? cloudByKey[k].fullValue : '';
       });
       _fbCloudDocCache = _coldCache;
+      }catch(_coldErr){
+        /* Cold read failed (network/quota). Leave cloudByKey empty and
+           _fbCloudDocCache as null so the next save retries the cold read.
+           The save will proceed as a full push with no absorb. */
+        try{ console.warn('[fb] cold path read failed, proceeding as full push:',_coldErr&&_coldErr.message); }catch(_){}
+      }
     }
     if(window.SyncManager&&!SyncManager.protectCloudOverwrite(data,cloudByKey,opts)){
       setFbStatus('Firebase 저장 보류: 빈 로컬 데이터가 클라우드를 덮지 않도록 막았어요.','err');
