@@ -24151,23 +24151,29 @@ function fbApplyData(data){
           if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
           return;
         }
-        /* task_items_v1: union-merge to preserve locally-created tasks that
-           haven't been pushed yet. Cloud snapshot from Device A may arrive before
-           Device B's new tasks are synced — without this, Device B loses its
-           in-flight tasks when fbApplyData blindly replaces the local list. */
-        if(k==='task_items_v1'){
+        /* task_items_v1 / inbox_v1: union-merge to preserve locally-created items
+           that haven't been pushed yet. Cloud snapshot from Device A may arrive
+           before Device B's new items are synced — without this, Device B loses
+           its in-flight items when fbApplyData blindly replaces the local array.
+           Criterion: item is in local but not in cloud AND was created after the
+           last remote apply baseline (i.e. it was created on THIS device after
+           the most recent confirmed sync). */
+        if(k==='task_items_v1'||k==='inbox_v1'){
           try{
-            var _cloudTasks=JSON.parse(data.keys[k]||'[]')||[];
-            var _localTasks=JSON.parse(localStorage.getItem('task_items_v1')||'[]')||[];
-            if(Array.isArray(_cloudTasks)&&Array.isArray(_localTasks)&&_prevRemoteApplyMs>0){
-              var _cloudTaskIds={};
-              _cloudTasks.forEach(function(t){if(t&&t.id!=null)_cloudTaskIds[String(t.id)]=true;});
-              var _localOnly=_localTasks.filter(function(t){
-                return t&&t.id!=null&&!_cloudTaskIds[String(t.id)]&&
-                       Number(t.createdAt||0)>_prevRemoteApplyMs;
+            var _cloudArr=JSON.parse(data.keys[k]||'[]')||[];
+            var _localArr=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(Array.isArray(_cloudArr)&&Array.isArray(_localArr)&&_prevRemoteApplyMs>0){
+              var _cloudArrIds={};
+              _cloudArr.forEach(function(t){if(t&&t.id!=null)_cloudArrIds[String(t.id)]=true;});
+              /* For tasks: createdAt; for inbox: ts */
+              var _localArrOnly=_localArr.filter(function(t){
+                if(!t||t.id==null)return false;
+                if(_cloudArrIds[String(t.id)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>_prevRemoteApplyMs;
               });
-              if(_localOnly.length){
-                _fbWriter(k,JSON.stringify(_cloudTasks.concat(_localOnly)));
+              if(_localArrOnly.length){
+                _fbWriter(k,JSON.stringify(_cloudArr.concat(_localArrOnly)));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
