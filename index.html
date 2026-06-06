@@ -23268,7 +23268,8 @@ var SyncManager=(function(){
 function shouldFbSyncKey(k){
   if(!k)return false;
   if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id',
-      'return_sync_model' /* device-local feature flag — each device opts in/out independently */
+      'return_sync_model', /* device-local feature flag — each device opts in/out independently */
+      'return_fb_sync_ts'  /* device-local sync baseline — survives page reloads, must not propagate to other devices */
      ].indexOf(k)>=0)return false;
   /* Null-safe against boot ordering: a #settings deep-link runs goPage() during
      initial parse, which can persist (theme/cats) BEFORE the module-level
@@ -24134,6 +24135,12 @@ function fbApplyData(data){
      noop → reconcile → save → snapshot → noop loop that amplifies every
      entity-mirror update into a save storm. */
   if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=_prevRemoteApplyMs; setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
+  /* Persist the baseline immediately after a real remote apply (non-noop).
+     Survives page reloads so the union-merge guard works correctly even on
+     the first fbApplyData call of the next session — prevents cloud data from
+     silently overwriting locally-created items when _prevRemoteApplyMs would
+     otherwise be 0 after a reload. */
+  try{(typeof _rawSetItem==='function'?_rawSetItem:localStorage.setItem.bind(localStorage))('return_fb_sync_ts',String(_lastRemoteApplyMs));}catch(_e){}
   /* Hold the apply-lock across BOTH the localStorage writes and the
      subsequent reloader pass. Reloaders themselves can write to
      localStorage (e.g. normalizing migrated keys) and we don't want those
@@ -24629,7 +24636,12 @@ function fbSaveAll(){
    small (300ms) — large enough to absorb the synchronous reload pass,
    small enough that simultaneous edits on another device aren't silently
    dropped. */
-var _lastRemoteApplyMs=0;
+/* Restore the sync baseline from the previous session so the union-merge
+   guard (_prevRemoteApplyMs>0) works correctly on the very first fbApplyData
+   call after a page reload or re-login.  Without this, every page reload
+   resets the baseline to 0 and the guard skips the merge, letting cloud data
+   silently overwrite locally-created items that haven't been pushed yet. */
+var _lastRemoteApplyMs=(function(){try{var v=parseInt(localStorage.getItem('return_fb_sync_ts'),10);return(v>0?v:0);}catch(_e){return 0;}})();
 /* Timestamp of the last post-repair save. A repair discovered after
    fbApplyData (e.g. reconcileTimetableTasks) should fire once per remote
    change — not every apply cycle. A 10 s cooldown prevents a two-device
@@ -25042,8 +25054,10 @@ async function fbSaveNow(opts){
       await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
     }
     /* Treat our own write as the new "last applied" baseline so subsequent
-       saves don't think they're racing themselves. */
+       saves don't think they're racing themselves. Persist so the baseline
+       survives a page reload and the union-merge guard stays accurate. */
     _lastRemoteApplyMs=data.updatedAtMs;
+    try{(typeof _rawSetItem==='function'?_rawSetItem:localStorage.setItem.bind(localStorage))('return_fb_sync_ts',String(_lastRemoteApplyMs));}catch(_e){}
     /* Stage 6c: dual-write per-entity mirror. Legacy blob above is already
        committed and authoritative; this is an isolated best-effort mirror so a
        failure here must NOT fail the save. */
