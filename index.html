@@ -31764,6 +31764,15 @@ musicRender=function(){
        so we fire fbSaveNow immediately with force:true to push any unsaved
        localStorage changes to Firestore before the page is frozen. ── */
     if(document.visibilityState==='hidden'){
+      /* Flush diary debounce (4s timer) synchronously before suspension.
+         commitCurrent() pulls textarea values into the entries object;
+         saveAll() persists them to localStorage. Without this, typing in
+         the diary and switching apps within 4s silently loses the edit. */
+      try{
+        if(typeof saveTimer!=='undefined'&&saveTimer){clearTimeout(saveTimer);saveTimer=null;}
+        if(typeof commitCurrent==='function')commitCurrent();
+        if(typeof saveAll==='function')saveAll();
+      }catch(_de){}
       try{
         if(typeof fbSaveNow==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser&&!window._fbSaveNowBusy){
           fbSaveNow({flushBeforeSuspend:true}).catch(function(e){console.warn('[visibility] pre-suspend save failed:',e&&e.message);});
