@@ -25048,12 +25048,14 @@ async function fbSaveNow(opts){
     try{ if(window.SyncManager)SyncManager.markSaved(); }catch(_e){}
     return true;
   }catch(e){
-    /* Invalidate the doc cache so the next save re-reads cloud state.
-       A failed batch commit (network error, permission denied mid-write)
-       may have left Firestore partially updated; forcing a fresh read on
-       the next attempt prevents the delta filter from treating un-written
-       keys as "already synced" and skipping them. */
+    /* Invalidate the doc cache and pushed-snapshot so the next save
+       re-reads cloud state and re-evaluates the delta filter from scratch.
+       _fbLastPushedSnapshot is updated BEFORE ref.set() so if the write
+       fails the snapshot would incorrectly treat those keys as already
+       synced and the delta filter would silently skip them. Resetting
+       both ensures the full state is pushed on the next attempt. */
     _fbCloudDocCache=null;
+    _fbLastPushedSnapshot=null;
     if(e&&(e.code==='resource-exhausted'||String(e.message||'').indexOf('Write stream exhausted')>=0)){
       /* Quota exceeded: halt auto-saves for 30 minutes to avoid hammering a
          dead write channel and burning reads on collection.get() retries.
