@@ -24130,7 +24130,7 @@ function fbApplyData(data){
      re-renders — NOT a repair pass. Skipping the repair prevents the
      noop → reconcile → save → snapshot → noop loop that amplifies every
      entity-mirror update into a save storm. */
-  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=Number(data.updatedAtMs||0)||Date.now(); setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
+  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=_prevRemoteApplyMs; setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
   /* Hold the apply-lock across BOTH the localStorage writes and the
      subsequent reloader pass. Reloaders themselves can write to
      localStorage (e.g. normalizing migrated keys) and we don't want those
@@ -24255,6 +24255,25 @@ function fbApplyData(data){
               return;
             }
           }catch(_dko){}
+        }
+        /* repeat_suppressions_v1 / generated_task_suppressions_v1 are additive:
+           once an occurrence is suppressed it must stay suppressed on all devices.
+           Union all keys from local and cloud so neither device's deletions are lost. */
+        if(k==='repeat_suppressions_v1'||k==='generated_task_suppressions_v1'){
+          try{
+            var _cloudSupp=JSON.parse(data.keys[k]||'{}')||{};
+            var _localSupp=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudSupp==='object'&&!Array.isArray(_cloudSupp)&&
+               typeof _localSupp==='object'&&!Array.isArray(_localSupp)){
+              var _mergedSupp=Object.assign({},_cloudSupp,_localSupp);
+              var _suppChanged=false;
+              Object.keys(_localSupp).forEach(function(sk){if(!_cloudSupp.hasOwnProperty(sk))_suppChanged=true;});
+              _fbWriter(k,JSON.stringify(_mergedSupp));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_suppChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_supp){}
         }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
@@ -24793,6 +24812,17 @@ async function fbSaveNow(opts){
             }
           }catch(_dko2){}
         }
+        if(k==='repeat_suppressions_v1'||k==='generated_task_suppressions_v1'){
+          try{
+            var _snCloudSupp=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursSupp=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudSupp==='object'&&!Array.isArray(_snCloudSupp)&&
+               typeof _snOursSupp==='object'&&!Array.isArray(_snOursSupp)){
+              var _snMergedSupp=Object.assign({},_snCloudSupp,_snOursSupp);
+              valueToAbsorb=JSON.stringify(_snMergedSupp);
+            }
+          }catch(_supp2){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
@@ -24807,7 +24837,7 @@ async function fbSaveNow(opts){
            it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         /* For union-merge keys, push the merged value outbound. */
-        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy') && valueToAbsorb !== cloud.fullValue){
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
