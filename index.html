@@ -17539,7 +17539,7 @@ function saveItem(){
     }
   } else {
     var newId='h_'+Date.now()+'_'+Math.floor(Math.random()*999);
-    var newIt={id:newId,text:text,catId:catId,type:draftType,date:date,timeStart:ts,timeEnd:te,note:note,done:false};
+    var newIt={id:newId,text:text,catId:catId,type:draftType,date:date,timeStart:ts,timeEnd:te,note:note,done:false,createdAt:Date.now()};
     if(repObj) newIt._repeat=repObj;
 
     items.push(newIt);
@@ -20199,7 +20199,7 @@ function saveMemo() {
   var ta = document.getElementById('capture-ta');
   var text = ta.value.trim();
   if (!text) return;
-  memos.unshift({ text: text, ts: Date.now(), type: 'memo' });
+  memos.unshift({ id: 'm_'+Date.now()+'_'+Math.floor(Math.random()*9999), text: text, ts: Date.now(), type: 'memo' });
   var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
   if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
   ta.value = '';
@@ -24256,6 +24256,35 @@ function fbApplyData(data){
             }
           }catch(_dko){}
         }
+        /* hobby_items_v2 and memos_v5 union-merge: preserve items created on this
+           device after the last remote apply that haven't reached cloud yet.
+           hobby items use createdAt; memos use ts. Items without a creation
+           timestamp are treated as pre-sync and are not re-added if missing. */
+        if(k==='hobby_items_v2'||k==='memos_v5'){
+          try{
+            var _hobIsArray=k==='hobby_items_v2';
+            var _hmCloud=JSON.parse(data.keys[k]||'[]')||[];
+            var _hmLocal=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)&&_prevRemoteApplyMs>0){
+              var _hmCloudIds={};
+              _hmCloud.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_hmCloudIds[String(t.id!=null?t.id:t.ts)]=true;});
+              var _hmLocalOnly=_hmLocal.filter(function(t){
+                if(!t)return false;
+                var key=t.id!=null?t.id:t.ts;
+                if(key==null)return false;
+                if(_hmCloudIds[String(key)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>_prevRemoteApplyMs;
+              });
+              if(_hmLocalOnly.length){
+                _fbWriter(k,JSON.stringify(_hmCloud.concat(_hmLocalOnly)));
+                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                taskUnionMergeAfterFbApply=true;
+                return;
+              }
+            }
+          }catch(_hm){}
+        }
         /* repeat_suppressions_v1 / generated_task_suppressions_v1 are additive:
            once an occurrence is suppressed it must stay suppressed on all devices.
            Union all keys from local and cloud so neither device's deletions are lost. */
@@ -24832,6 +24861,27 @@ async function fbSaveNow(opts){
             }
           }catch(_supp2){}
         }
+        if(k==='hobby_items_v2'||k==='memos_v5'){
+          try{
+            var _snCloudHM=JSON.parse(cloud.fullValue||'[]')||[];
+            var _snOursHM=JSON.parse(ours||'[]')||[];
+            if(Array.isArray(_snCloudHM)&&Array.isArray(_snOursHM)&&localApplyBaseline>0){
+              var _snCloudHMIds={};
+              _snCloudHM.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_snCloudHMIds[String(t.id!=null?t.id:t.ts)]=true;});
+              var _snLocalOnlyHM=_snOursHM.filter(function(t){
+                if(!t)return false;
+                var key=t.id!=null?t.id:t.ts;
+                if(key==null)return false;
+                if(_snCloudHMIds[String(key)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>localApplyBaseline;
+              });
+              if(_snLocalOnlyHM.length){
+                valueToAbsorb=JSON.stringify(_snCloudHM.concat(_snLocalOnlyHM));
+              }
+            }
+          }catch(_hm2){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
@@ -24846,7 +24896,7 @@ async function fbSaveNow(opts){
            it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         /* For union-merge keys, push the merged value outbound. */
-        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1') && valueToAbsorb !== cloud.fullValue){
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1' || k==='hobby_items_v2' || k==='memos_v5') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
