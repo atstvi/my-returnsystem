@@ -24635,8 +24635,8 @@ async function fbSaveNow(opts){
      happening within ~300ms of applying a remote snapshot — long enough to
      absorb the synchronous reloader/renderer cascade, short enough not to
      swallow a real edit a user makes right after seeing the remote update.
-     Manual "지금 올리기" still bypasses with force:true. */
-  if(!opts.force && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
+     Manual "지금 올리기" and pre-suspend flush bypass with force/flushBeforeSuspend. */
+  if(!opts.force && !opts.flushBeforeSuspend && _lastRemoteApplyMs && (Date.now()-_lastRemoteApplyMs)<300){
     try{ if(window.SyncManager)SyncManager.markIdle('skipped-remote-echo'); }catch(_e){}
     return false;
   }
@@ -31698,6 +31698,18 @@ musicRender=function(){
   var _lastVisibilityResync=0;
   var _visibilityResyncTimer=null;
   document.addEventListener('visibilitychange',function(){
+    /* ── Tab hidden: flush pending saves before suspension (mobile critical).
+       The debounce timer (_fbSaveTimer) will be killed when the tab suspends,
+       so we fire fbSaveNow immediately with force:true to push any unsaved
+       localStorage changes to Firestore before the page is frozen. ── */
+    if(document.visibilityState==='hidden'){
+      try{
+        if(typeof fbSaveNow==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser&&!window._fbSaveNowBusy){
+          fbSaveNow({flushBeforeSuspend:true}).catch(function(e){console.warn('[visibility] pre-suspend save failed:',e&&e.message);});
+        }
+      }catch(e){}
+      return;
+    }
     if(document.visibilityState!=='visible')return;
     var now=Date.now();
     if(now-_lastVisibilityResync<30000)return; /* rate-limit: 30s minimum */
