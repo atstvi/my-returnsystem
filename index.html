@@ -24125,6 +24125,7 @@ function fbApplyData(data){
   _applyingFbData = true;
   var generatedRepairAfterFbApply = 0;
   var timetableRepairAfterFbApply = 0;
+  var taskUnionMergeAfterFbApply = false;
   try {
     var _fbWriter = (typeof _rawSetItem === 'function') ? _rawSetItem : localStorage.setItem.bind(localStorage);
     /* Keys that must never be overwritten from a cloud blob — they are device-local
@@ -24168,6 +24169,7 @@ function fbApplyData(data){
               if(_localOnly.length){
                 _fbWriter(k,JSON.stringify(_cloudTasks.concat(_localOnly)));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
@@ -24280,11 +24282,12 @@ function fbApplyData(data){
   } finally {
     _applyingFbData = false;
   }
-  if(generatedRepairAfterFbApply||timetableRepairAfterFbApply){
+  if(generatedRepairAfterFbApply||timetableRepairAfterFbApply||taskUnionMergeAfterFbApply){
     try{
       var now=Date.now();
-      if(now-_lastRepairSaveMs>10000){
-        _lastRepairSaveMs=now;
+      /* Union-merge saves bypass the cooldown so merged local tasks reach cloud quickly */
+      if(taskUnionMergeAfterFbApply||now-_lastRepairSaveMs>10000){
+        if(!taskUnionMergeAfterFbApply)_lastRepairSaveMs=now;
         if(window.SyncManager&&typeof SyncManager.queuePostHydrationSave==='function')SyncManager.queuePostHydrationSave('repair-queued-after-remote-apply');
         else if(typeof fbSaveAll==='function')setTimeout(function(){try{fbSaveAll();}catch(_e){}},650);
       }else{
