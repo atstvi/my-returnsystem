@@ -12308,6 +12308,21 @@ function _entityPayloadHash(e){
   for(k in e){ if(Object.prototype.hasOwnProperty.call(e,k)&&RETURN_ENVELOPE_FIELDS.indexOf(k)<0)c[k]=e[k]; }
   try{ return timetableTaskHash(JSON.stringify(c)); }catch(_e){ return ''; }
 }
+function returnEntityDedupeArray(arr, prefix){
+  if(!Array.isArray(arr))return [];
+  prefix=prefix||'e_';
+  var out=[], seen={};
+  for(var i=0;i<arr.length;i++){
+    var e=arr[i];
+    if(!e||typeof e!=='object'){ out.push(e); continue; }
+    var key=e._eid||(e.id!=null&&String(e.id)!==''?prefix+String(e.id):prefix+'h'+_entityPayloadHash(e));
+    if(seen[key]==null){ seen[key]=out.length; out.push(e); continue; }
+    var idx=seen[key], prev=out[idx]||{};
+    var prevAt=Number(prev.updatedAt||prev.createdAt||0), nextAt=Number(e.updatedAt||e.createdAt||0);
+    if(nextAt>prevAt)out[idx]=e;
+  }
+  return out;
+}
 /* Shadow-diff stamping. The shadow (per collection) is a device-local map
    {_eid: payloadHash} of the last-seen state. Keys are prefixed `__eid_shadow_`
    so they are NOT synced (they describe THIS device's view). Returns the set of
@@ -12460,6 +12475,7 @@ function returnEntityPrepareObjectForSave(collection, obj, prefix, opts){
   }catch(e){ try{console.warn('[entity] prepareObject failed for '+collection+':',e&&e.message);}catch(_){} return {removed:[]}; }
 }
 window.returnEntityBackfillIds=returnEntityBackfillIds;
+window.returnEntityDedupeArray=returnEntityDedupeArray;
 window.returnEntityStampChanged=returnEntityStampChanged;
 window.returnEntityPrepareForSave=returnEntityPrepareForSave;
 window.returnEntityPrepareObjectForSave=returnEntityPrepareObjectForSave;
@@ -21128,8 +21144,8 @@ function _initRecords(){
    Additive project/goal layer. Existing items work without projectId.
    ═══════════════════════════════════════════════════════════ */
 var projects=[], activeProjectId=null;
-function loadProjects(){try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}}
-function saveProjects(){returnEntityPrepareForSave('projects', projects, 'p_', {autoTombstone:true});/* Stage 6a */return setReturnStorageItem('projects_v1',JSON.stringify(projects));}
+function loadProjects(){try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}projects=returnEntityDedupeArray(projects,'p_');}
+function saveProjects(){projects=returnEntityDedupeArray(projects,'p_');returnEntityPrepareForSave('projects', projects, 'p_', {autoTombstone:true});/* Stage 6a */return setReturnStorageItem('projects_v1',JSON.stringify(projects));}
 function projectEsc(v){return typeof tEscHtml==='function'?tEscHtml(v==null?'':String(v)):String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function projectTaskItems(project){return (typeof tasks!=='undefined'?tasks:[]).filter(function(t){return String(t.projectId||'')===String(project.id);});}
 function projectReadArray(key){try{return JSON.parse(localStorage.getItem(key)||'[]')||[];}catch(e){return [];}}
@@ -22052,8 +22068,8 @@ function routineEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c
 function routineDateKey(d){d=d||new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function routineToast(msg){if(typeof showToast==='function')showToast(msg);else if(typeof homeToast==='function')homeToast(msg);}
 function routineReadJson(key, fallback){try{return JSON.parse(localStorage.getItem(key)||'')||fallback;}catch(e){return fallback;}}
-function loadRoutineData(){routineHabits=routineReadJson('routine_habits_v1',[]);routineBundles=routineReadJson('routine_bundles_v1',[]);routineLogs=routineReadJson('routine_logs_v1',{});routineCondition=localStorage.getItem('routine_condition_v1')||'plus';if(!routineHabits.length&&!routineBundles.length)seedRoutineData();}
-function saveRoutineData(){var ok=true;returnEntityPrepareForSave('routineHabits', routineHabits, 'rh_', {autoTombstone:true});returnEntityPrepareForSave('routineBundles', routineBundles, 'rb_', {autoTombstone:true});/* Stage 6a */ok=setReturnStorageItem('routine_habits_v1',JSON.stringify(routineHabits))&&ok;ok=setReturnStorageItem('routine_bundles_v1',JSON.stringify(routineBundles))&&ok;ok=setReturnStorageItem('routine_logs_v1',JSON.stringify(routineLogs))&&ok;ok=setReturnStorageItem('routine_condition_v1',routineCondition)&&ok;if(ok&&typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick();return ok;}
+function loadRoutineData(){routineHabits=returnEntityDedupeArray(routineReadJson('routine_habits_v1',[]),'rh_');routineBundles=returnEntityDedupeArray(routineReadJson('routine_bundles_v1',[]),'rb_');routineLogs=routineReadJson('routine_logs_v1',{});routineCondition=localStorage.getItem('routine_condition_v1')||'plus';if(!routineHabits.length&&!routineBundles.length&&!window._applyingFbData)seedRoutineData();}
+function saveRoutineData(){var ok=true;routineHabits=returnEntityDedupeArray(routineHabits,'rh_');routineBundles=returnEntityDedupeArray(routineBundles,'rb_');returnEntityPrepareForSave('routineHabits', routineHabits, 'rh_', {autoTombstone:true});returnEntityPrepareForSave('routineBundles', routineBundles, 'rb_', {autoTombstone:true});/* Stage 6a */ok=setReturnStorageItem('routine_habits_v1',JSON.stringify(routineHabits))&&ok;ok=setReturnStorageItem('routine_bundles_v1',JSON.stringify(routineBundles))&&ok;ok=setReturnStorageItem('routine_logs_v1',JSON.stringify(routineLogs))&&ok;ok=setReturnStorageItem('routine_condition_v1',routineCondition)&&ok;if(ok&&typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick();return ok;}
 function seedRoutineData(){routineHabits=[{id:'rh_water',title:'물 한 컵',icon:'💧',mini:'한 모금 마시기',plus:'물 한 컵 마시기',max:'물병 채우고 한 컵 마시기'},{id:'rh_stretch',title:'몸 깨우기',icon:'🧘',mini:'목/어깨 1분',plus:'스트레칭 5분',max:'가벼운 운동 15분'},{id:'rh_plan',title:'오늘 보기',icon:'📝',mini:'할일 1개 고르기',plus:'오늘 할일 정리',max:'우선순위와 시간블록까지 정리'},{id:'rh_journal',title:'마감 정리',icon:'🌙',mini:'한 줄 회고',plus:'일기 타임라인 정리',max:'내일 첫 할일까지 정리'}];routineBundles=[{id:'rb_morning',title:'아침 루틴',icon:'☀️',slot:'일어나서',habitIds:['rh_water','rh_stretch','rh_plan']},{id:'rb_night',title:'저녁 루틴',icon:'🌙',slot:'자기 전',habitIds:['rh_journal']}];saveRoutineData();}
 function routineTodayLog(){var key=routineDateKey();routineLogs[key]=routineLogs[key]||{};return routineLogs[key];}
 function routineHabitById(id){return routineHabits.find(function(h){return String(h.id)===String(id);});}
@@ -23057,7 +23073,7 @@ function loadScript(src){
   });
   return _scriptLoadPromises[src];
 }
-var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _fbSettingsUnsubscribe=null, _applyingFbData=false;
 /* Circuit breaker: when Firestore returns resource-exhausted, halt auto-saves
    for 30 minutes so we don't keep burning quota on doomed retries. Force-sync
    (manual 지금 올리기) bypasses this so the user can explicitly retry. */
@@ -23310,6 +23326,7 @@ saveFbConfig=async function(){var cfg=readFbInputs();setReturnStorageItem('fb_co
 clearFbConfig=function(){
   localStorage.removeItem('fb_config');
   if(_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
+  if(_fbSettingsUnsubscribe){_fbSettingsUnsubscribe();_fbSettingsUnsubscribe=null;}
   try{if(fbAuth)fbAuth.signOut();}catch(e){}
   // Keep the Firebase app/auth instance loaded (they cannot be cleanly removed
   // without page reload) but mark that the auth listener stays bound — we'll
@@ -23820,7 +23837,7 @@ function fbSanitizeGcalCfg(cfg){
   return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',taskCalendarId:cfg.taskCalendarId||'',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0,eventMeta:cfg.eventMeta||{}};
 }
 function fbCollectCloudSettings(){
-  var out={updatedAtMs:Date.now(),settings:{}};
+  var out={updatedAtMs:Date.now(),clientId:FB_CLIENT_ID,settings:{}};
   CLOUD_SETTING_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)out.settings[k]=v;});
   if(localStorage.getItem('groq_api_key')==null) out.settings.groq_api_key='';
   try{out.settings.diary_notion_cfg=JSON.stringify(fbSanitizeNotionCfg(getNotionCfg()));}catch(e){}
@@ -24231,6 +24248,7 @@ async function fbLoadAll(){
       }catch(mErr){ try{ console.warn('[entity] 6d merge failed (legacy authoritative):',mErr&&mErr.message); }catch(_){} }
     }
     if(_fbUnsubscribe)_fbUnsubscribe();
+    if(_fbSettingsUnsubscribe)_fbSettingsUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotEvents++; window.__SYNC_DEBUG.state.timestamps.lastSnapshotAt=Date.now(); window.__SYNC_DEBUG.log('fb','onSnapshot fired',{exists:s.exists}); } }catch(_e){}
       if(!s.exists)return;
@@ -24271,6 +24289,26 @@ async function fbLoadAll(){
       var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
       setFbStatus('동기화 오류: '+msg,'err');
       try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot listener error: '+msg,{code:e.code}); }catch(_e){}
+    });
+    _fbSettingsUnsubscribe=ref.collection('settings').doc('main').onSnapshot(function(s){
+      try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.log('fb','settings snapshot fired',{exists:s.exists}); } }catch(_e){}
+      if(!s.exists)return;
+      var d=s.data()||{};
+      if(d.clientId&&d.clientId===FB_CLIENT_ID){
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','settings snapshot self echo skipped'); }catch(_e){}
+        return;
+      }
+      _applyingFbData=true;
+      try{
+        fbApplyCloudSettings(d);
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','settings snapshot applied',{keys:Object.keys((d&&d.settings)||{}).length}); }catch(_e){}
+      }finally{
+        _applyingFbData=false;
+      }
+    },function(e){
+      var msg=e&&e.code==='permission-denied'?'Firestore 洹쒖튃??users/{uid}/settings/main ?쎄린瑜??덉슜?섏? ?딆븘?? ?ㅼ젙 > Firebase > 洹쒖튃 蹂닿린瑜??뺤씤?댁＜?몄슂.':e.message;
+      try{ console.warn('settings snapshot failed:',msg); }catch(_e){}
+      try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','settings snapshot listener error: '+msg,{code:e&&e.code}); }catch(_e){}
     });
   }catch(e){
     clearTimeout(_hydrateGuard);
