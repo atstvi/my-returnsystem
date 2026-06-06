@@ -9596,7 +9596,15 @@ function repeatWeekdays(rep){
 function repeatGenerationKey(rep,dkey){return String((rep&&rep.id)||'')+'|'+taskDateKeyLocal(dkey);}
 function activeRuleGenerationKey(ruleId,sourceId,dkey){return String(ruleId||'')+'|'+String(sourceId||'')+'|'+taskDateKeyLocal(dkey);}
 function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadRepeatSuppressions: corrupt data, resetting to {}', e); return {};}}
+function pruneRepeatSuppressionsOld(map){
+  var cutoff=Date.now()-180*24*60*60*1000;
+  Object.keys(map).forEach(function(k){
+    var e=map[k];
+    if(e&&e.at&&e.at<cutoff)delete map[k];
+  });
+}
 function saveRepeatSuppressions(map){
+  pruneRepeatSuppressionsOld(map);
   var ok=setReturnStorageItem('repeat_suppressions_v1',JSON.stringify(map||{}));
   if(!ok)console.error('[repeat] saveRepeatSuppressions: storage write failed — suppression may re-generate on reload');
   return ok;
@@ -9611,7 +9619,15 @@ function suppressRepeatOccurrence(task){
   saveRepeatSuppressions(map);
 }
 function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadGeneratedTaskSuppressions: corrupt data, resetting to {}', e); return {};}}
+function pruneGeneratedTaskSuppressionsOld(map){
+  var cutoff=Date.now()-180*24*60*60*1000;
+  Object.keys(map).forEach(function(k){
+    var e=map[k];
+    if(e&&e.at&&e.at<cutoff)delete map[k];
+  });
+}
 function saveGeneratedTaskSuppressions(map){
+  pruneGeneratedTaskSuppressionsOld(map);
   var ok=setReturnStorageItem('generated_task_suppressions_v1',JSON.stringify(map||{}));
   if(!ok)console.error('[repeat] saveGeneratedTaskSuppressions: storage write failed — suppression may re-generate on reload');
   return ok;
@@ -18504,7 +18520,12 @@ function loadTrackers() {
   try { trackerValues = JSON.parse(localStorage.getItem('diary_tracker_values_v1') || '{}'); } catch(e) { trackerValues = {}; }
 }
 
+function pruneTrackerValues(){
+  var keys=Object.keys(trackerValues||{}).sort();
+  if(keys.length>365)keys.slice(0,keys.length-365).forEach(function(k){delete trackerValues[k];});
+}
 function saveTrackers() {
+  pruneTrackerValues();
   var ok1=setReturnStorageItem('diary_trackers_v1',JSON.stringify(trackers));
   var ok2=setReturnStorageItem('diary_tracker_values_v1',JSON.stringify(trackerValues));
   if(!ok1)console.error('[diary] diary_trackers_v1 save failed');
@@ -24089,6 +24110,7 @@ function fbApplyData(data){
   /* Record when we applied a remote snapshot so the next debounced fbSave
      can decide whether to skip (echo-suppression grace period). Use the
      remote-claimed timestamp if present, else now. */
+  var _prevRemoteApplyMs = _lastRemoteApplyMs || 0;
   _lastRemoteApplyMs = Number(data.updatedAtMs||0) || Date.now();
   /* __noop: the caller (entity 6d merge on changedKeys>0) only wants
      re-renders — NOT a repair pass. Skipping the repair prevents the
@@ -24127,6 +24149,29 @@ function fbApplyData(data){
           _mediaSyncManifest=null;  /* invalidate cache to pick up merged value */
           if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
           return;
+        }
+        /* task_items_v1: union-merge to preserve locally-created tasks that
+           haven't been pushed yet. Cloud snapshot from Device A may arrive before
+           Device B's new tasks are synced — without this, Device B loses its
+           in-flight tasks when fbApplyData blindly replaces the local list. */
+        if(k==='task_items_v1'){
+          try{
+            var _cloudTasks=JSON.parse(data.keys[k]||'[]')||[];
+            var _localTasks=JSON.parse(localStorage.getItem('task_items_v1')||'[]')||[];
+            if(Array.isArray(_cloudTasks)&&Array.isArray(_localTasks)&&_prevRemoteApplyMs>0){
+              var _cloudTaskIds={};
+              _cloudTasks.forEach(function(t){if(t&&t.id!=null)_cloudTaskIds[String(t.id)]=true;});
+              var _localOnly=_localTasks.filter(function(t){
+                return t&&t.id!=null&&!_cloudTaskIds[String(t.id)]&&
+                       Number(t.createdAt||0)>_prevRemoteApplyMs;
+              });
+              if(_localOnly.length){
+                _fbWriter(k,JSON.stringify(_cloudTasks.concat(_localOnly)));
+                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                return;
+              }
+            }
+          }catch(_te){}
         }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
