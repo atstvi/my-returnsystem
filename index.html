@@ -18218,6 +18218,14 @@ function diaryAutoSave(key, el) {
   if (sec && el.value) sec.classList.add('dirty');
   autoGrow(el);
 
+  /* Immediate-ish Notion push: fire the diary→Notion auto-push directly on
+     edit (debounced ~0.9s inside queueDiaryNotionSave) instead of waiting for
+     the 4s local-save chain, so edits reflect to Notion quickly. The push
+     commits the current date itself, so it always captures the latest text. */
+  if (typeof queueDiaryNotionSave === 'function') {
+    try { queueDiaryNotionSave(currentDate || TK); } catch(e) {}
+  }
+
   /* Debounce 4s — same as original */
   clearTimeout(saveTimer);
   var saveDot = document.getElementById('save-dot');
@@ -27006,7 +27014,16 @@ function _notionMergeSection(entry, key, notionVal, notionEditedMs, conflicts){
      local saves/opens and would wrongly block a real "wrote in Notion → pull"
      flow. The precise 3-way protection turns on once the first sync writes a
      baseline (see _notionUpdateBaseline). */
-  if(!hasBase){ entry[key]=notionVal; return 'adopt-notion-nobaseline'; }
+  if(!hasBase){
+    /* No baseline yet (first sync of this date). Do NOT blindly adopt Notion:
+       if the local entry was edited more recently than the Notion page, the
+       local text is the fresh one and must win (otherwise the first sync after
+       a local edit silently discards it). Only adopt Notion when its page is
+       genuinely newer than the local edit. */
+    var lMs0=Number(entry.updatedAt)||0, nMs0=Number(notionEditedMs)||0;
+    if(nMs0>lMs0){ entry[key]=notionVal; return 'adopt-notion-nobaseline-newer'; }
+    return 'keep-local-nobaseline-newer';
+  }
   var base=String(entry._nbase[key]);
   if(notionVal===base) return 'keep-local-notion-unchanged'; /* Notion side unchanged */
   if(local===base){ entry[key]=notionVal; return 'adopt-notion'; } /* only Notion changed */
@@ -27229,8 +27246,18 @@ async function syncDiaryToNotion(dateKey, opts){
      Notion) because _syncDiaryPageBody archives every existing block before
      re-writing. Pulling first ensures Notion-side blocks land in entry._blocks
      and survive the re-write. Callers may still pass pullFirst:false for the
-     rare case where Return must truly clobber Notion. */
-  if(opts.pullFirst==null) opts.pullFirst=true;
+     rare case where Return must truly clobber Notion.
+
+     BUT: an edit-triggered AUTO push (queueDiaryNotionSave fires right after the
+     user types) must NOT pull-first. The user just made a local change; pulling
+     first can adopt Notion's older content and REVERT the fresh edit before the
+     push runs, so the typed text gets replaced by Notion's version and never
+     reaches Notion — the exact "일기→노션 안 됨" symptom. Notion→app is already
+     handled by the interval/manual pull (pullDiaryFromNotion). Manual syncs
+     (the "동기화" button, opts.auto falsy) keep pull-first so that button stays
+     fully bidirectional. Notion-side images survive either way because
+     _syncDiaryPageBody absorbs unknown Notion images before archiving. */
+  if(opts.pullFirst==null) opts.pullFirst = !opts.auto;
   /* Auto-triggered syncs (from typing / queueDiaryNotionSave) must NOT call
      saveNotionConfig: the settings form may not be open, so reading the DOM
      could silently save autoSync:false (unchecked default) and permanently
