@@ -24799,6 +24799,8 @@ async function fbSaveNow(opts){
     }
     if(window.SyncManager&&!SyncManager.protectCloudOverwrite(data,cloudByKey,opts)){
       setFbStatus('Firebase 저장 보류: 빈 로컬 데이터가 클라우드를 덮지 않도록 막았어요.','err');
+      /* Notify SyncManager so the UI doesn't stay in a permanent "saving" state. */
+      try{if(typeof SyncManager.markIdle==='function')SyncManager.markIdle('protected-empty-overwrite');}catch(_e){}
       return false;
     }
     /* Throttle settings write — contents rarely change; 2 min interval prevents
@@ -27230,6 +27232,7 @@ var _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1
 var _gcalToken=_gcalCfg._savedToken||null;
 var _gcalTokenExp=_gcalCfg._savedTokenExp||0;
 var _gcalTokenClient=null;
+var _gcalEnsureTokenPromise=null;
 function gcalStatus(text, cls){
   var row=document.getElementById('gcal-status');
   var detail=document.getElementById('gcal-sync-status');
@@ -27298,36 +27301,43 @@ function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_g
 async function gcalEnsureToken(showUi){
   if(_gcalToken&&Date.now()<_gcalTokenExp-60000)return true;
   if(!_gcalCfg.clientId)return false;
-  try{
-    await loadScript('https://accounts.google.com/gsi/client');
-    if(!window.google||!google.accounts||!google.accounts.oauth2)return false;
-    return await new Promise(function(resolve){
-      var finished=false;
-      _gcalTokenClient=google.accounts.oauth2.initTokenClient({
-        client_id:_gcalCfg.clientId,
-        scope:'https://www.googleapis.com/auth/calendar.events',
-        callback:function(resp){
-          finished=true;
-          if(resp&&resp.access_token){
-            _gcalToken=resp.access_token;
-            _gcalTokenExp=Date.now()+Number(resp.expires_in||3600)*1000;
-            _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
-            setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
-            gcalLoadConfig();
-            resolve(true);
-          }else{
-            resolve(false);
-          }
-        },
-        error_callback:function(){finished=true;resolve(false);}
+  /* Coalesce concurrent refresh attempts into a single OAuth request so that
+     parallel gcalApiCal calls don't each fire separate requestAccessToken()
+     calls, which would open multiple OAuth popups/redirects. */
+  if(_gcalEnsureTokenPromise)return _gcalEnsureTokenPromise;
+  _gcalEnsureTokenPromise=(async function(){
+    try{
+      await loadScript('https://accounts.google.com/gsi/client');
+      if(!window.google||!google.accounts||!google.accounts.oauth2)return false;
+      return await new Promise(function(resolve){
+        var finished=false;
+        _gcalTokenClient=google.accounts.oauth2.initTokenClient({
+          client_id:_gcalCfg.clientId,
+          scope:'https://www.googleapis.com/auth/calendar.events',
+          callback:function(resp){
+            finished=true;
+            if(resp&&resp.access_token){
+              _gcalToken=resp.access_token;
+              _gcalTokenExp=Date.now()+Number(resp.expires_in||3600)*1000;
+              _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
+              setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+              gcalLoadConfig();
+              resolve(true);
+            }else{
+              resolve(false);
+            }
+          },
+          error_callback:function(){finished=true;resolve(false);}
+        });
+        _gcalTokenClient.requestAccessToken({prompt:''});
+        setTimeout(function(){if(!finished)resolve(false);},12000);
       });
-      _gcalTokenClient.requestAccessToken({prompt:''});
-      setTimeout(function(){if(!finished)resolve(false);},12000);
-    });
-  }catch(e){
-    console.warn('gcal token refresh',e);
-    return false;
-  }
+    }catch(e){
+      console.warn('gcal token refresh',e);
+      return false;
+    }
+  })();
+  try{return await _gcalEnsureTokenPromise;}finally{_gcalEnsureTokenPromise=null;}
 }
 function gcalAuth(){
   gcalSaveConfig();
