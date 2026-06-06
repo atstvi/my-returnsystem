@@ -12752,6 +12752,12 @@ function compactGlobalStickerStateForStorage(state){
     compact[page] = (state[page]||[]).map(function(s){
       var next = Object.assign({}, s || {});
       if (isReturnMediaRef(next.url) && !next.syncDataUrl && typeof themeStudioMediaFallbackForUrl==='function') next.syncDataUrl = themeStudioMediaFallbackForUrl(next.url);
+      if (isReturnMediaRef(next.url) && next.syncDataUrl) {
+        try{
+          var mid=returnMediaRefId(next.url);
+          if(mediaSyncPut(mid,next.syncDataUrl) && mediaSyncGet(mid)===next.syncDataUrl) delete next.syncDataUrl;
+        }catch(_e){}
+      }
       if (isReturnMediaRef(next.url) && next.syncDataUrl && String(next.syncDataUrl).length > 220000) delete next.syncDataUrl;
       return next;
     });
@@ -23258,6 +23264,21 @@ function updateAuthGate(){
 }
 var _fbInitOnce = false;
 var _fbAuthSubscribed = false;
+var _fbRedirectHandled = false;
+function fbHandleCalendarCredential(result){
+  try{
+    var cred=result&&firebase.auth.GoogleAuthProvider.credentialFromResult(result);
+    if(cred&&cred.accessToken&&typeof gcalLoadConfig==='function'){
+      gcalLoadConfig();
+      _gcalToken=cred.accessToken;
+      _gcalTokenExp=Date.now()+55*60*1000;
+      _gcalCfg._savedToken=_gcalToken;
+      _gcalCfg._savedTokenExp=_gcalTokenExp;
+      setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+      gcalLoadConfig();
+    }
+  }catch(calErr){console.warn('calendar token from firebase login',calErr);}
+}
 async function initFirebase(){
   var cfg=fbConfig();
   if(!cfg.apiKey||!cfg.authDomain||!cfg.projectId){
@@ -23295,6 +23316,15 @@ async function initFirebase(){
   fbAuth=firebase.auth();
   fbDb=firebase.firestore();
   _fbInitOnce = true;
+  if(!_fbRedirectHandled && fbAuth.getRedirectResult){
+    _fbRedirectHandled = true;
+    fbAuth.getRedirectResult().then(function(result){
+      if(result&&result.user)fbHandleCalendarCredential(result);
+    }).catch(function(e){
+      console.warn('[fb] redirect login result failed:',e&&e.message||e);
+      setFbStatus('Google 로그인 확인 실패 — 다시 로그인해주세요','err');
+    });
+  }
   // Subscribe to auth state changes only once across the lifetime of the page.
   if(!_fbAuthSubscribed){
     _fbAuthSubscribed = true;
@@ -23350,19 +23380,19 @@ async function fbGoogleLogin(){
     provider.addScope('profile');
     provider.addScope('email');
     provider.addScope('https://www.googleapis.com/auth/calendar.events');
-    var result=await fbAuth.signInWithPopup(provider);
     try{
-      var cred=firebase.auth.GoogleAuthProvider.credentialFromResult(result);
-      if(cred&&cred.accessToken&&typeof gcalLoadConfig==='function'){
-        gcalLoadConfig();
-        _gcalToken=cred.accessToken;
-        _gcalTokenExp=Date.now()+55*60*1000;
-        _gcalCfg._savedToken=_gcalToken;
-        _gcalCfg._savedTokenExp=_gcalTokenExp;
-        setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
-        gcalLoadConfig();
+      var result=await fbAuth.signInWithPopup(provider);
+      fbHandleCalendarCredential(result);
+    }catch(popErr){
+      var code=String(popErr&&popErr.code||'');
+      var msg=String(popErr&&popErr.message||popErr||'');
+      if(fbAuth.signInWithRedirect && (code.indexOf('popup')>=0 || /blocked|closed|cancelled|cancelled|COOP|Cross-Origin-Opener-Policy/i.test(msg))){
+        setFbStatus('팝업 로그인이 막혀 리디렉션 로그인으로 전환합니다','saving');
+        await fbAuth.signInWithRedirect(provider);
+        return;
       }
-    }catch(calErr){console.warn('calendar token from firebase login',calErr);}
+      throw popErr;
+    }
   }catch(e){showToast('Google 로그인 실패: '+e.message);}
 }
 function fbCollectData(){
@@ -28404,6 +28434,12 @@ function themeStudioCloudFallbackDataUrl(dataUrl,meta){
 }
 function themeStudioCompactAssetForStorage(asset){
   var a=themeStudioClone(asset||{});
+  if(isReturnMediaRef(a.url)&&a.syncDataUrl){
+    try{
+      var mid=returnMediaRefId(a.url);
+      if(mediaSyncPut(mid,a.syncDataUrl) && mediaSyncGet(mid)===a.syncDataUrl)delete a.syncDataUrl;
+    }catch(_e){}
+  }
   if(a.syncDataUrl&&String(a.syncDataUrl).length>220000)delete a.syncDataUrl;
   if(a.dataUrl&&String(a.dataUrl).length>120000)delete a.dataUrl;
   return a;
