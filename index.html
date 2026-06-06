@@ -98,6 +98,40 @@
        so the user is not left with a blank screen. */
   }
 })();
+
+/* ─────────────────────────────────────────────────────────────────────────
+   FIREBASE CONFIG IMPORT FROM URL
+   Runs before any Firebase init. Allows a working device to share its
+   Firebase config via URL to a new device (which would otherwise fail with
+   auth/api-key-not-valid because the DEFAULT_FB_CONFIG key is just a
+   placeholder). Usage: append #return_fb_cfg=BASE64_JSON to the URL.
+   ─────────────────────────────────────────────────────────────────────── */
+(function _importFbCfgFromUrl(){
+  try{
+    var h=window.location.hash||'';
+    if(h.indexOf('return_fb_cfg=')<0)return;
+    var params=new URLSearchParams(h.replace(/^#/,''));
+    var encoded=params.get('return_fb_cfg');
+    if(!encoded)return;
+    var cfg=JSON.parse(atob(encoded));
+    if(!cfg||typeof cfg!=='object')return;
+    if(!cfg.apiKey||!cfg.authDomain||!cfg.projectId)return;
+    /* Only save if all three fields are non-empty strings */
+    if(typeof cfg.apiKey!=='string'||!cfg.apiKey.trim())return;
+    localStorage.setItem('fb_config',JSON.stringify({
+      apiKey:cfg.apiKey.trim(),
+      authDomain:cfg.authDomain.trim(),
+      projectId:cfg.projectId.trim()
+    }));
+    /* Clean URL so the token doesn't persist in history */
+    try{
+      var cleanUrl=location.href.replace(/#.*$/,'');
+      history.replaceState(null,'',cleanUrl);
+    }catch(_e){}
+    /* The banner shows after the app boots, because we can't touch the DOM yet */
+    window._fbCfgImportedFromUrl=true;
+  }catch(e){}
+})();
 </script>
 <style>
 
@@ -5790,6 +5824,10 @@ to{opacity:1;transform:translateY(0)}}
       <button class="btn btn-ghost" type="button" onclick="initFirebase()">연결 재시도</button>
     </div>
     <div class="auth-status" id="auth-status">연결 중... (안 되면 '연결 재시도' 눌러주세요)</div>
+    <div id="auth-new-device-hint" style="display:none;font-size:12px;color:var(--fg-4);line-height:1.5;margin-top:8px;padding:8px 10px;background:var(--a-50);border-radius:8px;border:1px solid var(--a-200)">
+      다른 기기에서 이미 로그인했다면:<br>
+      그 기기에서 <strong>설정 → Firebase → 기기 공유 링크</strong>를 눌러 링크를 복사하고, 이 기기에서 그 링크를 열어주세요.
+    </div>
     <button class="auth-local-btn" type="button" id="auth-local-btn" onclick="fbLocalOnlyMode()" style="display:none">로그인 없이 사용하기 (데이터는 이 기기에만 저장됩니다)</button>
   </div>
 </div>
@@ -7822,12 +7860,16 @@ to{opacity:1;transform:translateY(0)}}
             <div class="field-group">
               <div class="field-label">Firebase 프로젝트 설정</div>
               <div class="field-help">Google 계정으로 로그인하면 이 앱의 localStorage 데이터가 Firestore에 동기화됩니다.</div>
+              <div class="field-hint" id="fb-new-device-hint" style="background:var(--a-50);border:1px solid var(--a-200);border-radius:8px;padding:10px 12px;margin-bottom:12px;display:none">
+                📱 <strong>새 기기에서 로그인이 안 되나요?</strong><br>이미 로그인된 기기에서 <em>설정 &gt; Firebase &gt; <b>기기 공유 링크</b></em>를 누르고 복사된 링크를 이 기기에서 열어주세요.
+              </div>
               <input class="set-inp mono" id="fb-api-key" placeholder="apiKey">
               <input class="set-inp mono" id="fb-auth-domain" placeholder="authDomain" style="margin-top:var(--sp-3)">
               <input class="set-inp mono" id="fb-project-id" placeholder="projectId" style="margin-top:var(--sp-3)">
               <div style="display:flex;gap:var(--sp-3);margin-top:var(--sp-4);flex-wrap:wrap">
                 <button class="set-btn btn-primary" onclick="saveFbConfig()">저장 및 연결</button>
                 <button class="set-btn btn-ghost" onclick="fbGoogleLogin()">Google 로그인</button>
+                <button class="set-btn btn-ghost" onclick="fbShareConfigLink()" title="이 기기의 Firebase 설정을 URL로 내보내어 다른 기기에서 쉽게 설정할 수 있습니다">📤 기기 공유 링크</button>
                 <button class="set-btn btn-ghost" onclick="fbForceSync()">⬆ 지금 올리기</button>
                 <button class="set-btn btn-ghost" onclick="fbForcePull()">⬇ 지금 가져오기</button>
                 <button class="set-btn btn-ghost" onclick="runFirebaseDiagnostics()">🔬 진단 실행</button>
@@ -23383,12 +23425,59 @@ function fbHealInvalidApiKey(err){
   return true;
 }
 function readFbInputs(){var cur=fbConfig();return {apiKey:(document.getElementById('fb-api-key')||{}).value||cur.apiKey||DEFAULT_FB_CONFIG.apiKey,authDomain:(document.getElementById('fb-auth-domain')||{}).value||cur.authDomain||DEFAULT_FB_CONFIG.authDomain,projectId:(document.getElementById('fb-project-id')||{}).value||cur.projectId||DEFAULT_FB_CONFIG.projectId};}
-function fillFbInputs(){var c=fbConfig(),a=document.getElementById('fb-api-key'),d=document.getElementById('fb-auth-domain'),p=document.getElementById('fb-project-id');if(a)a.value=c.apiKey||'';if(d)d.value=c.authDomain||'';if(p)p.value=c.projectId||'';}
+function fillFbInputs(){
+  var c=fbConfig(),a=document.getElementById('fb-api-key'),d=document.getElementById('fb-auth-domain'),p=document.getElementById('fb-project-id');
+  if(a)a.value=c.apiKey||'';if(d)d.value=c.authDomain||'';if(p)p.value=c.projectId||'';
+  /* Show new-device hint when the current config is the default (likely unconfigured) */
+  var hint=document.getElementById('fb-new-device-hint');
+  if(hint){
+    var isDefault=(c.apiKey===DEFAULT_FB_CONFIG.apiKey&&c.authDomain===DEFAULT_FB_CONFIG.authDomain);
+    hint.style.display=isDefault?'':'none';
+  }
+  /* Show success banner if config was just imported via URL */
+  if(window._fbCfgImportedFromUrl){
+    window._fbCfgImportedFromUrl=false;
+    if(typeof showToast==='function')showToast('Firebase 설정을 링크에서 가져왔습니다. 저장 및 연결을 눌러주세요.');
+  }
+}
+function fbShareConfigLink(){
+  var cfg=fbConfig();
+  if(!cfg.apiKey||cfg.apiKey===DEFAULT_FB_CONFIG.apiKey){
+    if(typeof showToast==='function')showToast('저장된 Firebase 설정이 없어요. 먼저 저장 및 연결을 눌러주세요.');
+    return;
+  }
+  try{
+    var encoded=btoa(JSON.stringify({apiKey:cfg.apiKey,authDomain:cfg.authDomain,projectId:cfg.projectId}));
+    var url=location.origin+location.pathname+'#return_fb_cfg='+encoded;
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(url).then(function(){
+        if(typeof showToast==='function')showToast('링크가 클립보드에 복사됐어요! 다른 기기에서 이 링크를 열어주세요.');
+      }).catch(function(){
+        _fbShareFallback(url);
+      });
+    } else {
+      _fbShareFallback(url);
+    }
+  }catch(e){
+    if(typeof showToast==='function')showToast('링크 생성 실패: '+e.message);
+  }
+}
+function _fbShareFallback(url){
+  /* Fallback: show the URL in a prompt dialog so the user can copy it manually */
+  try{
+    window.prompt('아래 링크를 복사해서 다른 기기에서 열어주세요:', url);
+  }catch(e){
+    if(typeof showToast==='function')showToast('링크: '+url.slice(0,60)+'…');
+  }
+}
 function setFbStatus(text, cls){
   var el=document.getElementById('fb-status');if(el)el.textContent=text;
   var dot=document.getElementById('status-sync');if(dot)dot.className='status-dot '+(cls||'');
   var row=document.getElementById('fb-row');if(row)row.setAttribute('data-state', cls||'');
   var auth=document.getElementById('auth-status');if(auth&&!fbUser)auth.textContent=text||'로그인이 필요해요';
+  /* Show the new-device hint on error so the user knows about the share link */
+  var hint=document.getElementById('auth-new-device-hint');
+  if(hint)hint.style.display=(cls==='err'?'':'none');
 }
 var _fbLocalOnly = false;
 function fbLocalOnlyMode(){
