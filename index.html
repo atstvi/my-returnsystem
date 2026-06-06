@@ -24447,9 +24447,10 @@ async function fbSaveNow(opts){
   }
   if(!fbDb||!fbUser||_applyingFbData)return false;
   if(window.SyncManager&&!SyncManager.canSave(opts))return false;
-  /* Circuit breaker: skip auto-saves during quota backoff window. */
+  /* Circuit breaker: skip auto-saves during quota/permission backoff window. */
   if(!opts.force && Date.now()<_fbQuotaBackoffUntil){
-    setFbStatus('Firebase 저장 일시 중단 (할당량 초과 — 자동 복구 대기 중)','err');
+    var _backoffRemainMin=Math.ceil((_fbQuotaBackoffUntil-Date.now())/60000);
+    setFbStatus('Firebase 저장 일시 중단 (오류로 인한 자동 백오프 — '+_backoffRemainMin+'분 후 재시도)','err');
     return false;
   }
   /* Echo-suppression grace period. Note: this only suppresses saves
@@ -24730,9 +24731,14 @@ async function fbSaveNow(opts){
          "Write stream exhausted maximum allowed queued writes". */
       _fbQuotaBackoffUntil=Date.now()+30*60*1000;
       setFbStatus('Firebase 저장 중단: 일일 할당량 초과. 30분 후 자동 재시도해요. (수동 올리기는 즉시 가능)','err');
+    }else if(e&&e.code==='permission-denied'){
+      /* Firestore rules block this user — halt auto-saves for 5 min to avoid
+         burning the 50k daily read quota on repeated cold collection.get() calls
+         that will all fail the same way. Manual force-sync can still override. */
+      _fbQuotaBackoffUntil=Date.now()+5*60*1000;
+      setFbStatus('동기화 오류: Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 5분 후 자동 재시도. 설정 > Firebase > 규칙 보기를 확인해주세요.','err');
     }else{
-      var msg=e&&e.code==='permission-denied'?'Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 설정 > Firebase > 규칙 보기를 확인해주세요.':e.message;
-      setFbStatus('동기화 오류: '+msg,'err');
+      setFbStatus('동기화 오류: '+(e&&e.message||String(e)),'err');
     }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
     return false;
@@ -31414,6 +31420,33 @@ musicRender=function(){
         }
       }catch(e){}
     },2000);
+  });
+})();
+
+/* ── Online reconnect sync ─────────────────────────────────────────────
+   When the browser regains network connectivity, pull cloud changes and
+   flush any local edits queued while offline. Rate-limited to once per
+   60s so a flaky connection doesn't hammer quota. ───────────────────── */
+(function installOnlineResync(){
+  var _lastOnlineResync=0;
+  var _onlineResyncTimer=null;
+  window.addEventListener('online',function(){
+    var now=Date.now();
+    if(now-_lastOnlineResync<60000)return; /* rate-limit: 60s minimum */
+    clearTimeout(_onlineResyncTimer);
+    _onlineResyncTimer=setTimeout(function(){
+      _lastOnlineResync=Date.now();
+      try{
+        if(typeof fbForcePull==='function'&&typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb){
+          fbForcePull({silent:true}).catch(function(e){console.warn('[online] fbForcePull failed:',e&&e.message);});
+        }
+      }catch(e){}
+      try{
+        if(typeof fbSaveAll==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser){
+          fbSaveAll();
+        }
+      }catch(e){}
+    },3000); /* 3s delay: give network a moment to stabilize before syncing */
   });
 })();
 </script>
