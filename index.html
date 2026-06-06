@@ -27471,11 +27471,28 @@ async function syncDiaryToNotion(dateKey, opts){
     function entryHas(key){
       return Object.prototype.hasOwnProperty.call(entry, key);
     }
+    /* SYMMETRIC PUSH GUARD (fixes push clobbering Notion-only edits): the pull
+       side does a 3-way merge so it never blindly overwrites local. The push
+       side used to blindly write ALL local section properties to Notion every
+       time — so a section the user edited ONLY in Notion got reverted to the old
+       local value before the next pull could adopt it (confirmed in the trace:
+       "sync:done 보냄 0 · 속성 7" pushing all 7 props on a date-switch). Now an
+       AUTO edit-push only sends sections that actually changed LOCALLY vs the
+       last-sync baseline, leaving Notion-only edits intact for the pull to bring
+       in. Manual syncs (pullFirst) already merged Notion in, so they push the
+       full merged set. First sync (no baseline) pushes everything to populate. */
+    var _hasNbase = !!(entry._nbase && typeof entry._nbase==='object');
+    function _shouldPushSection(key){
+      if(opts.pullFirst) return true;        /* manual/explicit: push merged full set */
+      if(!_hasNbase) return true;            /* first sync: populate Notion */
+      if(!Object.prototype.hasOwnProperty.call(entry._nbase,key)) return true; /* never synced this section */
+      return String(entry[key]==null?'':entry[key]) !== String(entry._nbase[key]); /* changed locally */
+    }
 
     /* Timeline: regular sync preserves the diary's own timeline text.
        AI formatting is reserved for the scheduled daily summary. */
     try {
-      if(cfg.timelineProp && entryHas('timeline')){
+      if(cfg.timelineProp && entryHas('timeline') && _shouldPushSection('timeline')){
         addProp(cfg.timelineProp, entry.timeline || '');
       } else if(cfg.timelineProp && opts.withAI && !opts.skipAI){
         var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));
@@ -27484,12 +27501,12 @@ async function syncDiaryToNotion(dateKey, opts){
     } catch(e){
       console.warn('timeline format failed:', e&&e.message);
     }
-    /* Per-section properties */
+    /* Per-section properties — only push sections changed locally (see guard). */
     [['sleep','sleepProp'],['morning','morningProp'],['resolution','resolutionProp'],
      ['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']
     ].forEach(function(pair){
       var key=pair[0], prop=cfg[pair[1]];
-      if(prop && entryHas(key)) addProp(prop, entry[key] || '');
+      if(prop && entryHas(key) && _shouldPushSection(key)) addProp(prop, entry[key] || '');
     });
     if(Object.keys(props).length){
       try {
@@ -27502,12 +27519,16 @@ async function syncDiaryToNotion(dateKey, opts){
       console.warn('Notion sync — skipped read-only props:', skipped);
     }
 
-    /* 4. Push body blocks. force=true on manual sync so the user can always
-       overwrite if they think something's stale. */
+    /* 4. Push body blocks. force=true on MANUAL sync so the user can always
+       overwrite if they think something's stale. AUTO edit-pushes pass force=false
+       so the body is only archived+rewritten when the LOCAL body actually changed
+       (bodyHashes signature differs). Otherwise an auto-push would archive any
+       block added directly in Notion (text blocks aren't absorbed like images),
+       clobbering Notion-side body edits before the pull can adopt them. */
     setStatus('본문 보내는 중...');
     var bodyCount=0;
     try {
-      bodyCount=await _syncDiaryPageBody(pageId, entry, dateKey, true);
+      bodyCount=await _syncDiaryPageBody(pageId, entry, dateKey, !opts.auto);
     } catch(e){
       throw new Error('본문 업데이트 실패: '+e.message);
     }
