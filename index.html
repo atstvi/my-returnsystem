@@ -24751,7 +24751,18 @@ async function fbSaveNow(opts){
       _fbQuotaBackoffUntil=Date.now()+5*60*1000;
       setFbStatus('동기화 오류: Firestore 규칙이 users/{uid} 읽기/쓰기를 허용하지 않아요. 5분 후 자동 재시도. 설정 > Firebase > 규칙 보기를 확인해주세요.','err');
     }else{
-      setFbStatus('동기화 오류: '+(e&&e.message||String(e)),'err');
+      /* Transient network/server error: add a short 90-second backoff to avoid
+         hammering a cold collection.get() on every user edit while offline or
+         while Firestore is temporarily unreachable. Force-sync still bypasses. */
+      var _isNetworkErr=!e.code||e.code==='unavailable'||e.code==='deadline-exceeded'||
+        (String(e.message||'').toLowerCase().indexOf('network')>=0)||
+        (String(e.message||'').toLowerCase().indexOf('offline')>=0);
+      if(_isNetworkErr && !opts.force){
+        _fbQuotaBackoffUntil=Date.now()+90*1000;
+        setFbStatus('동기화 오류: 네트워크 오류. 90초 후 자동 재시도해요. (수동 올리기는 즉시 가능)','err');
+      } else {
+        setFbStatus('동기화 오류: '+(e&&e.message||String(e)),'err');
+      }
     }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
     return false;
