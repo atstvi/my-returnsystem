@@ -29539,10 +29539,10 @@ async function runImageDiagnostics(){
   add('manifest 총량','warn',Object.keys(manifest).length+'개 / '+fmt(JSON.stringify(manifest).length));
   // helper to diagnose one ref; fbVal = the inline fallback that SHOULD carry
   // this image's bytes cross-device (iconFallbacks[k] / *SyncDataUrl / etc.)
-  async function diagRef(label,val,fbVal){
-    if(!val){add(label,'warn','(설정 안 됨)');return;}
+  async function diagRef(label,val,fbVal,extra){
+    if(!val){add(label,'warn','(설정 안 됨)'+(extra?' · '+extra:''));return;}
     if(!isReturnMediaRef(val)){
-      add(label,/^data:image|^https?:|^blob:/.test(val)?'ok':'warn','inline '+(/^data:/.test(val)?'dataURL':'url')+' '+fmt(val.length));
+      add(label,/^data:image|^https?:|^blob:/.test(val)?'ok':'warn','inline '+(/^data:/.test(val)?'dataURL':'url')+' '+fmt(val.length)+(extra?' · '+extra:''));
       return;
     }
     var id=returnMediaRefId(val);
@@ -29552,7 +29552,7 @@ async function runImageDiagnostics(){
     var inMf=manifest[id]?manifest[id].length:0;
     var inIdb=await idbLen(id);
     var synced=inFb||inAs||inMf; // channels that reach other devices
-    add(label,synced?'ok':'err','id='+id.slice(0,10)+' · fb='+fmt(inFb)+' mf='+fmt(inMf)+' as='+fmt(inAs)+' idb='+fmt(inIdb)+(synced?'':' ← 다른 기기로 전송되는 사본 없음'));
+    add(label,synced?'ok':'err','id='+id.slice(0,10)+' · fb='+fmt(inFb)+' mf='+fmt(inMf)+' as='+fmt(inAs)+' idb='+fmt(inIdb)+(synced?'':' ← 다른 기기로 전송되는 사본 없음')+(extra?' · '+extra:''));
   }
   // icons (app, avatar, tabs...)
   for(var k in icons){ if(Object.prototype.hasOwnProperty.call(icons,k)) await diagRef('아이콘:'+k,icons[k],fb[k]); }
@@ -29570,7 +29570,11 @@ async function runImageDiagnostics(){
   await diagRef('전체 배경',(state.background&&state.background.image)||'',(state.background&&state.background.syncDataUrl)||'');
   await diagRef('홈 배너',(state.banner&&state.banner.image)||localStorage.getItem('home_banner_v1')||'',(state.banner&&state.banner.syncDataUrl)||localStorage.getItem('home_banner_sync_v1')||'');
   await diagRef('취미 배너',(state.banner&&state.banner.hobbyImage)||localStorage.getItem('hobby_banner_v1')||'',(state.banner&&state.banner.hobbySyncDataUrl)||localStorage.getItem('hobby_banner_sync_v1')||'');
-  // stickers — global_stickers_v1 is an OBJECT keyed by page: {page:[{url,syncDataUrl}]}
+  // stickers — global_stickers_v1 is an OBJECT keyed by page: {page:[{url,syncDataUrl,x,y,w,r}]}
+  // Position is stored in ABSOLUTE PIXELS. Report it + this device's viewport
+  // width so two devices can be compared: same x/y but different screen width
+  // means the px coordinates don't translate across devices.
+  add('이 기기 화면 폭','warn',(window.innerWidth||0)+'px');
   var stObj={};try{stObj=JSON.parse(localStorage.getItem('global_stickers_v1')||'{}')||{};}catch(e){}
   var stCount=0;
   var pages=Object.keys(stObj);
@@ -29578,7 +29582,9 @@ async function runImageDiagnostics(){
     var arr=stObj[pages[pi]]||[];
     for(var si=0;si<arr.length;si++){
       stCount++;
-      await diagRef('스티커['+pages[pi]+']#'+(si+1),arr[si]&&arr[si].url,arr[si]&&arr[si].syncDataUrl);
+      var sk=arr[si]||{};
+      var pos='x='+Math.round(sk.x||0)+' y='+Math.round(sk.y||0)+' w='+Math.round(sk.w||0)+' r='+Math.round(sk.r||0);
+      await diagRef('스티커['+pages[pi]+']#'+(si+1),sk.url,sk.syncDataUrl,pos);
     }
   }
   if(!stCount)add('스티커','warn','스티커 없음');
