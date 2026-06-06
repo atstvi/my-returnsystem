@@ -40,10 +40,20 @@ t.ok('settings/main snapshots apply fbApplyCloudSettings', /fbApplyCloudSettings
 t.ok('settings/main snapshot self-echo is skipped', /d\.clientId&&d\.clientId===FB_CLIENT_ID/.test(loadAllBlock));
 t.ok('settings/main apply suppresses write side-effects', /_applyingFbData\s*=\s*true[\s\S]*fbApplyCloudSettings\(d\)[\s\S]*_applyingFbData\s*=\s*false/.test(loadAllBlock));
 
+const cloudApplyBlock = slice('function fbApplyCloudSettings(doc){', 'async function fbLoadCloudSettings(ref){');
+t.ok('gcal cloud settings preserve local eventIds', /gLocal\.eventIds[\s\S]*gIn\.eventIds/.test(cloudApplyBlock));
+t.ok('gcal cloud settings preserve local deletedEvents queue', /gLocal\.deletedEvents[\s\S]*gIn\.deletedEvents/.test(cloudApplyBlock));
+
 const notionSaveBlock = slice('function queueDiaryNotionSave(dateKey){', 'function queueDiaryNotionPull(dateKey, reason, delay){');
 t.ok('queueDiaryNotionSave uses default pull-first merge path', !/pullFirst\s*:\s*false/.test(notionSaveBlock));
 
 const aiTimelineBlock = slice('async function runDiaryAiTimeline(dateKey, silent){', 'function scheduleDiaryAutoSync(){');
 t.ok('runDiaryAiTimeline uses default pull-first merge path', !/pullFirst\s*:\s*false/.test(aiTimelineBlock));
+
+const notionScheduleBlock = slice('function scheduleDiaryAutoSync(){', 'saveGcalKey=function(){');
+t.ok('Notion live pull runs on a short interval', /setInterval\(tick,\s*15000\)/.test(notionScheduleBlock));
+t.ok('Notion live pull skips hidden tabs', /document\.hidden/.test(notionScheduleBlock));
+t.ok('Notion live pull runs when window regains focus', /addEventListener\(['"]focus['"][\s\S]*queueLivePull/.test(notionScheduleBlock));
+t.ok('Notion live pull runs when tab becomes visible', /visibilitychange[\s\S]*queueLivePull/.test(notionScheduleBlock));
 
 t.done();

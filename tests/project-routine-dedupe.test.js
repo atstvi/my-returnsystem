@@ -32,11 +32,14 @@ t.ok('dedupe keeps newest _eid project', deduped[1].title === 'same eid newer', 
 
 const projectBlock = sliceBlock(html, 'var projects=[], activeProjectId=null;', '\nfunction projectEsc(');
 t.ok('loadProjects dedupes projects', /loadProjects\(\)[\s\S]*returnEntityDedupeArray\(projects,\s*['"]p_['"]\)/.test(projectBlock));
+t.ok('loadProjects persists deduped projects', /projects\.length<before[\s\S]*setReturnStorageItem\(['"]projects_v1['"]/.test(projectBlock));
 t.ok('saveProjects dedupes projects before prepare', /saveProjects\(\)[\s\S]*projects=returnEntityDedupeArray\(projects,\s*['"]p_['"]\)[\s\S]*returnEntityPrepareForSave/.test(projectBlock));
 
 const routineBlock = sliceBlock(html, 'var routineHabits=[], routineBundles=[]', '\nfunction routineTodayLog(');
 t.ok('loadRoutineData dedupes habits', /routineHabits=returnEntityDedupeArray/.test(routineBlock));
 t.ok('loadRoutineData dedupes bundles', /routineBundles=returnEntityDedupeArray/.test(routineBlock));
+t.ok('loadRoutineData persists deduped habits', /routineHabits\.length<\(rawHabits\|\|\[\]\)\.length[\s\S]*setReturnStorageItem\(['"]routine_habits_v1['"]/.test(routineBlock));
+t.ok('loadRoutineData persists deduped bundles', /routineBundles\.length<\(rawBundles\|\|\[\]\)\.length[\s\S]*setReturnStorageItem\(['"]routine_bundles_v1['"]/.test(routineBlock));
 t.ok('loadRoutineData does not seed while applying Firebase data', /&&!window\._applyingFbData\)seedRoutineData\(\)/.test(routineBlock));
 t.ok('saveRoutineData dedupes habits before prepare', /routineHabits=returnEntityDedupeArray\(routineHabits,\s*['"]rh_['"]\)/.test(routineBlock));
 t.ok('saveRoutineData dedupes bundles before prepare', /routineBundles=returnEntityDedupeArray\(routineBundles,\s*['"]rb_['"]\)/.test(routineBlock));
