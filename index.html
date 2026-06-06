@@ -18223,7 +18223,7 @@ function diaryAutoSave(key, el) {
      the 4s local-save chain, so edits reflect to Notion quickly. The push
      commits the current date itself, so it always captures the latest text. */
   if (typeof queueDiaryNotionSave === 'function') {
-    try { queueDiaryNotionSave(currentDate || TK); } catch(e) {}
+    try { if(typeof _apTrace==='function') _apTrace('edit:section', key); queueDiaryNotionSave(currentDate || TK); } catch(e) {}
   }
 
   /* Debounce 4s — same as original */
@@ -26216,18 +26216,39 @@ var _notionSaveTimer=null;
 var _notionPullTimer=null;
 var _notionPullBusy=false;
 var _lastNotionPullQueuedMs=0;
+/* Breadcrumb trace of the real edit→Notion push lifecycle. Surfaced in
+   runNotionDiagnostics so we can see exactly what the production path does
+   after a real diary edit (the diagnostic's own direct push bypasses these
+   guards). Ring buffer of the last 20 events. */
+window._autoPushTrace=window._autoPushTrace||[];
+function _apTrace(stage, detail){
+  try{
+    window._autoPushTrace.push({t:Date.now(), stage:stage, detail:(detail==null?'':String(detail)).slice(0,140)});
+    while(window._autoPushTrace.length>20) window._autoPushTrace.shift();
+    if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('notion','autopush '+stage+(detail?': '+detail:''));
+  }catch(_e){}
+}
+window._apTrace=_apTrace;
 function queueDiaryNotionSave(dateKey){
   var cfg=getNotionCfg();
-  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
-  /* E2 guard: if diary is in stale-quota state, do not push to Notion either.
-     Pushing partial / pre-compression diary content to Notion would also
-     overwrite content there. */
+  if(!cfg.autoSync){ _apTrace('queue:skip','autoSync=false'); return; }
+  if(!cfg.workerUrl||!cfg.dbId){ _apTrace('queue:skip','no workerUrl/dbId'); return; }
+  /* NOTE (removed E2 stale-quota guard): we used to bail here when
+     diary_entries_v1 was in stale-quota state, fearing we'd push partial /
+     pre-compression content. But syncDiaryToNotion reads the COMPLETE in-memory
+     `entries[dateKey]` (commitCurrent populates it from the DOM) — never the
+     failed localStorage blob — so the content is always whole. Worse, blocking
+     here meant a full local storage permanently killed the diary→Notion push
+     (the exact "아직도 안 됨" symptom when storage is tight). Notion is the
+     durable remote backup; push is most needed precisely when local is full.
+     So we proceed regardless and just record it. */
   if (window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1']) {
-    try { if (window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('notion','queueDiaryNotionSave skipped (diary stale)'); } catch(_){}
-    return;
+    _apTrace('queue:stale-but-proceeding','diary stale-quota; pushing in-memory entry anyway');
   }
+  _apTrace('queue:armed', dateKey||currentDate||TK);
   clearTimeout(_notionSaveTimer);
   _notionSaveTimer=setTimeout(function(){
+   _apTrace('queue:fire', dateKey||currentDate||TK);
    syncDiaryToNotion(dateKey||currentDate||TK,{silent:true,auto:true,skipAI:true});
   },900);
 }
@@ -26634,6 +26655,24 @@ async function runNotionDiagnostics(){
   }catch(pe){
     add('실제 일기 푸시 (syncDiaryToNotion)','err',(pe&&pe.message||pe));
   }
+
+  /* === Step 12: real edit→push breadcrumb trace ===
+     Shows what the PRODUCTION edit path actually did (queueDiaryNotionSave →
+     timer fire → syncDiaryToNotion). If a real diary edit isn't reaching Notion,
+     this reveals which guard bailed. Tip: edit the diary, then re-run 진단. */
+  try{
+    var tr=(window._autoPushTrace||[]);
+    if(!tr.length){
+      add('실제 수정 경로 기록','warn','아직 기록 없음 — 일기를 한 줄 수정한 뒤 진단을 다시 실행하면 여기에 단계별로 표시됩니다');
+    } else {
+      var now=Date.now();
+      tr.slice(-12).forEach(function(ev){
+        var ago=Math.round((now-ev.t)/1000);
+        var st=ev.stage.indexOf('error')>=0||ev.stage.indexOf('skip')>=0?'warn':'ok';
+        add('▸ '+ev.stage, st, (ev.detail||'')+' ('+ago+'초 전)');
+      });
+    }
+  }catch(te){ add('실제 수정 경로 기록','err',(te&&te.message||te)); }
 
   /* Summary */
   var failed=results.filter(function(r){return r.indexOf('[FAIL]')===0;}).length;
@@ -27288,8 +27327,19 @@ async function syncDiaryToNotion(dateKey, opts){
      Concurrent instances each write diary_entries_v1 at the end, which triggers
      _afterWriteSideEffects → queueDiaryNotionSave → a new syncDiaryToNotion
      → infinite loop with Firebase quota exhaustion. */
-  if(window._notionSyncActive) return;
+  if(window._notionSyncActive){
+    /* Stuck-lock watchdog: if a prior run somehow left the flag set (e.g. a
+       hard crash before the finally), it would silently kill every future
+       auto-push. Ignore a lock older than 60s so the path self-heals. */
+    if(!window._notionSyncActiveAt || (Date.now()-window._notionSyncActiveAt)<60000){
+      if(opts.auto && typeof _apTrace==='function') _apTrace('sync:reentrant-skip', dateKey||'');
+      return;
+    }
+    if(typeof _apTrace==='function') _apTrace('sync:stale-lock-reset', String(Date.now()-window._notionSyncActiveAt)+'ms');
+  }
   window._notionSyncActive = true;
+  window._notionSyncActiveAt = Date.now();
+  if(opts.auto && typeof _apTrace==='function') _apTrace('sync:start', dateKey||'');
   try {
   /* Default to bidirectional sync. The previous "비상시 동기화" path used
      pullFirst:false and erased Notion-side edits (especially images added in
@@ -27437,6 +27487,7 @@ async function syncDiaryToNotion(dateKey, opts){
       + (bodyCount?' · 보냄 '+bodyCount:'')
       + (skipped&&skipped.length?' · 스킵 '+skipped.length+'개 (read-only)':'');
     setStatus(msg, skipped&&skipped.length ? 'warn' : 'ok');
+    if(opts.auto && typeof _apTrace==='function') _apTrace('sync:done','보냄 '+bodyCount+' · 속성 '+Object.keys(props).length+(skipped&&skipped.length?' · 스킵 '+skipped.length:''));
     if(!opts.silent){
       var toastMsg='Notion 동기화 완료'+((pulled||propPulled)?' (가져옴 '+(pulled+propPulled)+'개)':'');
       if(skipped&&skipped.length) toastMsg += ' — '+skipped.length+'개 속성은 read-only라 건너뜀';
@@ -27445,10 +27496,11 @@ async function syncDiaryToNotion(dateKey, opts){
   }catch(e){
     var emsg=e&&e.message||'알 수 없는 오류';
     setStatus('실패: '+emsg, 'err');
+    if(opts.auto && typeof _apTrace==='function') _apTrace('sync:error', emsg);
     if(!opts.silent)showToast('Notion 동기화 실패: '+emsg);
     console.error('syncDiaryToNotion:', e);
   }
-  } finally { window._notionSyncActive = false; }
+  } finally { window._notionSyncActive = false; window._notionSyncActiveAt = 0; }
 }
 async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElementById('notion-preview');if(!el)return;el.style.display='block';el.textContent='정리 중...';try{el.textContent=await _formatTimelineWithAI(_buildTodayTasksText(currentDate||TK));}catch(e){el.textContent='오류: '+e.message;}}
 
