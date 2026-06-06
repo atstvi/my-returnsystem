@@ -23202,7 +23202,12 @@ var _fbCloudSettingsLastSavedMs=0;
 var _FB_CLOUD_SETTINGS_INTERVAL=120000;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5Zb3HtI4yZjOhJ9I660Mqpc7CPrUEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
-var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','fb_config','groq_api_key'];
+/* NOTE: fb_config is intentionally NOT a cloud setting. Syncing the Firebase
+   config THROUGH Firebase is circular: if any one device ever stored a wrong or
+   empty apiKey, that bad value propagated to settings/main and then poisoned
+   EVERY device on next load, producing auth/api-key-not-valid. The config is now
+   device-local only (DEFAULT_FB_CONFIG is the source of truth). */
+var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','groq_api_key'];
 var MOVED_CLOUD_SETTING_KEYS=['return_theme_studio_state_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','return_theme_studio_assets_v1','theme_palette_presets_v1'];
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;
@@ -23336,6 +23341,7 @@ var SyncManager=(function(){
 function shouldFbSyncKey(k){
   if(!k)return false;
   if(['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password','return_last_clear_backup','return_fb_client_id',
+      'fb_config',          /* device-local Firebase config — syncing it is circular and poisons every device on a bad value */
       'return_sync_model', /* device-local feature flag — each device opts in/out independently */
       'return_fb_sync_ts'  /* device-local sync baseline — survives page reloads, must not propagate to other devices */
      ].indexOf(k)>=0)return false;
@@ -23348,7 +23354,34 @@ function shouldFbSyncKey(k){
   if(typeof FB_DATA_KEYS!=='undefined'&&FB_DATA_KEYS&&FB_DATA_KEYS.indexOf(k)>=0)return true;
   return /^(return_|task_|diary_|hobby_|home_|inbox_|project|projects_|memos_|metrics_|phil_|reward_|recharge_|timetables_|global_sticker)/.test(k);
 }
-function fbConfig(){ try{return Object.assign({},DEFAULT_FB_CONFIG,JSON.parse(localStorage.getItem('fb_config')||'{}'));}catch(e){return Object.assign({},DEFAULT_FB_CONFIG);} }
+function fbConfig(){
+  /* DEFAULT_FB_CONFIG is the source of truth. A stored fb_config may only
+     OVERRIDE individual fields when they are non-empty strings — an empty or
+     whitespace value must never wipe out a valid default (that produced the
+     auth/api-key-not-valid failures on some devices). */
+  var cfg=Object.assign({},DEFAULT_FB_CONFIG);
+  try{
+    var stored=JSON.parse(localStorage.getItem('fb_config')||'{}')||{};
+    ['apiKey','authDomain','projectId'].forEach(function(k){
+      if(typeof stored[k]==='string' && stored[k].trim()) cfg[k]=stored[k].trim();
+    });
+  }catch(e){}
+  return cfg;
+}
+/* Self-heal: an invalid apiKey (usually a stale/poisoned stored override) makes
+   every Firebase auth call fail. Detect that specific error, drop the local
+   override so DEFAULT_FB_CONFIG takes over, and reload once. The sessionStorage
+   guard prevents a reload loop if the default itself is ever wrong. */
+function fbHealInvalidApiKey(err){
+  var msg=((err&&(err.code||err.message))||'')+'';
+  if(!/api-key-not-valid|invalid-api-key/i.test(msg))return false;
+  try{ if(sessionStorage.getItem('_fbKeyHealed'))return false; }catch(_e){}
+  try{ localStorage.removeItem('fb_config'); }catch(_e){}
+  try{ sessionStorage.setItem('_fbKeyHealed','1'); }catch(_e){}
+  try{ if(typeof showToast==='function') showToast('Firebase 설정을 복구하고 새로고침합니다…'); }catch(_e){}
+  setTimeout(function(){ try{location.reload();}catch(_e){} },700);
+  return true;
+}
 function readFbInputs(){var cur=fbConfig();return {apiKey:(document.getElementById('fb-api-key')||{}).value||cur.apiKey||DEFAULT_FB_CONFIG.apiKey,authDomain:(document.getElementById('fb-auth-domain')||{}).value||cur.authDomain||DEFAULT_FB_CONFIG.authDomain,projectId:(document.getElementById('fb-project-id')||{}).value||cur.projectId||DEFAULT_FB_CONFIG.projectId};}
 function fillFbInputs(){var c=fbConfig(),a=document.getElementById('fb-api-key'),d=document.getElementById('fb-auth-domain'),p=document.getElementById('fb-project-id');if(a)a.value=c.apiKey||'';if(d)d.value=c.authDomain||'';if(p)p.value=c.projectId||'';}
 function setFbStatus(text, cls){
@@ -23466,7 +23499,7 @@ async function initFirebase(){
   }
   return true;
 }
-saveFbConfig=async function(){var cfg=readFbInputs();setReturnStorageItem('fb_config',JSON.stringify(cfg));setFbStatus('Firebase 초기화 중...','saving');try{await initFirebase();showToast('Firebase 설정 저장됨');}catch(e){setFbStatus('Firebase 오류: '+e.message,'err');showToast('Firebase 오류: '+e.message);}};
+saveFbConfig=async function(){var cfg=readFbInputs();setReturnStorageItem('fb_config',JSON.stringify(cfg));setFbStatus('Firebase 초기화 중...','saving');try{await initFirebase();showToast('Firebase 설정 저장됨');}catch(e){if(fbHealInvalidApiKey(e))return;setFbStatus('Firebase 오류: '+e.message,'err');showToast('Firebase 오류: '+e.message);}};
 clearFbConfig=function(){
   localStorage.removeItem('fb_config');
   if(_fbUnsubscribe){_fbUnsubscribe();_fbUnsubscribe=null;}
@@ -23506,7 +23539,10 @@ async function fbGoogleLogin(){
         gcalLoadConfig();
       }
     }catch(calErr){console.warn('calendar token from firebase login',calErr);}
-  }catch(e){showToast('Google 로그인 실패: '+e.message);}
+  }catch(e){
+    if(fbHealInvalidApiKey(e))return;
+    showToast('Google 로그인 실패: '+e.message);
+  }
 }
 function fbCollectData(){
   /* E2 guard: skip any key currently marked stale by the quota recovery
@@ -23998,6 +24034,10 @@ function fbApplyCloudSettings(doc){
   Object.keys(doc.settings).forEach(function(k){
     var v=doc.settings[k];
     if(v==null)return;
+    /* Never apply a cloud-stored fb_config: it is device-local now, and an old
+       poisoned value still living in settings/main must not re-break this device
+       on load. fbSaveCloudSettings deletes it from the cloud doc going forward. */
+    if(k==='fb_config')return;
     try{
       var wv;
       if(k==='diary_notion_cfg'){
@@ -24046,6 +24086,9 @@ async function fbSaveCloudSettings(ref){
   try{
     var del=firebase.firestore.FieldValue.delete();
     MOVED_CLOUD_SETTING_KEYS.forEach(function(k){payload.settings[k]=del;});
+    /* Purge any previously-synced (and possibly poisoned) fb_config from the
+       cloud settings doc so it stops re-breaking other devices. */
+    payload.settings.fb_config=del;
   }catch(e){}
   await ref.collection('settings').doc('main').set(payload,{merge:true});
 }
