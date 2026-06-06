@@ -27673,11 +27673,24 @@ async function gcalApiCal(method,path,body,calId){
     throw new Error('Google 인증이 만료됐어요. 설정 > Google Calendar > Google 로그인을 눌러주세요.');
   }
   var base='https://www.googleapis.com/calendar/v3/calendars/'+encodeURIComponent(calId||_gcalCfg.calendarId||'primary')+'/events';
-  var res=await fetch(base+(path||''),{
-    method:method,
-    headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},
-    body:body?JSON.stringify(body):undefined
-  });
+  /* 30s abort timeout: prevents a hung connection from holding _gcalSyncBusy
+     true forever and blocking all future GCal syncs until page reload. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
+  var res;
+  try{
+    res=await fetch(base+(path||''),{
+      method:method,
+      headers:{Authorization:'Bearer '+_gcalToken,'Content-Type':'application/json'},
+      body:body?JSON.stringify(body):undefined,
+      signal:_abortCtrl?_abortCtrl.signal:undefined
+    });
+  }catch(netErr){
+    clearTimeout(_abortTimer);
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'Google Calendar 요청 시간 초과 (30초). 네트워크 연결을 확인해주세요.':'Google Calendar 연결 실패: '+(netErr&&netErr.message||'알 수 없는 오류'));
+  }
+  clearTimeout(_abortTimer);
   var txt=await res.text(), data={};
   try{data=txt?JSON.parse(txt):{};}catch(e){data={message:txt};}
   if(res.status===401){
