@@ -29374,31 +29374,44 @@ function themeStudioEnsureMediaFallbacks(){
     /* icons → iconFallbacks[k] */
     Object.keys(cur2.icons||{}).forEach(function(k){
       targets.push({label:'icon:'+k,ref:cur2.icons[k],
-        has:function(){return !!(cur2.iconFallbacks&&cur2.iconFallbacks[k]);},
+        get:function(){return (cur2.iconFallbacks&&cur2.iconFallbacks[k])||'';},
         set:function(v){cur2.iconFallbacks=cur2.iconFallbacks||{};cur2.iconFallbacks[k]=v;}});
     });
     /* card skin resources → card.<key>SyncDataUrl */
     ['background','frame','cornerTopLeft','cornerTopRight','cornerBottomLeft','cornerBottomRight','pattern'].forEach(function(k){
       targets.push({label:'card:'+k,ref:card2[k],
-        has:function(){return !!card2[k+'SyncDataUrl'];},
+        get:function(){return card2[k+'SyncDataUrl']||'';},
         set:function(v){card2[k+'SyncDataUrl']=v;}});
     });
     /* full page background → background.syncDataUrl */
     if(cur2.background){
       targets.push({label:'background',ref:cur2.background.image,
-        has:function(){return !!cur2.background.syncDataUrl;},
+        get:function(){return cur2.background.syncDataUrl||'';},
         set:function(v){cur2.background.syncDataUrl=v;}});
     }
     /* home + hobby banners */
     if(cur2.banner){
       targets.push({label:'banner',ref:cur2.banner.image,
-        has:function(){return !!cur2.banner.syncDataUrl;},
+        get:function(){return cur2.banner.syncDataUrl||'';},
         set:function(v){cur2.banner.syncDataUrl=v;}});
       targets.push({label:'hobbyBanner',ref:cur2.banner.hobbyImage,
-        has:function(){return !!cur2.banner.hobbySyncDataUrl;},
+        get:function(){return cur2.banner.hobbySyncDataUrl||'';},
         set:function(v){cur2.banner.hobbySyncDataUrl=v;}});
     }
-    var pending=targets.filter(function(t){return isReturnMediaRef(t.ref)&&!t.has();});
+    /* Redundancy: any target that ALREADY has an inline fallback ≤220KB should
+       also live in the synced manifest, so a device that receives the manifest
+       (but not yet the full theme-state blob) can still render it. Same pattern
+       as the asset loop above. */
+    targets.forEach(function(t){
+      if(!isReturnMediaRef(t.ref))return;
+      var inline=t.get();
+      if(inline&&/^data:image/.test(String(inline))&&String(inline).length<=MEDIA_SYNC_ITEM_MAX){
+        try{mediaSyncPut(returnMediaRefId(t.ref),inline);}catch(_e){}
+      }
+    });
+    /* Pending: targets that are media refs with NO inline fallback yet — resolve
+       their bytes from IndexedDB, compress, and populate both channels. */
+    var pending=targets.filter(function(t){return isReturnMediaRef(t.ref)&&!t.get();});
     if(pending.length){
       var idbJobs=pending.map(function(t){
         var id=returnMediaRefId(t.ref);
@@ -29409,7 +29422,7 @@ function themeStudioEnsureMediaFallbacks(){
             /* manifest copy (≤220KB) reaches devices that already have the manifest */
             try{mediaSyncPut(id,fb);}catch(_e){}
             /* inline fallback (≤700KB) inside the synced theme-state blob */
-            if(!t.has()&&fb.length<700000)t.set(fb);
+            if(!t.get()&&fb.length<700000)t.set(fb);
           });
         }).catch(function(e){console.warn('idb fallback failed for',t.label,e&&e.message);});
       });
