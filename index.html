@@ -9598,9 +9598,16 @@ function activeRuleGenerationKey(ruleId,sourceId,dkey){return String(ruleId||'')
 function loadRepeatSuppressions(){try{return JSON.parse(localStorage.getItem('repeat_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadRepeatSuppressions: corrupt data, resetting to {}', e); return {};}}
 function pruneRepeatSuppressionsOld(map){
   var cutoff=Date.now()-180*24*60*60*1000;
+  var cutoffDate=new Date(cutoff).toISOString().slice(0,10);
   Object.keys(map).forEach(function(k){
     var e=map[k];
-    if(e&&e.at&&e.at<cutoff)delete map[k];
+    if(e&&e.at&&e.at<cutoff){delete map[k];return;}
+    /* For old entries without at: parse occurrence date from key (format: ruleId|YYYY-MM-DD) */
+    if(e&&!e.at){
+      var parts=k.split('|');
+      var dateStr=parts[parts.length-1];
+      if(/^\d{4}-\d{2}-\d{2}$/.test(dateStr)&&dateStr<cutoffDate)delete map[k];
+    }
   });
 }
 function saveRepeatSuppressions(map){
@@ -9621,9 +9628,16 @@ function suppressRepeatOccurrence(task){
 function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadGeneratedTaskSuppressions: corrupt data, resetting to {}', e); return {};}}
 function pruneGeneratedTaskSuppressionsOld(map){
   var cutoff=Date.now()-180*24*60*60*1000;
+  var cutoffDate=new Date(cutoff).toISOString().slice(0,10);
   Object.keys(map).forEach(function(k){
     var e=map[k];
-    if(e&&e.at&&e.at<cutoff)delete map[k];
+    if(e&&e.at&&e.at<cutoff){delete map[k];return;}
+    /* For old entries without at: use occurrenceDate field or parse from key */
+    if(e&&!e.at){
+      var occ=e.occurrenceDate||'';
+      if(!occ){var parts=k.split('|');occ=parts[parts.length-1];}
+      if(/^\d{4}-\d{2}-\d{2}$/.test(occ)&&occ<cutoffDate)delete map[k];
+    }
   });
 }
 function saveGeneratedTaskSuppressions(map){
