@@ -34,6 +34,12 @@ function makeSandbox() {
     _applyingFbData: false,
     _lastRemoteApplyMs: 0,
     _lastRepairSaveMs: 0,
+    // Union-merge constant referenced for EVERY key (if(k===MEDIA_SYNC_KEY)).
+    // Without it the per-key body throws ReferenceError on the first compare,
+    // the catch swallows it, and NO key is ever written — making every
+    // "key written" assertion fail. Mirror the app's value.
+    MEDIA_SYNC_KEY: 'return_media_sync_v1',
+    _mediaSyncManifest: null,
     // Runtime stubs needed outside try/catch blocks
     setTimeout: () => {},
     clearTimeout: () => {},

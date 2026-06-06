@@ -120,7 +120,11 @@ const t = runner('Stage 6c — entity dual-write + migration');
   const docs = fbEntityBuildDocs(RETURN_ENTITY_COLLECTIONS.find((s) => s.collection === 'inbox'));
   t.ok('missing _eid derived deterministically (ib_abc)', 'ib_abc' in docs, Object.keys(docs));
 
-  t.ok('dual-write flag default true', RETURN_ENTITY_DUALWRITE === true);
+  /* Default is OFF: commit 3b74e9d intentionally flipped the default to false
+     to eliminate Firestore write-quota exhaustion (the per-entity mirror was
+     amplifying writes). Dual-write is opt-in via the return_entity_dualwrite
+     localStorage flag; the main blob sync remains the source of truth. */
+  t.ok('dual-write flag default off (quota protection)', RETURN_ENTITY_DUALWRITE === false);
   const shadowKeys = Object.keys(store).filter((k) => k.startsWith('__entity_wshadow_'));
   t.ok('write-shadow keys non-synced-prefixed', shadowKeys.length >= 3 && shadowKeys.every((k) => k.startsWith('__entity_')), shadowKeys);
 
