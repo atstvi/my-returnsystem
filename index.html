@@ -12783,6 +12783,64 @@ function saveGlobalStickers(){
   if (typeof setReturnStorageItem === 'function') return setReturnStorageItem('global_stickers_v1', JSON.stringify(compact));
   try { localStorage.setItem('global_stickers_v1', JSON.stringify(compact)); return true; } catch(e) { return false; }
 }
+/* Cross-device sticker repair — the sticker equivalent of
+   themeStudioEnsureMediaFallbacks. Stickers reference their image as
+   `return-media:id`, which only resolves on the device that uploaded it
+   (the bytes live in that device's IndexedDB). Without registering a small
+   copy in the SYNCED manifest (return_media_sync_v1), a second device that
+   receives global_stickers_v1 via Firebase has no way to render the image.
+   This pass (a) registers any existing inline syncDataUrl into the manifest,
+   and (b) for stickers with no synced copy, resolves the original from IDB,
+   generates a ≤220KB compressed fallback, and stores it both inline and in
+   the manifest. Purely additive — never removes sticker data. */
+var _globalStickerFallbackRepairRunning=false;
+function globalStickerEnsureMediaFallbacks(){
+  if(_globalStickerFallbackRepairRunning)return;
+  if(typeof isReturnMediaRef!=='function'||typeof returnMediaRefId!=='function')return;
+  loadGlobalStickers();
+  var changed=false, jobs=[];
+  Object.keys(globalStickerState||{}).forEach(function(page){
+    (globalStickerState[page]||[]).forEach(function(s){
+      if(!s||!isReturnMediaRef(s.url))return;
+      var id=returnMediaRefId(s.url);
+      /* Inline copy present and small → make sure the manifest has it too. */
+      if(s.syncDataUrl&&/^data:image/.test(String(s.syncDataUrl))&&String(s.syncDataUrl).length<=MEDIA_SYNC_ITEM_MAX){
+        try{ mediaSyncPut(id,s.syncDataUrl); }catch(_e){}
+        return;
+      }
+      /* Already in the synced manifest → backfill the inline copy from it. */
+      var fromManifest=(typeof mediaSyncGet==='function')?mediaSyncGet(id):'';
+      if(fromManifest){
+        if(!s.syncDataUrl){ s.syncDataUrl=fromManifest; changed=true; }
+        return;
+      }
+      /* No synced copy anywhere → resolve the original from IDB, compress it
+         to a manifest-safe size, and register it for cross-device rendering. */
+      if(typeof returnMediaResolveUrl!=='function'||typeof themeStudioCloudFallbackDataUrl!=='function')return;
+      jobs.push(returnMediaResolveUrl(s.url).then(function(orig){
+        if(!orig)return;
+        return themeStudioCloudFallbackDataUrl(orig,{alphaRatio:1}).then(function(fallback){
+          if(fallback&&String(fallback).length<=MEDIA_SYNC_ITEM_MAX){
+            try{ mediaSyncPut(id,fallback); }catch(_e){}
+            if(!s.syncDataUrl){ s.syncDataUrl=fallback; changed=true; }
+          }
+        });
+      }));
+    });
+  });
+  if(!jobs.length){
+    if(changed){ saveGlobalStickers(); try{ if(typeof renderGlobalStickers==='function')renderGlobalStickers(); }catch(_e){} }
+    return;
+  }
+  _globalStickerFallbackRepairRunning=true;
+  Promise.all(jobs).then(function(){
+    if(changed){
+      saveGlobalStickers();
+      try{ if(typeof renderGlobalStickers==='function')renderGlobalStickers(); }catch(_e){}
+      try{ if(typeof fbSaveAll==='function')fbSaveAll(); }catch(_e){}
+    }
+  }).finally(function(){ _globalStickerFallbackRepairRunning=false; });
+}
 function stickerEditingEnabled(){
   return localStorage.getItem('global_sticker_edit_visible') !== '0';
 }
@@ -12902,6 +12960,9 @@ function placeGlobalStickerFromUrl(url,syncDataUrl){
   globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,syncDataUrl:fallback,x:48,y:140,w:72,r:0,opacity:1});
   if(!saveGlobalStickers() && typeof showToast==='function')showToast('스티커 저장 공간이 부족해요. 사용하지 않는 에셋을 정리해 주세요.');
   renderGlobalStickers();
+  /* Register the new sticker's image in the synced manifest so it renders on
+     other devices after the next Firebase sync (not just on this device). */
+  try{ if(typeof globalStickerEnsureMediaFallbacks==='function') globalStickerEnsureMediaFallbacks(); }catch(_e){}
 }
 async function placeGlobalStickerFromFile(file){
   if(!file)return;
@@ -24523,6 +24584,9 @@ function fbApplyData(data){
   /* Theme: apply icon/color/skin state first (separate try so a crash in
      themeStudioRender doesn't prevent icon application). */
   try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); } catch(e){ console.warn('themeStudio apply failed:', e&&e.message); }
+  /* Ensure stickers have a synced manifest copy so a device that uploaded a
+     sticker registers it for cross-device rendering after the next sync. */
+  try { if(typeof globalStickerEnsureMediaFallbacks==='function') globalStickerEnsureMediaFallbacks(); } catch(e){ console.warn('sticker fallback repair failed:', e&&e.message); }
   /* Resolve any data-return-media-src elements that got a src after manifest
      arrived — this covers icons, stickers, and card images whose IDB entry
      was either just seeded or whose manifest fallback is now readable. */
@@ -28471,6 +28535,7 @@ function themeStudioGet(){return themeStudioNormalizeState(themeStudioReadJSON(T
 function themeStudioSet(state,skipRender){state=themeStudioNormalizeState(state);themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,state);themeStudioApply(state);if(!skipRender)themeStudioRender();themeStudioQueueCloudSync();}
 function themeStudioQueueCloudSync(){
   try{themeStudioEnsureMediaFallbacks();}catch(e){}
+  try{if(typeof globalStickerEnsureMediaFallbacks==='function')globalStickerEnsureMediaFallbacks();}catch(e){}
   try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){}
   try{
     if(typeof fbSaveCloudSettings==='function'&&typeof fbDb!=='undefined'&&fbDb&&typeof fbUser!=='undefined'&&fbUser){
