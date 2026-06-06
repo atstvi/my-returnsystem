@@ -34,6 +34,14 @@ function makeSandbox() {
     _applyingFbData: false,
     _lastRemoteApplyMs: 0,
     _lastRepairSaveMs: 0,
+    // Media-sync runtime symbols used by the MEDIA_SYNC_KEY union-merge path.
+    // The production file defines these before fbApplyData; this sliced VM test
+    // must provide them so new media logic does not make unrelated key writes
+    // disappear behind fbApplyData's per-key catch.
+    MEDIA_SYNC_KEY: 'return_media_sync_v1',
+    _mediaSyncManifest: null,
+    mediaSyncGet: () => '',
+    _idbDelete: () => {},
     // Runtime stubs needed outside try/catch blocks
     setTimeout: () => {},
     clearTimeout: () => {},
