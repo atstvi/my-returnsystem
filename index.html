@@ -24717,7 +24717,13 @@ async function fbSaveNow(opts){
     }
     if (_fbLastPushedSnapshot === null) _fbLastPushedSnapshot = {};
     Object.keys(ourKeysToWrite).forEach(function(k){ _fbLastPushedSnapshot[k] = ourKeysToWrite[k]; });
-    await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
+    /* Skip the parent-doc timestamp update when we only absorbed cloud keys
+       (ourKeysToWrite empty after delta filter). The parent doc is already up
+       to date from the other device's write; re-writing it with our clientId
+       just wastes a Firestore write and triggers an unnecessary onSnapshot echo. */
+    if(Object.keys(ourKeysToWrite).length>0){
+      await ref.set({updatedAtMs:data.updatedAtMs,clientId:FB_CLIENT_ID,split:true,keyCount:Object.keys(data.keys).length},{merge:false});
+    }
     /* Treat our own write as the new "last applied" baseline so subsequent
        saves don't think they're racing themselves. */
     _lastRemoteApplyMs=data.updatedAtMs;
