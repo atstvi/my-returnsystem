@@ -24233,7 +24233,11 @@ function fbSanitizeNotionCfg(cfg){
   return {
     workerUrl:cfg.workerUrl||'',dbId:cfg.dbId||'',dateProp:cfg.dateProp||'날짜',timelineProp:cfg.timelineProp||'타임라인',
     sleepProp:cfg.sleepProp||'',morningProp:cfg.morningProp||'',resolutionProp:cfg.resolutionProp||'',accomplishmentProp:cfg.accomplishmentProp||'',
-    nightProp:cfg.nightProp||'',recapProp:cfg.recapProp||'',prompt:cfg.prompt||'',autoSync:!!cfg.autoSync,autoTime:cfg.autoTime||'23:00'
+    nightProp:cfg.nightProp||'',recapProp:cfg.recapProp||'',prompt:cfg.prompt||'',
+    /* Never sync a false autoSync to the cloud: the per-device opt-out
+       (notion_autosync_off) is the real gate now, and a synced false used to
+       round-trip and re-poison every device, killing the diary→Notion push. */
+    autoSync:true,autoTime:cfg.autoTime||'23:00'
   };
 }
 function fbSanitizeGcalCfg(cfg){
@@ -26133,10 +26137,17 @@ var _diaryNotionCfg={};
 function getNotionCfg(){
   var c={};
   try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
-  /* F2 fix: auto-sync defaults to ON unless explicitly set to false.
-     We only treat a literal boolean false as "off" — undefined/null/'' all
-     mean the user never explicitly disabled it, so treat as enabled. */
-  if (c.autoSync !== false) c.autoSync = true;
+  /* AUTO-PUSH GATING (root-cause fix): autoSync is now driven by a DEVICE-LOCAL,
+     NON-synced opt-out flag — NOT the stored cfg.autoSync field. That field is
+     part of diary_notion_cfg, which Firebase syncs (fbSanitizeNotionCfg /
+     fbApplyCloudSettings). A false value kept round-tripping through the cloud
+     and re-poisoning every device on load, silently killing the diary→Notion
+     auto-push (confirmed by the edit-path trace: "queue:skip autoSync=false",
+     reappearing after every heal). Decoupling the gate from the synced field
+     makes push reliably ON whenever Notion is configured; an explicit per-device
+     toggle (notion_autosync_off) is the only way to disable, and it never syncs
+     so it can't be clobbered. */
+  c.autoSync = (localStorage.getItem('notion_autosync_off') !== '1');
   return c;
 }
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
@@ -26183,6 +26194,17 @@ saveNotionConfig=function(silent){
     bodyHashes: propsChanged ? {} : (prev.bodyHashes||_diaryNotionCfg.bodyHashes||{})
   };
   setReturnStorageItem('diary_notion_cfg',JSON.stringify(_diaryNotionCfg));
+  /* Persist the auto-push preference to a DEVICE-LOCAL, NON-synced flag (written
+     with raw localStorage so it never triggers fbSaveAll). This is the real gate
+     read by getNotionCfg/queueDiaryNotionSave. The checkbox defaults checked, so
+     an unpopulated form reads as ON — only a deliberate uncheck disables. */
+  try{
+    var _asEl=document.getElementById('notion-auto-sync');
+    if(_asEl){
+      if(_asEl.checked) localStorage.removeItem('notion_autosync_off');
+      else localStorage.setItem('notion_autosync_off','1');
+    }
+  }catch(_e){}
   if(document.getElementById('notion-worker-url'))loadDiaryNotionConfig();
   scheduleDiaryAutoSync();
   if(!silent)showToast('Notion 설정 저장됨');
@@ -26629,18 +26651,18 @@ async function runNotionDiagnostics(){
      and, since the user is actively diagnosing, heal it on the spot. */
   var liveCfg=getNotionCfg();
   if(liveCfg.autoSync){
-    add('자동 푸시 (일기→Notion) 활성화','ok','autoSync=true — 일기를 수정하면 약 0.9초 뒤 자동 전송됩니다');
+    add('자동 푸시 (일기→Notion) 활성화','ok','켜짐 — 일기를 수정하면 약 0.9초 뒤 자동 전송됩니다 (기기 로컬 설정, 동기화로 꺼지지 않음)');
   } else {
+    /* The device-local opt-out is set. The user is actively diagnosing and wants
+       sync working, so clear it on the spot. */
     try{
-      var hc=getNotionCfg(); hc.autoSync=true;
-      setReturnStorageItem('diary_notion_cfg', JSON.stringify(hc));
-      _diaryNotionCfg=hc;
-      try{ localStorage.setItem('_notion_autosync_heal_v1','1'); }catch(_h){}
+      localStorage.removeItem('notion_autosync_off');
+      _diaryNotionCfg=getNotionCfg();
       if(typeof setNotionVal==='function') setNotionVal('notion-auto-sync', true);
       if(typeof scheduleDiaryAutoSync==='function') scheduleDiaryAutoSync();
-      add('자동 푸시 (일기→Notion) 활성화','warn','autoSync가 꺼져 있어서 방금 다시 켰어요 — 이제 일기를 수정하면 자동 전송됩니다');
+      add('자동 푸시 (일기→Notion) 활성화','warn','이 기기에서 꺼져 있어서 방금 다시 켰어요 — 이제 일기를 수정하면 자동 전송됩니다');
     }catch(he){
-      add('자동 푸시 (일기→Notion) 활성화','err','autoSync가 꺼져 있고 자동 복구에 실패했어요: '+(he&&he.message||he));
+      add('자동 푸시 (일기→Notion) 활성화','err','자동 복구에 실패했어요: '+(he&&he.message||he));
     }
   }
   add('푸시 트리거 함수', typeof queueDiaryNotionSave==='function'?'ok':'err',
