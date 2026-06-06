@@ -25907,25 +25907,34 @@ async function _diaryNotionApi(method,path,body){
   var fullPath = apiPath.startsWith('/notion') ? apiPath : '/notion'+apiPath;
   var headers={'Content-Type':'application/json'};
   if(cfg.token)headers['X-Notion-Token']=cfg.token;
+  /* 30s abort timeout: prevents a hung connection from holding _notionSyncActive
+     true forever and blocking all future auto-syncs until page reload. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
   var res;
   try {
     res=await fetch(base+fullPath,{
       method:method,
       headers:headers,
-      body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+      body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined,
+      signal:_abortCtrl?_abortCtrl.signal:undefined
     });
     if(res.status===404 && fullPath!==apiPath){
       res=await fetch(base+apiPath,{
         method:method,
         headers:headers,
-        body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined
+        body:(body&&method!=='GET'&&method!=='DELETE')?JSON.stringify(body):undefined,
+        signal:_abortCtrl?_abortCtrl.signal:undefined
       });
     }
   } catch(netErr){
+    clearTimeout(_abortTimer);
     /* Network-level failure (CORS, DNS, offline). Most common when the
        Worker URL is wrong or worker isn't deployed. */
-    throw new Error('Worker 연결 실패. URL이 맞는지, /ping 으로 워커가 살아있는지 확인해주세요. ('+(netErr&&netErr.message||'네트워크 오류')+')');
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'Notion 요청 시간 초과 (30초). Worker가 응답이 없어요. URL을 확인해주세요.':'Worker 연결 실패. URL이 맞는지, /ping 으로 워커가 살아있는지 확인해주세요. ('+(netErr&&netErr.message||'네트워크 오류')+')');
   }
+  clearTimeout(_abortTimer);
   /* Read body as text first. Some endpoints (DELETE, 204) return empty body,
      and the user's Worker pipes through whatever Notion returns — that may
      not be valid JSON. Tolerate empty / non-JSON responses gracefully. */
