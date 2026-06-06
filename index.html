@@ -26279,10 +26279,12 @@ function queueDiaryNotionPull(dateKey, reason, delay){
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId){ _apTrace('pull:skip','cfg/off ('+reason+')'); return; }
   if(window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1']){ _apTrace('pull:skip','diary stale ('+reason+')'); return; }
   /* Rate-limit automated pulls: background triggers (fbApplyData re-renders,
-     date switches from sync) must not fire more than once per 30s. Only
-     explicit user actions (reason==='user'/'manual') bypass this gate. */
+     date switches from sync) must not fire more than once per 20s. Explicit
+     user actions (reason==='user'/'manual') AND app-refocus pulls (reason===
+     'focus' — the user just came back from editing in Notion and expects to see
+     it now) bypass this gate so Notion→diary feels immediate. */
   var _nplNow=Date.now();
-  if(reason!=='user'&&reason!=='manual'&&_nplNow-_lastNotionPullQueuedMs<30000){ _apTrace('pull:skip','rate-limited 30s ('+reason+')'); return; }
+  if(reason!=='user'&&reason!=='manual'&&reason!=='focus'&&_nplNow-_lastNotionPullQueuedMs<20000){ _apTrace('pull:skip','rate-limited 20s ('+reason+')'); return; }
   _lastNotionPullQueuedMs=_nplNow;
   _apTrace('pull:queued', reason);
   clearTimeout(_notionPullTimer);
@@ -27772,8 +27774,31 @@ function scheduleDiaryAutoSync(){
     }
   }
   _diaryAutoInitTimer=setTimeout(tick,3000);
-  _diaryAutoTimer=setInterval(tick,60000);
+  _diaryAutoTimer=setInterval(tick,30000);
 }
+/* Notion→diary feels immediate by pulling the moment the user returns to the
+   app. The real-world flow is: edit a section in Notion (another tab/app) →
+   switch back here → expect to see it within seconds. The 30s interval alone is
+   too slow for that (user checks within ~10s). visibilitychange/focus fire
+   exactly on that switch-back, so we pull then. reason:'focus' bypasses the 20s
+   queue rate-limit; a 5s local cooldown prevents spamming on rapid focus flaps. */
+var _lastFocusPullMs=0;
+function _diaryNotionFocusPull(){
+  try{
+    if(typeof document!=='undefined' && document.hidden) return;
+    var cfg=getNotionCfg();
+    if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId) return;
+    var now=Date.now();
+    if(now-_lastFocusPullMs<5000) return;
+    _lastFocusPullMs=now;
+    if(typeof queueDiaryNotionPull==='function') queueDiaryNotionPull((typeof currentDate!=='undefined'&&currentDate)||TK,'focus',300);
+  }catch(_e){}
+}
+if(typeof document!=='undefined' && document.addEventListener){
+  document.addEventListener('visibilitychange', _diaryNotionFocusPull);
+  window.addEventListener('focus', _diaryNotionFocusPull);
+}
+window._diaryNotionFocusPull=_diaryNotionFocusPull;
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
 
 /* Google Calendar runtime */
