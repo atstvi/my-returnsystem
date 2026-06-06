@@ -24195,6 +24195,37 @@ function fbApplyData(data){
             }
           }catch(_te){}
         }
+        /* diary_entries_v1 is a date-keyed object; per-date LWW merge prevents
+           one device's write from wiping dates only edited on the other device.
+           Only triggers a push-back save when merged result differs from cloud. */
+        if(k==='diary_entries_v1'){
+          try{
+            var _cloudDiary=JSON.parse(data.keys[k]||'{}')||{};
+            var _localDiary=JSON.parse(localStorage.getItem(k)||'{}')||{};
+            if(typeof _cloudDiary==='object'&&!Array.isArray(_cloudDiary)&&
+               typeof _localDiary==='object'&&!Array.isArray(_localDiary)){
+              var _mergedDiary=Object.assign({},_localDiary);
+              var _diaryMergeChanged=false;
+              Object.keys(_cloudDiary).forEach(function(date){
+                var ce=_cloudDiary[date], le=_localDiary[date];
+                if(!le){_mergedDiary[date]=ce;}
+                else{
+                  var cu=Number((ce&&ce.updatedAt)||0), lu=Number((le&&le.updatedAt)||0);
+                  if(cu>=lu){_mergedDiary[date]=ce;}
+                  else{_diaryMergeChanged=true;} /* local entry is newer for this date */
+                }
+              });
+              /* local has dates not in cloud → merged will differ from cloud */
+              Object.keys(_localDiary).forEach(function(date){
+                if(!_cloudDiary.hasOwnProperty(date))_diaryMergeChanged=true;
+              });
+              _fbWriter(k,JSON.stringify(_mergedDiary));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              if(_diaryMergeChanged)taskUnionMergeAfterFbApply=true;
+              return;
+            }
+          }catch(_de){}
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
@@ -24669,6 +24700,49 @@ async function fbSaveNow(opts){
             valueToAbsorb=JSON.stringify(_merged);
           }catch(_me){}
         }
+        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'){
+          /* Union-merge: preserve locally-created items not yet in cloud.
+             Items created after localApplyBaseline that are absent from cloud
+             are appended to the cloud array, then pushed outbound. */
+          try{
+            var _snCloudArr=JSON.parse(cloud.fullValue||'[]')||[];
+            var _snOursArr=JSON.parse(ours||'[]')||[];
+            if(Array.isArray(_snCloudArr)&&Array.isArray(_snOursArr)&&localApplyBaseline>0){
+              var _snCloudIds={};
+              _snCloudArr.forEach(function(t){if(t&&t.id!=null)_snCloudIds[String(t.id)]=true;});
+              var _snLocalOnly=_snOursArr.filter(function(t){
+                if(!t||t.id==null)return false;
+                if(_snCloudIds[String(t.id)])return false;
+                var created=Number(t.createdAt||t.ts||0);
+                return created>localApplyBaseline;
+              });
+              if(_snLocalOnly.length){
+                valueToAbsorb=JSON.stringify(_snCloudArr.concat(_snLocalOnly));
+              }
+            }
+          }catch(_ae){}
+        }
+        if(k==='diary_entries_v1'){
+          /* Per-date LWW merge: dates only on one device are preserved; same-date
+             conflicts resolved by updatedAt (cloud wins on tie). */
+          try{
+            var _snCloudDiary=JSON.parse(cloud.fullValue||'{}')||{};
+            var _snOursDiary=JSON.parse(ours||'{}')||{};
+            if(typeof _snCloudDiary==='object'&&!Array.isArray(_snCloudDiary)&&
+               typeof _snOursDiary==='object'&&!Array.isArray(_snOursDiary)){
+              var _snMergedDiary=Object.assign({},_snOursDiary);
+              Object.keys(_snCloudDiary).forEach(function(date){
+                var ce=_snCloudDiary[date], oe=_snOursDiary[date];
+                if(!oe){_snMergedDiary[date]=ce;}
+                else{
+                  var cu=Number((ce&&ce.updatedAt)||0), ou=Number((oe&&oe.updatedAt)||0);
+                  if(cu>=ou)_snMergedDiary[date]=ce;
+                }
+              });
+              valueToAbsorb=JSON.stringify(_snMergedDiary);
+            }
+          }catch(_de){}
+        }
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
@@ -24680,11 +24754,10 @@ async function fbSaveNow(opts){
         } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
         /* Stamp the snapshot with the cloud value (not the merged value) so the
            delta filter sees the merged result as "different from cloud" and pushes
-           it on the next save — propagating our local-only images to cloud. */
+           it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
-        /* For media sync, we need to push the merged value outbound so our
-           local images reach cloud. Add to ourKeysToWrite instead of preservedFromCloud. */
-        if(k === MEDIA_SYNC_KEY && valueToAbsorb !== cloud.fullValue){
+        /* For union-merge keys, push the merged value outbound. */
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
