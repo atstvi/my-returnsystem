@@ -11786,6 +11786,10 @@ async function homeCaptureAI(raw){
     +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
 
   try {
+    /* 20s abort: a hung capture-AI call should fall back to plain add rather
+       than leaving the UI spinner running indefinitely. */
+    var _captureAbort=typeof AbortController!=='undefined'?new AbortController():null;
+    var _captureAbortTimer=_captureAbort?setTimeout(function(){_captureAbort.abort();},20000):null;
     var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
       method:'POST',
       headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
@@ -11797,8 +11801,10 @@ async function homeCaptureAI(raw){
           {role:'system',content:systemPrompt},
           {role:'user',content:'파싱: '+text}
         ]
-      })
+      }),
+      signal:_captureAbort?_captureAbort.signal:undefined
     });
+    clearTimeout(_captureAbortTimer);
     var data = await resp.json();
     var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
     /* Strip markdown code fences if any */
@@ -26229,15 +26235,28 @@ async function runNotionDiagnostics(){
 async function callAI(prompt, maxTokens){
   var key=localStorage.getItem('groq_api_key')||'';
   if(!key) return prompt; /* No key → return raw */
-  var res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({
-      model:'llama-3.3-70b-versatile',
-      max_tokens:maxTokens||800,
-      messages:[{role:'user',content:prompt}]
-    })
-  });
+  /* 30s abort timeout: prevents a hung Groq call from blocking diary
+     timeline AI formatting indefinitely. */
+  var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},30000):null;
+  var res;
+  try{
+    res=await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        max_tokens:maxTokens||800,
+        messages:[{role:'user',content:prompt}]
+      }),
+      signal:_abortCtrl?_abortCtrl.signal:undefined
+    });
+  }catch(netErr){
+    clearTimeout(_abortTimer);
+    var _isAbort=netErr&&(netErr.name==='AbortError'||String(netErr.message||'').indexOf('abort')>=0);
+    throw new Error(_isAbort?'AI 요청 시간 초과 (30초). 네트워크 연결 또는 Groq API 상태를 확인해주세요.':'AI 연결 실패: '+(netErr&&netErr.message||'알 수 없는 오류'));
+  }
+  clearTimeout(_abortTimer);
   var data=await res.json();
   var text=data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content;
   if(!text) throw new Error('AI 응답 없음');
@@ -26591,7 +26610,14 @@ async function _syncDiaryPageBody(pageId, entry, dateKey, force){
    failure so the image still renders at least immediately. */
 async function _notionImageToDataUrl(url){
   try{
-    var res=await fetch(url);
+    /* 15s abort: Notion image URLs expire after 1h; a hung fetch should not
+       block the Notion pull indefinitely — return the original URL as fallback. */
+    var _abortCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+    var _abortTimer=_abortCtrl?setTimeout(function(){_abortCtrl.abort();},15000):null;
+    var res;
+    try{res=await fetch(url,{signal:_abortCtrl?_abortCtrl.signal:undefined});}
+    catch(_e){clearTimeout(_abortTimer);return url;}
+    clearTimeout(_abortTimer);
     if(!res.ok) return url;
     var blob=await res.blob();
     if(blob.size > 3*1024*1024) return url; /* skip huge images, keep URL */
@@ -27143,6 +27169,7 @@ async function diaryAutoDetectProps(){
   }
 }
 var _diaryAutoTimer=null;
+var _diaryAutoInitTimer=null;
 var _diaryAutoBusy=false;
 async function runDiaryAiTimeline(dateKey, silent){
   dateKey=dateKey||currentDate||TK;
@@ -27164,6 +27191,7 @@ async function runDiaryAiTimeline(dateKey, silent){
   return true;
 }
 function scheduleDiaryAutoSync(){
+  clearTimeout(_diaryAutoInitTimer); _diaryAutoInitTimer=null;
   clearInterval(_diaryAutoTimer);
   var cfg=getNotionCfg();
   if(!cfg.autoSync)return;
@@ -27192,7 +27220,7 @@ function scheduleDiaryAutoSync(){
       _diaryAutoBusy=false;
     }
   }
-  setTimeout(tick,3000);
+  _diaryAutoInitTimer=setTimeout(tick,3000);
   _diaryAutoTimer=setInterval(tick,60000);
 }
 saveGcalKey=function(){showToast('Google Calendar 키 저장됨');};
