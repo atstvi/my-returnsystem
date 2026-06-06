@@ -26276,18 +26276,19 @@ function queueDiaryNotionSave(dateKey){
 }
 function queueDiaryNotionPull(dateKey, reason, delay){
   var cfg=getNotionCfg();
-  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId)return;
-  if(window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1'])return;
+  if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId){ _apTrace('pull:skip','cfg/off ('+reason+')'); return; }
+  if(window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1']){ _apTrace('pull:skip','diary stale ('+reason+')'); return; }
   /* Rate-limit automated pulls: background triggers (fbApplyData re-renders,
      date switches from sync) must not fire more than once per 30s. Only
      explicit user actions (reason==='user'/'manual') bypass this gate. */
   var _nplNow=Date.now();
-  if(reason!=='user'&&reason!=='manual'&&_nplNow-_lastNotionPullQueuedMs<30000)return;
+  if(reason!=='user'&&reason!=='manual'&&_nplNow-_lastNotionPullQueuedMs<30000){ _apTrace('pull:skip','rate-limited 30s ('+reason+')'); return; }
   _lastNotionPullQueuedMs=_nplNow;
+  _apTrace('pull:queued', reason);
   clearTimeout(_notionPullTimer);
   _notionPullTimer=setTimeout(async function(){
-    if(_notionPullBusy)return;
-    if(saveTimer){queueDiaryNotionPull(dateKey,reason,2500);return;}
+    if(_notionPullBusy){ _apTrace('pull:skip','pull busy ('+reason+')'); return; }
+    if(saveTimer){ _apTrace('pull:defer','saveTimer pending ('+reason+')'); queueDiaryNotionPull(dateKey,reason,2500); return; }
     try{
       _notionPullBusy=true;
       if(typeof pullDiaryFromNotion==='function'){
@@ -26668,14 +26669,22 @@ async function runNotionDiagnostics(){
   add('푸시 트리거 함수', typeof queueDiaryNotionSave==='function'?'ok':'err',
     typeof queueDiaryNotionSave==='function'?'queueDiaryNotionSave 사용 가능':'queueDiaryNotionSave 누락 — 빌드 문제');
 
-  /* === Step 11: real diary push end-to-end ===
-     Run the actual production push for today's entry so the diagnostic reflects
-     the true edit→Notion path (not just the synthetic block test above). */
+  /* === Step 11: real Notion→diary PULL (non-destructive) ===
+     Tests the Notion→app direction directly: reads today's Notion page and
+     merges into the local entry. Does NOT push, so it never overwrites a
+     Notion-side edit (the old destructive push step did, which made the diary
+     never seem to receive Notion changes). The per-section merge DECISIONS are
+     recorded in the Step 12 trace (merge:adopt-notion / keep-local-… / conflict-…). */
   try{
-    await syncDiaryToNotion(today,{silent:true,auto:true,skipAI:true,pullFirst:false});
-    add('실제 일기 푸시 (syncDiaryToNotion)','ok','오늘 일기를 Notion으로 전송 완료 — Notion 페이지를 확인해보세요');
+    var _pullBefore=(window._autoPushTrace||[]).length;
+    await pullDiaryFromNotion(today,{silent:true,auto:true,reason:'diagnostic'});
+    var _adopted=(window._autoPushTrace||[]).slice(_pullBefore).filter(function(e){return e.stage==='merge:adopt-notion'||e.stage==='merge:adopt-notion-nobaseline'||e.stage==='merge:conflict-notion-wins';}).length;
+    var _kept=(window._autoPushTrace||[]).slice(_pullBefore).filter(function(e){return e.stage==='merge:keep-local-notion-unchanged'||e.stage==='merge:conflict-local-wins';}).length;
+    add('실제 Notion→일기 가져오기 (pull)', _adopted?'ok':'warn',
+      _adopted? ('Notion 변경 '+_adopted+'개 섹션을 일기로 가져옴 — 일기 화면을 확인하세요')
+              : ('Notion에서 새로 가져올 변경 없음'+(_kept?(' (로컬 유지 '+_kept+'개: Notion이 기준값과 같거나 로컬이 더 최신)'):'')+'. Notion에서 섹션을 수정한 뒤 이 진단을 다시 실행해 비교해보세요'));
   }catch(pe){
-    add('실제 일기 푸시 (syncDiaryToNotion)','err',(pe&&pe.message||pe));
+    add('실제 Notion→일기 가져오기 (pull)','err',(pe&&pe.message||pe));
   }
 
   /* === Step 12: real edit→push breadcrumb trace ===
@@ -26688,10 +26697,11 @@ async function runNotionDiagnostics(){
       add('실제 수정 경로 기록','warn','아직 기록 없음 — 일기를 한 줄 수정한 뒤 진단을 다시 실행하면 여기에 단계별로 표시됩니다');
     } else {
       var now=Date.now();
-      tr.slice(-12).forEach(function(ev){
+      tr.slice(-16).forEach(function(ev){
         var ago=Math.round((now-ev.t)/1000);
-        var st=ev.stage.indexOf('error')>=0||ev.stage.indexOf('skip')>=0?'warn':'ok';
-        add('▸ '+ev.stage, st, (ev.detail||'')+' ('+ago+'초 전)');
+        var s=ev.stage;
+        var st=(s.indexOf('error')>=0||s.indexOf('skip')>=0||s==='merge:keep-local-notion-unchanged'||s==='merge:conflict-local-wins')?'warn':'ok';
+        add('▸ '+s, st, (ev.detail||'')+' ('+ago+'초 전)');
       });
     }
   }catch(te){ add('실제 수정 경로 기록','err',(te&&te.message||te)); }
@@ -27124,9 +27134,13 @@ var _NOTION_SECTION_KEYS=['sleep','morning','resolution','timeline','accomplishm
 function _notionBlocksHash(blocks){ try{ return timetableTaskHash(JSON.stringify(blocks||[])); }catch(_e){ return ''; } }
 function _notionMergeSection(entry, key, notionVal, notionEditedMs, conflicts){
   notionVal=(notionVal==null)?'':String(notionVal);
-  if(!notionVal.trim()) return 'keep-local-empty';          /* E6: empty never overwrites */
+  /* Trace the merge DECISION so the diagnostic can show exactly why a Notion
+     edit was/wasn't adopted into the diary (Notion→app direction). Only logs
+     when there's an actual difference to decide on. */
+  function _d(r){ try{ if(typeof _apTrace==='function' && r!=='identical' && r!=='keep-local-empty') _apTrace('merge:'+r, key); }catch(_e){} return r; }
+  if(!notionVal.trim()) return _d('keep-local-empty');      /* E6: empty never overwrites */
   var local=(entry[key]==null)?'':String(entry[key]);
-  if(notionVal===local) return 'identical';
+  if(notionVal===local) return _d('identical');
   var hasBase=!!(entry._nbase&&Object.prototype.hasOwnProperty.call(entry._nbase,key));
   /* No baseline yet (every entry right after this feature ships, and any entry
      never synced): adopt non-empty Notion — the original pull behavior. We do
@@ -27134,15 +27148,15 @@ function _notionMergeSection(entry, key, notionVal, notionEditedMs, conflicts){
      local saves/opens and would wrongly block a real "wrote in Notion → pull"
      flow. The precise 3-way protection turns on once the first sync writes a
      baseline (see _notionUpdateBaseline). */
-  if(!hasBase){ entry[key]=notionVal; return 'adopt-notion-nobaseline'; }
+  if(!hasBase){ entry[key]=notionVal; return _d('adopt-notion-nobaseline'); }
   var base=String(entry._nbase[key]);
-  if(notionVal===base) return 'keep-local-notion-unchanged'; /* Notion side unchanged */
-  if(local===base){ entry[key]=notionVal; return 'adopt-notion'; } /* only Notion changed */
+  if(notionVal===base) return _d('keep-local-notion-unchanged'); /* Notion side unchanged */
+  if(local===base){ entry[key]=notionVal; return _d('adopt-notion'); } /* only Notion changed */
   /* genuine conflict: both sides changed since the baseline → newer wins */
   var localMs=Number(entry.updatedAt)||0, nMs=Number(notionEditedMs)||0;
-  if(nMs>localMs){ if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'notion',localMs:localMs,notionMs:nMs,at:Date.now()}); entry[key]=notionVal; return 'conflict-notion-wins'; }
+  if(nMs>localMs){ if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'notion',localMs:localMs,notionMs:nMs,at:Date.now()}); entry[key]=notionVal; return _d('conflict-notion-wins'); }
   if(conflicts)conflicts.push({collection:'diary-notion',field:key,winner:'local',localMs:localMs,notionMs:nMs,at:Date.now()});
-  return 'conflict-local-wins';
+  return _d('conflict-local-wins');
 }
 /* Snapshot the merged entry as the new last-synced baseline. Called after a
    successful sync/pull so the next pull can tell which side actually changed. */
@@ -27538,11 +27552,13 @@ async function pullDiaryFromNotion(dateKey, opts){
   if(opts.auto && (window._notionSyncActive
       || (typeof saveTimer!=='undefined' && saveTimer)
       || (typeof blockSaveTimer!=='undefined' && blockSaveTimer))){
+    if(typeof _apTrace==='function') _apTrace('pull:skip', window._notionSyncActive?'push active':(saveTimer?'saveTimer':'blockSaveTimer'));
     return;
   }
   /* Re-entrancy guard: prevent the pull itself from stacking. */
-  if(window._notionPullActive) return;
+  if(window._notionPullActive){ if(typeof _apTrace==='function') _apTrace('pull:skip','pull active'); return; }
   window._notionPullActive = true;
+  if(opts.auto && typeof _apTrace==='function') _apTrace('pull:start', (dateKey||currentDate||TK)+' ('+(opts.reason||'auto')+')');
   try {
   /* Only persist DOM form state on MANUAL pulls. Auto pulls (the 60s interval,
      loadDate, fbApplyData) must NOT call saveNotionConfig: the settings form
@@ -27576,6 +27592,7 @@ async function pullDiaryFromNotion(dateKey, opts){
     if(!page){
       if(st&&!opts.silent)st.textContent=dateKey+'에 해당하는 Notion 페이지가 없어요';
       if(row)row.setAttribute('data-state','');
+      if(opts.auto && typeof _apTrace==='function') _apTrace('pull:no-page', dateKey);
       if(!opts.silent)showToast('해당 날짜 페이지가 Notion에 없어요');
       return;
     }
@@ -27588,6 +27605,7 @@ async function pullDiaryFromNotion(dateKey, opts){
     try{ if(entries[dateKey]){ _notionUpdateBaseline(entries[dateKey]); setReturnStorageItem('diary_entries_v1', JSON.stringify(entries)); } }catch(_e){}
     if(st)st.textContent='Notion 확인됨: 속성 '+propPulled+'개 · 본문 '+pulled+'개 · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
     if(row)row.setAttribute('data-state','ok');
+    if(opts.auto && typeof _apTrace==='function') _apTrace('pull:done','채택 속성 '+propPulled+' · 본문 '+pulled+' (notion 수정 '+(notionEditedMs?new Date(notionEditedMs).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'?')+')');
     /* Force diary view refresh */
     try {
       if(typeof loadEntry==='function' && dateKey===currentDate) loadEntry(dateKey);
@@ -27598,6 +27616,7 @@ async function pullDiaryFromNotion(dateKey, opts){
   }catch(e){
     if(st)st.textContent='가져오기 실패: '+e.message;
     if(row)row.setAttribute('data-state','err');
+    if(opts.auto && typeof _apTrace==='function') _apTrace('pull:error', e&&e.message||e);
     if(!opts.silent)showToast('Notion 가져오기 실패: '+e.message);
   }
   } finally {
