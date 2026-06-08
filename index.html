@@ -681,7 +681,11 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .htb-vblock {
   position:absolute; left:var(--sp-2); right:var(--sp-2);
   border-radius:var(--r-md); overflow:hidden; cursor:pointer;
-  touch-action:none;
+  /* Allow vertical touch scrolling to pass through to #htb-body — only the
+     dedicated resize handle (bottom edge, touch-action:none inline) captures
+     touch gestures for itself. Capturing touch on the whole block here was
+     hijacking scroll attempts into block-drag (the "trembling" bug). */
+  touch-action:pan-y;
   display:flex; align-items:flex-start;
   padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-6);
   gap:var(--sp-3); z-index:2;
@@ -9267,10 +9271,10 @@ function renderHomeSituation(){
     var p=String(eventTime).split(':'); var when=new Date(); when.setHours(parseInt(p[0]||0), parseInt(p[1]||0), 0, 0);
     return {task:t, mins:Math.round((when-new Date())/60000)};
   }).filter(function(x){ return x.mins >= -15; }).sort(function(a,b){ return a.mins-b.mins; });
-  var prepMissing = upcomingToday.filter(function(x){ return (x.task.subs||x.task.prepItems||[]).some(function(p){ return p.text && !p.done; }); });
+  var prepMissing = upcomingToday.filter(function(x){ return taskPrepList(x.task).some(function(p){ return p.text && !p.done; }); });
   var top = urgent[0] || deadlines[0];
   function missingPrepCount(t){
-    return (t.prepItems||t.subs||[]).filter(function(p){return p&&p.text&&!p.done;}).length;
+    return taskPrepList(t).filter(function(p){return p&&p.text&&!p.done;}).length;
   }
   function travelMinutes(t){return parseInt(t.travelMin||t.moveMin||t.travelMinutes||0,10)||0;}
   function openTaskEntry(title, list){
@@ -11337,7 +11341,7 @@ function renderHomeTimeBlocks(){
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
     var travelInfo=parseInt(t.travelMin,10)||0;
-    var prepAll=(t.prepItems || t.subs || []).filter(function(p){return p&&p.text;});
+    var prepAll=taskPrepList(t);
     var prepDone=prepAll.filter(function(p){return p.done;}).length;
     var isRealTask=!!(t.id && !String(t.id).startsWith('tt_'));
     var isTtPrep=!!t._ttSlotKey;
@@ -11400,7 +11404,7 @@ function renderHomeTimeBlocks(){
       renderHomeTimeBlocks();
     });
     var resize=document.createElement('div');
-    resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center';
+    resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;touch-action:none';
     resize.innerHTML='<span style="width:24px;height:2px;border-radius:var(--r-full);background:currentColor;opacity:.35"></span>';
     el.addEventListener('click', function(){
       if (el._dragMoved) { el._dragMoved = false; return; }
@@ -11449,38 +11453,12 @@ function renderHomeTimeBlocks(){
       function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);if(typeof saveTaskData==='function')saveTaskData();}
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
-    el.addEventListener('pointerdown', function(e){
-      if (e.pointerType !== 'touch' || e.target.closest('button') || resize.contains(e.target) || virtual) return;
-      e.preventDefault();
-      var y0=e.clientY, sm0=sm, dur=em-sm, moved=false, lastX=e.clientX, lastY=e.clientY;
-      el.classList.add('htb-dragging');
-      try{el.setPointerCapture(e.pointerId);}catch(_e){}
-      function mv(ev){
-        lastX=ev.clientX;lastY=ev.clientY;
-        var ns=Math.round((sm0+(ev.clientY-y0)/SLOT_H*60)/5)*5;
-        ns=Math.max(START*60,Math.min(ns,END*60-dur));
-        if (Math.abs(ns-sm0) >= 5) moved=true;
-        sm=ns; em=ns+dur;
-        el.style.top=((sm/60-START)*SLOT_H)+'px';
-        time.textContent=fmt(sm)+'-'+fmt(em);
-        if(t.id && !String(t.id).startsWith('tt_')){ t.timeStart=fmt(sm); t.timeEnd=fmt(em); }
-      }
-      function up(ev){
-        el.removeEventListener('pointermove',mv);
-        el.removeEventListener('pointerup',up);
-        el.removeEventListener('pointercancel',up);
-        el.classList.remove('htb-dragging');
-        el._dragMoved=moved;
-        try{el.releasePointerCapture(ev.pointerId);}catch(_e){}
-        if(moved&&pointInAllDay(lastX,lastY)&&t.id&&!String(t.id).startsWith('tt_')){
-          t.timeStart='';t.timeEnd='';
-        }
-        if(moved && typeof saveTaskData==='function')saveTaskData();
-      }
-      el.addEventListener('pointermove',mv);
-      el.addEventListener('pointerup',up);
-      el.addEventListener('pointercancel',up);
-    });
+    /* No whole-block touch-drag-to-move: capturing touch on the entire block
+       (which covers most of the visible scroll surface) fought the user's
+       vertical scroll gesture on #htb-body — the block would jump in 5-minute
+       increments under the finger ("trembling") instead of the list scrolling.
+       Touch users can still retime via the task-edit modal; the resize handle
+       below remains a small, dedicated touch-drag target for duration only. */
     resize.addEventListener('pointerdown', function(e){
       if (e.pointerType !== 'touch') return;
       e.preventDefault(); e.stopPropagation();
@@ -11556,7 +11534,7 @@ function renderHomeTimeBlocks(){
     if (travelMin > 0) {
       makeBlock({text:t.text+' 이동',catId:t.catId,done:false,_travelOnly:true,travelMin:travelMin}, sm - travelMin, sm, 'vblk-deadline', '이동', true);
     }
-    if ((t.prepMin && t.prepMin > 0) || (t.prepItems || t.subs || []).some(function(p){return p.text && !p.done;})) {
+    if ((t.prepMin && t.prepMin > 0) || taskPrepList(t).some(function(p){return p.text && !p.done;})) {
       makeBlock(t, sm - (t.prepMin || 20), sm, 'vblk-deadline', '준비', true);
     }
     makeBlock(t, sm, em, (t.catId === 'schedule' || t._isTt ? 'vblk-sched' : 'vblk-task'), t.deadlineDate && typeof dlText==='function' ? dlText(t.deadlineDate) : '');
@@ -14667,6 +14645,9 @@ function ensureTimetableSlotIds(ttList){
   });
   return changed;
 }
+function stripPrepEmoji(text){
+  return String(text||'').replace(/^🎒\s*/,'');
+}
 function mergeGeneratedChecklist(existing, expected){
   if(!Array.isArray(expected))return expected;
   var old=Array.isArray(existing)?existing:[];
@@ -14674,13 +14655,24 @@ function mergeGeneratedChecklist(existing, expected){
   old.forEach(function(item){
     if(!item)return;
     if(item.id)byId[item.id]=item;
-    if(item.text)byText[String(item.text).replace(/^\?럲\s*/,'')]=item;
+    if(item.text)byText[stripPrepEmoji(item.text)]=item;
   });
   return expected.map(function(item){
-    var plain=item&&item.text?String(item.text).replace(/^\?럲\s*/,''):'';
+    var plain=item&&item.text?stripPrepEmoji(item.text):'';
     var keep=(item&&item.id&&byId[item.id])||(plain&&byText[plain]);
     return Object.assign({},item,{done:keep?!!keep.done:!!item.done});
   });
+}
+/* Resolve the canonical prep-item list for a task. `prepItems` is the modern
+   field; `subs` is legacy/duplicated (timetable-generated tasks historically
+   mirrored prep into `subs` with a 🎒 prefix). Prefer whichever side actually
+   has entries — an empty `prepItems` array must not mask non-empty `subs`. */
+function taskPrepList(t){
+  if(!t)return [];
+  var pi=Array.isArray(t.prepItems)?t.prepItems.filter(function(p){return p&&p.text;}):[];
+  if(pi.length)return pi;
+  var su=Array.isArray(t.subs)?t.subs:[];
+  return su.filter(function(p){return p&&p.text;}).map(function(p){return {text:stripPrepEmoji(p.text),done:!!p.done};});
 }
 function migrateGcalEventMetaKey(oldKey,newKey){
   if(!oldKey||!newKey||oldKey===newKey)return;
@@ -14756,7 +14748,7 @@ function buildTimetableExpectedTasks(ttList){
           generationKey:key,
           sourceType:'timetable',
           occurrenceDate:dateKey,
-          subs:prep.map(function(p){return {id:p.id,text:'🎒 '+p.text,done:!!p.done};}),
+          subs:[],
           prepItems:prep,
           travelMin:parseInt(s.travel,10)||0
         };
@@ -14830,13 +14822,20 @@ function reconcileTimetableTasks(opts){
         if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
       });
       if(exp.prepItems){
-        var mergedPrep=mergeGeneratedChecklist(t.prepItems,exp.prepItems);
+        /* `subs` used to duplicate prep items (🎒-prefixed, separate `done`
+           state). Fold any done state the user already set there into the
+           canonical `prepItems` before retiring `subs`, so checks made via
+           either UI survive this migration. */
+        var legacyPrepDone={};
+        (Array.isArray(t.subs)?t.subs:[]).forEach(function(p){
+          if(p&&p.done&&p.text)legacyPrepDone[stripPrepEmoji(p.text)]=true;
+        });
+        var mergedPrep=mergeGeneratedChecklist(t.prepItems,exp.prepItems).map(function(p){
+          return legacyPrepDone[p.text]?Object.assign({},p,{done:true}):p;
+        });
         if(JSON.stringify(t.prepItems||[])!==JSON.stringify(mergedPrep)){t.prepItems=mergedPrep;changed++;}
       }
-      if(exp.subs){
-        var mergedSubs=mergeGeneratedChecklist(t.subs,exp.subs);
-        if(JSON.stringify(t.subs||[])!==JSON.stringify(mergedSubs)){t.subs=mergedSubs;changed++;}
-      }
+      if(Array.isArray(t.subs)&&t.subs.length){t.subs=[];changed++;}
       byKey[key]=t;
       next.push(t);
       return;
@@ -16037,6 +16036,30 @@ function buildTaskEl(task){
       subsEl.appendChild(sr);
     });
     body.appendChild(subsEl);
+  }
+
+  /* 준비물 — directly checkable from the list, writing through to the same
+     task.prepItems array the task-edit modal reads (setTaskPrepSummary keeps
+     the modal's "N/M 체크" summary in sync if it happens to be open). */
+  if(task.prepItems&&task.prepItems.length){
+    var prepListEl=document.createElement('div');prepListEl.className='task-subs task-prep-list';
+    task.prepItems.forEach(function(pp){
+      var pr=document.createElement('div');pr.className='sub-item'+(pp.done?' done':'');
+      var pc=document.createElement('div');pc.className='sub-check'+(pp.done?' done':'');
+      var pt=document.createElement('span');pt.className='sub-text';pt.textContent='🧳 '+pp.text;
+      pr.appendChild(pc);pr.appendChild(pt);
+      pr.addEventListener('click',function(e){
+        e.stopPropagation();
+        pp.done=!pp.done;
+        pc.classList.toggle('done',pp.done);
+        pr.classList.toggle('done',pp.done);
+        if(typeof saveTaskData==='function')saveTaskData();
+        if(typeof setTaskPrepSummary==='function')setTaskPrepSummary(task.prepItems);
+        renderCal();
+      });
+      prepListEl.appendChild(pr);
+    });
+    body.appendChild(prepListEl);
   }
 
   el.appendChild(selCk);el.appendChild(dh);el.appendChild(ckWrap);el.appendChild(body);
@@ -20377,11 +20400,11 @@ function generateTasks() {
 
     tt.slots.forEach(function(s) {
       if (s.day !== slotDay) return;
-      var subs = [];
+      var prepItems = [];
       if (s.prep) {
         s.prep.split(/[,;]\s*/).forEach(function(item) {
           var tx = item.trim();
-          if (tx) subs.push({ id:'p_'+Date.now()+'_'+Math.floor(Math.random()*999), text:'🎒 '+tx, done:false });
+          if (tx) prepItems.push({ id:'p_'+Date.now()+'_'+Math.floor(Math.random()*999), text:tx, done:false });
         });
       }
       toCreate.push({
@@ -20391,8 +20414,8 @@ function generateTasks() {
         priority:'', done:false,
         note:ttNote + (s.prep ? '\n🎒 준비물: ' + s.prep : ''),
         _isTt:true,
-        subs:subs,
-        prepItems:subs.map(function(p){return {id:p.id,text:String(p.text||'').replace(/^🎒\s*/,''),done:!!p.done};}),
+        subs:[],
+        prepItems:prepItems,
         travelMin:parseInt(s.travel,10)||0,
         createdAt:Date.now(), updatedAt:Date.now()
       });
