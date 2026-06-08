@@ -630,7 +630,7 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 
 /* ── TIMEBLOCK CARD — vertical layout ── */
 .htb-body {
-  display:flex; padding:0 var(--sp-8) var(--sp-6); gap:0;
+  display:flex; align-items:flex-start; padding:0 var(--sp-8) var(--sp-6); gap:0;
   overflow-y:auto; max-height:320px; scrollbar-width:thin;
 }
 .htb-body::-webkit-scrollbar { width:3px; }
@@ -696,6 +696,15 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   font-size:var(--text-2xs); color:currentColor; opacity:.72;
   white-space:nowrap; flex-shrink:0;
 }
+.htb-vprep {
+  font-size:var(--text-2xs); font-weight:var(--fw-semibold);
+  border:0; border-radius:var(--r-full); padding:1px var(--sp-2);
+  background:var(--w-50); color:var(--w-600);
+  white-space:nowrap; line-height:1.55; opacity:1;
+}
+button.htb-vprep { cursor:pointer; }
+button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
+.htb-vprep.done { background:var(--t-50); color:var(--t-600); }
 .htb-vbadge {
   font-family:var(--font-mono); font-size:var(--text-2xs); font-weight:var(--fw-bold);
   padding:1px var(--sp-2); border-radius:var(--r-sm);
@@ -11145,6 +11154,15 @@ function renderHomeTimeBlocks(){
     slot.setAttribute('data-hour',hour);
     slots.appendChild(slot);
   }
+  /* The body is a horizontal flexbox (axis | slots). With the default
+     align-items:stretch the children were clamped to the body's max-height,
+     so the 24h content never exceeded the viewport and overflow-y produced no
+     scrollbar — the "타임블록 스크롤이 안 됨" bug (reproduced on desktop AND
+     mobile). Pin both columns to the real timeline height so the body
+     overflows and scrolls. */
+  var _htbTotalH=(END-START)*SLOT_H;
+  if(axis)axis.style.height=_htbTotalH+'px';
+  slots.style.height=_htbTotalH+'px';
   var now=new Date(), nowMins=now.getHours()*60+now.getMinutes();
   if(nowMins>=START*60 && nowMins<=END*60){
     /* Reuse the htb-now-line style so the line actually renders. The earlier
@@ -11286,16 +11304,44 @@ function renderHomeTimeBlocks(){
     ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); });
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
-    var metaBits=[];
     var travelInfo=parseInt(t.travelMin,10)||0;
-    var prepOpen=(t.prepItems || t.subs || []).filter(function(p){return p&&p.text&&!p.done;}).length;
-    if(travelInfo>0)metaBits.push('이동 '+travelInfo+'분');
-    if(prepOpen>0)metaBits.push('준비 '+prepOpen);
+    var prepAll=(t.prepItems || t.subs || []).filter(function(p){return p&&p.text;});
+    var prepDone=prepAll.filter(function(p){return p.done;}).length;
+    var isRealTask=!!(t.id && !String(t.id).startsWith('tt_'));
+    function openPrepFromBlock(){
+      if(typeof openPrepChecklistEditor!=='function')return;
+      openPrepChecklistEditor(t,function(){
+        if(typeof saveTaskData==='function')saveTaskData();
+        try{renderHomeTimeBlocks();}catch(_e){}
+        if(typeof renderHomeTasks==='function'){try{renderHomeTasks();}catch(_e){}}
+      });
+    }
     var metaEl=null;
-    if(metaBits.length){
+    if(travelInfo>0 || prepAll.length){
       metaEl=document.createElement('span');
       metaEl.className='htb-vmeta';
-      metaEl.textContent=metaBits.join(' · ');
+      metaEl.style.cssText='display:inline-flex;gap:var(--sp-2);align-items:center';
+      if(travelInfo>0){
+        var tvEl=document.createElement('span');
+        tvEl.textContent='이동 '+travelInfo+'분';
+        metaEl.appendChild(tvEl);
+      }
+      if(prepAll.length){
+        var allPrepDone=prepDone>=prepAll.length;
+        /* Clickable 준비물 pill — opens the checklist directly from the
+           timeblock so prep can be checked/confirmed without first opening the
+           task. Only interactive for real tasks (시간표-derived prep lives in
+           the timetable settings and is regenerated each render). */
+        var prepEl=document.createElement(isRealTask?'button':'span');
+        prepEl.className='htb-vprep'+(allPrepDone?' done':'');
+        prepEl.textContent='🧳 '+prepDone+'/'+prepAll.length;
+        if(isRealTask){
+          prepEl.type='button';
+          prepEl.title='준비물 체크리스트 열기';
+          prepEl.addEventListener('click',function(e){ e.stopPropagation(); openPrepFromBlock(); });
+        }
+        metaEl.appendChild(prepEl);
+      }
     }
     var time=document.createElement('span');time.className='htb-vtime';time.textContent=fmt(sm)+'-'+fmt(em);
     var clearTime=document.createElement('button');
@@ -11316,6 +11362,9 @@ function renderHomeTimeBlocks(){
     resize.innerHTML='<span style="width:24px;height:2px;border-radius:var(--r-full);background:currentColor;opacity:.35"></span>';
     el.addEventListener('click', function(){
       if (el._dragMoved) { el._dragMoved = false; return; }
+      /* The "준비" window block is the timeline's path to the prep checklist —
+         tapping it opens the checkable list (for real tasks that carry items). */
+      if (badge==='준비' && isRealTask && prepAll.length) { openPrepFromBlock(); return; }
       if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
     });
     el.addEventListener('mousedown', function(e){
@@ -16243,7 +16292,7 @@ function markTaskDateManualChange(task,nextDate){
     task._repeatMoved=true;
   }
 }
-function openPrepChecklistEditor(task){
+function openPrepChecklistEditor(task,onSave){
   if(!task)return;
   var old=document.getElementById('prep-checklist-dialog');
   if(old)old.remove();
@@ -16275,7 +16324,7 @@ function openPrepChecklistEditor(task){
       var row=document.createElement('div');
       row.style.cssText='display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-3);align-items:center;padding:var(--sp-3);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md)';
       row.innerHTML='<input type="checkbox" '+(p.done?'checked':'')+'><input class="field-inp" value="'+String(p.text||'').replace(/"/g,'&quot;')+'" style="min-height:34px"><button type="button" class="btn btn-ghost">삭제</button>';
-      row.querySelector('input[type="checkbox"]').addEventListener('change',function(e){p.done=e.target.checked;});
+      row.querySelector('input[type="checkbox"]').addEventListener('change',function(e){p.done=e.target.checked; if(typeof onSave==='function'){try{onSave();}catch(_e){}}});
       row.querySelector('input.field-inp').addEventListener('input',function(e){p.text=e.target.value;});
       row.querySelector('button').addEventListener('click',function(){task.prepItems.splice(idx,1);render();});
       list.appendChild(row);
@@ -16296,6 +16345,7 @@ function openPrepChecklistEditor(task){
   ov.querySelector('#prep-save').addEventListener('click',function(){
     task.prepItems=task.prepItems.map(function(p){return {text:String(p.text||'').trim(),done:!!p.done};}).filter(function(p){return p.text;});
     setTaskPrepSummary(task.prepItems);
+    if(typeof onSave==='function'){try{onSave();}catch(_e){}}
     close();
   });
   ov.addEventListener('click',function(e){if(e.target===ov)close();});
