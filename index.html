@@ -11081,10 +11081,15 @@ function scrollHomeTimeBlockToNow(force){
     setTimeout(function(){scrollHomeTimeBlockToNow(force);},80);
     return;
   }
-  var nextTop=Math.max(0,((mins-START*60)/60)*SLOT_H-body.clientHeight/3);
+  /* Round to an integer: scrollTop is reported as a rounded/clamped value, so
+     comparing against a float nextTop never matched and the old retry loop
+     re-scrolled every 80ms forever — once the body actually scrolls that loop
+     yanks the view back to "now" on every user scroll ("스크롤해도 현재
+     타임선으로 돌아옴"). Auto-scroll exactly once per load, then leave the user
+     alone. */
+  var nextTop=Math.round(Math.max(0,((mins-START*60)/60)*SLOT_H-body.clientHeight/3));
   body.scrollTop=nextTop;
-  if(body.scrollTop===nextTop || nextTop===0)body.dataset.autoScrolledFor=today;
-  else setTimeout(function(){scrollHomeTimeBlockToNow(force);},80);
+  body.dataset.autoScrolledFor=today;
 }
 document.getElementById('htb-now-btn') && document.getElementById('htb-now-btn').addEventListener('click',function(){scrollHomeTimeBlockToNow(true);});
 document.getElementById('modal-clear-time') && document.getElementById('modal-clear-time').addEventListener('click',function(e){
@@ -11104,6 +11109,33 @@ function getHomeTimeBlockPrefs(){
 }
 function saveHomeTimeBlockPrefs(pref){
   setReturnStorageItem('home_timeblock_prefs_v1',JSON.stringify(pref));
+}
+/* ── Timetable prep check state ──────────────────────────────────────────────
+   시간표(TT) 슬롯의 준비물은 timetable 설정의 s.prep 문자열에서 매 렌더마다
+   재생성되므로(done:false), 체크 상태를 그 자리에 둘 수 없다. 체크 여부를
+   날짜+슬롯별로 별도 저장해 매일 "오늘 이 수업 준비물 챙겼나"를 체크할 수 있게
+   한다. 14일이 지난 날짜는 정리한다. */
+function ttPrepGetStore(){ try{return JSON.parse(localStorage.getItem('tt_prep_checks_v1')||'{}')||{};}catch(e){return {};} }
+function ttPrepApplyChecks(slotKey,dateKey,items){
+  var store=ttPrepGetStore();
+  var slot=(store[dateKey]||{})[slotKey]||{};
+  (items||[]).forEach(function(p){ if(p&&p.text&&slot[p.text]) p.done=true; });
+  return items;
+}
+function ttPrepPersistChecks(slotKey,dateKey,items){
+  if(!slotKey||!dateKey)return;
+  var store=ttPrepGetStore();
+  var day=store[dateKey]||(store[dateKey]={});
+  var slot={};
+  (items||[]).forEach(function(p){ if(p&&p.text&&p.done) slot[p.text]=1; });
+  if(Object.keys(slot).length) day[slotKey]=slot; else delete day[slotKey];
+  if(!Object.keys(day).length) delete store[dateKey];
+  try{
+    var cutoff=new Date(); cutoff.setDate(cutoff.getDate()-14);
+    var cut=cutoff.getFullYear()+'-'+('0'+(cutoff.getMonth()+1)).slice(-2)+'-'+('0'+cutoff.getDate()).slice(-2);
+    Object.keys(store).forEach(function(d){ if(d<cut && d!==dateKey) delete store[d]; });
+  }catch(_e){}
+  setReturnStorageItem('tt_prep_checks_v1',JSON.stringify(store));
 }
 function openHomeTimeBlockPrefs(){
   var pref=getHomeTimeBlockPrefs();
@@ -11308,13 +11340,23 @@ function renderHomeTimeBlocks(){
     var prepAll=(t.prepItems || t.subs || []).filter(function(p){return p&&p.text;});
     var prepDone=prepAll.filter(function(p){return p.done;}).length;
     var isRealTask=!!(t.id && !String(t.id).startsWith('tt_'));
+    var isTtPrep=!!t._ttSlotKey;
+    var prepInteractive=isRealTask||isTtPrep;
     function openPrepFromBlock(){
       if(typeof openPrepChecklistEditor!=='function')return;
-      openPrepChecklistEditor(t,function(){
-        if(typeof saveTaskData==='function')saveTaskData();
-        try{renderHomeTimeBlocks();}catch(_e){}
-        if(typeof renderHomeTasks==='function'){try{renderHomeTasks();}catch(_e){}}
-      });
+      function afterRender(){ try{renderHomeTimeBlocks();}catch(_e){} if(typeof renderHomeTasks==='function'){try{renderHomeTasks();}catch(_e){}} }
+      if(isTtPrep){
+        /* 시간표 준비물 — check-only; persisted per date+slot, not on the task. */
+        openPrepChecklistEditor(t,function(){
+          ttPrepPersistChecks(t._ttSlotKey, t._ttDate||(typeof homeTodayKey==='function'?homeTodayKey():''), t.prepItems||[]);
+          afterRender();
+        },{checkOnly:true});
+      }else{
+        openPrepChecklistEditor(t,function(){
+          if(typeof saveTaskData==='function')saveTaskData();
+          afterRender();
+        });
+      }
     }
     var metaEl=null;
     if(travelInfo>0 || prepAll.length){
@@ -11332,10 +11374,10 @@ function renderHomeTimeBlocks(){
            timeblock so prep can be checked/confirmed without first opening the
            task. Only interactive for real tasks (시간표-derived prep lives in
            the timetable settings and is regenerated each render). */
-        var prepEl=document.createElement(isRealTask?'button':'span');
+        var prepEl=document.createElement(prepInteractive?'button':'span');
         prepEl.className='htb-vprep'+(allPrepDone?' done':'');
         prepEl.textContent='🧳 '+prepDone+'/'+prepAll.length;
-        if(isRealTask){
+        if(prepInteractive){
           prepEl.type='button';
           prepEl.title='준비물 체크리스트 열기';
           prepEl.addEventListener('click',function(e){ e.stopPropagation(); openPrepFromBlock(); });
@@ -11364,7 +11406,7 @@ function renderHomeTimeBlocks(){
       if (el._dragMoved) { el._dragMoved = false; return; }
       /* The "준비" window block is the timeline's path to the prep checklist —
          tapping it opens the checkable list (for real tasks that carry items). */
-      if (badge==='준비' && isRealTask && prepAll.length) { openPrepFromBlock(); return; }
+      if (badge==='준비' && prepInteractive && prepAll.length) { openPrepFromBlock(); return; }
       if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
     });
     el.addEventListener('mousedown', function(e){
@@ -11481,13 +11523,19 @@ function renderHomeTimeBlocks(){
     tts.forEach(function(tt){
       (tt.slots || []).forEach(function(s){
         if (s.day !== slotDay) return;
-        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표',travelMin:parseInt(s.travel,10)||0,prepItems:String(s.prep||'').split(/[,;]\s*/).map(function(x){return {text:x.trim(),done:false};}).filter(function(p){return p.text;})};
+        /* Build the slot's prep items once and overlay the per-date check state
+           so the same array is shared by both the class block and its 준비
+           window block (toggling one reflects in both). */
+        var ttSlotKey=tt.id+'|'+s.title+'|'+s.timeStart;
+        var ttPrep=String(s.prep||'').split(/[,;]\s*/).map(function(x){return {text:x.trim(),done:false};}).filter(function(p){return p.text;});
+        ttPrepApplyChecks(ttSlotKey, todayKey, ttPrep);
+        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표',travelMin:parseInt(s.travel,10)||0,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep};
         if (!tasks.some(function(t){return t.date===todayKey && t.text===s.title && t.timeStart===s.timeStart;})) {
           makeBlock(pseudo, mins(s.timeStart), mins(s.timeEnd), 'vblk-sched', 'TT');
         }
         if (s.prep) {
           var st=mins(s.timeStart), prepStart=Math.max(START*60, st-20);
-          makeBlock({text:s.title+' 준비',catId:'schedule',done:false}, prepStart, st, 'vblk-deadline', '준비', true);
+          makeBlock({text:s.title+' 준비',catId:'schedule',done:false,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep}, prepStart, st, 'vblk-deadline', '준비', true);
         }
         if (s.travel && parseInt(s.travel,10) > 0) {
           var st2=mins(s.timeStart), trStart=Math.max(START*60, st2-parseInt(s.travel,10));
@@ -16292,8 +16340,9 @@ function markTaskDateManualChange(task,nextDate){
     task._repeatMoved=true;
   }
 }
-function openPrepChecklistEditor(task,onSave){
+function openPrepChecklistEditor(task,onSave,opts){
   if(!task)return;
+  var checkOnly=!!(opts&&opts.checkOnly);
   var old=document.getElementById('prep-checklist-dialog');
   if(old)old.remove();
   task.prepItems=Array.isArray(task.prepItems)?task.prepItems:[];
@@ -16301,14 +16350,14 @@ function openPrepChecklistEditor(task,onSave){
   ov.className='overlay open';
   ov.id='prep-checklist-dialog';
   ov.innerHTML='<div class="modal" style="max-width:560px">'
-    +'<div class="modal-head"><div class="modal-title">준비물 체크리스트</div></div>'
+    +'<div class="modal-head"><div class="modal-title">'+(checkOnly?'준비물 체크':'준비물 체크리스트')+'</div></div>'
     +'<div class="modal-body">'
-    +  '<div class="field-help" style="margin-bottom:var(--sp-3)">수업이나 일정 전에 확인할 준비물을 체크해두세요.</div>'
+    +  '<div class="field-help" style="margin-bottom:var(--sp-3)">'+(checkOnly?'시간표에 등록된 준비물이에요. 챙긴 것을 체크하면 오늘 날짜로 저장돼요. (목록 수정은 시간표에서)':'수업이나 일정 전에 확인할 준비물을 체크해두세요.')+'</div>'
     +  '<div id="prep-check-list" style="display:flex;flex-direction:column;gap:var(--sp-2)"></div>'
-    +  '<div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4)">'
+    +  (checkOnly?'':'<div id="prep-add-row" style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4)">'
     +    '<input class="field-inp" id="prep-new-item" placeholder="예: 노트북, 충전기..." style="flex:1">'
     +    '<button type="button" class="btn btn-ghost" id="prep-add-item">추가</button>'
-    +  '</div>'
+    +  '</div>')
     +'</div>'
     +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="prep-close">닫기</button><button type="button" class="btn btn-primary" id="prep-save">저장</button></div>'
     +'</div>';
@@ -16322,6 +16371,21 @@ function openPrepChecklistEditor(task,onSave){
     }
     task.prepItems.forEach(function(p,idx){
       var row=document.createElement('div');
+      if(checkOnly){
+        /* Check-only rows: timetable prep is defined in the timetable, so here
+           you can only tick items off (no edit/add/delete). */
+        row.style.cssText='display:grid;grid-template-columns:auto 1fr;gap:var(--sp-3);align-items:center;padding:var(--sp-3);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md);cursor:pointer';
+        var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!p.done;
+        var lab=document.createElement('span');
+        lab.textContent=p.text;
+        function paint(){ lab.style.cssText='font-size:var(--text-sm)'+(p.done?';text-decoration:line-through;opacity:.55':''); }
+        paint();
+        cb.addEventListener('change',function(e){ p.done=e.target.checked; paint(); if(typeof onSave==='function'){try{onSave();}catch(_e){}} });
+        row.addEventListener('click',function(e){ if(e.target!==cb){ cb.checked=!cb.checked; cb.dispatchEvent(new Event('change')); } });
+        row.appendChild(cb); row.appendChild(lab);
+        list.appendChild(row);
+        return;
+      }
       row.style.cssText='display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-3);align-items:center;padding:var(--sp-3);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md)';
       row.innerHTML='<input type="checkbox" '+(p.done?'checked':'')+'><input class="field-inp" value="'+String(p.text||'').replace(/"/g,'&quot;')+'" style="min-height:34px"><button type="button" class="btn btn-ghost">삭제</button>';
       row.querySelector('input[type="checkbox"]').addEventListener('change',function(e){p.done=e.target.checked; if(typeof onSave==='function'){try{onSave();}catch(_e){}}});
@@ -16338,8 +16402,10 @@ function openPrepChecklistEditor(task,onSave){
     inp.value='';
     render();
   }
-  ov.querySelector('#prep-add-item').addEventListener('click',add);
-  ov.querySelector('#prep-new-item').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();add();}});
+  var _addBtn=ov.querySelector('#prep-add-item');
+  if(_addBtn)_addBtn.addEventListener('click',add);
+  var _newInp=ov.querySelector('#prep-new-item');
+  if(_newInp)_newInp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();add();}});
   function close(){ov.remove();}
   ov.querySelector('#prep-close').addEventListener('click',close);
   ov.querySelector('#prep-save').addEventListener('click',function(){
