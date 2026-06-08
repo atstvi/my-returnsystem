@@ -9,6 +9,50 @@ music, stickers, banners, etc.), deployed as a static site via GitHub Pages. **E
 CSS, and ~30k lines of JS — lives in `index.html`.** There is no build step, no bundler, no
 framework. `package.json` exists only to drive the test suite.
 
+The UI language is **Korean** (`<html lang="ko">`, title "Return"). It is a single-user personal
+tool: the author uses it daily on multiple devices (phone + desktop), which is why cross-device
+sync reliability is the dominant engineering concern in this repo.
+
+### Purpose & product concept ("맥락")
+"Return"(돌아오기) is a self-reflection / self-management hub built around the daily loop of
+**checking in → reflecting → acting → recharging**. It is not a generic todo app; the diary and
+"check-in" features are the heart of it, and most of the other modules feed into or off of them.
+The recurring goal across sessions has been: *make the daily data the user pours in never get
+lost, silently rolled back, or duplicated across devices* — hence the heavy storage/sync stack.
+
+### Main features (each is a "page", switched via `goPage()` / bottom nav)
+- **나 / Home** (`home`) — personal landing dashboard (banner, stickers, quick routine, status).
+- **인박스 / Inbox** (`inbox`) — quick capture; items flagged `needsAction` get triaged elsewhere.
+- **일기 / Diary** (`diary`) — the core. Each date is one entry with 7 fixed sections:
+  `SECTIONS = ['sleep','morning','resolution','timeline','accomplishment','night','recap']`
+  (수면 / 아침 감사 / 오늘의 다짐 / 타임라인 / 성취 / 저녁 감사 / 하루 회고). Diary is the
+  subsystem with **bidirectional Notion sync** (see below) and inline-image support.
+- **루틴 / Routine** (`routine`) — habits + bundles with daily logs and weekly achievement view.
+- **할일 / Tasks** (`tasks`) — tasks with categories, recurring rules, and one-way Google Calendar
+  push. Recurring/generated tasks are reconciled after sync to avoid cross-device duplicates.
+- **프로젝트 / Projects** (`projects`) — project CRUD.
+- **시간표 / Schedule** (`schedule`) — timetable/class slots (can generate tasks).
+- **취미 / Hobby** (`hobby`) — hobby tracker with its own banner.
+- **음악 / Music** (`music`) — playlists with a context-aware recommender (`musicRecommend()`
+  scores playlists against time-of-day, task/inbox load, and a Study/Rest/Routine mode).
+- **충전과 체크 / Recharge & Check** (`recharge`) — "check-in" (체크인): the user logs state, an
+  AI reads it back ("AI 읽기"), and "recharge" (충전) activities help reset. This closes the
+  reflective loop with the diary.
+- **기록 / Records** (`records`) — memos/insights (깨달음·메모), metrics & trends, emotion flow,
+  and the user's values (내 가치관).
+- **설정 / Settings** (`settings`) — theme/appearance (Theme Studio), profile, AI · API keys,
+  notifications, sync & integrations (Firebase/Notion/Google), and data management.
+
+### External integrations
+- **Firebase Auth + Firestore** — Google sign-in (`signInWithPopup`/`GoogleAuthProvider`) and
+  cross-device sync of nearly all app data.
+- **Notion** — bidirectional diary sync: the 7 diary sections map to Notion page properties +
+  page body, with a 3-way merge (see the sync section below).
+- **Google Calendar** — one-way push of tasks to calendar events.
+- **AI providers** — Claude (Anthropic) / OpenAI / Gemini API keys (user-supplied, kept
+  device-local) power the check-in "AI 읽기" read-backs and assistance. When adding/changing AI
+  features, default to the latest Claude models.
+
 ## Commands
 
 ```bash
