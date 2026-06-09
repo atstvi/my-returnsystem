@@ -630,7 +630,7 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 
 /* ── TIMEBLOCK CARD — vertical layout ── */
 .htb-body {
-  display:flex; padding:0 var(--sp-8) var(--sp-6); gap:0;
+  display:flex; align-items:flex-start; padding:0 var(--sp-8) var(--sp-6); gap:0;
   overflow-y:auto; max-height:320px; scrollbar-width:thin;
 }
 .htb-body::-webkit-scrollbar { width:3px; }
@@ -681,7 +681,11 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .htb-vblock {
   position:absolute; left:var(--sp-2); right:var(--sp-2);
   border-radius:var(--r-md); overflow:hidden; cursor:pointer;
-  touch-action:none;
+  /* Allow vertical touch scrolling to pass through to #htb-body — only the
+     dedicated resize handle (bottom edge, touch-action:none inline) captures
+     touch gestures for itself. Capturing touch on the whole block here was
+     hijacking scroll attempts into block-drag (the "trembling" bug). */
+  touch-action:pan-y;
   display:flex; align-items:flex-start;
   padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-6);
   gap:var(--sp-3); z-index:2;
@@ -696,6 +700,15 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   font-size:var(--text-2xs); color:currentColor; opacity:.72;
   white-space:nowrap; flex-shrink:0;
 }
+.htb-vprep {
+  font-size:var(--text-2xs); font-weight:var(--fw-semibold);
+  border:0; border-radius:var(--r-full); padding:1px var(--sp-2);
+  background:var(--w-50); color:var(--w-600);
+  white-space:nowrap; line-height:1.55; opacity:1;
+}
+button.htb-vprep { cursor:pointer; }
+button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
+.htb-vprep.done { background:var(--t-50); color:var(--t-600); }
 .htb-vbadge {
   font-family:var(--font-mono); font-size:var(--text-2xs); font-weight:var(--fw-bold);
   padding:1px var(--sp-2); border-radius:var(--r-sm);
@@ -2171,6 +2184,13 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .b-time{background:var(--p-50);color:var(--p-600)}
 .b-tt{background:var(--t-50);color:var(--t-600);opacity:.7}
 .b-prep{background:var(--w-50);color:var(--w-600)}
+.b-custom{background:var(--bg-raised);color:var(--fg-3);border:.5px solid var(--border)}
+/* Repeat edit scope picker */
+.repeat-scope-dialog .modal-foot{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-4) var(--sp-5) var(--sp-5)}
+.repeat-scope-btn{width:100%;text-align:left;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);border:.5px solid var(--border);background:var(--bg-card);cursor:pointer;font-size:var(--text-sm);color:var(--fg);display:flex;flex-direction:column;gap:2px;transition:background var(--t-snap)}
+.repeat-scope-btn:hover{background:var(--bg-hover)}
+.repeat-scope-btn strong{font-weight:var(--fw-semibold);color:var(--fg)}
+.repeat-scope-btn span{font-size:var(--text-xs);color:var(--fg-3)}
 .b-sub{background:var(--bg-raised);color:var(--fg-4);border:.5px solid var(--border)}
 
 .task-note{font-size:var(--text-xs);color:var(--fg-4);line-height:var(--lh-snug);margin-top:var(--sp-1)}
@@ -9258,10 +9278,10 @@ function renderHomeSituation(){
     var p=String(eventTime).split(':'); var when=new Date(); when.setHours(parseInt(p[0]||0), parseInt(p[1]||0), 0, 0);
     return {task:t, mins:Math.round((when-new Date())/60000)};
   }).filter(function(x){ return x.mins >= -15; }).sort(function(a,b){ return a.mins-b.mins; });
-  var prepMissing = upcomingToday.filter(function(x){ return (x.task.subs||x.task.prepItems||[]).some(function(p){ return p.text && !p.done; }); });
+  var prepMissing = upcomingToday.filter(function(x){ return taskPrepList(x.task).some(function(p){ return p.text && !p.done; }); });
   var top = urgent[0] || deadlines[0];
   function missingPrepCount(t){
-    return (t.prepItems||t.subs||[]).filter(function(p){return p&&p.text&&!p.done;}).length;
+    return taskPrepList(t).filter(function(p){return p&&p.text&&!p.done;}).length;
   }
   function travelMinutes(t){return parseInt(t.travelMin||t.moveMin||t.travelMinutes||0,10)||0;}
   function openTaskEntry(title, list){
@@ -9813,6 +9833,102 @@ function openConfirmDialog(title, message, onConfirm){
   ov.querySelector('#scd-cancel').addEventListener('click',close);
   ov.querySelector('#scd-ok').addEventListener('click',function(){if(typeof onConfirm==='function')onConfirm();close();});
 }
+/* openRepeatEditScopeDialog — shown when saving a recurring or TT task to
+   let the user pick how far the edit should reach.
+   isTt: true → 2 options (this only / all-slot); false → 3 options (this/future/all).
+   onScope(scope) called with: 'this' | 'future' | 'all' | 'tt-all' */
+function openRepeatEditScopeDialog(taskText, isTt, onScope){
+  var old=document.getElementById('repeat-scope-dialog');
+  if(old)old.remove();
+  var ov=document.createElement('div');
+  ov.className='overlay open repeat-scope-dialog';
+  ov.id='repeat-scope-dialog';
+  function close(){ov.remove();}
+  function pick(scope){return function(){close();if(typeof onScope==='function')onScope(scope);};}
+  var titleText=isTt?'반복 수업 편집 범위':'반복 할일 편집 범위';
+  var bodyText='"'+(taskText||'항목')+'"을(를) 어떻게 변경할까요?';
+  var btns='';
+  if(isTt){
+    btns='<button type="button" class="repeat-scope-btn" id="rsd-this"><strong>이 수업만</strong><span>이 날짜의 수업에만 적용. 시간표 원본은 유지.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-ttall"><strong>모든 수업 변경</strong><span>시간표 슬롯 자체를 수정. 앞으로 생성될 수업 전체에 적용.</span></button>';
+  }else{
+    btns='<button type="button" class="repeat-scope-btn" id="rsd-this"><strong>이 항목만</strong><span>이 날짜 항목에만 적용. 이 항목은 반복 규칙과 별개로 관리.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-future"><strong>이 항목부터 이후 항목</strong><span>이 날짜부터 앞으로의 반복 항목 모두에 적용.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-all"><strong>모든 항목</strong><span>과거·현재·미래 반복 항목 전체에 적용.</span></button>';
+  }
+  ov.innerHTML='<div class="modal" style="max-width:420px">'
+    +'<div class="modal-head"><div class="modal-title">'+tEscHtml(titleText)+'</div></div>'
+    +'<div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);margin-bottom:var(--sp-3)">'+tEscHtml(bodyText)+'</div></div>'
+    +'<div class="modal-foot">'+btns
+    +'<button type="button" class="btn btn-ghost" id="rsd-cancel" style="margin-top:var(--sp-1)">취소</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  ov.querySelector('#rsd-cancel').addEventListener('click',close);
+  ov.querySelector('#rsd-this').addEventListener('click',pick('this'));
+  if(isTt){
+    ov.querySelector('#rsd-ttall').addEventListener('click',pick('tt-all'));
+  }else{
+    ov.querySelector('#rsd-future').addEventListener('click',pick('future'));
+    ov.querySelector('#rsd-all').addEventListener('click',pick('all'));
+  }
+}
+
+/* Propagate content-field edits from one occurrence to sibling repeat occurrences.
+   mode 'future': only occurrenceDate >= fromDate; mode 'all': every occurrence.
+   Skips _occurrenceCustomized tasks (user explicitly detached them).
+   excludeId: the task being edited (already updated). */
+function propagateRepeatEdit(ruleId, fromDate, mode, fields, excludeId){
+  if(!ruleId)return;
+  tasks.forEach(function(t){
+    if(!t||t.id===excludeId)return;
+    if(t._occurrenceCustomized)return;
+    if(String(t.repeatRuleId||t._repeatId||'')!==String(ruleId))return;
+    if(mode==='future'&&fromDate){
+      var occ=t.occurrenceDate||t._repeatOccurrence||t.date||'';
+      if(occ&&occ<fromDate)return;
+    }
+    if(fields.text!==undefined)t.text=fields.text;
+    if(fields.note!==undefined)t.note=fields.note;
+    if(fields.priority!==undefined)t.priority=fields.priority;
+    if(fields.catId!==undefined)t.catId=fields.catId;
+    if(fields.timeStart!==undefined)t.timeStart=fields.timeStart;
+    if(fields.timeEnd!==undefined)t.timeEnd=fields.timeEnd;
+    if(fields.travelMin!==undefined)t.travelMin=fields.travelMin;
+    t.updatedAt=Date.now();
+  });
+}
+
+/* Update the timetable slot definition for "모든 수업 변경" scope.
+   Finds the slot via task._ttId + _ttSlotKey, writes the new values to
+   timetables_v1, then triggers reconciliation so all existing TT tasks
+   from this slot are updated to match. */
+function applyTtSlotEdit(task, fields){
+  if(!task||!task._isTt)return;
+  var ttId=String(task._ttId||'');
+  var slotKey=String(task._ttSlotKey||'');
+  if(!ttId&&!slotKey)return;
+  var tts;
+  try{tts=JSON.parse(localStorage.getItem('timetables_v1')||'[]');}catch(e){tts=[];}
+  var tt=tts.find(function(x){return String(x&&x.id||'')===ttId;});
+  if(!tt)return;
+  var parts=slotKey.split('|');
+  var origTitle=parts[1]||task.text;
+  var origTimeStart=parts[2]||task.timeStart;
+  var slot=(tt.slots||[]).find(function(s){
+    return s&&s.title===origTitle&&s.timeStart===origTimeStart;
+  });
+  if(!slot)return;
+  if(fields.text!==undefined)slot.title=fields.text;
+  if(fields.timeStart!==undefined)slot.timeStart=fields.timeStart;
+  if(fields.timeEnd!==undefined)slot.timeEnd=fields.timeEnd;
+  if(fields.travelMin!==undefined)slot.travel=String(parseInt(fields.travelMin,10)||0);
+  setReturnStorageItem('timetables_v1',JSON.stringify(tts));
+  if(typeof reconcileTimetableTasks==='function'){
+    try{reconcileTimetableTasks();}catch(e){}
+  }
+}
+
 var taskRules = loadTaskRules();
 function openHomeRuleModal(){
   openFormDialog('활성 규칙 추가', [
@@ -11072,10 +11188,15 @@ function scrollHomeTimeBlockToNow(force){
     setTimeout(function(){scrollHomeTimeBlockToNow(force);},80);
     return;
   }
-  var nextTop=Math.max(0,((mins-START*60)/60)*SLOT_H-body.clientHeight/3);
+  /* Round to an integer: scrollTop is reported as a rounded/clamped value, so
+     comparing against a float nextTop never matched and the old retry loop
+     re-scrolled every 80ms forever — once the body actually scrolls that loop
+     yanks the view back to "now" on every user scroll ("스크롤해도 현재
+     타임선으로 돌아옴"). Auto-scroll exactly once per load, then leave the user
+     alone. */
+  var nextTop=Math.round(Math.max(0,((mins-START*60)/60)*SLOT_H-body.clientHeight/3));
   body.scrollTop=nextTop;
-  if(body.scrollTop===nextTop || nextTop===0)body.dataset.autoScrolledFor=today;
-  else setTimeout(function(){scrollHomeTimeBlockToNow(force);},80);
+  body.dataset.autoScrolledFor=today;
 }
 document.getElementById('htb-now-btn') && document.getElementById('htb-now-btn').addEventListener('click',function(){scrollHomeTimeBlockToNow(true);});
 document.getElementById('modal-clear-time') && document.getElementById('modal-clear-time').addEventListener('click',function(e){
@@ -11095,6 +11216,33 @@ function getHomeTimeBlockPrefs(){
 }
 function saveHomeTimeBlockPrefs(pref){
   setReturnStorageItem('home_timeblock_prefs_v1',JSON.stringify(pref));
+}
+/* ── Timetable prep check state ──────────────────────────────────────────────
+   시간표(TT) 슬롯의 준비물은 timetable 설정의 s.prep 문자열에서 매 렌더마다
+   재생성되므로(done:false), 체크 상태를 그 자리에 둘 수 없다. 체크 여부를
+   날짜+슬롯별로 별도 저장해 매일 "오늘 이 수업 준비물 챙겼나"를 체크할 수 있게
+   한다. 14일이 지난 날짜는 정리한다. */
+function ttPrepGetStore(){ try{return JSON.parse(localStorage.getItem('tt_prep_checks_v1')||'{}')||{};}catch(e){return {};} }
+function ttPrepApplyChecks(slotKey,dateKey,items){
+  var store=ttPrepGetStore();
+  var slot=(store[dateKey]||{})[slotKey]||{};
+  (items||[]).forEach(function(p){ if(p&&p.text&&slot[p.text]) p.done=true; });
+  return items;
+}
+function ttPrepPersistChecks(slotKey,dateKey,items){
+  if(!slotKey||!dateKey)return;
+  var store=ttPrepGetStore();
+  var day=store[dateKey]||(store[dateKey]={});
+  var slot={};
+  (items||[]).forEach(function(p){ if(p&&p.text&&p.done) slot[p.text]=1; });
+  if(Object.keys(slot).length) day[slotKey]=slot; else delete day[slotKey];
+  if(!Object.keys(day).length) delete store[dateKey];
+  try{
+    var cutoff=new Date(); cutoff.setDate(cutoff.getDate()-14);
+    var cut=cutoff.getFullYear()+'-'+('0'+(cutoff.getMonth()+1)).slice(-2)+'-'+('0'+cutoff.getDate()).slice(-2);
+    Object.keys(store).forEach(function(d){ if(d<cut && d!==dateKey) delete store[d]; });
+  }catch(_e){}
+  setReturnStorageItem('tt_prep_checks_v1',JSON.stringify(store));
 }
 function openHomeTimeBlockPrefs(){
   var pref=getHomeTimeBlockPrefs();
@@ -11145,6 +11293,15 @@ function renderHomeTimeBlocks(){
     slot.setAttribute('data-hour',hour);
     slots.appendChild(slot);
   }
+  /* The body is a horizontal flexbox (axis | slots). With the default
+     align-items:stretch the children were clamped to the body's max-height,
+     so the 24h content never exceeded the viewport and overflow-y produced no
+     scrollbar — the "타임블록 스크롤이 안 됨" bug (reproduced on desktop AND
+     mobile). Pin both columns to the real timeline height so the body
+     overflows and scrolls. */
+  var _htbTotalH=(END-START)*SLOT_H;
+  if(axis)axis.style.height=_htbTotalH+'px';
+  slots.style.height=_htbTotalH+'px';
   var now=new Date(), nowMins=now.getHours()*60+now.getMinutes();
   if(nowMins>=START*60 && nowMins<=END*60){
     /* Reuse the htb-now-line style so the line actually renders. The earlier
@@ -11286,16 +11443,54 @@ function renderHomeTimeBlocks(){
     ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); });
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
-    var metaBits=[];
     var travelInfo=parseInt(t.travelMin,10)||0;
-    var prepOpen=(t.prepItems || t.subs || []).filter(function(p){return p&&p.text&&!p.done;}).length;
-    if(travelInfo>0)metaBits.push('이동 '+travelInfo+'분');
-    if(prepOpen>0)metaBits.push('준비 '+prepOpen);
+    var prepAll=taskPrepList(t);
+    var prepDone=prepAll.filter(function(p){return p.done;}).length;
+    var isRealTask=!!(t.id && !String(t.id).startsWith('tt_'));
+    var isTtPrep=!!t._ttSlotKey;
+    var prepInteractive=isRealTask||isTtPrep;
+    function openPrepFromBlock(){
+      if(typeof openPrepChecklistEditor!=='function')return;
+      function afterRender(){ try{renderHomeTimeBlocks();}catch(_e){} if(typeof renderHomeTasks==='function'){try{renderHomeTasks();}catch(_e){}} }
+      if(isTtPrep){
+        /* 시간표 준비물 — check-only; persisted per date+slot, not on the task. */
+        openPrepChecklistEditor(t,function(){
+          ttPrepPersistChecks(t._ttSlotKey, t._ttDate||(typeof homeTodayKey==='function'?homeTodayKey():''), t.prepItems||[]);
+          afterRender();
+        },{checkOnly:true});
+      }else{
+        openPrepChecklistEditor(t,function(){
+          if(typeof saveTaskData==='function')saveTaskData();
+          afterRender();
+        });
+      }
+    }
     var metaEl=null;
-    if(metaBits.length){
+    if(travelInfo>0 || prepAll.length){
       metaEl=document.createElement('span');
       metaEl.className='htb-vmeta';
-      metaEl.textContent=metaBits.join(' · ');
+      metaEl.style.cssText='display:inline-flex;gap:var(--sp-2);align-items:center';
+      if(travelInfo>0){
+        var tvEl=document.createElement('span');
+        tvEl.textContent='이동 '+travelInfo+'분';
+        metaEl.appendChild(tvEl);
+      }
+      if(prepAll.length){
+        var allPrepDone=prepDone>=prepAll.length;
+        /* Clickable 준비물 pill — opens the checklist directly from the
+           timeblock so prep can be checked/confirmed without first opening the
+           task. Only interactive for real tasks (시간표-derived prep lives in
+           the timetable settings and is regenerated each render). */
+        var prepEl=document.createElement(prepInteractive?'button':'span');
+        prepEl.className='htb-vprep'+(allPrepDone?' done':'');
+        prepEl.textContent='🧳 '+prepDone+'/'+prepAll.length;
+        if(prepInteractive){
+          prepEl.type='button';
+          prepEl.title='준비물 체크리스트 열기';
+          prepEl.addEventListener('click',function(e){ e.stopPropagation(); openPrepFromBlock(); });
+        }
+        metaEl.appendChild(prepEl);
+      }
     }
     var time=document.createElement('span');time.className='htb-vtime';time.textContent=fmt(sm)+'-'+fmt(em);
     var clearTime=document.createElement('button');
@@ -11312,10 +11507,13 @@ function renderHomeTimeBlocks(){
       renderHomeTimeBlocks();
     });
     var resize=document.createElement('div');
-    resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center';
+    resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;touch-action:none';
     resize.innerHTML='<span style="width:24px;height:2px;border-radius:var(--r-full);background:currentColor;opacity:.35"></span>';
     el.addEventListener('click', function(){
       if (el._dragMoved) { el._dragMoved = false; return; }
+      /* The "준비" window block is the timeline's path to the prep checklist —
+         tapping it opens the checkable list (for real tasks that carry items). */
+      if (badge==='준비' && prepInteractive && prepAll.length) { openPrepFromBlock(); return; }
       if (typeof tasksOpenModal === 'function') tasksOpenModal(t);
     });
     el.addEventListener('mousedown', function(e){
@@ -11358,38 +11556,12 @@ function renderHomeTimeBlocks(){
       function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);if(typeof saveTaskData==='function')saveTaskData();}
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
-    el.addEventListener('pointerdown', function(e){
-      if (e.pointerType !== 'touch' || e.target.closest('button') || resize.contains(e.target) || virtual) return;
-      e.preventDefault();
-      var y0=e.clientY, sm0=sm, dur=em-sm, moved=false, lastX=e.clientX, lastY=e.clientY;
-      el.classList.add('htb-dragging');
-      try{el.setPointerCapture(e.pointerId);}catch(_e){}
-      function mv(ev){
-        lastX=ev.clientX;lastY=ev.clientY;
-        var ns=Math.round((sm0+(ev.clientY-y0)/SLOT_H*60)/5)*5;
-        ns=Math.max(START*60,Math.min(ns,END*60-dur));
-        if (Math.abs(ns-sm0) >= 5) moved=true;
-        sm=ns; em=ns+dur;
-        el.style.top=((sm/60-START)*SLOT_H)+'px';
-        time.textContent=fmt(sm)+'-'+fmt(em);
-        if(t.id && !String(t.id).startsWith('tt_')){ t.timeStart=fmt(sm); t.timeEnd=fmt(em); }
-      }
-      function up(ev){
-        el.removeEventListener('pointermove',mv);
-        el.removeEventListener('pointerup',up);
-        el.removeEventListener('pointercancel',up);
-        el.classList.remove('htb-dragging');
-        el._dragMoved=moved;
-        try{el.releasePointerCapture(ev.pointerId);}catch(_e){}
-        if(moved&&pointInAllDay(lastX,lastY)&&t.id&&!String(t.id).startsWith('tt_')){
-          t.timeStart='';t.timeEnd='';
-        }
-        if(moved && typeof saveTaskData==='function')saveTaskData();
-      }
-      el.addEventListener('pointermove',mv);
-      el.addEventListener('pointerup',up);
-      el.addEventListener('pointercancel',up);
-    });
+    /* No whole-block touch-drag-to-move: capturing touch on the entire block
+       (which covers most of the visible scroll surface) fought the user's
+       vertical scroll gesture on #htb-body — the block would jump in 5-minute
+       increments under the finger ("trembling") instead of the list scrolling.
+       Touch users can still retime via the task-edit modal; the resize handle
+       below remains a small, dedicated touch-drag target for duration only. */
     resize.addEventListener('pointerdown', function(e){
       if (e.pointerType !== 'touch') return;
       e.preventDefault(); e.stopPropagation();
@@ -11432,13 +11604,19 @@ function renderHomeTimeBlocks(){
     tts.forEach(function(tt){
       (tt.slots || []).forEach(function(s){
         if (s.day !== slotDay) return;
-        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표',travelMin:parseInt(s.travel,10)||0,prepItems:String(s.prep||'').split(/[,;]\s*/).map(function(x){return {text:x.trim(),done:false};}).filter(function(p){return p.text;})};
+        /* Build the slot's prep items once and overlay the per-date check state
+           so the same array is shared by both the class block and its 준비
+           window block (toggling one reflects in both). */
+        var ttSlotKey=tt.id+'|'+s.title+'|'+s.timeStart;
+        var ttPrep=String(s.prep||'').split(/[,;]\s*/).map(function(x){return {text:x.trim(),done:false};}).filter(function(p){return p.text;});
+        ttPrepApplyChecks(ttSlotKey, todayKey, ttPrep);
+        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표',travelMin:parseInt(s.travel,10)||0,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep};
         if (!tasks.some(function(t){return t.date===todayKey && t.text===s.title && t.timeStart===s.timeStart;})) {
           makeBlock(pseudo, mins(s.timeStart), mins(s.timeEnd), 'vblk-sched', 'TT');
         }
         if (s.prep) {
           var st=mins(s.timeStart), prepStart=Math.max(START*60, st-20);
-          makeBlock({text:s.title+' 준비',catId:'schedule',done:false}, prepStart, st, 'vblk-deadline', '준비', true);
+          makeBlock({text:s.title+' 준비',catId:'schedule',done:false,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep}, prepStart, st, 'vblk-deadline', '준비', true);
         }
         if (s.travel && parseInt(s.travel,10) > 0) {
           var st2=mins(s.timeStart), trStart=Math.max(START*60, st2-parseInt(s.travel,10));
@@ -11459,7 +11637,7 @@ function renderHomeTimeBlocks(){
     if (travelMin > 0) {
       makeBlock({text:t.text+' 이동',catId:t.catId,done:false,_travelOnly:true,travelMin:travelMin}, sm - travelMin, sm, 'vblk-deadline', '이동', true);
     }
-    if ((t.prepMin && t.prepMin > 0) || (t.prepItems || t.subs || []).some(function(p){return p.text && !p.done;})) {
+    if ((t.prepMin && t.prepMin > 0) || taskPrepList(t).some(function(p){return p.text && !p.done;})) {
       makeBlock(t, sm - (t.prepMin || 20), sm, 'vblk-deadline', '준비', true);
     }
     makeBlock(t, sm, em, (t.catId === 'schedule' || t._isTt ? 'vblk-sched' : 'vblk-task'), t.deadlineDate && typeof dlText==='function' ? dlText(t.deadlineDate) : '');
@@ -14570,6 +14748,9 @@ function ensureTimetableSlotIds(ttList){
   });
   return changed;
 }
+function stripPrepEmoji(text){
+  return String(text||'').replace(/^🎒\s*/,'');
+}
 function mergeGeneratedChecklist(existing, expected){
   if(!Array.isArray(expected))return expected;
   var old=Array.isArray(existing)?existing:[];
@@ -14577,13 +14758,24 @@ function mergeGeneratedChecklist(existing, expected){
   old.forEach(function(item){
     if(!item)return;
     if(item.id)byId[item.id]=item;
-    if(item.text)byText[String(item.text).replace(/^\?럲\s*/,'')]=item;
+    if(item.text)byText[stripPrepEmoji(item.text)]=item;
   });
   return expected.map(function(item){
-    var plain=item&&item.text?String(item.text).replace(/^\?럲\s*/,''):'';
+    var plain=item&&item.text?stripPrepEmoji(item.text):'';
     var keep=(item&&item.id&&byId[item.id])||(plain&&byText[plain]);
     return Object.assign({},item,{done:keep?!!keep.done:!!item.done});
   });
+}
+/* Resolve the canonical prep-item list for a task. `prepItems` is the modern
+   field; `subs` is legacy/duplicated (timetable-generated tasks historically
+   mirrored prep into `subs` with a 🎒 prefix). Prefer whichever side actually
+   has entries — an empty `prepItems` array must not mask non-empty `subs`. */
+function taskPrepList(t){
+  if(!t)return [];
+  var pi=Array.isArray(t.prepItems)?t.prepItems.filter(function(p){return p&&p.text;}):[];
+  if(pi.length)return pi;
+  var su=Array.isArray(t.subs)?t.subs:[];
+  return su.filter(function(p){return p&&p.text;}).map(function(p){return {text:stripPrepEmoji(p.text),done:!!p.done};});
 }
 function migrateGcalEventMetaKey(oldKey,newKey){
   if(!oldKey||!newKey||oldKey===newKey)return;
@@ -14659,7 +14851,7 @@ function buildTimetableExpectedTasks(ttList){
           generationKey:key,
           sourceType:'timetable',
           occurrenceDate:dateKey,
-          subs:prep.map(function(p){return {id:p.id,text:'🎒 '+p.text,done:!!p.done};}),
+          subs:[],
           prepItems:prep,
           travelMin:parseInt(s.travel,10)||0
         };
@@ -14733,13 +14925,20 @@ function reconcileTimetableTasks(opts){
         if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
       });
       if(exp.prepItems){
-        var mergedPrep=mergeGeneratedChecklist(t.prepItems,exp.prepItems);
+        /* `subs` used to duplicate prep items (🎒-prefixed, separate `done`
+           state). Fold any done state the user already set there into the
+           canonical `prepItems` before retiring `subs`, so checks made via
+           either UI survive this migration. */
+        var legacyPrepDone={};
+        (Array.isArray(t.subs)?t.subs:[]).forEach(function(p){
+          if(p&&p.done&&p.text)legacyPrepDone[stripPrepEmoji(p.text)]=true;
+        });
+        var mergedPrep=mergeGeneratedChecklist(t.prepItems,exp.prepItems).map(function(p){
+          return legacyPrepDone[p.text]?Object.assign({},p,{done:true}):p;
+        });
         if(JSON.stringify(t.prepItems||[])!==JSON.stringify(mergedPrep)){t.prepItems=mergedPrep;changed++;}
       }
-      if(exp.subs){
-        var mergedSubs=mergeGeneratedChecklist(t.subs,exp.subs);
-        if(JSON.stringify(t.subs||[])!==JSON.stringify(mergedSubs)){t.subs=mergedSubs;changed++;}
-      }
+      if(Array.isArray(t.subs)&&t.subs.length){t.subs=[];changed++;}
       byKey[key]=t;
       next.push(t);
       return;
@@ -15919,6 +16118,7 @@ function buildTaskEl(task){
   if(task._isTt)mkBadge('b-tt','📚 시간표');
   if(task._ruleGen)mkBadge('b-rule','⚡ 규칙');
   else if(task._repeat||task._ruleId)mkBadge('b-repeat','↻');
+  if(task._occurrenceCustomized)mkBadge('b-custom','✎ 개별');
   var pu=(task.prepItems||[]).filter(function(p){return p.text&&!p.done;});
   if(pu.length)mkBadge('b-prep','🧳 '+pu.length);
   if(task.subs&&task.subs.length){var ds=task.subs.filter(function(s){return s.done;}).length;mkBadge('b-sub',ds+'/'+task.subs.length);}
@@ -15940,6 +16140,30 @@ function buildTaskEl(task){
       subsEl.appendChild(sr);
     });
     body.appendChild(subsEl);
+  }
+
+  /* 준비물 — directly checkable from the list, writing through to the same
+     task.prepItems array the task-edit modal reads (setTaskPrepSummary keeps
+     the modal's "N/M 체크" summary in sync if it happens to be open). */
+  if(task.prepItems&&task.prepItems.length){
+    var prepListEl=document.createElement('div');prepListEl.className='task-subs task-prep-list';
+    task.prepItems.forEach(function(pp){
+      var pr=document.createElement('div');pr.className='sub-item'+(pp.done?' done':'');
+      var pc=document.createElement('div');pc.className='sub-check'+(pp.done?' done':'');
+      var pt=document.createElement('span');pt.className='sub-text';pt.textContent='🧳 '+pp.text;
+      pr.appendChild(pc);pr.appendChild(pt);
+      pr.addEventListener('click',function(e){
+        e.stopPropagation();
+        pp.done=!pp.done;
+        pc.classList.toggle('done',pp.done);
+        pr.classList.toggle('done',pp.done);
+        if(typeof saveTaskData==='function')saveTaskData();
+        if(typeof setTaskPrepSummary==='function')setTaskPrepSummary(task.prepItems);
+        renderCal();
+      });
+      prepListEl.appendChild(pr);
+    });
+    body.appendChild(prepListEl);
   }
 
   el.appendChild(selCk);el.appendChild(dh);el.appendChild(ckWrap);el.appendChild(body);
@@ -16243,8 +16467,9 @@ function markTaskDateManualChange(task,nextDate){
     task._repeatMoved=true;
   }
 }
-function openPrepChecklistEditor(task){
+function openPrepChecklistEditor(task,onSave,opts){
   if(!task)return;
+  var checkOnly=!!(opts&&opts.checkOnly);
   var old=document.getElementById('prep-checklist-dialog');
   if(old)old.remove();
   task.prepItems=Array.isArray(task.prepItems)?task.prepItems:[];
@@ -16252,14 +16477,14 @@ function openPrepChecklistEditor(task){
   ov.className='overlay open';
   ov.id='prep-checklist-dialog';
   ov.innerHTML='<div class="modal" style="max-width:560px">'
-    +'<div class="modal-head"><div class="modal-title">준비물 체크리스트</div></div>'
+    +'<div class="modal-head"><div class="modal-title">'+(checkOnly?'준비물 체크':'준비물 체크리스트')+'</div></div>'
     +'<div class="modal-body">'
-    +  '<div class="field-help" style="margin-bottom:var(--sp-3)">수업이나 일정 전에 확인할 준비물을 체크해두세요.</div>'
+    +  '<div class="field-help" style="margin-bottom:var(--sp-3)">'+(checkOnly?'시간표에 등록된 준비물이에요. 챙긴 것을 체크하면 오늘 날짜로 저장돼요. (목록 수정은 시간표에서)':'수업이나 일정 전에 확인할 준비물을 체크해두세요.')+'</div>'
     +  '<div id="prep-check-list" style="display:flex;flex-direction:column;gap:var(--sp-2)"></div>'
-    +  '<div style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4)">'
+    +  (checkOnly?'':'<div id="prep-add-row" style="display:flex;gap:var(--sp-2);margin-top:var(--sp-4)">'
     +    '<input class="field-inp" id="prep-new-item" placeholder="예: 노트북, 충전기..." style="flex:1">'
     +    '<button type="button" class="btn btn-ghost" id="prep-add-item">추가</button>'
-    +  '</div>'
+    +  '</div>')
     +'</div>'
     +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="prep-close">닫기</button><button type="button" class="btn btn-primary" id="prep-save">저장</button></div>'
     +'</div>';
@@ -16273,9 +16498,24 @@ function openPrepChecklistEditor(task){
     }
     task.prepItems.forEach(function(p,idx){
       var row=document.createElement('div');
+      if(checkOnly){
+        /* Check-only rows: timetable prep is defined in the timetable, so here
+           you can only tick items off (no edit/add/delete). */
+        row.style.cssText='display:grid;grid-template-columns:auto 1fr;gap:var(--sp-3);align-items:center;padding:var(--sp-3);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md);cursor:pointer';
+        var cb=document.createElement('input'); cb.type='checkbox'; cb.checked=!!p.done;
+        var lab=document.createElement('span');
+        lab.textContent=p.text;
+        function paint(){ lab.style.cssText='font-size:var(--text-sm)'+(p.done?';text-decoration:line-through;opacity:.55':''); }
+        paint();
+        cb.addEventListener('change',function(e){ p.done=e.target.checked; paint(); if(typeof onSave==='function'){try{onSave();}catch(_e){}} });
+        row.addEventListener('click',function(e){ if(e.target!==cb){ cb.checked=!cb.checked; cb.dispatchEvent(new Event('change')); } });
+        row.appendChild(cb); row.appendChild(lab);
+        list.appendChild(row);
+        return;
+      }
       row.style.cssText='display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-3);align-items:center;padding:var(--sp-3);background:var(--bg-raised);border:.5px solid var(--border);border-radius:var(--r-md)';
       row.innerHTML='<input type="checkbox" '+(p.done?'checked':'')+'><input class="field-inp" value="'+String(p.text||'').replace(/"/g,'&quot;')+'" style="min-height:34px"><button type="button" class="btn btn-ghost">삭제</button>';
-      row.querySelector('input[type="checkbox"]').addEventListener('change',function(e){p.done=e.target.checked;});
+      row.querySelector('input[type="checkbox"]').addEventListener('change',function(e){p.done=e.target.checked; if(typeof onSave==='function'){try{onSave();}catch(_e){}}});
       row.querySelector('input.field-inp').addEventListener('input',function(e){p.text=e.target.value;});
       row.querySelector('button').addEventListener('click',function(){task.prepItems.splice(idx,1);render();});
       list.appendChild(row);
@@ -16289,13 +16529,16 @@ function openPrepChecklistEditor(task){
     inp.value='';
     render();
   }
-  ov.querySelector('#prep-add-item').addEventListener('click',add);
-  ov.querySelector('#prep-new-item').addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();add();}});
+  var _addBtn=ov.querySelector('#prep-add-item');
+  if(_addBtn)_addBtn.addEventListener('click',add);
+  var _newInp=ov.querySelector('#prep-new-item');
+  if(_newInp)_newInp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();add();}});
   function close(){ov.remove();}
   ov.querySelector('#prep-close').addEventListener('click',close);
   ov.querySelector('#prep-save').addEventListener('click',function(){
     task.prepItems=task.prepItems.map(function(p){return {text:String(p.text||'').trim(),done:!!p.done};}).filter(function(p){return p.text;});
     setTaskPrepSummary(task.prepItems);
+    if(typeof onSave==='function'){try{onSave();}catch(_e){}}
     close();
   });
   ov.addEventListener('click',function(e){if(e.target===ov)close();});
@@ -16451,22 +16694,55 @@ function tasksOpenModal(task){
 function saveModal(){
   var task=tasks.find(function(t){return t.id===editId;});
   if(task){
-    task.text=document.getElementById('modalTitle').value.trim()||task.text;
-    task.note=document.getElementById('modalMemo').value;
-    task.priority=editPrio;
-    var nextTaskDate=document.getElementById('modal-date-input').value||task.date||selDate||TK;
-    markTaskDateManualChange(task,nextTaskDate);
-    task.date=nextTaskDate;
-    task.deadlineDate=document.getElementById('modal-dl-input').value||'';
-    task.deadlineTime=document.getElementById('modal-dl-time-input').value||'';
-    task.catId=document.getElementById('modal-cat-sel').value;
-    var projectSel=document.getElementById('modal-project-sel');
-    if(projectSel&&projectSel.value) task.projectId=projectSel.value;
-    else delete task.projectId;
-    task.timeStart=document.getElementById('modal-ts').value;
-    task.timeEnd=document.getElementById('modal-te').value;
-    task.travelMin=parseInt(task.travelMin,10)||0;
-    task.updatedAt=Date.now();
+    /* Recurring tasks (repeat rule or timetable): show scope picker first so
+       the user decides how far the edit should reach before we commit.
+       Detect off the pre-edit SNAPSHOT (not the live task) so first-time
+       "turn repeat on" edits don't trigger the picker, and so every existing
+       recurring shape is caught — including legacy `_repeat:true` tasks that
+       never got a `_repeatId`. */
+    var snap0=taskModalSnapshot||task;
+    function _looksRepeat(o){
+      return !!(o&&(o._repeatId||o.repeatRuleId||o.sourceType==='repeat'||o._repeatOccurrence||(o._repeat&&(o._repeat===true||o._repeat.kind))));
+    }
+    var isTt=!!task._isTt;
+    var isRepeat=_looksRepeat(snap0);
+    repeatDebugLog('scope-picker:saveModal',{taskId:task.id,isTt:isTt,isRepeat:isRepeat,_repeatId:task._repeatId,repeatRuleId:task.repeatRuleId,_repeat:task._repeat,_isTt:task._isTt});
+    if(isRepeat||isTt){
+      /* Capture all form values into a snapshot object NOW (before any scope
+         picker interaction, while the form DOM is guaranteed to be available).
+         The picker callback closes the task modal, so we must read these upfront. */
+      var snap={
+        text:document.getElementById('modalTitle').value.trim()||task.text,
+        note:document.getElementById('modalMemo').value,
+        priority:editPrio,
+        date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
+        deadlineDate:document.getElementById('modal-dl-input').value||'',
+        deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+        catId:document.getElementById('modal-cat-sel').value,
+        projectId:(document.getElementById('modal-project-sel')||{}).value||null,
+        timeStart:document.getElementById('modal-ts').value,
+        timeEnd:document.getElementById('modal-te').value,
+        travelMin:parseInt(task.travelMin,10)||0
+      };
+      openRepeatEditScopeDialog(snap.text,isTt,function(scope){
+        _applyRepeatScopeEdit(task,snap,scope);
+      });
+      return; /* Modal stays open while picker is shown; _applyRepeatScopeEdit closes it. */
+    }
+    /* Non-repeat task: apply directly. */
+    _writeTaskFromModal(task,{
+      text:document.getElementById('modalTitle').value.trim()||task.text,
+      note:document.getElementById('modalMemo').value,
+      priority:editPrio,
+      date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
+      deadlineDate:document.getElementById('modal-dl-input').value||'',
+      deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+      catId:document.getElementById('modal-cat-sel').value,
+      projectId:(document.getElementById('modal-project-sel')||{}).value||null,
+      timeStart:document.getElementById('modal-ts').value,
+      timeEnd:document.getElementById('modal-te').value,
+      travelMin:parseInt(task.travelMin,10)||0
+    });
     syncTaskRepeatItem(task);
     saveTaskData();
     if(typeof renderProjects==='function')renderProjects();
@@ -16492,6 +16768,81 @@ function saveModal(){
     saveTaskData();
     if(typeof renderProjects==='function')renderProjects();
   }
+  taskModalSnapshot=null;
+  taskModalDraft=null;
+  tasksCloseModal();renderList();renderCal();
+}
+
+/* Write modal field values (already-captured in `fields`) onto a task object. */
+function _writeTaskFromModal(task,fields){
+  task.text=fields.text;
+  task.note=fields.note;
+  task.priority=fields.priority;
+  markTaskDateManualChange(task,fields.date);
+  task.date=fields.date;
+  task.deadlineDate=fields.deadlineDate;
+  task.deadlineTime=fields.deadlineTime;
+  task.catId=fields.catId;
+  if(fields.projectId) task.projectId=fields.projectId; else delete task.projectId;
+  task.timeStart=fields.timeStart;
+  task.timeEnd=fields.timeEnd;
+  task.travelMin=fields.travelMin;
+  task.updatedAt=Date.now();
+}
+
+/* Called after the scope picker choice; writes the edit to the task and
+   propagates it to sibling occurrences according to `scope`. */
+function _applyRepeatScopeEdit(task,fields,scope){
+  var ruleId=String(task.repeatRuleId||task._repeatId||'');
+  var occDate=task.occurrenceDate||task._repeatOccurrence||task.date||'';
+
+  _writeTaskFromModal(task,fields);
+
+  if(scope==='this'){
+    /* Keep linked to the rule but mark this occurrence as user-customized
+       so "이후" / "전체" propagations skip it, and reconcile preserves it. */
+    if(task._isTt){
+      task.userModifiedDate=true; /* prevent reconcileTimetableTasks from reverting fields */
+    }else{
+      task._occurrenceCustomized=true;
+      task.userModifiedDate=true; /* prevent repairGeneratedTasks from reverting date */
+    }
+    /* Do NOT call syncTaskRepeatItem — the underlying rule stays unchanged. */
+  }else if(scope==='future'){
+    /* Update the rule itself (via syncTaskRepeatItem) so newly generated
+       occurrences from this date forward use the new values. Then apply the
+       same content fields to already-existing sibling occurrences.
+       Re-read ruleId after sync — legacy `_repeat:true` tasks only get a
+       `_repeatId` assigned inside syncTaskRepeatItem. */
+    syncTaskRepeatItem(task);
+    ruleId=String(task.repeatRuleId||task._repeatId||ruleId);
+    propagateRepeatEdit(ruleId,occDate,'future',{
+      text:fields.text,note:fields.note,priority:fields.priority,
+      catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
+      travelMin:fields.travelMin
+    },task.id);
+  }else if(scope==='all'){
+    /* Update rule + every existing occurrence regardless of date. */
+    syncTaskRepeatItem(task);
+    ruleId=String(task.repeatRuleId||task._repeatId||ruleId);
+    propagateRepeatEdit(ruleId,null,'all',{
+      text:fields.text,note:fields.note,priority:fields.priority,
+      catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
+      travelMin:fields.travelMin
+    },task.id);
+  }else if(scope==='tt-all'){
+    /* Modify the timetable slot definition; reconcile will propagate to all
+       existing TT tasks from this slot. Clearing userModifiedDate lets the
+       reconciler re-apply the new slot values to this task too. */
+    task.userModifiedDate=false;
+    applyTtSlotEdit(task,{
+      text:fields.text,timeStart:fields.timeStart,
+      timeEnd:fields.timeEnd,travelMin:fields.travelMin
+    });
+  }
+
+  saveTaskData();
+  if(typeof renderProjects==='function')renderProjects();
   taskModalSnapshot=null;
   taskModalDraft=null;
   tasksCloseModal();renderList();renderCal();
@@ -16713,6 +17064,9 @@ function bindTaskModalRows(task){
   };
 }
 function tasksCloseModal(){
+  /* Remove any open scope picker so it doesn't linger after cancel/Escape. */
+  var scopePicker=document.getElementById('repeat-scope-dialog');
+  if(scopePicker)scopePicker.remove();
   if(taskModalSnapshot&&editId!=null){
     var idx=tasks.findIndex(function(t){return String(t.id)===String(editId);});
     if(idx>=0)tasks[idx]=taskModalSnapshot;
@@ -20261,11 +20615,11 @@ function generateTasks() {
 
     tt.slots.forEach(function(s) {
       if (s.day !== slotDay) return;
-      var subs = [];
+      var prepItems = [];
       if (s.prep) {
         s.prep.split(/[,;]\s*/).forEach(function(item) {
           var tx = item.trim();
-          if (tx) subs.push({ id:'p_'+Date.now()+'_'+Math.floor(Math.random()*999), text:'🎒 '+tx, done:false });
+          if (tx) prepItems.push({ id:'p_'+Date.now()+'_'+Math.floor(Math.random()*999), text:tx, done:false });
         });
       }
       toCreate.push({
@@ -20275,8 +20629,8 @@ function generateTasks() {
         priority:'', done:false,
         note:ttNote + (s.prep ? '\n🎒 준비물: ' + s.prep : ''),
         _isTt:true,
-        subs:subs,
-        prepItems:subs.map(function(p){return {id:p.id,text:String(p.text||'').replace(/^🎒\s*/,''),done:!!p.done};}),
+        subs:[],
+        prepItems:prepItems,
         travelMin:parseInt(s.travel,10)||0,
         createdAt:Date.now(), updatedAt:Date.now()
       });
