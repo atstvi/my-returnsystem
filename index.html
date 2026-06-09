@@ -30746,24 +30746,37 @@ function themeStudioEnsureMediaFallbacks(){
        populated, themeStudioApply is re-called, and icons render without waiting
        for an IDB async round-trip. */
     function fallbackFor(ref){var a=list.find(function(x){return x&&x.url===ref;});return (a&&(a.syncDataUrl||a.dataUrl))||mediaSyncResolve(ref)||'';}
+    /* The manifest (return_media_sync_v1) is the deduped cross-device channel.
+       When it holds an image's bytes, an inline copy in the theme-state blob is
+       pure redundancy (rendering falls back to mediaSyncResolve — see
+       themeStudioMediaFallbackForUrl / themeStudioApplyIcons). So: only keep an
+       inline copy for images the manifest does NOT have (too large >220KB, or
+       evicted by the total cap); strip inline copies the manifest already holds. */
+    function manifestHas(ref){return isReturnMediaRef(ref)&&!!mediaSyncResolve(ref);}
     themeStudioEnsureIconsState(cur);
     Object.keys(cur.icons||{}).forEach(function(k){
-      var v=cur.icons[k], fb=fallbackFor(v);
+      var v=cur.icons[k];
+      if(manifestHas(v)){ if(cur.iconFallbacks&&cur.iconFallbacks[k]){delete cur.iconFallbacks[k];dirty=true;} return; }
+      var fb=fallbackFor(v);
       if(fb&&(!cur.iconFallbacks||!cur.iconFallbacks[k])){cur.iconFallbacks=cur.iconFallbacks||{};cur.iconFallbacks[k]=fb;dirty=true;}
     });
     var card=themeStudioEnsureSkinState(cur);
     ['background','frame','cornerTopLeft','cornerTopRight','cornerBottomLeft','cornerBottomRight'].forEach(function(k){
+      if(manifestHas(card[k])){ if(card[k+'SyncDataUrl']){delete card[k+'SyncDataUrl'];dirty=true;} return; }
       var fb=fallbackFor(card[k]);
       if(fb&&!card[k+'SyncDataUrl']){card[k+'SyncDataUrl']=fb;dirty=true;}
     });
-    if(cur.background&&cur.background.image&&!cur.background.syncDataUrl){
-      var bgfb=fallbackFor(cur.background.image);if(bgfb){cur.background.syncDataUrl=bgfb;dirty=true;}
+    if(cur.background&&cur.background.image){
+      if(manifestHas(cur.background.image)){ if(cur.background.syncDataUrl){delete cur.background.syncDataUrl;dirty=true;} }
+      else if(!cur.background.syncDataUrl){ var bgfb=fallbackFor(cur.background.image);if(bgfb){cur.background.syncDataUrl=bgfb;dirty=true;} }
     }
-    if(cur.banner&&cur.banner.image&&!cur.banner.syncDataUrl){
-      var hfb=fallbackFor(cur.banner.image);if(hfb){cur.banner.syncDataUrl=hfb;dirty=true;}
+    if(cur.banner&&cur.banner.image){
+      if(manifestHas(cur.banner.image)){ if(cur.banner.syncDataUrl){delete cur.banner.syncDataUrl;dirty=true;} }
+      else if(!cur.banner.syncDataUrl){ var hfb=fallbackFor(cur.banner.image);if(hfb){cur.banner.syncDataUrl=hfb;dirty=true;} }
     }
-    if(cur.banner&&cur.banner.hobbyImage&&!cur.banner.hobbySyncDataUrl){
-      var hobfb=fallbackFor(cur.banner.hobbyImage);if(hobfb){cur.banner.hobbySyncDataUrl=hobfb;dirty=true;}
+    if(cur.banner&&cur.banner.hobbyImage){
+      if(manifestHas(cur.banner.hobbyImage)){ if(cur.banner.hobbySyncDataUrl){delete cur.banner.hobbySyncDataUrl;dirty=true;} }
+      else if(!cur.banner.hobbySyncDataUrl){ var hobfb=fallbackFor(cur.banner.hobbyImage);if(hobfb){cur.banner.hobbySyncDataUrl=hobfb;dirty=true;} }
     }
     if(dirty){
       themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur);
@@ -30819,17 +30832,23 @@ function themeStudioEnsureMediaFallbacks(){
        also live in the synced manifest, so a device that receives the manifest
        (but not yet the full theme-state blob) can still render it. Same pattern
        as the asset loop above. */
+    var cur2dirty=false;
     targets.forEach(function(t){
       if(!isReturnMediaRef(t.ref))return;
       var inline=t.get();
       if(inline&&/^data:image/.test(String(inline))&&String(inline).length<=MEDIA_SYNC_ITEM_MAX){
         try{mediaSyncPut(returnMediaRefId(t.ref),inline);}catch(_e){}
       }
+      /* Now that the manifest carries it, drop the redundant inline copy — the
+         manifest is the cross-device channel and rendering resolves through it. */
+      if(inline&&mediaSyncResolve(t.ref)){ t.set(''); cur2dirty=true; }
     });
-    /* Pending: targets that are media refs with NO inline fallback yet — resolve
-       their bytes from IndexedDB, compress, and populate both channels. */
-    var pending=targets.filter(function(t){return isReturnMediaRef(t.ref)&&!t.get();});
-    if(pending.length){
+    /* Pending: targets that are media refs the manifest does NOT yet hold and that
+       have no inline fallback — resolve bytes from IndexedDB, compress, and put in
+       the manifest. Only fall back to an inline copy if the bytes are too large for
+       the manifest (mediaSyncPut refused), so we don't re-bloat the theme blob. */
+    var pending=targets.filter(function(t){return isReturnMediaRef(t.ref)&&!t.get()&&!mediaSyncResolve(t.ref);});
+    if(pending.length||cur2dirty){
       var idbJobs=pending.map(function(t){
         var id=returnMediaRefId(t.ref);
         return returnMediaResolveUrl(t.ref).then(function(url){
@@ -30838,8 +30857,9 @@ function themeStudioEnsureMediaFallbacks(){
             if(!fb)return;
             /* manifest copy (≤220KB) reaches devices that already have the manifest */
             try{mediaSyncPut(id,fb);}catch(_e){}
-            /* inline fallback (≤700KB) inside the synced theme-state blob */
-            if(!t.get()&&fb.length<700000)t.set(fb);
+            /* Inline fallback only if the manifest could NOT take it (oversized) —
+               this is then the sole cross-device channel for that image. */
+            if(!t.get()&&!mediaSyncResolve(t.ref)&&fb.length<700000)t.set(fb);
           });
         }).catch(function(e){console.warn('idb fallback failed for',t.label,e&&e.message);});
       });
