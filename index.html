@@ -16695,9 +16695,18 @@ function saveModal(){
   var task=tasks.find(function(t){return t.id===editId;});
   if(task){
     /* Recurring tasks (repeat rule or timetable): show scope picker first so
-       the user decides how far the edit should reach before we commit. */
-    var isRepeat=!!(task._repeatId||task.repeatRuleId);
+       the user decides how far the edit should reach before we commit.
+       Detect off the pre-edit SNAPSHOT (not the live task) so first-time
+       "turn repeat on" edits don't trigger the picker, and so every existing
+       recurring shape is caught — including legacy `_repeat:true` tasks that
+       never got a `_repeatId`. */
+    var snap0=taskModalSnapshot||task;
+    function _looksRepeat(o){
+      return !!(o&&(o._repeatId||o.repeatRuleId||o.sourceType==='repeat'||o._repeatOccurrence||(o._repeat&&(o._repeat===true||o._repeat.kind))));
+    }
     var isTt=!!task._isTt;
+    var isRepeat=_looksRepeat(snap0);
+    repeatDebugLog('scope-picker:saveModal',{taskId:task.id,isTt:isTt,isRepeat:isRepeat,_repeatId:task._repeatId,repeatRuleId:task.repeatRuleId,_repeat:task._repeat,_isTt:task._isTt});
     if(isRepeat||isTt){
       /* Capture all form values into a snapshot object NOW (before any scope
          picker interaction, while the form DOM is guaranteed to be available).
@@ -16792,18 +16801,21 @@ function _applyRepeatScopeEdit(task,fields,scope){
   if(scope==='this'){
     /* Keep linked to the rule but mark this occurrence as user-customized
        so "이후" / "전체" propagations skip it, and reconcile preserves it. */
-    if(task._repeatId||task.repeatRuleId){
+    if(task._isTt){
+      task.userModifiedDate=true; /* prevent reconcileTimetableTasks from reverting fields */
+    }else{
       task._occurrenceCustomized=true;
       task.userModifiedDate=true; /* prevent repairGeneratedTasks from reverting date */
-    }else if(task._isTt){
-      task.userModifiedDate=true; /* prevent reconcileTimetableTasks from reverting fields */
     }
     /* Do NOT call syncTaskRepeatItem — the underlying rule stays unchanged. */
   }else if(scope==='future'){
     /* Update the rule itself (via syncTaskRepeatItem) so newly generated
        occurrences from this date forward use the new values. Then apply the
-       same content fields to already-existing sibling occurrences. */
+       same content fields to already-existing sibling occurrences.
+       Re-read ruleId after sync — legacy `_repeat:true` tasks only get a
+       `_repeatId` assigned inside syncTaskRepeatItem. */
     syncTaskRepeatItem(task);
+    ruleId=String(task.repeatRuleId||task._repeatId||ruleId);
     propagateRepeatEdit(ruleId,occDate,'future',{
       text:fields.text,note:fields.note,priority:fields.priority,
       catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
@@ -16812,6 +16824,7 @@ function _applyRepeatScopeEdit(task,fields,scope){
   }else if(scope==='all'){
     /* Update rule + every existing occurrence regardless of date. */
     syncTaskRepeatItem(task);
+    ruleId=String(task.repeatRuleId||task._repeatId||ruleId);
     propagateRepeatEdit(ruleId,null,'all',{
       text:fields.text,note:fields.note,priority:fields.priority,
       catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
