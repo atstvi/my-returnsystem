@@ -2184,6 +2184,13 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .b-time{background:var(--p-50);color:var(--p-600)}
 .b-tt{background:var(--t-50);color:var(--t-600);opacity:.7}
 .b-prep{background:var(--w-50);color:var(--w-600)}
+.b-custom{background:var(--bg-raised);color:var(--fg-3);border:.5px solid var(--border)}
+/* Repeat edit scope picker */
+.repeat-scope-dialog .modal-foot{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-4) var(--sp-5) var(--sp-5)}
+.repeat-scope-btn{width:100%;text-align:left;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-md);border:.5px solid var(--border);background:var(--bg-card);cursor:pointer;font-size:var(--text-sm);color:var(--fg);display:flex;flex-direction:column;gap:2px;transition:background var(--t-snap)}
+.repeat-scope-btn:hover{background:var(--bg-hover)}
+.repeat-scope-btn strong{font-weight:var(--fw-semibold);color:var(--fg)}
+.repeat-scope-btn span{font-size:var(--text-xs);color:var(--fg-3)}
 .b-sub{background:var(--bg-raised);color:var(--fg-4);border:.5px solid var(--border)}
 
 .task-note{font-size:var(--text-xs);color:var(--fg-4);line-height:var(--lh-snug);margin-top:var(--sp-1)}
@@ -9826,6 +9833,102 @@ function openConfirmDialog(title, message, onConfirm){
   ov.querySelector('#scd-cancel').addEventListener('click',close);
   ov.querySelector('#scd-ok').addEventListener('click',function(){if(typeof onConfirm==='function')onConfirm();close();});
 }
+/* openRepeatEditScopeDialog — shown when saving a recurring or TT task to
+   let the user pick how far the edit should reach.
+   isTt: true → 2 options (this only / all-slot); false → 3 options (this/future/all).
+   onScope(scope) called with: 'this' | 'future' | 'all' | 'tt-all' */
+function openRepeatEditScopeDialog(taskText, isTt, onScope){
+  var old=document.getElementById('repeat-scope-dialog');
+  if(old)old.remove();
+  var ov=document.createElement('div');
+  ov.className='overlay open repeat-scope-dialog';
+  ov.id='repeat-scope-dialog';
+  function close(){ov.remove();}
+  function pick(scope){return function(){close();if(typeof onScope==='function')onScope(scope);};}
+  var titleText=isTt?'반복 수업 편집 범위':'반복 할일 편집 범위';
+  var bodyText='"'+(taskText||'항목')+'"을(를) 어떻게 변경할까요?';
+  var btns='';
+  if(isTt){
+    btns='<button type="button" class="repeat-scope-btn" id="rsd-this"><strong>이 수업만</strong><span>이 날짜의 수업에만 적용. 시간표 원본은 유지.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-ttall"><strong>모든 수업 변경</strong><span>시간표 슬롯 자체를 수정. 앞으로 생성될 수업 전체에 적용.</span></button>';
+  }else{
+    btns='<button type="button" class="repeat-scope-btn" id="rsd-this"><strong>이 항목만</strong><span>이 날짜 항목에만 적용. 이 항목은 반복 규칙과 별개로 관리.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-future"><strong>이 항목부터 이후 항목</strong><span>이 날짜부터 앞으로의 반복 항목 모두에 적용.</span></button>'
+        +'<button type="button" class="repeat-scope-btn" id="rsd-all"><strong>모든 항목</strong><span>과거·현재·미래 반복 항목 전체에 적용.</span></button>';
+  }
+  ov.innerHTML='<div class="modal" style="max-width:420px">'
+    +'<div class="modal-head"><div class="modal-title">'+tEscHtml(titleText)+'</div></div>'
+    +'<div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);margin-bottom:var(--sp-3)">'+tEscHtml(bodyText)+'</div></div>'
+    +'<div class="modal-foot">'+btns
+    +'<button type="button" class="btn btn-ghost" id="rsd-cancel" style="margin-top:var(--sp-1)">취소</button>'
+    +'</div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  ov.querySelector('#rsd-cancel').addEventListener('click',close);
+  ov.querySelector('#rsd-this').addEventListener('click',pick('this'));
+  if(isTt){
+    ov.querySelector('#rsd-ttall').addEventListener('click',pick('tt-all'));
+  }else{
+    ov.querySelector('#rsd-future').addEventListener('click',pick('future'));
+    ov.querySelector('#rsd-all').addEventListener('click',pick('all'));
+  }
+}
+
+/* Propagate content-field edits from one occurrence to sibling repeat occurrences.
+   mode 'future': only occurrenceDate >= fromDate; mode 'all': every occurrence.
+   Skips _occurrenceCustomized tasks (user explicitly detached them).
+   excludeId: the task being edited (already updated). */
+function propagateRepeatEdit(ruleId, fromDate, mode, fields, excludeId){
+  if(!ruleId)return;
+  tasks.forEach(function(t){
+    if(!t||t.id===excludeId)return;
+    if(t._occurrenceCustomized)return;
+    if(String(t.repeatRuleId||t._repeatId||'')!==String(ruleId))return;
+    if(mode==='future'&&fromDate){
+      var occ=t.occurrenceDate||t._repeatOccurrence||t.date||'';
+      if(occ&&occ<fromDate)return;
+    }
+    if(fields.text!==undefined)t.text=fields.text;
+    if(fields.note!==undefined)t.note=fields.note;
+    if(fields.priority!==undefined)t.priority=fields.priority;
+    if(fields.catId!==undefined)t.catId=fields.catId;
+    if(fields.timeStart!==undefined)t.timeStart=fields.timeStart;
+    if(fields.timeEnd!==undefined)t.timeEnd=fields.timeEnd;
+    if(fields.travelMin!==undefined)t.travelMin=fields.travelMin;
+    t.updatedAt=Date.now();
+  });
+}
+
+/* Update the timetable slot definition for "모든 수업 변경" scope.
+   Finds the slot via task._ttId + _ttSlotKey, writes the new values to
+   timetables_v1, then triggers reconciliation so all existing TT tasks
+   from this slot are updated to match. */
+function applyTtSlotEdit(task, fields){
+  if(!task||!task._isTt)return;
+  var ttId=String(task._ttId||'');
+  var slotKey=String(task._ttSlotKey||'');
+  if(!ttId&&!slotKey)return;
+  var tts;
+  try{tts=JSON.parse(localStorage.getItem('timetables_v1')||'[]');}catch(e){tts=[];}
+  var tt=tts.find(function(x){return String(x&&x.id||'')===ttId;});
+  if(!tt)return;
+  var parts=slotKey.split('|');
+  var origTitle=parts[1]||task.text;
+  var origTimeStart=parts[2]||task.timeStart;
+  var slot=(tt.slots||[]).find(function(s){
+    return s&&s.title===origTitle&&s.timeStart===origTimeStart;
+  });
+  if(!slot)return;
+  if(fields.text!==undefined)slot.title=fields.text;
+  if(fields.timeStart!==undefined)slot.timeStart=fields.timeStart;
+  if(fields.timeEnd!==undefined)slot.timeEnd=fields.timeEnd;
+  if(fields.travelMin!==undefined)slot.travel=String(parseInt(fields.travelMin,10)||0);
+  setReturnStorageItem('timetables_v1',JSON.stringify(tts));
+  if(typeof reconcileTimetableTasks==='function'){
+    try{reconcileTimetableTasks();}catch(e){}
+  }
+}
+
 var taskRules = loadTaskRules();
 function openHomeRuleModal(){
   openFormDialog('활성 규칙 추가', [
@@ -16015,6 +16118,7 @@ function buildTaskEl(task){
   if(task._isTt)mkBadge('b-tt','📚 시간표');
   if(task._ruleGen)mkBadge('b-rule','⚡ 규칙');
   else if(task._repeat||task._ruleId)mkBadge('b-repeat','↻');
+  if(task._occurrenceCustomized)mkBadge('b-custom','✎ 개별');
   var pu=(task.prepItems||[]).filter(function(p){return p.text&&!p.done;});
   if(pu.length)mkBadge('b-prep','🧳 '+pu.length);
   if(task.subs&&task.subs.length){var ds=task.subs.filter(function(s){return s.done;}).length;mkBadge('b-sub',ds+'/'+task.subs.length);}
@@ -16590,22 +16694,46 @@ function tasksOpenModal(task){
 function saveModal(){
   var task=tasks.find(function(t){return t.id===editId;});
   if(task){
-    task.text=document.getElementById('modalTitle').value.trim()||task.text;
-    task.note=document.getElementById('modalMemo').value;
-    task.priority=editPrio;
-    var nextTaskDate=document.getElementById('modal-date-input').value||task.date||selDate||TK;
-    markTaskDateManualChange(task,nextTaskDate);
-    task.date=nextTaskDate;
-    task.deadlineDate=document.getElementById('modal-dl-input').value||'';
-    task.deadlineTime=document.getElementById('modal-dl-time-input').value||'';
-    task.catId=document.getElementById('modal-cat-sel').value;
-    var projectSel=document.getElementById('modal-project-sel');
-    if(projectSel&&projectSel.value) task.projectId=projectSel.value;
-    else delete task.projectId;
-    task.timeStart=document.getElementById('modal-ts').value;
-    task.timeEnd=document.getElementById('modal-te').value;
-    task.travelMin=parseInt(task.travelMin,10)||0;
-    task.updatedAt=Date.now();
+    /* Recurring tasks (repeat rule or timetable): show scope picker first so
+       the user decides how far the edit should reach before we commit. */
+    var isRepeat=!!(task._repeatId||task.repeatRuleId);
+    var isTt=!!task._isTt;
+    if(isRepeat||isTt){
+      /* Capture all form values into a snapshot object NOW (before any scope
+         picker interaction, while the form DOM is guaranteed to be available).
+         The picker callback closes the task modal, so we must read these upfront. */
+      var snap={
+        text:document.getElementById('modalTitle').value.trim()||task.text,
+        note:document.getElementById('modalMemo').value,
+        priority:editPrio,
+        date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
+        deadlineDate:document.getElementById('modal-dl-input').value||'',
+        deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+        catId:document.getElementById('modal-cat-sel').value,
+        projectId:(document.getElementById('modal-project-sel')||{}).value||null,
+        timeStart:document.getElementById('modal-ts').value,
+        timeEnd:document.getElementById('modal-te').value,
+        travelMin:parseInt(task.travelMin,10)||0
+      };
+      openRepeatEditScopeDialog(snap.text,isTt,function(scope){
+        _applyRepeatScopeEdit(task,snap,scope);
+      });
+      return; /* Modal stays open while picker is shown; _applyRepeatScopeEdit closes it. */
+    }
+    /* Non-repeat task: apply directly. */
+    _writeTaskFromModal(task,{
+      text:document.getElementById('modalTitle').value.trim()||task.text,
+      note:document.getElementById('modalMemo').value,
+      priority:editPrio,
+      date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
+      deadlineDate:document.getElementById('modal-dl-input').value||'',
+      deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+      catId:document.getElementById('modal-cat-sel').value,
+      projectId:(document.getElementById('modal-project-sel')||{}).value||null,
+      timeStart:document.getElementById('modal-ts').value,
+      timeEnd:document.getElementById('modal-te').value,
+      travelMin:parseInt(task.travelMin,10)||0
+    });
     syncTaskRepeatItem(task);
     saveTaskData();
     if(typeof renderProjects==='function')renderProjects();
@@ -16631,6 +16759,77 @@ function saveModal(){
     saveTaskData();
     if(typeof renderProjects==='function')renderProjects();
   }
+  taskModalSnapshot=null;
+  taskModalDraft=null;
+  tasksCloseModal();renderList();renderCal();
+}
+
+/* Write modal field values (already-captured in `fields`) onto a task object. */
+function _writeTaskFromModal(task,fields){
+  task.text=fields.text;
+  task.note=fields.note;
+  task.priority=fields.priority;
+  markTaskDateManualChange(task,fields.date);
+  task.date=fields.date;
+  task.deadlineDate=fields.deadlineDate;
+  task.deadlineTime=fields.deadlineTime;
+  task.catId=fields.catId;
+  if(fields.projectId) task.projectId=fields.projectId; else delete task.projectId;
+  task.timeStart=fields.timeStart;
+  task.timeEnd=fields.timeEnd;
+  task.travelMin=fields.travelMin;
+  task.updatedAt=Date.now();
+}
+
+/* Called after the scope picker choice; writes the edit to the task and
+   propagates it to sibling occurrences according to `scope`. */
+function _applyRepeatScopeEdit(task,fields,scope){
+  var ruleId=String(task.repeatRuleId||task._repeatId||'');
+  var occDate=task.occurrenceDate||task._repeatOccurrence||task.date||'';
+
+  _writeTaskFromModal(task,fields);
+
+  if(scope==='this'){
+    /* Keep linked to the rule but mark this occurrence as user-customized
+       so "이후" / "전체" propagations skip it, and reconcile preserves it. */
+    if(task._repeatId||task.repeatRuleId){
+      task._occurrenceCustomized=true;
+      task.userModifiedDate=true; /* prevent repairGeneratedTasks from reverting date */
+    }else if(task._isTt){
+      task.userModifiedDate=true; /* prevent reconcileTimetableTasks from reverting fields */
+    }
+    /* Do NOT call syncTaskRepeatItem — the underlying rule stays unchanged. */
+  }else if(scope==='future'){
+    /* Update the rule itself (via syncTaskRepeatItem) so newly generated
+       occurrences from this date forward use the new values. Then apply the
+       same content fields to already-existing sibling occurrences. */
+    syncTaskRepeatItem(task);
+    propagateRepeatEdit(ruleId,occDate,'future',{
+      text:fields.text,note:fields.note,priority:fields.priority,
+      catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
+      travelMin:fields.travelMin
+    },task.id);
+  }else if(scope==='all'){
+    /* Update rule + every existing occurrence regardless of date. */
+    syncTaskRepeatItem(task);
+    propagateRepeatEdit(ruleId,null,'all',{
+      text:fields.text,note:fields.note,priority:fields.priority,
+      catId:fields.catId,timeStart:fields.timeStart,timeEnd:fields.timeEnd,
+      travelMin:fields.travelMin
+    },task.id);
+  }else if(scope==='tt-all'){
+    /* Modify the timetable slot definition; reconcile will propagate to all
+       existing TT tasks from this slot. Clearing userModifiedDate lets the
+       reconciler re-apply the new slot values to this task too. */
+    task.userModifiedDate=false;
+    applyTtSlotEdit(task,{
+      text:fields.text,timeStart:fields.timeStart,
+      timeEnd:fields.timeEnd,travelMin:fields.travelMin
+    });
+  }
+
+  saveTaskData();
+  if(typeof renderProjects==='function')renderProjects();
   taskModalSnapshot=null;
   taskModalDraft=null;
   tasksCloseModal();renderList();renderCal();
@@ -16852,6 +17051,9 @@ function bindTaskModalRows(task){
   };
 }
 function tasksCloseModal(){
+  /* Remove any open scope picker so it doesn't linger after cancel/Escape. */
+  var scopePicker=document.getElementById('repeat-scope-dialog');
+  if(scopePicker)scopePicker.remove();
   if(taskModalSnapshot&&editId!=null){
     var idx=tasks.findIndex(function(t){return String(t.id)===String(editId);});
     if(idx>=0)tasks[idx]=taskModalSnapshot;
