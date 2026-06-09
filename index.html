@@ -8061,9 +8061,10 @@ to{opacity:1;transform:translateY(0)}}
             <div class="set-row-body">
               <div class="set-row-label">자동 아카이브</div>
               <div class="set-row-desc" id="archive-status-desc">로딩 중…</div>
-              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">일기 24개월·완료 할일 90일·루틴 로그 16주가 넘으면 이 기기의 IndexedDB로 이동해요. localStorage와 Firestore 용량이 자동으로 관리돼요.</div>
+              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">일기 24개월·완료 할일 90일·루틴 로그 16주가 넘으면 이 기기의 IndexedDB로 이동해요. localStorage와 Firestore 용량이 자동으로 관리돼요. 일기는 Notion에 올라간 게 확인된 뒤에만 아카이브돼서 언제든 Notion에서 검색·열람할 수 있어요.</div>
             </div>
-            <div class="set-row-ctrl">
+            <div class="set-row-ctrl" style="display:flex;flex-direction:column;gap:var(--sp-2)">
+              <button class="set-btn btn-ghost" type="button" onclick="openArchiveViewer()">아카이브 열람</button>
               <button class="set-btn btn-ghost" type="button" onclick="runArchiveOnBoot().then(function(){_updateArchiveStatusUI();})">지금 실행</button>
             </div>
           </div>
@@ -12467,9 +12468,32 @@ function _archiveCount(){
     } catch(e){ resolve(0); }
   });
 }
+/* List every key in the archive store (for the in-app archive browser). */
+function _archiveListKeys(){
+  return new Promise(function(resolve){
+    if(!_archiveIdb){ resolve([]); return; }
+    try {
+      var tx = _archiveIdb.transaction('archive','readonly');
+      var req = tx.objectStore('archive').getAllKeys();
+      req.onsuccess = function(){ resolve((req.result||[]).map(String)); };
+      req.onerror = function(){ resolve([]); };
+    } catch(e){ resolve([]); }
+  });
+}
+function _archiveDelete(key){
+  return new Promise(function(resolve){
+    if(!_archiveIdb){ resolve(false); return; }
+    try {
+      var tx = _archiveIdb.transaction('archive','readwrite');
+      tx.objectStore('archive').delete(key);
+      tx.oncomplete = function(){ resolve(true); };
+      tx.onerror = function(){ resolve(false); };
+    } catch(e){ resolve(false); }
+  });
+}
 
 function _getArchiveCfg(){
-  var defaults={diaryMonths:24, taskDays:90, routineWeeks:16, auto:true};
+  var defaults={diaryMonths:24, taskDays:90, routineWeeks:16, auto:true, notionArchive:true};
   try{ var r=localStorage.getItem('return_archive_cfg'); return r?Object.assign({},defaults,JSON.parse(r)):defaults; }catch(_){ return defaults; }
 }
 /* Archived diary dates log — device-local, never synced (each device archives independently).
@@ -26446,6 +26470,36 @@ function _archiveCutoffDate(months){
   return d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
 }
 
+/* Is the Notion diary integration configured? */
+function _notionConfigured(){
+  try{
+    var cfg=(_diaryNotionCfg&&_diaryNotionCfg.workerUrl)?_diaryNotionCfg:getNotionCfg();
+    return !!(cfg&&cfg.workerUrl&&cfg.dbId);
+  }catch(_){ return false; }
+}
+/* Does a Notion diary page already exist for this date? */
+async function _notionPageExists(dk){
+  try{
+    var cfg=(_diaryNotionCfg&&_diaryNotionCfg.workerUrl)?_diaryNotionCfg:getNotionCfg();
+    var dateProp=cfg.dateProp||'날짜';
+    var res=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{
+      filter:{property:dateProp,date:{equals:dk}}, page_size:1
+    });
+    return !!((res&&res.results&&res.results.length));
+  }catch(e){ console.warn('[archive] notion existence check failed:',dk,e&&e.message); return false; }
+}
+/* Guarantee the diary entry for `dk` is on Notion before it leaves hot storage.
+   Pushes the current local content (app→Notion, no pull so old stable entries
+   aren't reverted), then verifies the page exists. Returns true only when
+   Notion confirmably holds the page. */
+async function _ensureDiaryInNotion(dk){
+  if(!_notionConfigured()) return false;
+  try{
+    await syncDiaryToNotion(dk, {auto:true, silent:true, pullFirst:false});
+  }catch(e){ console.warn('[archive] notion push failed:',dk,e&&e.message); }
+  return await _notionPageExists(dk);
+}
+
 /* Diary: move entries older than diaryMonths to IDB archive. */
 async function _runDiaryArchive(){
   if(!_archiveReady) return 0;
@@ -26466,16 +26520,26 @@ async function _runDiaryArchive(){
     return true;
   });
   if(!toArchive.length) return 0;
-  var count=0;
+  /* When Notion is the long-term diary home, push+verify each entry there
+     before it leaves hot storage so it stays searchable/readable forever.
+     If Notion isn't configured, the IDB archive (+ in-app viewer) is the
+     fallback and we archive unconditionally. */
+  var wantNotion = cfg.notionArchive && _notionConfigured();
+  var count=0, heldForNotion=0;
   for(var i=0;i<toArchive.length;i++){
     var dk=toArchive[i];
     try{
+      if(wantNotion){
+        var ok=await _ensureDiaryInNotion(dk);
+        if(!ok){ heldForNotion++; continue; }  /* retry on a later boot */
+      }
       await _archiveWrite('diary:'+dk, entries[dk]);
       archived[dk]=Date.now();
       delete entries[dk];
       count++;
     }catch(e){ console.warn('[archive] diary entry failed:',dk,e&&e.message); }
   }
+  if(heldForNotion>0) console.log('[archive] diary: '+heldForNotion+' entries held back until Notion push succeeds');
   if(count>0){
     try{ localStorage.setItem('diary_archive_log_v1', JSON.stringify(archived)); }catch(_){}
     /* saveAll is in the diary module scope — call if available */
@@ -26577,6 +26641,83 @@ function _updateArchiveStatusUI(){
   });
 }
 window._updateArchiveStatusUI=_updateArchiveStatusUI;
+
+/* ── In-app archive browser ────────────────────────────────────────────
+   Reads the IDB archive (return_archive_v1) and lets the user browse old
+   diary entries / tasks / routine logs WITHOUT opening any file. 100%
+   client-side: no backend. Shows only what THIS device archived (IDB is
+   per-device) — cross-device diary lives in Notion. */
+function _archiveLabelFor(key){
+  if(key.indexOf('diary:')===0) return {group:'일기', date:key.slice(6)};
+  if(key.indexOf('task:')===0) return {group:'할일', date:key.slice(5)};
+  if(key.indexOf('routinelog:')===0) return {group:'루틴 로그', date:(key.split(':')[1]||'')};
+  return {group:'기타', date:key};
+}
+function _renderArchiveDiary(e){
+  if(!e||typeof e!=='object') return '<div style="color:var(--fg-4)">(빈 항목)</div>';
+  var parts=[];
+  if(e.mood) parts.push('<div style="margin-bottom:var(--sp-2)">기분 '+tEscHtml(e.mood)+(e.weather?(' · 날씨 '+tEscHtml(e.weather)):'')+'</div>');
+  SECTIONS.forEach(function(s){
+    var v=e[s]; if(!v||!String(v).trim()) return;
+    var meta=SECTION_META[s]||{icon:'',label:s};
+    parts.push('<div style="margin-bottom:var(--sp-3)"><div style="font-weight:600;font-size:var(--text-xs);color:var(--fg-3);margin-bottom:var(--sp-1)">'+meta.icon+' '+tEscHtml(meta.label)+'</div><div style="white-space:pre-wrap;font-size:var(--text-sm);line-height:var(--lh-normal)">'+tEscHtml(String(v))+'</div></div>');
+  });
+  return parts.length?parts.join(''):'<div style="color:var(--fg-4)">(내용 없음)</div>';
+}
+function _renderArchiveGeneric(d){
+  if(d&&typeof d==='object'){
+    if(d.text||d.title) return '<div style="font-size:var(--text-sm);white-space:pre-wrap">'+tEscHtml(String(d.text||d.title))+(d.done?' ✓':'')+'</div>';
+  }
+  return '<pre style="white-space:pre-wrap;font-size:var(--text-xs);color:var(--fg-3);margin:0">'+tEscHtml(JSON.stringify(d,null,2))+'</pre>';
+}
+async function openArchiveViewer(){
+  var old=document.getElementById('archive-viewer-dialog');
+  if(old) old.remove();
+  var ov=document.createElement('div');
+  ov.className='overlay open';
+  ov.id='archive-viewer-dialog';
+  ov.innerHTML='<div class="modal" style="max-width:560px;max-height:85vh;display:flex;flex-direction:column"><div class="modal-head"><div class="modal-title">📦 아카이브 열람</div></div><div class="modal-body" id="av-body" style="overflow-y:auto;flex:1">불러오는 중…</div><div class="modal-foot"><button class="btn btn-ghost" id="av-close">닫기</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov) close(); });
+  ov.querySelector('#av-close').addEventListener('click',close);
+  var body=ov.querySelector('#av-body');
+  if(!_archiveReady){
+    var waited=0; while(!_archiveReady&&waited<3000){ await new Promise(function(r){setTimeout(r,150);}); waited+=150; }
+  }
+  var keys=await _archiveListKeys();
+  if(!keys.length){ body.innerHTML='<div style="color:var(--fg-4);text-align:center;padding:var(--sp-5) 0">이 기기에 아카이브된 항목이 아직 없어요.<br><span style="font-size:var(--text-xs)">(일기는 Notion에서도 검색할 수 있어요)</span></div>'; return; }
+  /* group by prefix, sort dates descending */
+  var groups={};
+  keys.forEach(function(k){ var info=_archiveLabelFor(k); (groups[info.group]=groups[info.group]||[]).push({key:k,date:info.date}); });
+  Object.keys(groups).forEach(function(g){ groups[g].sort(function(a,b){ return a.date<b.date?1:(a.date>b.date?-1:0); }); });
+  var order=['일기','할일','루틴 로그','기타'];
+  var html='';
+  order.forEach(function(g){
+    var items=groups[g]; if(!items||!items.length) return;
+    html+='<div style="margin-bottom:var(--sp-4)"><div style="font-weight:700;font-size:var(--text-sm);margin-bottom:var(--sp-2)">'+g+' <span style="color:var(--fg-4);font-weight:400">'+items.length+'</span></div>';
+    items.forEach(function(it){
+      html+='<div class="av-item" data-key="'+tEscHtml(it.key)+'" style="border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);cursor:pointer"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:var(--text-sm)">'+tEscHtml(it.date||it.key)+'</span><span style="color:var(--fg-4);font-size:var(--text-xs)">펼치기 ▾</span></div><div class="av-detail" style="display:none;margin-top:var(--sp-2);padding-top:var(--sp-2);border-top:1px solid var(--border)"></div></div>';
+    });
+    html+='</div>';
+  });
+  body.innerHTML=html;
+  body.querySelectorAll('.av-item').forEach(function(el){
+    el.addEventListener('click', async function(e){
+      var detail=el.querySelector('.av-detail');
+      if(detail.style.display!=='none'){ detail.style.display='none'; return; }
+      if(!detail.getAttribute('data-loaded')){
+        detail.innerHTML='<span style="color:var(--fg-4);font-size:var(--text-xs)">불러오는 중…</span>';
+        var key=el.getAttribute('data-key');
+        var data=await _archiveRead(key);
+        detail.innerHTML = key.indexOf('diary:')===0 ? _renderArchiveDiary(data) : _renderArchiveGeneric(data);
+        detail.setAttribute('data-loaded','1');
+      }
+      detail.style.display='block';
+    });
+  });
+}
+window.openArchiveViewer=openArchiveViewer;
 
 /* ── E2 FIX: Quota recovery for diary_entries_v1 ───────────────────────
    Diagnostic round captured 13 occurrences of
