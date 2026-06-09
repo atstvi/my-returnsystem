@@ -26622,10 +26622,31 @@ async function runArchiveOnBoot(){
   while(!_archiveReady&&waited<5000){ await new Promise(function(r){setTimeout(r,200);}); waited+=200; }
   if(!_archiveReady){ _archiveRunning=false; return; }
   try{
+    /* Proactive orphan-backup prune (no download — these keys have been retired
+       and are pure dead weight). This runs BEFORE the data archives so freed
+       space is available for the archive writes. Safe: regex is scoped to
+       _bk_<timestamp>_ + "undefined"/"null" key names; no live code reads them. */
+    var pruned=0;
+    try{
+      if(typeof returnStoragePrune==='function'){
+        var pr=returnStoragePrune({apply:true,archive:false});
+        if(pr&&pr.reclaimKB){
+          pruned=pr.reclaimKB;
+          console.log('[archive] boot prune: reclaimed '+pruned+'KB from orphan backups ('+pr.matched+' keys)');
+        }
+      }
+    }catch(pe){ console.warn('[archive] orphan prune failed:',pe&&pe.message); }
+
     var d=await _runDiaryArchive();
     var t=await _runTaskArchive();
     var r=await _runRoutineLogArchive();
-    if(d+t+r>0&&typeof showToast==='function') showToast('오래된 데이터 '+( d+t+r)+'건 아카이브 완료');
+    var moved=d+t+r;
+    if(moved>0||pruned>0){
+      var parts=[];
+      if(pruned>0) parts.push('고아 백업 '+pruned+'KB 정리');
+      if(moved>0) parts.push('오래된 데이터 '+moved+'건 아카이브');
+      if(typeof showToast==='function') showToast(parts.join(' · '));
+    }
   }catch(e){ console.warn('[archive] boot run failed:',e&&e.message); }
   finally{ _archiveRunning=false; }
 }
@@ -26747,6 +26768,41 @@ function __isQuotaError(e){
   return /quota|QuotaExceeded/i.test(msg) || e.code === 22 || e.code === 1014;
 }
 
+/* Build an honest, diagnosis-driven quota message instead of guessing "images".
+   Reads returnStorageReport so the toast names the actual biggest consumer. */
+var _quotaReliefDone = false;
+function __quotaDiagnoseMessage(){
+  try{
+    if(typeof returnStorageReport!=='function') return '로컬 저장 한도에 닿았어요. 오래된 데이터를 정리하는 중…';
+    var r=returnStorageReport(false);
+    if(!r) return '로컬 저장 한도에 닿았어요. 오래된 데이터를 정리하는 중…';
+    var top=(r.topKeys&&r.topKeys[0])||null;
+    var topCat=(r.categories&&r.categories[0])||null;
+    var msg='로컬 저장 '+(r.usedPct||0)+'% 사용 중';
+    if(top) msg+=' · 가장 큰 항목 '+top.kb+'KB ('+top.category+')';
+    else if(topCat) msg+=' · '+topCat.category+' '+topCat.kb+'KB';
+    /* If a real base64/image offender exists, say so; otherwise don't claim images. */
+    var imgFlag=(r.flags||[]).filter(function(f){return f.issue==='inline-base64'||f.issue==='duplicate-media';})[0];
+    msg += imgFlag ? '. 큰 이미지 정리 중…' : '. 오래된 데이터 정리 중…';
+    return msg;
+  }catch(_){ return '로컬 저장 한도에 닿았어요. 오래된 데이터를 정리하는 중…'; }
+}
+/* Actually reclaim space when quota is hit (once per session): safe orphan-backup
+   prune + run the archive so old diary/tasks/routine leave hot storage. This is
+   what stops the toast from recurring every boot. */
+function __relieveQuotaOnce(){
+  if(_quotaReliefDone) return;
+  _quotaReliefDone = true;
+  try{
+    if(typeof returnStoragePrune==='function'){
+      var p=returnStoragePrune({apply:true,archive:false});
+      if(p&&p.reclaimKB) console.log('[storage] quota relief: pruned '+p.reclaimKB+'KB of orphan backups');
+    }
+  }catch(e){ console.warn('[storage] quota prune failed:',e&&e.message); }
+  try{
+    if(typeof runArchiveOnBoot==='function') runArchiveOnBoot();
+  }catch(e){ console.warn('[storage] quota archive failed:',e&&e.message); }
+}
 function __markStaleQuota(k){
   if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
   if (!window.__staleQuotaKeys[k]) {
@@ -26757,10 +26813,12 @@ function __markStaleQuota(k){
     _quotaToastShown = true;
     try {
       if (typeof showToast === 'function') {
-        showToast('이미지가 너무 많아 로컬 저장 한도에 닿았어요. 압축 시도 중… 실패 시 다른 기기 변경이 우선합니다.');
+        showToast(__quotaDiagnoseMessage());
       }
     } catch(_){}
   }
+  /* Reclaim space (orphan prune + archive) — best-effort, once per session. */
+  __relieveQuotaOnce();
 }
 
 function __clearStaleQuota(k){
