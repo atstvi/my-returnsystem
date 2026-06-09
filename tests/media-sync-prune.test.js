@@ -12,7 +12,7 @@
    2. active entry (referenced in a LS value) is kept
    3. over-budget manifest is evicted down to target (largest-first)
    4. prune is a no-op when already under budget + only orphans
-   5. MEDIA_SYNC_TOTAL_MAX default is the lowered 1.5MB budget */
+   5. MEDIA_SYNC_TOTAL_MAX default is the char budget (~1.5MB on disk at 2B/char) */
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
@@ -51,10 +51,10 @@ function img(n) { return 'data:image/png;base64,' + 'A'.repeat(Math.max(0, n - 2
 
 const t = runner('mediaSyncPrune — manifest bloat control (PR #97/#98)');
 
-// ── 5. default budget lowered to 1.5MB ───────────────────────────────────────
+// ── 5. default budget is 750000 chars (~1.5MB on disk at UTF-16 2B/char) ─────
 {
   const sb = makeSandbox();
-  t.ok('MEDIA_SYNC_TOTAL_MAX === 1500000', sb.MEDIA_SYNC_TOTAL_MAX === 1500000, sb.MEDIA_SYNC_TOTAL_MAX);
+  t.ok('MEDIA_SYNC_TOTAL_MAX === 750000', sb.MEDIA_SYNC_TOTAL_MAX === 750000, sb.MEDIA_SYNC_TOTAL_MAX);
 }
 
 // ── 1 & 2. orphan removed, active kept ───────────────────────────────────────
