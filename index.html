@@ -12311,6 +12311,48 @@ function mediaSyncPut(id,dataUrl){
   if(!ok){ delete m[id]; } /* roll the in-memory cache back if the write failed */
   return ok;
 }
+/* Prune the manifest to targetBytes by (1) removing orphaned IDs not referenced
+   anywhere in localStorage, then (2) evicting the largest remaining entries until
+   under budget. Orphan removal is safe — nothing in the app reads manifest entries
+   by scanning; every consumer resolves a known `return-media:<id>` ref. Evicting
+   large entries is recoverable: themeStudioEnsureMediaFallbacks will re-populate
+   them from IDB on the next repair run. */
+function mediaSyncPrune(targetBytes){
+  if(typeof targetBytes!=='number')targetBytes=MEDIA_SYNC_TOTAL_MAX;
+  var m=mediaSyncLoad(), changed=false;
+  /* Collect every return-media: ID that appears in any localStorage value. */
+  var activeIds={};
+  try{
+    for(var _lsi=0;_lsi<localStorage.length;_lsi++){
+      var _lsk=localStorage.key(_lsi);
+      if(_lsk===MEDIA_SYNC_KEY)continue;
+      var _lsv=localStorage.getItem(_lsk)||'';
+      if(_lsv.indexOf('return-media:')<0)continue;
+      var _refs=_lsv.match(/return-media:[^"',\s\]\}]+/g)||[];
+      _refs.forEach(function(r){ activeIds[returnMediaRefId(r)]=true; });
+    }
+  }catch(_e){}
+  /* Step 1: drop orphaned entries */
+  var _oids=Object.keys(m).filter(function(id){ return !activeIds[id]; });
+  _oids.forEach(function(id){ delete m[id]; changed=true; });
+  /* Step 2: if still over budget, evict largest entries first */
+  if(_mediaSyncSize(m)>targetBytes){
+    var _ents=Object.keys(m).map(function(id){ return{id:id,len:(m[id]||'').length}; });
+    _ents.sort(function(a,b){ return b.len-a.len; });
+    for(var _ei=0;_ei<_ents.length&&_mediaSyncSize(m)>targetBytes;_ei++){
+      delete m[_ents[_ei].id]; changed=true;
+    }
+  }
+  if(changed){
+    try{ localStorage.setItem(MEDIA_SYNC_KEY,JSON.stringify(m)); }catch(_e){}
+    _mediaSyncManifest=null;
+    var _sz=Math.round(_mediaSyncSize(m)/1024);
+    var _orphaned=_oids.length;
+    console.log('[media-sync] pruned: orphans='+_orphaned+' total='+_sz+'KB');
+  }
+  return changed;
+}
+window.mediaSyncPrune=mediaSyncPrune;
 /* Resolve a return-media: ref to bytes via the manifest (sync, cache-backed). */
 function mediaSyncResolve(ref){
   var id=isReturnMediaRef(ref)?returnMediaRefId(ref):'';
@@ -25094,6 +25136,9 @@ function fbApplyData(data){
           _fbWriter(MEDIA_SYNC_KEY,JSON.stringify(mergedM));
           _mediaSyncManifest=null;  /* invalidate cache to pick up merged value */
           if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+          /* Prune merged result — union-merge can push the manifest over budget
+             when cloud and local each approach the cap independently. */
+          try{ mediaSyncPrune(MEDIA_SYNC_TOTAL_MAX); }catch(_pe){}
           return;
         }
         /* task_items_v1 / inbox_v1: union-merge to preserve locally-created items
@@ -26692,13 +26737,27 @@ async function runArchiveOnBoot(){
       }
     }catch(pe){ console.warn('[archive] orphan prune failed:',pe&&pe.message); }
 
+    /* Prune media sync manifest — removes orphaned IDs and brings the manifest
+       back under MEDIA_SYNC_TOTAL_MAX. Runs before Firebase apply so the next
+       fbSaveAll pushes the leaner manifest to the cloud. */
+    var mediaPruned=0;
+    try{
+      var _mBefore=_mediaSyncSize(mediaSyncLoad());
+      if(typeof mediaSyncPrune==='function'&&_mBefore>MEDIA_SYNC_TOTAL_MAX){
+        mediaSyncPrune(MEDIA_SYNC_TOTAL_MAX);
+        var _mAfter=_mediaSyncSize(mediaSyncLoad());
+        mediaPruned=Math.round((_mBefore-_mAfter)/1024);
+      }
+    }catch(_mpe){ console.warn('[archive] media prune failed:',_mpe&&_mpe.message); }
+
     var d=await _runDiaryArchive();
     var t=await _runTaskArchive();
     var r=await _runRoutineLogArchive();
     var moved=d+t+r;
-    if(moved>0||pruned>0){
+    if(moved>0||pruned>0||mediaPruned>0){
       var parts=[];
       if(pruned>0) parts.push('고아 백업 '+pruned+'KB 정리');
+      if(mediaPruned>0) parts.push('미디어 매니페스트 '+mediaPruned+'KB 정리');
       if(moved>0) parts.push('오래된 데이터 '+moved+'건 아카이브');
       if(typeof showToast==='function') showToast(parts.join(' · '));
     }
