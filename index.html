@@ -9270,8 +9270,12 @@ function renderHomeSituation(){
   var weekDeadlines = deadlines.filter(function(x){ return x.days >= 0 && x.days <= 7; });
   var urgent = deadlines.filter(function(x){ return x.days <= 2; });
   var skippedLinks = homeSkippedDeadlineLinks();
+  /* Build a set of repeat-rule IDs marked skipLink so their tasks are hidden from 연결 필요. */
+  var _skipLinkRuleIds={};
+  try{(loadRepeatItems()||[]).forEach(function(r){if(r&&r.skipLink)_skipLinkRuleIds[String(r.id)]=1;});}catch(_e){}
   var scheduleLinks = openTasks.filter(function(t){
-    return !t._travelOnly && !t._isTt && t.sourceType!=='timetable' && !t._ttKey && t.catId==='schedule' && t.date;
+    return !t._travelOnly && !t._isTt && t.sourceType!=='timetable' && !t._ttKey && t.catId==='schedule' && t.date
+      && !_skipLinkRuleIds[String(t._repeatId||'')];
   }).map(function(t){
     return {task:t, days:Math.round((new Date(t.date+'T00:00') - now) / 86400000)};
   }).sort(function(a,b){return a.days-b.days;});
@@ -9782,6 +9786,7 @@ function openFormDialog(title, fields, onSave){
     var val = f.value == null ? '' : String(f.value);
     if (f.type === 'select') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label><select class="field-select" data-key="'+f.key+'">'+(f.options||[]).map(function(o){return '<option value="'+o.value+'"'+(o.value===val?' selected':'')+'>'+o.label+'</option>';}).join('')+'</select></div>';
     if (f.type === 'textarea') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label><textarea class="field-ta" data-key="'+f.key+'" rows="'+(f.rows||7)+'">'+val.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</textarea></div>';
+    if (f.type === 'checkbox') return '<div class="field" data-field-key="'+f.key+'"><label class="field-help" style="display:flex;align-items:center;gap:var(--sp-3);cursor:pointer;font-size:var(--text-sm);margin:var(--sp-1) 0"><input type="checkbox" data-key="'+f.key+'"'+(val==='on'?' checked':'')+' style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0"> '+f.label+'</label></div>';
     if (f.type === 'weekdays') {
       var selected = val.split(',').filter(Boolean);
       return '<div class="field"><label class="field-label">'+f.label+'</label><div class="weekday-picker" data-weekday-key="'+f.key+'">'+['일','월','화','수','목','금','토'].map(function(d,i){return '<button type="button" class="weekday-btn'+(selected.indexOf(String(i))>=0?' active':'')+'" data-day="'+i+'">'+d+'</button>';}).join('')+'</div><input type="hidden" data-key="'+f.key+'" value="'+val+'"></div>';
@@ -9802,7 +9807,7 @@ function openFormDialog(title, fields, onSave){
     });
   });
   ov.querySelector('#sfd-cancel').addEventListener('click', close);
-  ov.querySelector('#sfd-save').addEventListener('click', function(){ var data={}; ov.querySelectorAll('[data-key]').forEach(function(el){ data[el.getAttribute('data-key')]=el.value; }); onSave(data); close(); });
+  ov.querySelector('#sfd-save').addEventListener('click', function(){ var data={}; ov.querySelectorAll('[data-key]').forEach(function(el){ data[el.getAttribute('data-key')]=el.type==='checkbox'?(el.checked?'on':''):el.value; }); onSave(data); close(); });
   var triggerSel=ov.querySelector('[data-key="triggerType"]');
   if(triggerSel){
     function syncTriggerFields(){
@@ -10477,7 +10482,8 @@ function editHomeRepeat(id){
     {key:'freq', label:'반복 주기', type:'select', value:r.freq || 'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
     {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:r.weekdays || ''},
     {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(r.monthDay || new Date().getDate())},
-    {key:'endDate', label:'반복 종료일', type:'date', value:r.endDate || ''}
+    {key:'endDate', label:'반복 종료일', type:'date', value:r.endDate || ''},
+    {key:'skipLink', label:'연결 필요에서 숨기기 (일정 카테고리일 때 홈 화면의 연결 필요 목록에 표시 안 함)', type:'checkbox', value:r.skipLink?'on':''}
   ], function(data){
     r.text=(data.text||'').trim();
     r.catId=data.catId||'etc';
@@ -10486,6 +10492,7 @@ function editHomeRepeat(id){
     r.weekdays=data.weekdays||'';
     r.monthDay=parseInt(data.monthDay,10)||new Date().getDate();
     r.endDate=data.endDate||'';
+    r.skipLink=data.skipLink==='on';
     if (typeof tasks !== 'undefined') {
       tasks.forEach(function(t){ if (t._repeatId === id) { t.text = r.text; t.catId = r.catId; t.priority = r.priority; } });
       if (typeof saveTaskData === 'function') saveTaskData();
