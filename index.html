@@ -8637,6 +8637,35 @@ document.querySelectorAll('.tab-btn[data-page]').forEach(function(btn){
   var valid=['home','inbox','tasks','check','hobby','music','diary','recharge','schedule','records','projects','routine','settings'];
   window.__returnInitialPage = valid.indexOf(hash)>=0?hash:'home';
   goPage(window.__returnInitialPage);
+  /* Stage 10 / quota fix: immediately strip inline syncDataUrl from stored theme
+     assets so that the key is already lean when fbApplyData arrives (~1s later).
+     Uses localStorage.setItem directly (bypasses sync side-effects) — this is a
+     one-time structural migration, not a user data write. */
+  (function _migrateThemeAssets(){
+    try{
+      var _taKey='return_theme_studio_assets_v1';
+      var _taRaw=localStorage.getItem(_taKey);
+      if(!_taRaw)return;
+      var _taList=JSON.parse(_taRaw);
+      if(!Array.isArray(_taList))return;
+      var _taChanged=0;
+      _taList.forEach(function(a){
+        if(a&&a.syncDataUrl){
+          /* Migrate bytes to the manifest before stripping (best-effort). */
+          try{
+            var _id=typeof returnMediaRefId==='function'?returnMediaRefId(a.url):'';
+            if(_id&&typeof mediaSyncPut==='function') mediaSyncPut(_id,a.syncDataUrl);
+          }catch(_e){}
+          delete a.syncDataUrl;
+          _taChanged++;
+        }
+      });
+      if(_taChanged>0){
+        try{localStorage.setItem(_taKey,JSON.stringify(_taList));}catch(_e){}
+        console.log('[storage] migrated: stripped syncDataUrl from '+_taChanged+' theme assets');
+      }
+    }catch(_e){ console.warn('[storage] theme asset migration failed:',_e&&_e.message); }
+  })();
   /* Stage 10: run archive 3s after boot so initial render isn't delayed */
   setTimeout(function(){ if(typeof runArchiveOnBoot==='function') runArchiveOnBoot(); }, 3000);
 })();
@@ -25228,6 +25257,24 @@ function fbApplyData(data){
             }
           }catch(_supp){}
         }
+        /* return_theme_studio_assets_v1: strip inline syncDataUrl from each asset
+           BEFORE writing to localStorage. Each syncDataUrl can be up to 220KB and
+           there can be many assets — the full blob reaches 6–12MB which blows
+           localStorage quota. Bytes are already stored in return_media_sync_v1
+           (the deduplicated manifest) which arrives via the same Firestore blob;
+           themeStudioEnsureMediaFallbacks registers them there. Cross-device
+           rendering still works via returnMediaResolveUrl → manifest → IDB. */
+        if(k==='return_theme_studio_assets_v1'){
+          try{
+            var _cloudAssets=JSON.parse(data.keys[k]||'[]');
+            if(Array.isArray(_cloudAssets)){
+              _cloudAssets.forEach(function(a){ if(a&&a.syncDataUrl){ delete a.syncDataUrl; } });
+              _fbWriter(k, JSON.stringify(_cloudAssets));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              return;
+            }
+          }catch(_e){}
+        }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
         if(window._idbCache && Object.prototype.hasOwnProperty.call(window._idbCache,k)) _idbDelete(k);
@@ -30568,7 +30615,11 @@ function themeStudioCloudFallbackDataUrl(dataUrl,meta){
 }
 function themeStudioCompactAssetForStorage(asset){
   var a=themeStudioClone(asset||{});
-  if(a.syncDataUrl&&String(a.syncDataUrl).length>220000)delete a.syncDataUrl;
+  /* Never store syncDataUrl inline on individual assets. Each image's bytes live
+     once in return_media_sync_v1 (the manifest); inlining them per-asset causes
+     N × 220KB = multi-MB quota bombs. Cross-device rendering resolves via the
+     manifest → IDB path (returnMediaResolveUrl). */
+  delete a.syncDataUrl;
   if(a.dataUrl&&String(a.dataUrl).length>120000)delete a.dataUrl;
   return a;
 }
@@ -30582,32 +30633,30 @@ function themeStudioEnsureMediaFallbacks(){
   var list=themeStudioAssets(), changed=false, jobs=[];
   list.forEach(function(asset){
     if(!asset||!isReturnMediaRef(asset.url))return;
-    /* Keep an inline syncDataUrl copy on every asset so that
-       return_theme_studio_assets_v1 is self-sufficient for cross-device
-       rendering — the other device sees images as soon as this key lands in
-       Firebase, without depending on return_media_sync_v1 also arriving.
-       Also register bytes in the manifest as a lightweight deduplicated
-       channel for extra redundancy. */
+    /* Register bytes in return_media_sync_v1 (the manifest — single copy, deduped,
+       cross-device channel). Do NOT store inline syncDataUrl on asset records:
+       each inline copy is up to 220KB, and N assets × 220KB = multi-MB quota bomb.
+       Rendering resolves via returnMediaResolveUrl → manifest → IDB. */
     if(asset.syncDataUrl){
-      /* Already has inline copy. Register in manifest too if not yet there. */
+      /* Existing inline copy: migrate to manifest then strip from record. */
       try{ mediaSyncPut(returnMediaRefId(asset.url),asset.syncDataUrl); }catch(_e){}
+      delete asset.syncDataUrl;
+      changed=true;
       return;
     }
-    /* No inline copy. Restore from manifest if available (handles assets
-       that were previously stripped by the old Stage 4 migration). */
+    /* No inline copy. Ensure bytes are in the manifest (IDB → manifest if needed). */
     var fromManifest=mediaSyncResolve(asset.url);
     if(fromManifest){
-      if(String(fromManifest).length<=MEDIA_SYNC_ITEM_MAX){ asset.syncDataUrl=fromManifest; changed=true; }
+      /* Already in manifest — nothing to do for the asset record. */
       return;
     }
-    /* Not in manifest either — resolve from IDB and generate a compressed
-       fallback, then register in both manifest and inline copy. */
+    /* Not in manifest — resolve from IDB and register there (no inline copy). */
     jobs.push(returnMediaResolveUrl(asset.url).then(function(url){
       if(!url)return;
       return themeStudioCloudFallbackDataUrl(url,asset).then(function(fallback){
         if(fallback){
           try{ mediaSyncPut(returnMediaRefId(asset.url),fallback); }catch(_e){}
-          if(String(fallback).length<=MEDIA_SYNC_ITEM_MAX){ asset.syncDataUrl=fallback; changed=true; }
+          /* No asset.syncDataUrl assignment — stays manifest-only. */
         }
       });
     }));
