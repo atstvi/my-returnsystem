@@ -8054,6 +8054,22 @@ to{opacity:1;transform:translateY(0)}}
           </div>
         </div>
 
+        <!-- Stage 10: Archive settings -->
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--bg-raised)">📦</div>
+            <div class="set-row-body">
+              <div class="set-row-label">자동 아카이브</div>
+              <div class="set-row-desc" id="archive-status-desc">로딩 중…</div>
+              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">일기 24개월·완료 할일 90일·루틴 로그 16주가 넘으면 이 기기의 IndexedDB로 이동해요. localStorage와 Firestore 용량이 자동으로 관리돼요.</div>
+            </div>
+            <div class="set-row-ctrl">
+              <button class="set-btn btn-ghost" type="button" onclick="runArchiveOnBoot().then(function(){_updateArchiveStatusUI();})">지금 실행</button>
+            </div>
+          </div>
+        </div>
+
+
         <div class="data-action-grid">
           <button class="data-action" onclick="exportData()">
             <span class="da-icon">📥</span>
@@ -8620,6 +8636,8 @@ document.querySelectorAll('.tab-btn[data-page]').forEach(function(btn){
   var valid=['home','inbox','tasks','check','hobby','music','diary','recharge','schedule','records','projects','routine','settings'];
   window.__returnInitialPage = valid.indexOf(hash)>=0?hash:'home';
   goPage(window.__returnInitialPage);
+  /* Stage 10: run archive 3s after boot so initial render isn't delayed */
+  setTimeout(function(){ if(typeof runArchiveOnBoot==='function') runArchiveOnBoot(); }, 3000);
 })();
 
 (function(){
@@ -12391,6 +12409,80 @@ var _idbReady = false;
     req.onerror = function(e){ console.warn('[idb] open failed', e); };
   } catch(e){ console.warn('[idb] indexedDB unavailable', e); }
 })();
+
+/* ════════ STAGE 10 — DATA LIFECYCLE ARCHIVE ════════
+   Automatic archival of old data to IndexedDB (return_archive_v1).
+   Keeps localStorage and Firestore within sustainable bounds for
+   5+ year use. Active windows (defaults, user-configurable):
+     diary       → last 24 months
+     tasks       → completed ≥ 90 days ago
+     routine log → entries ≥ 16 weeks old
+   ════════════════════════════════════════════════════ */
+var _archiveIdb = null;
+var _archiveReady = false;
+(function _initArchiveIdb(){
+  try {
+    var req = indexedDB.open('return_archive_v1', 1);
+    req.onupgradeneeded = function(e){
+      try { e.target.result.createObjectStore('archive'); } catch(_){}
+    };
+    req.onsuccess = function(e){
+      _archiveIdb = e.target.result;
+      _archiveReady = true;
+    };
+    req.onerror = function(e){ console.warn('[archive] IDB open failed', e); };
+  } catch(e){ console.warn('[archive] IDB unavailable', e); }
+})();
+
+function _archiveWrite(key, data){
+  return new Promise(function(resolve, reject){
+    if(!_archiveIdb){ reject(new Error('archive idb not ready')); return; }
+    try {
+      var tx = _archiveIdb.transaction('archive','readwrite');
+      tx.objectStore('archive').put(JSON.stringify(data), key);
+      tx.oncomplete = function(){ resolve(); };
+      tx.onerror = function(e){ reject(e); };
+    } catch(e){ reject(e); }
+  });
+}
+function _archiveRead(key){
+  return new Promise(function(resolve){
+    if(!_archiveIdb){ resolve(null); return; }
+    try {
+      var tx = _archiveIdb.transaction('archive','readonly');
+      var req = tx.objectStore('archive').get(key);
+      req.onsuccess = function(){ try{ resolve(req.result ? JSON.parse(req.result) : null); }catch(_){ resolve(null); } };
+      req.onerror = function(){ resolve(null); };
+    } catch(e){ resolve(null); }
+  });
+}
+function _archiveCount(){
+  return new Promise(function(resolve){
+    if(!_archiveIdb){ resolve(0); return; }
+    try {
+      var tx = _archiveIdb.transaction('archive','readonly');
+      var req = tx.objectStore('archive').count();
+      req.onsuccess = function(){ resolve(req.result||0); };
+      req.onerror = function(){ resolve(0); };
+    } catch(e){ resolve(0); }
+  });
+}
+
+function _getArchiveCfg(){
+  var defaults={diaryMonths:24, taskDays:90, routineWeeks:16, auto:true};
+  try{ var r=localStorage.getItem('return_archive_cfg'); return r?Object.assign({},defaults,JSON.parse(r)):defaults; }catch(_){ return defaults; }
+}
+/* Archived diary dates log — device-local, never synced (each device archives independently).
+   Shape: { 'YYYY-MM-DD': timestamp, ... } */
+function _getArchivedDiaryDates(){
+  try{ return JSON.parse(localStorage.getItem('diary_archive_log_v1')||'{}'); }catch(_){ return {}; }
+}
+/* Filter archived dates out of an entries object IN PLACE.
+   Called at every diary load point so archived entries never re-enter hot storage. */
+function _filterArchivedDiaryDates(entriesObj){
+  var archived = _getArchivedDiaryDates();
+  Object.keys(archived).forEach(function(dk){ delete entriesObj[dk]; });
+}
 
 function _idbSet(key, value){
   return new Promise(function(resolve, reject){
@@ -18448,6 +18540,8 @@ var WEATHERS = ['☀️','🌤','⛅','☁️','🌧','🌩','❄️','🌈'];
 /* Load data */
 try { entries = JSON.parse(localStorage.getItem('diary_entries_v1')||'{}'); } catch(e) {}
 if (!entries || typeof entries !== 'object' || Array.isArray(entries)) entries = {};
+/* Stage 10: strip archived dates so they never re-enter hot storage */
+if(typeof _filterArchivedDiaryDates==='function') _filterArchivedDiaryDates(entries);
 
 /* Strip mini-cal state */
 var stripYear, stripMonth;
@@ -19464,6 +19558,8 @@ function _initDiary(){
     try {
       entries = JSON.parse(localStorage.getItem('diary_entries_v1')||'{}') || {};
       if (!entries || typeof entries !== 'object' || Array.isArray(entries)) entries = {};
+      /* Stage 10: strip archived dates so they can't be re-saved to hot storage */
+      if(typeof _filterArchivedDiaryDates==='function') _filterArchivedDiaryDates(entries);
     } catch(parseErr) { entries = {}; }
     loadTrackers();
     var t = todayKey();
@@ -21941,7 +22037,7 @@ function switchTab(id, btn) {
   document.getElementById('panel-' + id).classList.add('active');
   document.querySelectorAll('.set-tab').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
-  if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); }
+  if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); _updateArchiveStatusUI(); }
   /* Mobile: close nav drawer and update header label */
   closeSetNav();
   var curEl = document.getElementById('set-mob-cur');
@@ -26342,6 +26438,146 @@ function returnStoragePrune(opts){
 }
 window.returnStoragePrune=returnStoragePrune;
 
+/* ── STAGE 10 Archive routines ───────────────────────────────────────── */
+
+/* Helper: ISO date key N months before today */
+function _archiveCutoffDate(months){
+  var d=new Date(); d.setMonth(d.getMonth()-months);
+  return d.getFullYear()+'-'+(d.getMonth()+1<10?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();
+}
+
+/* Diary: move entries older than diaryMonths to IDB archive. */
+async function _runDiaryArchive(){
+  if(!_archiveReady) return 0;
+  var cfg=_getArchiveCfg();
+  if(!cfg.auto) return 0;
+  var archived=_getArchivedDiaryDates();
+  var cutoff=_archiveCutoffDate(cfg.diaryMonths);
+  /* entries is the global diary object — check it exists */
+  if(typeof entries==='undefined'||!entries||typeof entries!=='object') return 0;
+  var toArchive=Object.keys(entries).filter(function(dk){
+    if(dk>=cutoff) return false;          // within active window
+    if(archived[dk]) return false;        // already archived
+    var e=entries[dk];
+    /* skip fully empty entries (nothing user actually wrote) */
+    if(!e||typeof e!=='object') return false;
+    var hasContent=SECTIONS.some(function(s){return e[s]&&String(e[s]).trim();});
+    if(!hasContent&&!e.mood&&!e.weather) return false;
+    return true;
+  });
+  if(!toArchive.length) return 0;
+  var count=0;
+  for(var i=0;i<toArchive.length;i++){
+    var dk=toArchive[i];
+    try{
+      await _archiveWrite('diary:'+dk, entries[dk]);
+      archived[dk]=Date.now();
+      delete entries[dk];
+      count++;
+    }catch(e){ console.warn('[archive] diary entry failed:',dk,e&&e.message); }
+  }
+  if(count>0){
+    try{ localStorage.setItem('diary_archive_log_v1', JSON.stringify(archived)); }catch(_){}
+    /* saveAll is in the diary module scope — call if available */
+    if(typeof saveAll==='function'){ try{ saveAll(); }catch(_){} }
+    console.log('[archive] diary: archived '+count+' entries (cutoff '+cutoff+')');
+    _updateArchiveStatusUI();
+  }
+  return count;
+}
+
+/* Tasks: move completed tasks older than taskDays to IDB archive. */
+async function _runTaskArchive(){
+  if(!_archiveReady) return 0;
+  var cfg=_getArchiveCfg();
+  if(!cfg.auto) return 0;
+  if(typeof tasks==='undefined'||!Array.isArray(tasks)) return 0;
+  var cutoffMs=Date.now()-cfg.taskDays*86400000;
+  var toArchive=tasks.filter(function(t){
+    return t&&t.done&&(t.updatedAt||t.createdAt||0)<cutoffMs;
+  });
+  if(!toArchive.length) return 0;
+  var successes=[];
+  for(var i=0;i<toArchive.length;i++){
+    var t=toArchive[i];
+    try{ await _archiveWrite('task:'+t.id, t); successes.push(t); }
+    catch(e){ console.warn('[archive] task failed:',t.id,e&&e.message); }
+  }
+  if(successes.length){
+    var removeIds={};
+    successes.forEach(function(t){ removeIds[String(t.id)]=1; });
+    for(var j=tasks.length-1;j>=0;j--){ if(tasks[j]&&removeIds[String(tasks[j].id)]) tasks.splice(j,1); }
+    if(typeof saveTaskData==='function'){ try{ saveTaskData(); }catch(_){} }
+    console.log('[archive] tasks: archived '+successes.length);
+    _updateArchiveStatusUI();
+  }
+  return successes.length;
+}
+
+/* Routine logs: move logs older than routineWeeks to IDB archive. */
+async function _runRoutineLogArchive(){
+  if(!_archiveReady) return 0;
+  var cfg=_getArchiveCfg();
+  if(!cfg.auto) return 0;
+  var raw=localStorage.getItem('routine_logs_v1');
+  if(!raw) return 0;
+  var logs; try{ logs=JSON.parse(raw); }catch(_){ return 0; }
+  if(!Array.isArray(logs)) return 0;
+  /* cutoff = today minus routineWeeks weeks (compute as days directly) */
+  var cutoffMs2=Date.now()-cfg.routineWeeks*7*86400000;
+  var cd=new Date(cutoffMs2);
+  var cutoff=cd.getFullYear()+'-'+(cd.getMonth()+1<10?'0':'')+(cd.getMonth()+1)+'-'+(cd.getDate()<10?'0':'')+cd.getDate();
+  var keep=[],toArchive=[];
+  logs.forEach(function(log){
+    if(log&&(log.date||'')>=''+cutoff) keep.push(log);
+    else toArchive.push(log);
+  });
+  if(!toArchive.length) return 0;
+  var count=0;
+  for(var i=0;i<toArchive.length;i++){
+    var log=toArchive[i];
+    var key='routinelog:'+(log.date||'unknown')+':'+(log.habitId||log.bundleId||i);
+    try{ await _archiveWrite(key, log); count++; }
+    catch(e){ keep.push(log); } // failed: keep in live store
+  }
+  if(count>0){
+    if(typeof setReturnStorageItem==='function') setReturnStorageItem('routine_logs_v1',JSON.stringify(keep));
+    console.log('[archive] routine logs: archived '+count);
+    _updateArchiveStatusUI();
+  }
+  return count;
+}
+
+/* Master boot runner — called once 3s after boot so render isn't blocked. */
+var _archiveRunning=false;
+async function runArchiveOnBoot(){
+  if(_archiveRunning) return;
+  _archiveRunning=true;
+  /* If IDB not ready yet, wait up to 5s */
+  var waited=0;
+  while(!_archiveReady&&waited<5000){ await new Promise(function(r){setTimeout(r,200);}); waited+=200; }
+  if(!_archiveReady){ _archiveRunning=false; return; }
+  try{
+    var d=await _runDiaryArchive();
+    var t=await _runTaskArchive();
+    var r=await _runRoutineLogArchive();
+    if(d+t+r>0&&typeof showToast==='function') showToast('오래된 데이터 '+( d+t+r)+'건 아카이브 완료');
+  }catch(e){ console.warn('[archive] boot run failed:',e&&e.message); }
+  finally{ _archiveRunning=false; }
+}
+window.runArchiveOnBoot=runArchiveOnBoot;
+
+/* Update the archive stats row in the settings UI. */
+function _updateArchiveStatusUI(){
+  var el=document.getElementById('archive-status-desc');
+  if(!el) return;
+  _archiveCount().then(function(n){
+    var diaryCount=Object.keys(_getArchivedDiaryDates()).length;
+    el.textContent='IDB 아카이브: 일기 '+diaryCount+'건 외 총 '+n+'개 항목';
+  });
+}
+window._updateArchiveStatusUI=_updateArchiveStatusUI;
+
 /* ── E2 FIX: Quota recovery for diary_entries_v1 ───────────────────────
    Diagnostic round captured 13 occurrences of
    `localStorage.setItem failed for diary_entries_v1 ... exceeded the quota`.
@@ -28121,6 +28357,8 @@ async function diaryNotionSweepRecent(opts){
       var dprop = pg.properties && pg.properties[dateProp];
       var dk = (dprop && dprop.date && dprop.date.start) ? String(dprop.date.start).slice(0,10) : null;
       if(!dk) continue;
+      /* Stage 10: skip archived dates — don't restore them from Notion */
+      if(_getArchivedDiaryDates()[dk]) continue;
       if(!entries[dk]) entries[dk]={};
       var adopted=_pullDiaryPageProperties(pg, dk, cfg);  /* merges + refreshes if ===currentDate */
       if(adopted){ totalAdopted+=adopted; datesTouched.push(dk); try{ _notionUpdateBaseline(entries[dk]); }catch(_e){} }
