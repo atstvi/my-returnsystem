@@ -12286,7 +12286,7 @@ function returnMediaResolveUrlWithFallback(url,fallback){
    ════════════════════════════════════════════════════════════════════════ */
 var MEDIA_SYNC_KEY='return_media_sync_v1';
 var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap on the synced channel */
-var MEDIA_SYNC_TOTAL_MAX=3500000;   /* aggregate budget to protect quota/blob */
+var MEDIA_SYNC_TOTAL_MAX=1500000;   /* aggregate budget to protect quota/blob */
 var _mediaSyncManifest=null;
 function mediaSyncLoad(){
   if(_mediaSyncManifest)return _mediaSyncManifest;
@@ -25820,12 +25820,22 @@ async function fbSaveNow(opts){
         var valueToAbsorb = cloud.fullValue;
         if(k === MEDIA_SYNC_KEY){
           /* Union-merge: start from local (ours), overlay cloud on top.
-             Local-only images survive; cloud-added images arrive. */
+             Local-only images survive; cloud-added images arrive.
+             After merging, cap to MEDIA_SYNC_TOTAL_MAX by evicting the
+             largest entries — prevents the cloud blob from re-inflating
+             the local manifest on every sync cycle. */
           try{
             var _lm={}, _cm={};
             try{_lm=JSON.parse(ours||'{}')||{};}catch(_e){}
             try{_cm=JSON.parse(cloud.fullValue||'{}')||{};}catch(_e){}
             var _merged=Object.assign({},_lm,_cm);
+            if(_mediaSyncSize(_merged)>MEDIA_SYNC_TOTAL_MAX){
+              var _ments=Object.keys(_merged).map(function(id){return{id:id,len:(_merged[id]||'').length};});
+              _ments.sort(function(a,b){return b.len-a.len;});
+              for(var _mci=0;_mci<_ments.length&&_mediaSyncSize(_merged)>MEDIA_SYNC_TOTAL_MAX;_mci++){
+                delete _merged[_ments[_mci].id];
+              }
+            }
             valueToAbsorb=JSON.stringify(_merged);
           }catch(_me){}
         }
