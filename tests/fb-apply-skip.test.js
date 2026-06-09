@@ -34,11 +34,13 @@ function makeSandbox() {
     _applyingFbData: false,
     _lastRemoteApplyMs: 0,
     _lastRepairSaveMs: 0,
-    // Union-merge constant referenced for EVERY key (if(k===MEDIA_SYNC_KEY)).
-    // Without it the per-key body throws ReferenceError on the first compare,
+    // Union-merge / interception constants referenced in EVERY key iteration.
+    // Without them the per-key body throws ReferenceError on the first compare,
     // the catch swallows it, and NO key is ever written — making every
-    // "key written" assertion fail. Mirror the app's value.
+    // "key written" assertion fail. Mirror the app's values.
     MEDIA_SYNC_KEY: 'return_media_sync_v1',
+    // Note: THEME_STUDIO_ASSETS_KEY interception uses a string literal in the
+    // app code ('return_theme_studio_assets_v1') so no sandbox constant needed.
     _mediaSyncManifest: null,
     // Runtime stubs needed outside try/catch blocks
     setTimeout: () => {},
