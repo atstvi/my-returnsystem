@@ -8040,6 +8040,20 @@ to{opacity:1;transform:translateY(0)}}
           </div>
         </div>
 
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--bg-raised)">↩</div>
+            <div class="set-row-body">
+              <div class="set-row-label">반복 편집 기본 범위</div>
+              <div class="set-row-desc" id="repeat-scope-default-desc">매번 선택 (기본값 없음)</div>
+              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">할일 편집 저장 시 범위 선택 다이얼로그에서 "다음부터 이 선택 사용"을 체크하면 이 기기에서 항상 해당 범위로 바로 저장돼요.</div>
+            </div>
+            <div class="set-row-ctrl">
+              <button class="set-btn btn-ghost" type="button" onclick="clearRepeatScopeDefault()">초기화</button>
+            </div>
+          </div>
+        </div>
+
         <div class="data-action-grid">
           <button class="data-action" onclick="exportData()">
             <span class="da-icon">📥</span>
@@ -9844,7 +9858,16 @@ function openRepeatEditScopeDialog(taskText, isTt, onScope){
   ov.className='overlay open repeat-scope-dialog';
   ov.id='repeat-scope-dialog';
   function close(){ov.remove();}
-  function pick(scope){return function(){close();if(typeof onScope==='function')onScope(scope);};}
+  function pick(scope){return function(){
+    /* If the user checked "다음부터 이 선택 사용", persist the preference. */
+    var remEl=ov.querySelector('#rsd-remember');
+    if(remEl&&remEl.checked){
+      try{localStorage.setItem(isTt?'repeat_scope_tt_default':'repeat_scope_default',scope);}catch(_e){}
+      _updateRepeatScopeDefaultDesc();
+    }
+    close();
+    if(typeof onScope==='function')onScope(scope);
+  };}
   var titleText=isTt?'반복 수업 편집 범위':'반복 할일 편집 범위';
   var bodyText='"'+(taskText||'항목')+'"을(를) 어떻게 변경할까요?';
   var btns='';
@@ -9856,10 +9879,12 @@ function openRepeatEditScopeDialog(taskText, isTt, onScope){
         +'<button type="button" class="repeat-scope-btn" id="rsd-future"><strong>이 항목부터 이후 항목</strong><span>이 날짜부터 앞으로의 반복 항목 모두에 적용.</span></button>'
         +'<button type="button" class="repeat-scope-btn" id="rsd-all"><strong>모든 항목</strong><span>과거·현재·미래 반복 항목 전체에 적용.</span></button>';
   }
+  var rememberRow='<label style="display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-1);font-size:var(--text-xs);color:var(--fg-3);cursor:pointer;margin-top:var(--sp-1)">'
+    +'<input type="checkbox" id="rsd-remember" style="width:14px;height:14px;accent-color:var(--accent);flex-shrink:0"> 다음부터 이 선택 사용 (설정에서 초기화 가능)</label>';
   ov.innerHTML='<div class="modal" style="max-width:420px">'
     +'<div class="modal-head"><div class="modal-title">'+tEscHtml(titleText)+'</div></div>'
     +'<div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);margin-bottom:var(--sp-3)">'+tEscHtml(bodyText)+'</div></div>'
-    +'<div class="modal-foot">'+btns
+    +'<div class="modal-foot">'+btns+rememberRow
     +'<button type="button" class="btn btn-ghost" id="rsd-cancel" style="margin-top:var(--sp-1)">취소</button>'
     +'</div></div>';
   document.body.appendChild(ov);
@@ -9928,6 +9953,32 @@ function applyTtSlotEdit(task, fields){
     try{reconcileTimetableTasks();}catch(e){}
   }
 }
+
+/* Human-readable label for a repeat-edit scope value. */
+function _scopeLabel(scope){
+  return {this:'이 항목만',future:'이후 항목',all:'모든 항목','tt-all':'모든 수업'}[scope]||scope;
+}
+/* Update the settings-panel description for the current saved defaults (no-op if el absent). */
+function _updateRepeatScopeDefaultDesc(){
+  var el=document.getElementById('repeat-scope-default-desc');
+  if(!el)return;
+  var r='',t='';
+  try{r=localStorage.getItem('repeat_scope_default')||'';}catch(_e){}
+  try{t=localStorage.getItem('repeat_scope_tt_default')||'';}catch(_e){}
+  if(!r&&!t){ el.textContent='매번 선택 (기본값 없음)'; return; }
+  var parts=[];
+  if(r) parts.push('반복 할일: '+_scopeLabel(r));
+  if(t) parts.push('반복 수업: '+_scopeLabel(t));
+  el.textContent=parts.join(' · ');
+}
+/* Clear saved default scope (called from settings reset button). */
+function clearRepeatScopeDefault(){
+  try{localStorage.removeItem('repeat_scope_default');}catch(_e){}
+  try{localStorage.removeItem('repeat_scope_tt_default');}catch(_e){}
+  _updateRepeatScopeDefaultDesc();
+  showToast('반복 편집 기본값이 초기화되었어요.');
+}
+window.clearRepeatScopeDefault=clearRepeatScopeDefault;
 
 var taskRules = loadTaskRules();
 function openHomeRuleModal(){
@@ -16724,6 +16775,15 @@ function saveModal(){
         timeEnd:document.getElementById('modal-te').value,
         travelMin:parseInt(task.travelMin,10)||0
       };
+      /* Check for a saved default scope (device-local, set via "다음부터 이 선택 사용" checkbox). */
+      var _defaultScopeKey=isTt?'repeat_scope_tt_default':'repeat_scope_default';
+      var _savedScope='';
+      try{_savedScope=localStorage.getItem(_defaultScopeKey)||'';}catch(_e){}
+      if(_savedScope){
+        _applyRepeatScopeEdit(task,snap,_savedScope);
+        showToast(_scopeLabel(_savedScope)+' 저장됨');
+        return;
+      }
       openRepeatEditScopeDialog(snap.text,isTt,function(scope){
         _applyRepeatScopeEdit(task,snap,scope);
       });
@@ -21874,7 +21934,7 @@ function switchTab(id, btn) {
   document.getElementById('panel-' + id).classList.add('active');
   document.querySelectorAll('.set-tab').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
-  if (id === 'data') calcDataSize();
+  if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); }
   /* Mobile: close nav drawer and update header label */
   closeSetNav();
   var curEl = document.getElementById('set-mob-cur');
