@@ -8665,6 +8665,18 @@ document.querySelectorAll('.tab-btn[data-page]').forEach(function(btn){
         console.log('[storage] migrated: stripped syncDataUrl from '+_taChanged+' theme assets');
       }
     }catch(_e){ console.warn('[storage] theme asset migration failed:',_e&&_e.message); }
+    /* Cap the media-sync manifest synchronously NOW — before fbApplyData merges
+       the cloud copy (~1s later) and before the first returnStorageReport — so
+       the manifest never sits bloated and the boot report reflects the real size. */
+    try{
+      if(typeof mediaSyncPrune==='function'&&typeof _mediaSyncSize==='function'){
+        var _msBefore=_mediaSyncSize(mediaSyncLoad());
+        if(_msBefore>MEDIA_SYNC_TOTAL_MAX){
+          mediaSyncPrune(MEDIA_SYNC_TOTAL_MAX);
+          console.log('[storage] boot media-sync cap: '+Math.round(_msBefore/1024)+'KB(chars) → '+Math.round(_mediaSyncSize(mediaSyncLoad())/1024)+'KB(chars)');
+        }
+      }
+    }catch(_e){ console.warn('[storage] boot media-sync cap failed:',_e&&_e.message); }
   })();
   /* Stage 10: run archive 3s after boot so initial render isn't delayed */
   setTimeout(function(){ if(typeof runArchiveOnBoot==='function') runArchiveOnBoot(); }, 3000);
@@ -12285,8 +12297,14 @@ function returnMediaResolveUrlWithFallback(url,fallback){
        (see themeStudioEnsureMediaFallbacks migration).
    ════════════════════════════════════════════════════════════════════════ */
 var MEDIA_SYNC_KEY='return_media_sync_v1';
-var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap on the synced channel */
-var MEDIA_SYNC_TOTAL_MAX=1500000;   /* aggregate budget to protect quota/blob */
+/* NOTE on units: these caps are compared against String.length (CHAR count, via
+   _mediaSyncSize / dataUrl.length), but localStorage stores UTF-16 — 2 bytes per
+   char for ASCII base64. So the real localStorage footprint is ~2× these numbers.
+   returnStorageReport measures that footprint (×2), so a 750000-char manifest
+   shows as ~1.5MB in the report. Keep the budget in localStorage-byte intent:
+   750000 chars ≈ 1.5MB on disk. */
+var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap (chars ≈ 440KB on disk) */
+var MEDIA_SYNC_TOTAL_MAX=750000;    /* aggregate budget (chars ≈ 1.5MB on disk) */
 var _mediaSyncManifest=null;
 function mediaSyncLoad(){
   if(_mediaSyncManifest)return _mediaSyncManifest;
