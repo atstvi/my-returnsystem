@@ -29308,6 +29308,71 @@ async function _gcalRepairDuplicatesInner(opts){
       _gcalCfg.eventMeta[ckey]=Object.assign({},_gcalCfg.eventMeta[ckey]||{},{eventId:ckeep.ev.id,calId:ckeep.calId,updatedAt:Date.now()});
     }
   }
+  /* Pass 3: title+start+end dedup across ALL events (Return-owned or not),
+     per calendar. Passes 1-2 above only group by returnTaskKey, so they miss:
+     (a) duplicates that predate extendedProperties tagging (untagged copies),
+     and (b) duplicates created when a task's stable key format changed (e.g.
+     the timetable slot-key migration 'tt|<id>|<idx>|<day>|...' →
+     'tt|<id>|<slotId>|<date>' via migrateGcalEventMetaKey) — these end up as
+     two separate Return-owned events with DIFFERENT returnTaskKey values, so
+     pass 1 treats them as two distinct "groups" of size 1 and never merges
+     them. Grouping by title+start+end catches both, since these are all
+     deterministically-regenerated schedule/recurring items where an exact
+     title+time match is effectively never a coincidence. */
+  var currentKeyByGroup={};
+  (typeof tasks!=='undefined'&&Array.isArray(tasks)?tasks:[]).filter(function(t){return t&&!t.done&&(t.date||t.deadlineDate);}).forEach(function(t){
+    try{
+      var tk=gcalTaskStableKey(t);
+      var ev=gcalEventFromTask(t,tk);
+      var gk=(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev);
+      currentKeyByGroup[gk]=tk;
+    }catch(e){}
+  });
+  for(var ci3=0;ci3<calendars.length;ci3++){
+    var calId3=calendars[ci3];
+    var allItems;
+    try{ allItems=await gcalListAllEvents(calId3); }
+    catch(e3){ errors++; console.warn('gcal title/time duplicate scan failed:',calId3,e3&&e3.message); continue; }
+    var titleGroups={};
+    allItems.forEach(function(ev){
+      if(!ev||!ev.id)return;
+      var gk=(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev);
+      (titleGroups[gk]=titleGroups[gk]||[]).push(ev);
+    });
+    var tgkeys=Object.keys(titleGroups);
+    for(var tgi=0;tgi<tgkeys.length;tgi++){
+      var gk=tgkeys[tgi], tgroup=titleGroups[gk];
+      if(tgroup.length<2)continue;
+      var preferredKey=currentKeyByGroup[gk]||'';
+      tgroup.sort(function(a,b){
+        var aMatch=preferredKey&&gcalIsReturnOwnedEvent(a,preferredKey);
+        var bMatch=preferredKey&&gcalIsReturnOwnedEvent(b,preferredKey);
+        if(aMatch&&!bMatch)return -1;
+        if(bMatch&&!aMatch)return 1;
+        var aOwned=gcalIsReturnOwnedEvent(a), bOwned=gcalIsReturnOwnedEvent(b);
+        if(aOwned&&!bOwned)return -1;
+        if(bOwned&&!aOwned)return 1;
+        return String(b.updated||'').localeCompare(String(a.updated||''));
+      });
+      var tkeep=tgroup[0];
+      for(var tdi=1;tdi<tgroup.length;tdi++){
+        var tdup=tgroup[tdi];
+        try{
+          await gcalApiCal('DELETE','/'+encodeURIComponent(tdup.id),null,calId3);
+          removed++;
+        }catch(te){
+          if((te&&te.message||'').indexOf('404')<0){errors++;console.warn('gcal title/time duplicate delete failed:',calId3,te&&te.message);continue;}
+        }
+        var tdp=(tdup.extendedProperties&&tdup.extendedProperties.private)||{};
+        if(tdp.returnTaskKey&&_gcalCfg.eventMeta[tdp.returnTaskKey]&&_gcalCfg.eventMeta[tdp.returnTaskKey].eventId===tdup.id){
+          delete _gcalCfg.eventMeta[tdp.returnTaskKey];
+        }
+      }
+      if(preferredKey&&gcalIsReturnOwnedEvent(tkeep,preferredKey)){
+        _gcalCfg.eventMeta[preferredKey]=Object.assign({},_gcalCfg.eventMeta[preferredKey]||{},{eventId:tkeep.id,calId:calId3,updatedAt:Date.now()});
+      }
+    }
+  }
   setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
   if(errors){
     gcalStatus('중복 정리 부분 완료: '+removed+'개 삭제, 오류 '+errors+'개','err');
