@@ -13117,7 +13117,6 @@ function setReturnStorageItem(key,value){
      to affirm "saved" can consult returnStorageWriteIsDurable(key), which is
      false while pending or stale. */
   if(_idbOverflow){
-    console.log('[add-diag] setReturnStorageItem IDB-overflow path',{key:key,valueLen:value.length});
     __storageHealthRecord({key:key,mode:'idb-pending'});
     _idbSet(key, value).then(function(){
       if(typeof __clearStaleQuota==='function') __clearStaleQuota(key);
@@ -21054,10 +21053,8 @@ function saveMemo() {
   memos.unshift({ id: 'm_'+Date.now()+'_'+Math.floor(Math.random()*9999), text: text, ts: Date.now(), type: 'memo' });
   var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
   if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
-  console.log('[add-diag] saveMemo',{memosLen:memos.length,ok:ok,applying:!!window._applyingFbData,lastApply:window._lastRemoteApplyMs});
   ta.value = '';
   renderMemos();
-  console.log('[add-diag] saveMemo after render',{memosLen:memos.length,timelineChildren:(document.getElementById('memo-timeline')||{}).childElementCount});
 }
 
 function deleteMemo(idx) {
@@ -22024,9 +22021,7 @@ function _initRecords(){
    ═══════════════════════════════════════════════════════════ */
 var projects=[], activeProjectId=null;
 function loadProjects(){
-  var _prevLen=Array.isArray(projects)?projects.length:-1;
   try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}
-  if(_prevLen>=0 && projects.length<_prevLen)console.log('[add-diag] loadProjects shrank',{prevLen:_prevLen,newLen:projects.length});
   /* Heal duplicate projects left behind by earlier broken sync rounds (same id
      appearing 2-4×). Collapse to one copy per id, then persist + resync so the
      cleaned list propagates to the cloud and other devices. Guard against the
@@ -22082,14 +22077,10 @@ function openProjectEditor(project){
     {key:'icon',label:'아이콘',value:project?project.icon:'🗂️'}
   ], function(data){
     var title=(data.title||'').trim(); if(!title)return;
-    var _isNew=!project;
     if(project){project.title=title;project.description=data.description||'';project.status=data.status||'active';project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.updatedAt=Date.now();}
     else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
-    var _lenBeforeSave=projects.length;
-    var _ok=saveProjects();
-    console.log('[add-diag] openProjectEditor save',{isNew:_isNew,projectsLenBeforeSave:_lenBeforeSave,saveOk:_ok,applying:!!window._applyingFbData,lastApply:window._lastRemoteApplyMs});
+    saveProjects();
     renderProjects();
-    console.log('[add-diag] openProjectEditor after render',{projectsLen:projects.length,activeId:activeProjectId,hasNewId:projects.some(function(p){return p.id===project.id;})});
   });
 }
 function openProjectTaskLinker(project){
@@ -25201,8 +25192,7 @@ function fbApplyData(data){
           try{
             var _cloudArr=JSON.parse(data.keys[k]||'[]')||[];
             var _localArr=JSON.parse(localStorage.getItem(k)||'[]')||[];
-            if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1',{prevRemoteApplyMs:_prevRemoteApplyMs,cloudLen:_cloudArr.length,localLen:_localArr.length,updatedAtMs:data.updatedAtMs});
-            if(Array.isArray(_cloudArr)&&Array.isArray(_localArr)&&_prevRemoteApplyMs>0){
+            if(Array.isArray(_cloudArr)&&Array.isArray(_localArr)){
               var _cloudArrIds={};
               _cloudArr.forEach(function(t){if(t&&t.id!=null)_cloudArrIds[String(t.id)]=true;});
               /* For tasks/projects: createdAt; for inbox: ts */
@@ -25210,7 +25200,7 @@ function fbApplyData(data){
                 if(!t||t.id==null)return false;
                 if(_cloudArrIds[String(t.id)])return false;
                 var created=Number(t.createdAt||t.ts||0);
-                return created>_prevRemoteApplyMs;
+                return created>_returnSessionLoadMs;
               });
               /* Dedup the merged result: the cloud blob itself may still carry
                  duplicate ids from earlier broken sync rounds, and the concat
@@ -25219,14 +25209,12 @@ function fbApplyData(data){
               var _mergedArr=_cloudArr.concat(_localArrOnly);
               var _dd=returnDedupById(_mergedArr);
               if(_localArrOnly.length||_dd.removed>0){
-                if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1 union-merge write',{localOnlyLen:_localArrOnly.length,removed:_dd.removed,resultLen:_dd.arr.length});
                 _fbWriter(k,JSON.stringify(_dd.arr));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
-            if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1 falling through to blind overwrite',{cloudLen:_cloudArr.length,localLen:_localArr.length});
           }catch(_te){}
         }
         /* routine_habits_v1 / routine_bundles_v1: simple overwrite from cloud,
@@ -25307,7 +25295,7 @@ function fbApplyData(data){
           }catch(_dko){}
         }
         /* hobby_items_v2 and memos_v5 union-merge: preserve items created on this
-           device after the last remote apply that haven't reached cloud yet.
+           device this session that haven't reached cloud yet.
            hobby items use createdAt; memos use ts. Items without a creation
            timestamp are treated as pre-sync and are not re-added if missing. */
         if(k==='hobby_items_v2'||k==='memos_v5'){
@@ -25315,8 +25303,7 @@ function fbApplyData(data){
             var _hobIsArray=k==='hobby_items_v2';
             var _hmCloud=JSON.parse(data.keys[k]||'[]')||[];
             var _hmLocal=JSON.parse(localStorage.getItem(k)||'[]')||[];
-            if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5',{prevRemoteApplyMs:_prevRemoteApplyMs,cloudLen:_hmCloud.length,localLen:_hmLocal.length,updatedAtMs:data.updatedAtMs});
-            if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)&&_prevRemoteApplyMs>0){
+            if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)){
               var _hmCloudIds={};
               _hmCloud.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_hmCloudIds[String(t.id!=null?t.id:t.ts)]=true;});
               var _hmLocalOnly=_hmLocal.filter(function(t){
@@ -25325,17 +25312,15 @@ function fbApplyData(data){
                 if(key==null)return false;
                 if(_hmCloudIds[String(key)])return false;
                 var created=Number(t.createdAt||t.ts||0);
-                return created>_prevRemoteApplyMs;
+                return created>_returnSessionLoadMs;
               });
               if(_hmLocalOnly.length){
-                if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5 union-merge write',{localOnlyLen:_hmLocalOnly.length});
                 _fbWriter(k,JSON.stringify(_hmCloud.concat(_hmLocalOnly)));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
-            if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5 falling through to blind overwrite',{cloudLen:_hmCloud.length,localLen:_hmLocal.length});
           }catch(_hm){}
         }
         /* repeat_suppressions_v1 / generated_task_suppressions_v1 are additive:
@@ -25707,6 +25692,20 @@ function fbSaveAll(){
    resets the baseline to 0 and the guard skips the merge, letting cloud data
    silently overwrite locally-created items that haven't been pushed yet. */
 var _lastRemoteApplyMs=(function(){try{var v=parseInt(localStorage.getItem('return_fb_sync_ts'),10);return(v>0?v:0);}catch(_e){return 0;}})();
+/* Fixed baseline for the fbApplyData union-merge "local-only item" checks
+   below (task_items_v1/inbox_v1/projects_v1/hobby_items_v2/memos_v5).
+   _lastRemoteApplyMs advances on EVERY fbApplyData call (even ones whose
+   cloud snapshot is stale and doesn't yet contain an item this device just
+   created), so comparing against it lets a SECOND stale snapshot arrive
+   with _prevRemoteApplyMs already past the new item's createdAt — the
+   item then fails the "created>baseline" check and the code falls through
+   to the blind-overwrite branch, silently deleting the just-added item from
+   localStorage. Anchoring to a fixed per-session timestamp instead means
+   any item created during this session keeps being preserved until the
+   cloud snapshot actually contains it (after which it's no longer
+   "local-only" and the check is moot), regardless of how many stale
+   snapshots arrive in between. */
+var _returnSessionLoadMs=Date.now();
 /* Timestamp of the last post-repair save. A repair discovered after
    fbApplyData (e.g. reconcileTimetableTasks) should fire once per remote
    change — not every apply cycle. A 10 s cooldown prevents a two-device
