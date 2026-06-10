@@ -6885,6 +6885,8 @@ to{opacity:1;transform:translateY(0)}}
           <div class="music-form-actions">
             <button class="set-btn btn-ghost" type="button" id="music-add-cancel">취소</button>
             <button class="set-btn btn-primary" type="button" id="music-save-btn">저장</button>
+            <button class="set-btn btn-ghost" type="button" id="music-song-import-btn">CSV로 가져오기</button>
+            <input type="file" id="music-song-import-input" accept=".csv,text/csv" hidden>
           </div>
         </div>
       </section>
@@ -8601,6 +8603,44 @@ function musicHandlePlaylistImport(e){
   reader.readAsText(file);
   e.target.value='';
 }
+function musicImportSongsCSV(){
+  var inp=document.getElementById('music-song-import-input');
+  if(inp)inp.click();
+}
+function musicHandleSongsImport(e){
+  var file=e.target.files&&e.target.files[0];
+  if(!file)return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    try{
+      var rows=musicCSVToSongs(String(ev.target.result||''));
+      var valid=rows.filter(function(r){return musicVideoId(r.youtubeUrl);});
+      if(!valid.length){if(typeof showToast==='function')showToast('CSV에서 가져올 수 있는 노래를 찾지 못했어요.');return;}
+      musicLoad();
+      var existing={};
+      musicLibrary.songs.forEach(function(s){if(s.youtubeUrl)existing[s.youtubeUrl]=s;});
+      var added=0;
+      valid.forEach(function(r){
+        if(existing[r.youtubeUrl])return;
+        var rec={id:musicId(),title:r.title,youtubeUrl:r.youtubeUrl,thumbnail:musicThumb(r.youtubeUrl),artist:r.artist,tags:r.tags,mood:r.mood,useCase:r.useCase,startTime:r.startTime,endTime:r.endTime,volume:r.volume,notes:r.notes,createdAt:Date.now(),updatedAt:Date.now()};
+        musicLibrary.songs.unshift(rec);
+        existing[rec.youtubeUrl]=rec;
+        added++;
+      });
+      musicSave();musicRender();
+      var skipped=rows.length-valid.length,dup=valid.length-added;
+      var msg='CSV에서 '+added+'곡을 노래로 가져왔어요';
+      var notes=[];
+      if(dup)notes.push(dup+'곡 중복 건너뜀');
+      if(skipped)notes.push(skipped+'곡 건너뜀');
+      if(notes.length)msg+=' ('+notes.join(', ')+')';
+      msg+=' ✓';
+      if(typeof showToast==='function')showToast(msg);
+    }catch(ex){if(typeof showToast==='function')showToast('CSV 가져오기 실패: '+(ex&&ex.message||ex));}
+  };
+  reader.readAsText(file);
+  e.target.value='';
+}
 musicDeletePlaylist=function(id){musicLibrary.playlists=musicLibrary.playlists.filter(function(p){return String(p.id)!==String(id);});if(musicCurrent.playlistId===id){musicQueue=[];musicCurrent={playlistId:'',itemIndex:0};musicUpdateMini();}musicSave();musicRender();};
 function musicPlaySong(id){var s=musicSongById(id);if(!s)return;musicQueue=[s];musicCurrent={playlistId:'',itemIndex:0};musicCurrentSongIndex=0;musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});}
 musicPlayPlaylist=function(id,index){musicLoad();var pl=musicPlaylistById(id);if(!pl)return;musicQueue=(pl.songIds||[]).map(musicSongById).filter(Boolean);if(!musicQueue.length){if(typeof showToast==='function')showToast('이 플레이리스트에 노래가 없어요.');return;}musicCurrent={playlistId:pl.id,itemIndex:index||0};musicCurrentSongIndex=index||0;musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});};
@@ -8612,7 +8652,7 @@ musicPrev=function(){if(!musicQueue.length)return;musicCurrentSongIndex=(musicCu
 musicPlayPause=function(){if(!musicQueue.length){var rec=musicRecommend();if(rec&&rec.song)musicPlaySong(rec.song.id);return;}musicEnsurePlayer(function(){if(!musicPlayer||!musicPlayer.getPlayerState)return;var st=musicPlayer.getPlayerState();if(st===1)musicPlayer.pauseVideo();else musicPlayer.playVideo();musicUpdateMini(true);});};
 musicUpdateMini=function(show){var mini=document.getElementById('music-mini-player');if(!mini)return;var item=musicCurrentItem(),pl=musicCurrentPlaylist();mini.classList.toggle('active',!!(show||item));var cover=document.getElementById('music-mini-cover'),title=document.getElementById('music-mini-title'),sub=document.getElementById('music-mini-sub');if(cover)cover.innerHTML=(item&&item.thumbnail)?'<img src="'+musicEsc(item.thumbnail)+'" alt="">':'';if(title)title.textContent=(item&&item.title)||'음악을 선택해 주세요';if(sub)sub.textContent=item?([item.artist,pl&&pl.title].filter(Boolean).join(' · ')||'YouTube 재생 중'):'YouTube 재생은 앱이 열려 있는 동안 유지돼요.';var btn=document.getElementById('music-play-btn');if(btn&&musicPlayer&&musicPlayer.getPlayerState)btn.textContent=musicPlayer.getPlayerState()===1?'Ⅱ':'▶';};
 musicRender=function(){musicLoad();musicRenderModes();musicRenderRecommended();musicRenderGrid();musicBindMini();};
-_initMusic=function(){musicLoad();musicEnsureLibrarySections();var toggle=document.getElementById('music-add-toggle'),panel=document.getElementById('music-add-panel'),cancel=document.getElementById('music-add-cancel'),save=document.getElementById('music-save-btn'),cover=document.getElementById('music-cover-input'),plSave=document.getElementById('music-playlist-save-btn');if(toggle&&!toggle.dataset.bound){toggle.dataset.bound='1';toggle.addEventListener('click',function(){if(panel)panel.style.display=panel.style.display==='none'?'block':'none';});}if(cancel&&!cancel.dataset.bound){cancel.dataset.bound='1';cancel.addEventListener('click',function(){musicClearForm();if(panel)panel.style.display='none';});}if(save&&!save.dataset.bound){save.dataset.bound='1';save.addEventListener('click',musicSaveFromForm);}if(cover&&!cover.dataset.bound){cover.dataset.bound='1';cover.addEventListener('change',function(){musicReadCover(cover.files&&cover.files[0]);});}if(plSave&&!plSave.dataset.bound){plSave.dataset.bound='1';plSave.addEventListener('click',musicCreatePlaylist);}musicRender();};
+_initMusic=function(){musicLoad();musicEnsureLibrarySections();var toggle=document.getElementById('music-add-toggle'),panel=document.getElementById('music-add-panel'),cancel=document.getElementById('music-add-cancel'),save=document.getElementById('music-save-btn'),cover=document.getElementById('music-cover-input'),plSave=document.getElementById('music-playlist-save-btn'),songImportBtn=document.getElementById('music-song-import-btn'),songImportInput=document.getElementById('music-song-import-input');if(toggle&&!toggle.dataset.bound){toggle.dataset.bound='1';toggle.addEventListener('click',function(){if(panel)panel.style.display=panel.style.display==='none'?'block':'none';});}if(cancel&&!cancel.dataset.bound){cancel.dataset.bound='1';cancel.addEventListener('click',function(){musicClearForm();if(panel)panel.style.display='none';});}if(save&&!save.dataset.bound){save.dataset.bound='1';save.addEventListener('click',musicSaveFromForm);}if(cover&&!cover.dataset.bound){cover.dataset.bound='1';cover.addEventListener('change',function(){musicReadCover(cover.files&&cover.files[0]);});}if(plSave&&!plSave.dataset.bound){plSave.dataset.bound='1';plSave.addEventListener('click',musicCreatePlaylist);}if(songImportBtn&&!songImportBtn.dataset.bound){songImportBtn.dataset.bound='1';songImportBtn.addEventListener('click',musicImportSongsCSV);}if(songImportInput&&!songImportInput.dataset.bound){songImportInput.dataset.bound='1';songImportInput.addEventListener('change',musicHandleSongsImport);}musicRender();};
 
 var MUSIC_TAG_PRESETS=['Study','Routine','Planning','Rest','Focus','Morning','Night','Calm','Deep Work','No lyrics','Cozy','Upbeat'];
 var musicProgressTimer=null;
