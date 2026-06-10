@@ -12665,7 +12665,7 @@ var RETURN_DATA_MAP = {
   assets:           {owner:'localStorage + IndexedDB', keys:['return_theme_studio_assets_v1'], read:'themeStudioAssets', write:'themeStudioSaveAssets', sync:'firebase-blob (incl syncDataUrl)', media:'syncDataUrl ≤220KB×N INLINE', ids:'asset_+ts+rand', versioned:'createdAt', notes:'R4 base64 dup vs media store'},
   stickers:         {owner:'localStorage', keys:['global_stickers_v1','global_sticker_edit_visible','global_sticker_shadow'], read:'loadGlobalStickers', write:'saveGlobalStickers', sync:'firebase-blob', media:'syncDataUrl ≤220KB INLINE', ids:'gs_+ts+rand', versioned:false, notes:'R4 quota'},
   banners:          {owner:'localStorage + IndexedDB', keys:['home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1'], read:'loadHomeBanner', write:'saveHomeBanner', sync:'firebase-blob', media:'syncDataUrl ≤180KB INLINE', ids:'return-media: ref', versioned:false, notes:'R4 quota'},
-  music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8'], read:'musicLoad', write:'musicSave', sync:'firebase-blob', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain'},
+  music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8'], read:'musicLoad', write:'musicSave', sync:'firebase-blob (music_playlists_v1: union-merge by createdAt vs _returnSessionLoadMs)', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain'},
   media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'via mediaSync manifest', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
   mediaSync:        {owner:'localStorage→IDB overflow (return_media_sync_v1)', keys:['return_media_sync_v1'], read:'mediaSyncGet/mediaSyncResolve', write:'mediaSyncPut', sync:'firebase-blob (single dedup key)', media:'compressed bytes, ONE copy per id, capped', ids:'media id', versioned:false, notes:'Stage 4: single cross-device media channel; dedups inline syncDataUrl'},
   overflow:         {owner:'IndexedDB (return_overflow_v1)', keys:[], read:'_idbCache', write:'_idbSet', sync:'via firebase-blob from cache', media:'whatever overflowed', ids:'n/a', versioned:false, notes:'quota escape hatch'},
@@ -25359,6 +25359,35 @@ function fbApplyData(data){
               return;
             }
           }catch(_e){}
+        }
+        /* music_playlists_v1 union-merge: preserve songs/playlists added on this
+           device this session that haven't reached cloud yet. Without this,
+           music_playlists_v1 had NO merge protection at all (unlike
+           task_items_v1/projects_v1/memos_v5 etc.) — any fbApplyData firing
+           with a cloud snapshot taken before musicSave's fbSaveAll push landed
+           would blindly overwrite localStorage and silently drop the
+           just-added playlist/song. Only merges the current {songs,playlists}
+           shape; a legacy array blob falls through to the normal overwrite and
+           gets normalized on the next musicLoad(). */
+        if(k==='music_playlists_v1'){
+          try{
+            var _mCloud=JSON.parse(data.keys[k]||'null');
+            var _mLocal=JSON.parse(localStorage.getItem(k)||'null');
+            if(_mCloud&&typeof _mCloud==='object'&&!Array.isArray(_mCloud)&&Array.isArray(_mCloud.songs)&&Array.isArray(_mCloud.playlists)&&
+               _mLocal&&typeof _mLocal==='object'&&!Array.isArray(_mLocal)&&Array.isArray(_mLocal.songs)&&Array.isArray(_mLocal.playlists)){
+              var _mCloudSongIds={}, _mCloudPlIds={};
+              _mCloud.songs.forEach(function(s){if(s&&s.id!=null)_mCloudSongIds[String(s.id)]=true;});
+              _mCloud.playlists.forEach(function(p){if(p&&p.id!=null)_mCloudPlIds[String(p.id)]=true;});
+              var _mSongsOnly=_mLocal.songs.filter(function(s){return s&&s.id!=null&&!_mCloudSongIds[String(s.id)]&&Number(s.createdAt||0)>_returnSessionLoadMs;});
+              var _mPlsOnly=_mLocal.playlists.filter(function(p){return p&&p.id!=null&&!_mCloudPlIds[String(p.id)]&&Number(p.createdAt||0)>_returnSessionLoadMs;});
+              if(_mSongsOnly.length||_mPlsOnly.length){
+                _fbWriter(k,JSON.stringify({songs:_mCloud.songs.concat(_mSongsOnly),playlists:_mCloud.playlists.concat(_mPlsOnly)}));
+                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                taskUnionMergeAfterFbApply=true;
+                return;
+              }
+            }
+          }catch(_mue){}
         }
         _fbWriter(k, data.keys[k]);
         /* If this key was previously in IDB overflow, it's now in localStorage — remove from IDB */
