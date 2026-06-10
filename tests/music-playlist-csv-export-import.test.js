@@ -231,4 +231,41 @@ const t = runner('Music playlist CSV export/import');
   t.ok('toast reports 2 imported', toasts.some((m) => /2곡/.test(m)), toasts);
 }
 
+// ── 6. musicHandleSongsImport — songs only, no playlist created ────────
+{
+  const library = {
+    songs: [
+      { id: 'existing1', title: 'Already Here', artist: '', youtubeUrl: 'https://youtu.be/AAAAAAAAAAA', startTime: 0, endTime: 0, volume: 80, tags: [], mood: '', useCase: '', notes: '', createdAt: 1, updatedAt: 1 },
+    ],
+    playlists: [
+      { id: 'pl1', title: 'My Mix', coverImage: '', description: '', tags: [], mood: '', useCase: '', songIds: ['existing1'], createdAt: 1, updatedAt: 1 },
+    ],
+  };
+  const sandbox = makeSandbox(library);
+  const { sb, store, toasts } = sandbox;
+  class FakeFileReader {
+    readAsText(file) { this.onload({ target: { result: file._content } }); }
+  }
+  sb.FileReader = FakeFileReader;
+
+  const csv = [
+    'title,artist,youtubeUrl,startTime,endTime,volume,tags,mood,useCase,notes',
+    'Already Here,,https://youtu.be/AAAAAAAAAAA,0,0,80,,,,',
+    'New Song,,https://youtu.be/CCCCCCCCCCC,0,0,80,,,,',
+    'Bad Row,No URL,,0,0,80,,,,',
+  ].join('\r\n');
+
+  const ev = { target: { files: [{ name: 'songs.csv', _content: csv }], value: 'x' } };
+  sb.musicHandleSongsImport(ev);
+
+  t.ok('event target value reset', ev.target.value === '', ev.target.value);
+  t.ok('musicRender called', sandbox.renderCalls === 1, sandbox.renderCalls);
+  const saved = JSON.parse(store[MUSIC_KEY_NAME]);
+  t.ok('no new playlist created', saved.playlists.length === 1, saved.playlists);
+  t.ok('existing song not duplicated', saved.songs.filter((s) => s.youtubeUrl === 'https://youtu.be/AAAAAAAAAAA').length === 1, saved.songs);
+  t.ok('one new song added', saved.songs.length === 2, saved.songs);
+  t.ok('new song not attached to any playlist', saved.playlists[0].songIds.indexOf(saved.songs.find((s) => s.youtubeUrl === 'https://youtu.be/CCCCCCCCCCC').id) === -1, saved.playlists[0].songIds);
+  t.ok('toast reports 1 imported, 1 dup, 1 skipped', toasts.some((m) => /1곡을 노래로 가져왔어요/.test(m) && /1곡 중복 건너뜀/.test(m) && /1곡 건너뜀/.test(m)), toasts);
+}
+
 t.done();
