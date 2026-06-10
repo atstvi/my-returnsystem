@@ -29326,14 +29326,18 @@ async function _gcalRepairDuplicatesInner(opts){
     }
   }
   /* Pass 3: title+start+end dedup across ALL events (Return-owned or not),
-     per calendar. Passes 1-2 above only group by returnTaskKey, so they miss:
+     ACROSS ALL CONFIGURED CALENDARS. Passes 1-2 above only group by
+     returnTaskKey, so they miss:
      (a) duplicates that predate extendedProperties tagging (untagged copies),
-     and (b) duplicates created when a task's stable key format changed (e.g.
+     (b) duplicates created when a task's stable key format changed (e.g.
      the timetable slot-key migration 'tt|<id>|<idx>|<day>|...' →
-     'tt|<id>|<slotId>|<date>' via migrateGcalEventMetaKey) — these end up as
-     two separate Return-owned events with DIFFERENT returnTaskKey values, so
-     pass 1 treats them as two distinct "groups" of size 1 and never merges
-     them. Grouping by title+start+end catches both, since these are all
+     'tt|<id>|<slotId>|<date>' via migrateGcalEventMetaKey), and
+     (c) duplicates left behind in the WRONG calendar by a
+     calendarId/taskCalendarId migration — the new copy in the correct
+     calendar carries the CURRENT returnTaskKey, the leftover in the old
+     calendar carries an OLD/different one, so they never share a
+     returnTaskKey group either. Grouping by title+start+end across ALL
+     calendars catches all three, since these are all
      deterministically-regenerated schedule/recurring items where an exact
      title+time match is effectively never a coincidence. */
   var currentKeyByGroup={};
@@ -29345,49 +29349,32 @@ async function _gcalRepairDuplicatesInner(opts){
       currentKeyByGroup[gk]=tk;
     }catch(e){}
   });
+  var allItemsAll=[];
   for(var ci3=0;ci3<calendars.length;ci3++){
     var calId3=calendars[ci3];
-    var allItems;
-    try{ allItems=await gcalListAllEvents(calId3); }
-    catch(e3){ errors++; console.warn('gcal title/time duplicate scan failed:',calId3,e3&&e3.message); continue; }
-    var titleGroups={};
-    allItems.forEach(function(ev){
-      if(!ev||!ev.id)return;
-      var gk=(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev);
-      (titleGroups[gk]=titleGroups[gk]||[]).push(ev);
-    });
-    var tgkeys=Object.keys(titleGroups);
-    for(var tgi=0;tgi<tgkeys.length;tgi++){
-      var gk=tgkeys[tgi], tgroup=titleGroups[gk];
-      if(tgroup.length<2)continue;
-      var preferredKey=currentKeyByGroup[gk]||'';
-      tgroup.sort(function(a,b){
-        var aMatch=preferredKey&&gcalIsReturnOwnedEvent(a,preferredKey);
-        var bMatch=preferredKey&&gcalIsReturnOwnedEvent(b,preferredKey);
-        if(aMatch&&!bMatch)return -1;
-        if(bMatch&&!aMatch)return 1;
-        var aOwned=gcalIsReturnOwnedEvent(a), bOwned=gcalIsReturnOwnedEvent(b);
-        if(aOwned&&!bOwned)return -1;
-        if(bOwned&&!aOwned)return 1;
-        return String(b.updated||'').localeCompare(String(a.updated||''));
-      });
-      var tkeep=tgroup[0];
-      for(var tdi=1;tdi<tgroup.length;tdi++){
-        var tdup=tgroup[tdi];
-        try{
-          await gcalApiCal('DELETE','/'+encodeURIComponent(tdup.id),null,calId3);
-          removed++;
-        }catch(te){
-          if((te&&te.message||'').indexOf('404')<0){errors++;console.warn('gcal title/time duplicate delete failed:',calId3,te&&te.message);continue;}
-        }
-        var tdp=(tdup.extendedProperties&&tdup.extendedProperties.private)||{};
-        if(tdp.returnTaskKey&&_gcalCfg.eventMeta[tdp.returnTaskKey]&&_gcalCfg.eventMeta[tdp.returnTaskKey].eventId===tdup.id){
-          delete _gcalCfg.eventMeta[tdp.returnTaskKey];
-        }
+    try{
+      var calItems=await gcalListAllEvents(calId3);
+      calItems.forEach(function(ev){ if(ev&&ev.id){ ev._calId=calId3; allItemsAll.push(ev); } });
+    }catch(e3){ errors++; console.warn('gcal title/time duplicate scan failed:',calId3,e3&&e3.message); }
+  }
+  var dedupPlans=gcalPlanTitleTimeDedup(allItemsAll,currentKeyByGroup);
+  for(var pi=0;pi<dedupPlans.length;pi++){
+    var plan=dedupPlans[pi], tkeep=plan.keep, preferredKey=plan.preferredKey;
+    for(var tdi=0;tdi<plan.remove.length;tdi++){
+      var tdup=plan.remove[tdi];
+      try{
+        await gcalApiCal('DELETE','/'+encodeURIComponent(tdup.id),null,tdup._calId);
+        removed++;
+      }catch(te){
+        if((te&&te.message||'').indexOf('404')<0){errors++;console.warn('gcal title/time duplicate delete failed:',tdup._calId,te&&te.message);continue;}
       }
-      if(preferredKey&&gcalIsReturnOwnedEvent(tkeep,preferredKey)){
-        _gcalCfg.eventMeta[preferredKey]=Object.assign({},_gcalCfg.eventMeta[preferredKey]||{},{eventId:tkeep.id,calId:calId3,updatedAt:Date.now()});
+      var tdp=(tdup.extendedProperties&&tdup.extendedProperties.private)||{};
+      if(tdp.returnTaskKey&&_gcalCfg.eventMeta[tdp.returnTaskKey]&&_gcalCfg.eventMeta[tdp.returnTaskKey].eventId===tdup.id){
+        delete _gcalCfg.eventMeta[tdp.returnTaskKey];
       }
+    }
+    if(preferredKey&&gcalIsReturnOwnedEvent(tkeep,preferredKey)){
+      _gcalCfg.eventMeta[preferredKey]=Object.assign({},_gcalCfg.eventMeta[preferredKey]||{},{eventId:tkeep.id,calId:tkeep._calId,updatedAt:Date.now()});
     }
   }
   setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
@@ -29405,6 +29392,51 @@ function gcalEventEquivalent(a,b){
     (a.description||'')===(b.description||'') &&
     gcalEventStartValue(a)===gcalEventStartValue(b) &&
     gcalEventEndValue(a)===gcalEventEndValue(b);
+}
+/* Pure planning helper for the title+start+end dedup pass (cross-calendar).
+   Takes the combined list of events from ALL configured calendars (each
+   tagged with ev._calId) plus a map of "title|start|end" -> the CURRENT
+   gcalTaskStableKey for that slot (from the live task list), and returns,
+   for each group of 2+ events sharing the same title+start+end, which one
+   to KEEP and which ones to remove — regardless of which calendar(s) they're
+   in. This catches duplicates that returnTaskKey-based matching (Pass 1/2)
+   misses: untagged copies, copies whose returnTaskKey changed format over
+   time, and copies left behind in the WRONG calendar by a
+   calendarId/taskCalendarId migration (the new copy in the correct calendar
+   carries the CURRENT key; the leftover carries an OLD key, so they never
+   share a returnTaskKey group). Kept separate from _gcalRepairDuplicatesInner
+   (which performs the actual DELETE calls) so the grouping/ranking logic can
+   be unit-tested without mocking the Calendar API. */
+function gcalPlanTitleTimeDedup(allItemsAll, currentKeyByGroup){
+  var titleGroups={};
+  (allItemsAll||[]).forEach(function(ev){
+    if(!ev||!ev.id)return;
+    var gk=(ev.summary||'')+'|'+gcalEventStartValue(ev)+'|'+gcalEventEndValue(ev);
+    (titleGroups[gk]=titleGroups[gk]||[]).push(ev);
+  });
+  var plans=[];
+  Object.keys(titleGroups).forEach(function(gk){
+    var tgroup=titleGroups[gk];
+    if(tgroup.length<2)return;
+    var preferredKey=(currentKeyByGroup&&currentKeyByGroup[gk])||'';
+    var preferredCalId=preferredKey?gcalPreferredCalendarForKey(preferredKey):'';
+    tgroup=tgroup.slice().sort(function(a,b){
+      var aMatch=preferredKey&&gcalIsReturnOwnedEvent(a,preferredKey);
+      var bMatch=preferredKey&&gcalIsReturnOwnedEvent(b,preferredKey);
+      var aCalOk=!!(aMatch&&preferredCalId&&a._calId===preferredCalId);
+      var bCalOk=!!(bMatch&&preferredCalId&&b._calId===preferredCalId);
+      if(aCalOk&&!bCalOk)return -1;
+      if(bCalOk&&!aCalOk)return 1;
+      if(aMatch&&!bMatch)return -1;
+      if(bMatch&&!aMatch)return 1;
+      var aOwned=gcalIsReturnOwnedEvent(a), bOwned=gcalIsReturnOwnedEvent(b);
+      if(aOwned&&!bOwned)return -1;
+      if(bOwned&&!aOwned)return 1;
+      return String(b.updated||'').localeCompare(String(a.updated||''));
+    });
+    plans.push({gk:gk, preferredKey:preferredKey, keep:tgroup[0], remove:tgroup.slice(1)});
+  });
+  return plans;
 }
 /* Read-only diagnostic: list ALL events (Return-owned or not) in a calendar
    over a wide range, paginating through nextPageToken. Used by
@@ -29461,35 +29493,43 @@ async function gcalDiagnoseDuplicates(){
   listEl.innerHTML='';
   var calendars=gcalConfiguredCalendarIds();
   var totalDupGroups=0, totalDupEvents=0, totalEvents=0;
+  /* Group across ALL configured calendars (not per-calendar) — a task event
+     left behind in the wrong calendar by a calendarId/taskCalendarId
+     migration shows up as ONE event per calendar, never 2+ within a single
+     calendar, so per-calendar grouping alone misses it. */
+  var allItems=[];
   for(var ci=0;ci<calendars.length;ci++){
     var calId=calendars[ci];
     var items;
     try{ items=await gcalListAllEvents(calId); }
     catch(e){ add('캘린더 '+calId,'err','목록 조회 실패: '+(e&&e.message)); continue; }
+    items.forEach(function(ev){ if(ev&&ev.id){ ev._calId=calId; allItems.push(ev); } });
     totalEvents+=items.length;
-    var groups={};
-    items.forEach(function(ev){
-      var key=(ev.summary||'(제목 없음)')+'|'+gcalEventStartValue(ev);
-      (groups[key]=groups[key]||[]).push(ev);
-    });
-    var keys=Object.keys(groups).filter(function(k){return groups[k].length>=2;});
-    add('캘린더 '+calId,keys.length?'warn':'ok',items.length+'개 이벤트 중 중복 그룹 '+keys.length+'개');
-    keys.sort(function(a,b){return groups[b].length-groups[a].length;});
-    keys.forEach(function(k){
-      var group=groups[k];
-      totalDupGroups++; totalDupEvents+=group.length;
-      var owned=group.filter(function(ev){return gcalIsReturnOwnedEvent(ev);});
-      var taskKeys=Array.from(new Set(owned.map(function(ev){
-        var p=(ev.extendedProperties&&ev.extendedProperties.private)||{};
-        return p.returnTaskKey||'';
-      }).filter(Boolean)));
-      var ids=group.map(function(ev){return ev.id.slice(0,8);}).join(',');
-      add(k.split('|')[0]+' @ '+k.split('|')[1],'err',
-        group.length+'개 중복 · Return소유 '+owned.length+'/'+group.length
-        +(taskKeys.length?' · taskKey='+taskKeys.join(','):'')
-        +' · ids='+ids);
-    });
+    add('캘린더 '+calId,'ok',items.length+'개 이벤트');
   }
+  var groups={};
+  allItems.forEach(function(ev){
+    var key=(ev.summary||'(제목 없음)')+'|'+gcalEventStartValue(ev);
+    (groups[key]=groups[key]||[]).push(ev);
+  });
+  var keys=Object.keys(groups).filter(function(k){return groups[k].length>=2;});
+  keys.sort(function(a,b){return groups[b].length-groups[a].length;});
+  keys.forEach(function(k){
+    var group=groups[k];
+    totalDupGroups++; totalDupEvents+=group.length;
+    var owned=group.filter(function(ev){return gcalIsReturnOwnedEvent(ev);});
+    var taskKeys=Array.from(new Set(owned.map(function(ev){
+      var p=(ev.extendedProperties&&ev.extendedProperties.private)||{};
+      return p.returnTaskKey||'';
+    }).filter(Boolean)));
+    var calIds=Array.from(new Set(group.map(function(ev){return ev._calId;})));
+    var ids=group.map(function(ev){return ev.id.slice(0,8);}).join(',');
+    add(k.split('|')[0]+' @ '+k.split('|')[1],'err',
+      group.length+'개 중복'+(calIds.length>1?' (캘린더 간)':'')+' · Return소유 '+owned.length+'/'+group.length
+      +(taskKeys.length?' · taskKey='+taskKeys.join(','):'')
+      +(calIds.length>1?' · 캘린더='+calIds.join(', '):'')
+      +' · ids='+ids);
+  });
   add('요약','warn','전체 '+totalEvents+'개 이벤트, 중복 그룹 '+totalDupGroups+'개, 중복 이벤트 '+totalDupEvents+'개');
 }
 function gcalQueueTaskEventDeletion(t){
