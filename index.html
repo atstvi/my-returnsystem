@@ -25150,8 +25150,16 @@ function fbApplyData(data){
        flags. Blobs written before this fix may still carry them; skip on apply so
        a cloud value of e.g. 'entity' cannot re-enable entity mode on reload. */
     var _fbApplySkip = {'return_sync_model': true};
+    /* Stale full-blob docs written before a key was excluded from
+       shouldFbSyncKey (e.g. gcal_cfg_v1, diary_notion_cfg, groq_api_key —
+       these now sync via the dedicated settings/main doc with their own
+       merge logic) can still carry that key in data.keys. Blindly writing
+       it here would clobber the current settings-managed value on every
+       fbApplyData (full blob load on login, onSnapshot, etc.), the same
+       class of bug fixed for fbSaveNow's cloud-only-keys absorb loop. */
     Object.keys(data.keys).forEach(function(k){
       if(_fbApplySkip[k]) return;
+      if(typeof shouldFbSyncKey==='function' && !shouldFbSyncKey(k)) return;
       try{
         /* MEDIA_SYNC_KEY is a union-merge key: never let cloud overwrite local
            entries. Cloud may carry an older snapshot (saved before images were
@@ -25377,6 +25385,7 @@ function fbApplyData(data){
     if(!data.__noop && typeof _fbLastPushedSnapshot !== 'undefined' && _fbLastPushedSnapshot !== null){
       Object.keys(data.keys).forEach(function(k){
         if(_fbApplySkip[k])return;
+        if(typeof shouldFbSyncKey==='function' && !shouldFbSyncKey(k)) return;
         _fbLastPushedSnapshot[k]=data.keys[k];
       });
     }
