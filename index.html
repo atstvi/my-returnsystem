@@ -5645,6 +5645,60 @@ to{opacity:1;transform:translateY(0)}}
 
 /* ── end Music UX v13 ────────────────────────────────────────────────── */
 
+/* ── Music UX v14: playlist-only gallery view ────────────────────────── */
+/* Segmented view toggle (전체 / 플레이리스트) */
+.music-view-toggle{
+  display:inline-flex;align-self:center;gap:2px;
+  padding:3px;border-radius:var(--r-full);
+  background:var(--bg-sunken);border:1px solid var(--border);
+}
+@media(min-width:1024px){.music-view-toggle{flex:0 0 auto!important}}
+.music-view-seg{
+  appearance:none;border:none;background:none;cursor:pointer;
+  padding:6px 16px;border-radius:var(--r-full);
+  font-size:.78rem;font-weight:600;color:var(--fg-3);
+  letter-spacing:.01em;transition:color .15s,background .15s,box-shadow .15s;
+}
+.music-view-seg:hover{color:var(--fg-2)}
+.music-view-seg.active{
+  color:var(--fg);background:var(--bg-card);
+  box-shadow:0 1px 3px rgba(0,0,0,.18);
+}
+
+/* Gallery mode: hide management chrome, let the playlist art breathe */
+.music-view-gallery .music-v9-left{display:none!important}
+.music-view-gallery .music-v9-reco-wrap{display:none!important}
+.music-view-gallery .music-v9-right{flex:1 1 100%!important;width:100%!important}
+@media(min-width:1024px){
+  .music-view-gallery .music-shell{max-width:1040px!important}
+}
+.music-view-gallery .music-playlist-grid{
+  grid-template-columns:repeat(auto-fill,minmax(180px,1fr))!important;
+  gap:var(--sp-5)!important;
+}
+.music-view-gallery .music-playlist-card{
+  background:none!important;border:none!important;padding:0!important;
+  transition:transform .18s cubic-bezier(.2,.8,.2,1);
+}
+.music-view-gallery .music-playlist-card:hover{transform:translateY(-4px)}
+.music-view-gallery .music-playlist-card .music-cover{
+  aspect-ratio:1/1!important;width:100%!important;height:auto!important;
+  border-radius:var(--r-xl)!important;overflow:hidden!important;
+  box-shadow:0 8px 24px rgba(0,0,0,.28),0 2px 6px rgba(0,0,0,.18)!important;
+  background:linear-gradient(135deg,var(--bg-raised),var(--bg-sunken))!important;
+}
+.music-view-gallery .music-playlist-card .music-cover img{
+  width:100%!important;height:100%!important;object-fit:cover!important;
+  transition:transform .3s ease;
+}
+.music-view-gallery .music-playlist-card:hover .music-cover img{transform:scale(1.05)}
+.music-view-gallery .music-pl-overlay{background:linear-gradient(to top,rgba(0,0,0,.45),rgba(0,0,0,0) 55%)!important}
+.music-view-gallery .music-pl-info{padding:var(--sp-3) 2px 0!important}
+.music-view-gallery .music-pl-info .music-card-title{font-size:var(--text-md)!important}
+.music-view-gallery .music-pl-card-btns{opacity:0!important;height:0!important;overflow:hidden!important;margin:0!important;transition:opacity .15s,height .15s}
+.music-view-gallery .music-playlist-card:hover .music-pl-card-btns{opacity:1!important;height:auto!important;margin-top:var(--sp-2)!important}
+/* ── end Music UX v14 ────────────────────────────────────────────────── */
+
 /* ══════════════════════════════════════════════════════════════════════
    Theme-aware Recharge + Routine v14
    ══════════════════════════════════════════════════════════════════════ */
@@ -34156,6 +34210,71 @@ musicRender=function(){
 
 })();
 /* ── end Music UX v13 JS ─────────────────────────────────────────────── */
+
+/* ── Music UX v14 JS: playlist-only gallery view ─────────────────────────
+   A segmented toggle (전체 / 플레이리스트) lets the user collapse the
+   management chrome (recommendation widget, song list, add forms) and view
+   just the playlist library as a roomy cover-art gallery. The chosen mode is
+   a device-local UI preference (NOT app data), so it is read/written through
+   localStorage directly and intentionally never synced across devices. */
+(function(){
+'use strict';
+var VIEW_KEY='music_view_mode_v1';
+
+function musicGetViewMode(){
+  try{return localStorage.getItem(VIEW_KEY)==='gallery'?'gallery':'full';}catch(e){return 'full';}
+}
+function musicApplyViewMode(mode){
+  mode=mode==='gallery'?'gallery':'full';
+  var page=document.getElementById('page-music');
+  if(page&&page.classList)page.classList.toggle('music-view-gallery',mode==='gallery');
+  var segs=document.querySelectorAll('#music-view-toggle [data-view]');
+  Array.prototype.forEach.call(segs,function(b){
+    b.classList.toggle('active',b.dataset.view===mode);
+  });
+}
+function musicSetViewMode(mode){
+  mode=mode==='gallery'?'gallery':'full';
+  try{localStorage.setItem(VIEW_KEY,mode);}catch(e){}
+  musicApplyViewMode(mode);
+}
+/* Expose for reuse/testing */
+if(typeof window!=='undefined'){window.musicGetViewMode=musicGetViewMode;window.musicSetViewMode=musicSetViewMode;}
+
+function musicV14InjectToggle(){
+  var shell=document.querySelector('#page-music .music-shell');
+  if(!shell)return;
+  if(document.getElementById('music-view-toggle'))return;
+  var toggle=document.createElement('div');
+  toggle.id='music-view-toggle';
+  toggle.className='music-view-toggle';
+  toggle.innerHTML=
+    '<button type="button" class="music-view-seg" data-view="full">전체</button>'+
+    '<button type="button" class="music-view-seg" data-view="gallery">플레이리스트</button>';
+  var resumeBar=document.getElementById('music-v8-resume-bar');
+  if(resumeBar&&resumeBar.parentNode)resumeBar.parentNode.insertBefore(toggle,resumeBar.nextSibling);
+  else shell.insertBefore(toggle,shell.firstChild);
+  Array.prototype.forEach.call(toggle.querySelectorAll('[data-view]'),function(b){
+    b.addEventListener('click',function(){musicSetViewMode(b.dataset.view);});
+  });
+  musicApplyViewMode(musicGetViewMode());
+}
+
+var _origRenderV14=(typeof musicRender==='function')?musicRender:null;
+musicRender=function(){
+  if(_origRenderV14)_origRenderV14.apply(this,arguments);
+  setTimeout(musicV14InjectToggle,90);
+};
+
+function musicV14Bootstrap(){setTimeout(musicV14InjectToggle,200);}
+if(document.readyState==='loading'){
+  document.addEventListener('DOMContentLoaded',musicV14Bootstrap);
+}else{
+  setTimeout(musicV14Bootstrap,0);
+}
+
+})();
+/* ── end Music UX v14 JS ─────────────────────────────────────────────── */
 
 /* ── Routine + Recharge v14 JS ─────────────────────────────────────── */
 (function(){
