@@ -24923,10 +24923,8 @@ function fbApplyCloudSettings(doc){
       }else if(k==='gcal_cfg_v1'){
         var gIn=JSON.parse(v||'{}'), gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
-        try{console.log('[gcal][diag] fbApplyCloudSettings gcal_cfg_v1 — cloud.taskCalendarId=',JSON.stringify(gIn.taskCalendarId),'local.taskCalendarId=',JSON.stringify(gLocal.taskCalendarId));}catch(_e){}
         if(!gIn.taskCalendarId && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
         if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
-        try{console.log('[gcal][diag] fbApplyCloudSettings gcal_cfg_v1 — result.taskCalendarId=',JSON.stringify(gIn.taskCalendarId));}catch(_e){}
         wv=JSON.stringify(gIn);
       }else{
         wv=String(v);
@@ -25152,8 +25150,16 @@ function fbApplyData(data){
        flags. Blobs written before this fix may still carry them; skip on apply so
        a cloud value of e.g. 'entity' cannot re-enable entity mode on reload. */
     var _fbApplySkip = {'return_sync_model': true};
+    /* Stale full-blob docs written before a key was excluded from
+       shouldFbSyncKey (e.g. gcal_cfg_v1, diary_notion_cfg, groq_api_key —
+       these now sync via the dedicated settings/main doc with their own
+       merge logic) can still carry that key in data.keys. Blindly writing
+       it here would clobber the current settings-managed value on every
+       fbApplyData (full blob load on login, onSnapshot, etc.), the same
+       class of bug fixed for fbSaveNow's cloud-only-keys absorb loop. */
     Object.keys(data.keys).forEach(function(k){
       if(_fbApplySkip[k]) return;
+      if(typeof shouldFbSyncKey==='function' && !shouldFbSyncKey(k)) return;
       try{
         /* MEDIA_SYNC_KEY is a union-merge key: never let cloud overwrite local
            entries. Cloud may carry an older snapshot (saved before images were
@@ -25379,6 +25385,7 @@ function fbApplyData(data){
     if(!data.__noop && typeof _fbLastPushedSnapshot !== 'undefined' && _fbLastPushedSnapshot !== null){
       Object.keys(data.keys).forEach(function(k){
         if(_fbApplySkip[k])return;
+        if(typeof shouldFbSyncKey==='function' && !shouldFbSyncKey(k)) return;
         _fbLastPushedSnapshot[k]=data.keys[k];
       });
     }
@@ -28924,7 +28931,6 @@ function gcalStatus(text, cls){
 }
 function gcalLoadConfig(){
   _gcalCfg=(function(){try{return JSON.parse(localStorage.getItem('gcal_cfg_v1')||'{}');}catch(e){return{};}})();
-  try{console.log('[gcal][diag] gcalLoadConfig — taskCalendarId=',JSON.stringify(_gcalCfg.taskCalendarId),new Error().stack.split('\n').slice(1,3).join(' | '));}catch(_e){}
   _gcalToken=_gcalCfg._savedToken||_gcalToken;
   _gcalTokenExp=_gcalCfg._savedTokenExp||_gcalTokenExp||0;
   var cid=document.getElementById('gcal-client-id'),
@@ -28965,7 +28971,6 @@ function gcalSaveConfig(silent){
   _gcalCfg.autoSync=elChecked('gcal-auto-sync',_gcalCfg.autoSync);
   _gcalCfg.reminderMin=reminderEl?(parseInt(reminderEl.value||'0',10)||0):(_gcalCfg.reminderMin||0);
   if(_gcalToken){_gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;}
-  try{console.log('[gcal][diag] gcalSaveConfig — saving taskCalendarId=',JSON.stringify(_gcalCfg.taskCalendarId));}catch(_e){}
   var gcalOk=setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
   gcalLoadConfig(); if(!silent)showToast(gcalOk?'Google Calendar 설정 저장됨':'저장 실패 — 저장공간을 확인해주세요');
 }
