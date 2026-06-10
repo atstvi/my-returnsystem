@@ -8015,6 +8015,7 @@ to{opacity:1;transform:translateY(0)}}
                 <button class="set-btn btn-ghost" onclick="gcalAuth()">Google 로그인</button>
                 <button class="set-btn btn-ghost" onclick="gcalSync()">지금 동기화</button>
                 <button class="set-btn btn-ghost" onclick="gcalRepairDuplicates()">중복 정리</button>
+                <button class="set-btn btn-ghost" onclick="gcalDiagnoseDuplicates()">중복 진단</button>
                 <button class="set-btn btn-ghost" onclick="gcalClearConfig()">연동 해제</button>
               </div>
               <div class="field-help" id="gcal-sync-status" style="margin-top:var(--sp-3)"></div>
@@ -29322,6 +29323,92 @@ function gcalEventEquivalent(a,b){
     (a.description||'')===(b.description||'') &&
     gcalEventStartValue(a)===gcalEventStartValue(b) &&
     gcalEventEndValue(a)===gcalEventEndValue(b);
+}
+/* Read-only diagnostic: list ALL events (Return-owned or not) in a calendar
+   over a wide range, paginating through nextPageToken. Used by
+   gcalDiagnoseDuplicates to find duplicates that gcalRepairDuplicates (which
+   only looks at returnSyncSource=return events) would never see. */
+async function gcalListAllEvents(calId){
+  var now=new Date();
+  var min=new Date(now.getFullYear()-1,0,1).toISOString();
+  var max=new Date(now.getFullYear()+2,11,31).toISOString();
+  var items=[], pageToken='';
+  for(var page=0;page<10;page++){
+    var path='?timeMin='+encodeURIComponent(min)+'&timeMax='+encodeURIComponent(max)+'&showDeleted=false&singleEvents=true&maxResults=2500';
+    if(pageToken)path+='&pageToken='+encodeURIComponent(pageToken);
+    var data=await gcalApiCal('GET',path,null,calId);
+    items=items.concat((data&&data.items)||[]);
+    if(!data||!data.nextPageToken)break;
+    pageToken=data.nextPageToken;
+  }
+  return items.filter(function(ev){return ev&&ev.status!=='cancelled';});
+}
+/* Read-only diagnostic for "캘린더 중복" reports — groups ALL events (not just
+   Return-owned) by title+start time within each configured calendar and
+   surfaces groups with 2+ events, showing whether they're Return-owned
+   (gcalRepairDuplicates can clean these) or not (a different source —
+   manual entries, pre-extendedProperties events, or another sync tool). */
+async function gcalDiagnoseDuplicates(){
+  var ov=document.getElementById('gcal-diag-modal');
+  if(ov)ov.remove();
+  ov=document.createElement('div');
+  ov.id='gcal-diag-modal';
+  ov.style.cssText='position:fixed;inset:0;z-index:300;background:rgba(0,0,0,.32);display:flex;align-items:center;justify-content:center;padding:16px';
+  ov.addEventListener('click',function(e){if(e.target===ov)ov.remove();});
+  var box=document.createElement('div');
+  box.style.cssText='background:var(--bg-card);color:var(--fg);border-radius:14px;box-shadow:var(--elev-3);max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;overflow:hidden';
+  box.innerHTML='<div style="padding:18px 18px 10px;border-bottom:.5px solid var(--border)"><div style="font-size:15px;font-weight:600">📅 Google Calendar 중복 진단</div><div style="font-size:11px;color:var(--fg-4);margin-top:4px;line-height:1.5">제목+시작시각이 같은 이벤트를 묶어서 2개 이상인 그룹만 보여줍니다 (Return 생성 여부 무관).</div></div><div id="gcal-diag-list" style="padding:14px 18px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:8px;font-size:11px;line-height:1.5"></div><div style="padding:10px 18px 18px;display:flex;gap:8px;justify-content:flex-end;border-top:.5px solid var(--border);background:var(--bg-raised)"><button class="set-btn btn-ghost" id="gcal-diag-copy">결과 복사</button><button class="set-btn btn-primary" id="gcal-diag-close">닫기</button></div>';
+  ov.appendChild(box);document.body.appendChild(ov);
+  ov.querySelector('#gcal-diag-close').onclick=function(){ov.remove();};
+  var listEl=ov.querySelector('#gcal-diag-list'),results=[];
+  function add(label,state,detail){
+    var icon=state==='ok'?'✓':state==='warn'?'⚠':state==='err'?'✗':'…';
+    var color=state==='ok'?'var(--success)':state==='warn'?'var(--warning)':state==='err'?'var(--danger)':'var(--fg-4)';
+    var row=document.createElement('div');
+    row.style.cssText='display:flex;gap:8px;align-items:flex-start;padding:6px 8px;border-radius:6px;background:'+(state==='err'?'var(--d-50)':state==='ok'?'var(--t-50)':'var(--bg-raised)')+';word-break:break-word';
+    row.innerHTML='<span style="color:'+color+';font-weight:bold">'+icon+'</span><div style="flex:1;min-width:0"><div style="font-weight:600">'+label+'</div>'+(detail?'<div style="margin-top:2px;color:var(--fg-3);font-family:var(--font-mono)">'+detail.replace(/[<>&]/g,function(c){return{'<':'&lt;','>':'&gt;','&':'&amp;'}[c];})+'</div>':'')+'</div>';
+    listEl.appendChild(row);
+    results.push((state==='ok'?'[OK] ':state==='err'?'[DUP] ':state==='warn'?'[WARN] ':'')+label+(detail?' — '+detail:''));
+  }
+  ov.querySelector('#gcal-diag-copy').onclick=function(){try{navigator.clipboard.writeText(results.join('\n'));showToast('진단 결과 복사됨');}catch(e){window.prompt('복사하세요:',results.join('\n'));}};
+  add('진단 시작','warn','이벤트 목록을 불러오는 중...');
+  if(!_gcalToken||Date.now()>_gcalTokenExp-60000){
+    var renewed=await gcalEnsureToken(true);
+    if(!renewed){listEl.innerHTML='';add('Google 로그인 필요','err','설정 > Google Calendar > Google 로그인을 먼저 눌러주세요');return;}
+  }
+  listEl.innerHTML='';
+  var calendars=gcalConfiguredCalendarIds();
+  var totalDupGroups=0, totalDupEvents=0, totalEvents=0;
+  for(var ci=0;ci<calendars.length;ci++){
+    var calId=calendars[ci];
+    var items;
+    try{ items=await gcalListAllEvents(calId); }
+    catch(e){ add('캘린더 '+calId,'err','목록 조회 실패: '+(e&&e.message)); continue; }
+    totalEvents+=items.length;
+    var groups={};
+    items.forEach(function(ev){
+      var key=(ev.summary||'(제목 없음)')+'|'+gcalEventStartValue(ev);
+      (groups[key]=groups[key]||[]).push(ev);
+    });
+    var keys=Object.keys(groups).filter(function(k){return groups[k].length>=2;});
+    add('캘린더 '+calId,keys.length?'warn':'ok',items.length+'개 이벤트 중 중복 그룹 '+keys.length+'개');
+    keys.sort(function(a,b){return groups[b].length-groups[a].length;});
+    keys.forEach(function(k){
+      var group=groups[k];
+      totalDupGroups++; totalDupEvents+=group.length;
+      var owned=group.filter(function(ev){return gcalIsReturnOwnedEvent(ev);});
+      var taskKeys=Array.from(new Set(owned.map(function(ev){
+        var p=(ev.extendedProperties&&ev.extendedProperties.private)||{};
+        return p.returnTaskKey||'';
+      }).filter(Boolean)));
+      var ids=group.map(function(ev){return ev.id.slice(0,8);}).join(',');
+      add(k.split('|')[0]+' @ '+k.split('|')[1],'err',
+        group.length+'개 중복 · Return소유 '+owned.length+'/'+group.length
+        +(taskKeys.length?' · taskKey='+taskKeys.join(','):'')
+        +' · ids='+ids);
+    });
+  }
+  add('요약','warn','전체 '+totalEvents+'개 이벤트, 중복 그룹 '+totalDupGroups+'개, 중복 이벤트 '+totalDupEvents+'개');
 }
 function gcalQueueTaskEventDeletion(t){
   if(!t||typeof _gcalCfg==='undefined')return;
