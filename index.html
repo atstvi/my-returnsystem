@@ -3129,10 +3129,14 @@ to{opacity:1;transform:translateY(0)}}
 .music-playlist-card .music-card-title{min-height:0;font-size:var(--text-md)}
 .music-song-list{display:flex;flex-direction:column;gap:var(--sp-2)}
 .music-song-row{display:grid;grid-template-columns:54px minmax(0,1fr) auto;gap:var(--sp-3);align-items:center;padding:var(--sp-2);border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-card)}
-.music-song-row .music-cover{width:54px;height:54px;aspect-ratio:auto;border-radius:var(--r-md)}
+.music-song-row .music-cover{width:54px;height:54px;aspect-ratio:auto;border-radius:var(--r-md);position:relative}
 .music-song-row .music-card-title{min-height:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .music-song-actions{display:flex;gap:var(--sp-1);opacity:.72}
 .music-song-row:hover .music-song-actions{opacity:1}
+.music-song-select-cb{position:absolute;top:2px;left:2px;z-index:2;width:16px;height:16px;margin:0;cursor:pointer;accent-color:var(--accent)}
+.music-bulk-toolbar{display:none;align-items:center;gap:var(--sp-2);flex-wrap:wrap;padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-card)}
+.music-bulk-toolbar.active{display:flex}
+.music-bulk-toolbar .music-bulk-count{font-size:var(--text-xs);color:var(--fg-4);margin-right:auto}
 .music-mini-progress{height:4px;border-radius:999px;background:var(--bg-sunken);overflow:hidden;margin-top:6px;cursor:pointer}
 .music-mini-progress span{display:block;height:100%;width:0;background:var(--accent)}
 .music-mini-time{display:none;font-size:var(--text-2xs);color:var(--fg-4);margin-top:3px}
@@ -8379,6 +8383,16 @@ function musicEnsureLibrarySections(){
   }
   var title=document.querySelector('#music-grid').closest('.music-panel').querySelector('.music-panel-title');
   if(title)title.textContent='Songs';
+  if(grid&&!document.getElementById('music-bulk-toolbar')){
+    var bar=document.createElement('div');
+    bar.id='music-bulk-toolbar';
+    bar.className='music-bulk-toolbar';
+    bar.innerHTML='<span class="music-bulk-count" id="music-bulk-count">0곡 선택됨</span><button class="set-btn btn-ghost" type="button" id="music-bulk-clear-btn">선택 해제</button><button class="set-btn btn-ghost" type="button" id="music-bulk-add-btn">+ 플레이리스트에 추가</button><button class="set-btn btn-ghost" type="button" id="music-bulk-delete-btn">선택 삭제</button>';
+    grid.parentNode.insertBefore(bar,grid);
+    document.getElementById('music-bulk-clear-btn').addEventListener('click',musicBulkClearSelection);
+    document.getElementById('music-bulk-add-btn').addEventListener('click',musicBulkAddToPlaylist);
+    document.getElementById('music-bulk-delete-btn').addEventListener('click',musicBulkDeleteSelected);
+  }
 }
 musicRenderRecommended=function(){
   var host=document.getElementById('music-recommended');if(!host)return;
@@ -8421,6 +8435,8 @@ function musicBindLibraryActions(){
   document.querySelectorAll('[data-music-playlist-delete]').forEach(function(btn){btn.addEventListener('click',function(){musicDeletePlaylist(btn.dataset.musicPlaylistDelete);});});
   document.querySelectorAll('[data-music-pl-remove]').forEach(function(btn){btn.addEventListener('click',function(){musicRemoveSongFromPlaylist(btn.dataset.musicPlRemove,btn.dataset.songId);});});
   document.querySelectorAll('[data-music-pl-up],[data-music-pl-down]').forEach(function(btn){btn.addEventListener('click',function(){musicMovePlaylistSong(btn.getAttribute('data-music-pl-up')||btn.getAttribute('data-music-pl-down'),Number(btn.dataset.songIndex)||0,btn.hasAttribute('data-music-pl-up')?-1:1);});});
+  document.querySelectorAll('[data-music-song-select]').forEach(function(cb){cb.addEventListener('change',function(){musicBulkToggleSong(cb.dataset.musicSongSelect,cb.checked);});});
+  musicUpdateBulkToolbar();
 }
 musicReadForm=function(){
   var url=(document.getElementById('music-url-input')||{}).value||'',title=(document.getElementById('music-title-input')||{}).value||'',mood=(document.getElementById('music-mood-input')||{}).value||'',useCase=(document.getElementById('music-usecase-input')||{}).value||'',tags=musicSplitTags((document.getElementById('music-tags-input')||{}).value||''),notes=(document.getElementById('music-notes-input')||{}).value||'',start=Math.max(0,parseInt((document.getElementById('music-start-input')||{}).value||'0',10)||0),end=Math.max(0,parseInt((document.getElementById('music-end-input')||{}).value||'0',10)||0),volume=Math.max(0,Math.min(100,parseInt((document.getElementById('music-volume-input')||{}).value||'80',10)||80));
@@ -8485,6 +8501,7 @@ function musicEditSong(id){
    JS, and round-trips cleanly through spreadsheet apps for manual edits. */
 var MUSIC_CSV_COLUMNS=['title','artist','youtubeUrl','startTime','endTime','volume','tags','mood','useCase','notes'];
 var musicImportPlaylistTarget='';
+var musicBulkSelected={};
 function musicCsvEscape(v){
   v=v==null?'':String(v);
   if(/[",\r\n]/.test(v))return '"'+v.replace(/"/g,'""')+'"';
@@ -8640,6 +8657,61 @@ function musicHandleSongsImport(e){
   };
   reader.readAsText(file);
   e.target.value='';
+}
+/* ── Bulk select for songs (multi-select delete / add to playlist) ── */
+function musicBulkSelectedIds(){
+  return Object.keys(musicBulkSelected).filter(function(id){return musicBulkSelected[id];});
+}
+function musicBulkToggleSong(id,checked){
+  if(checked)musicBulkSelected[id]=true;else delete musicBulkSelected[id];
+  musicUpdateBulkToolbar();
+}
+function musicUpdateBulkToolbar(){
+  var bar=document.getElementById('music-bulk-toolbar');if(!bar)return;
+  var n=musicBulkSelectedIds().length;
+  if(bar.classList)bar.classList.toggle('active',n>0);
+  var count=document.getElementById('music-bulk-count');
+  if(count)count.textContent=n+'곡 선택됨';
+}
+function musicBulkClearSelection(){
+  musicBulkSelected={};
+  musicRenderGrid();
+}
+function musicBulkDeleteSelected(){
+  var ids=musicBulkSelectedIds();
+  if(!ids.length)return;
+  if(!confirm(ids.length+'곡을 삭제할까요?'))return;
+  musicLoad();
+  var idSet={};ids.forEach(function(id){idSet[String(id)]=true;});
+  musicLibrary.songs=musicLibrary.songs.filter(function(s){return !idSet[String(s.id)];});
+  musicLibrary.playlists.forEach(function(pl){
+    var before=(pl.songIds||[]).length;
+    pl.songIds=(pl.songIds||[]).filter(function(id){return !idSet[String(id)];});
+    if(pl.songIds.length!==before)pl.updatedAt=Date.now();
+  });
+  musicBulkSelected={};
+  musicSave();musicRender();
+  if(typeof showToast==='function')showToast(ids.length+'곡을 삭제했어요.');
+}
+function musicBulkAddToPlaylist(){
+  var ids=musicBulkSelectedIds();
+  if(!ids.length)return;
+  musicLoad();
+  if(!musicLibrary.playlists.length){if(typeof showToast==='function')showToast('플레이리스트를 먼저 만들어 주세요.');return;}
+  var listText=musicLibrary.playlists.map(function(p,i){return (i+1)+'. '+p.title;}).join('\n');
+  var pick=prompt('선택한 '+ids.length+'곡을 담을 플레이리스트 번호를 입력해 주세요.\n'+listText);
+  if(pick==null)return;
+  var pl=musicLibrary.playlists[(parseInt(pick,10)||0)-1];
+  if(!pl)return;
+  pl.songIds=pl.songIds||[];
+  var added=0;
+  ids.forEach(function(id){if(pl.songIds.indexOf(id)<0){pl.songIds.push(id);added++;}});
+  if(!pl.coverImage){var first=musicSongById(pl.songIds[0]);if(first)pl.coverImage=first.thumbnail||'';}
+  pl.updatedAt=Date.now();
+  musicBulkSelected={};
+  musicSave();musicRender();
+  var dup=ids.length-added;
+  if(typeof showToast==='function')showToast('"'+pl.title+'"에 '+added+'곡을 추가했어요'+(dup?' ('+dup+'곡 이미 있음)':'')+'.');
 }
 musicDeletePlaylist=function(id){musicLibrary.playlists=musicLibrary.playlists.filter(function(p){return String(p.id)!==String(id);});if(musicCurrent.playlistId===id){musicQueue=[];musicCurrent={playlistId:'',itemIndex:0};musicUpdateMini();}musicSave();musicRender();};
 function musicPlaySong(id){var s=musicSongById(id);if(!s)return;musicQueue=[s];musicCurrent={playlistId:'',itemIndex:0};musicCurrentSongIndex=0;musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});}
@@ -32816,7 +32888,7 @@ musicPlaylistCard=function(pl){
 musicSongCard=function(song){
   var tags=musicTagsHtml(song);
   return '<article class="music-song-row">'+
-    '<div class="music-cover">'+(song.thumbnail?'<img src="'+musicEsc(song.thumbnail)+'" alt="" loading="lazy">':'')+'</div>'+
+    '<div class="music-cover"><input type="checkbox" class="music-song-select-cb" data-music-song-select="'+musicEsc(song.id)+'"'+(musicBulkSelected[song.id]?' checked':'')+'>'+(song.thumbnail?'<img src="'+musicEsc(song.thumbnail)+'" alt="" loading="lazy">':'')+'</div>'+
     '<div style="min-width:0">'+
       '<div class="music-card-title">'+musicEsc(song.title||'Untitled')+'</div>'+
       (song.artist?'<div class="music-note">'+musicEsc(song.artist)+'</div>':'')+
