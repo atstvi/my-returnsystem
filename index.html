@@ -13117,6 +13117,7 @@ function setReturnStorageItem(key,value){
      to affirm "saved" can consult returnStorageWriteIsDurable(key), which is
      false while pending or stale. */
   if(_idbOverflow){
+    console.log('[add-diag] setReturnStorageItem IDB-overflow path',{key:key,valueLen:value.length});
     __storageHealthRecord({key:key,mode:'idb-pending'});
     _idbSet(key, value).then(function(){
       if(typeof __clearStaleQuota==='function') __clearStaleQuota(key);
@@ -21053,8 +21054,10 @@ function saveMemo() {
   memos.unshift({ id: 'm_'+Date.now()+'_'+Math.floor(Math.random()*9999), text: text, ts: Date.now(), type: 'memo' });
   var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
   if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
+  console.log('[add-diag] saveMemo',{memosLen:memos.length,ok:ok,applying:!!window._applyingFbData,lastApply:window._lastRemoteApplyMs});
   ta.value = '';
   renderMemos();
+  console.log('[add-diag] saveMemo after render',{memosLen:memos.length,timelineChildren:(document.getElementById('memo-timeline')||{}).childElementCount});
 }
 
 function deleteMemo(idx) {
@@ -22021,7 +22024,9 @@ function _initRecords(){
    ═══════════════════════════════════════════════════════════ */
 var projects=[], activeProjectId=null;
 function loadProjects(){
+  var _prevLen=Array.isArray(projects)?projects.length:-1;
   try{projects=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[];}catch(e){projects=[];}
+  if(_prevLen>=0 && projects.length<_prevLen)console.log('[add-diag] loadProjects shrank',{prevLen:_prevLen,newLen:projects.length});
   /* Heal duplicate projects left behind by earlier broken sync rounds (same id
      appearing 2-4×). Collapse to one copy per id, then persist + resync so the
      cleaned list propagates to the cloud and other devices. Guard against the
@@ -22077,9 +22082,14 @@ function openProjectEditor(project){
     {key:'icon',label:'아이콘',value:project?project.icon:'🗂️'}
   ], function(data){
     var title=(data.title||'').trim(); if(!title)return;
+    var _isNew=!project;
     if(project){project.title=title;project.description=data.description||'';project.status=data.status||'active';project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.updatedAt=Date.now();}
     else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
-    saveProjects();renderProjects();
+    var _lenBeforeSave=projects.length;
+    var _ok=saveProjects();
+    console.log('[add-diag] openProjectEditor save',{isNew:_isNew,projectsLenBeforeSave:_lenBeforeSave,saveOk:_ok,applying:!!window._applyingFbData,lastApply:window._lastRemoteApplyMs});
+    renderProjects();
+    console.log('[add-diag] openProjectEditor after render',{projectsLen:projects.length,activeId:activeProjectId,hasNewId:projects.some(function(p){return p.id===project.id;})});
   });
 }
 function openProjectTaskLinker(project){
@@ -25191,6 +25201,7 @@ function fbApplyData(data){
           try{
             var _cloudArr=JSON.parse(data.keys[k]||'[]')||[];
             var _localArr=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1',{prevRemoteApplyMs:_prevRemoteApplyMs,cloudLen:_cloudArr.length,localLen:_localArr.length,updatedAtMs:data.updatedAtMs});
             if(Array.isArray(_cloudArr)&&Array.isArray(_localArr)&&_prevRemoteApplyMs>0){
               var _cloudArrIds={};
               _cloudArr.forEach(function(t){if(t&&t.id!=null)_cloudArrIds[String(t.id)]=true;});
@@ -25208,12 +25219,14 @@ function fbApplyData(data){
               var _mergedArr=_cloudArr.concat(_localArrOnly);
               var _dd=returnDedupById(_mergedArr);
               if(_localArrOnly.length||_dd.removed>0){
+                if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1 union-merge write',{localOnlyLen:_localArrOnly.length,removed:_dd.removed,resultLen:_dd.arr.length});
                 _fbWriter(k,JSON.stringify(_dd.arr));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
+            if(k==='projects_v1')console.log('[add-diag] fbApplyData projects_v1 falling through to blind overwrite',{cloudLen:_cloudArr.length,localLen:_localArr.length});
           }catch(_te){}
         }
         /* routine_habits_v1 / routine_bundles_v1: simple overwrite from cloud,
@@ -25302,6 +25315,7 @@ function fbApplyData(data){
             var _hobIsArray=k==='hobby_items_v2';
             var _hmCloud=JSON.parse(data.keys[k]||'[]')||[];
             var _hmLocal=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5',{prevRemoteApplyMs:_prevRemoteApplyMs,cloudLen:_hmCloud.length,localLen:_hmLocal.length,updatedAtMs:data.updatedAtMs});
             if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)&&_prevRemoteApplyMs>0){
               var _hmCloudIds={};
               _hmCloud.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_hmCloudIds[String(t.id!=null?t.id:t.ts)]=true;});
@@ -25314,12 +25328,14 @@ function fbApplyData(data){
                 return created>_prevRemoteApplyMs;
               });
               if(_hmLocalOnly.length){
+                if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5 union-merge write',{localOnlyLen:_hmLocalOnly.length});
                 _fbWriter(k,JSON.stringify(_hmCloud.concat(_hmLocalOnly)));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
               }
             }
+            if(k==='memos_v5')console.log('[add-diag] fbApplyData memos_v5 falling through to blind overwrite',{cloudLen:_hmCloud.length,localLen:_hmLocal.length});
           }catch(_hm){}
         }
         /* repeat_suppressions_v1 / generated_task_suppressions_v1 are additive:
