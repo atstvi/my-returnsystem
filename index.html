@@ -8631,6 +8631,24 @@ document.querySelectorAll('.tab-btn[data-page]').forEach(function(btn){
   btn.addEventListener('click',function(){ goPage(btn.dataset.page); });
 });
 
+/* Media-sync manifest constants — declared here (not at their original spot
+   near mediaSyncLoad/mediaSyncPut, ~line 12300) because the _migrateThemeAssets
+   IIFE below runs synchronously during initial script execution, BEFORE that
+   later `var` assignment would run. Until this was hoisted, MEDIA_SYNC_KEY/
+   MEDIA_SYNC_ITEM_MAX/MEDIA_SYNC_TOTAL_MAX were `undefined` at this point —
+   silently breaking the early mediaSyncPut() migration call (writes went to
+   localStorage key "undefined") and the boot-time mediaSyncPrune cap (the
+   `_msBefore>MEDIA_SYNC_TOTAL_MAX` check was always false).
+   NOTE on units: these caps are compared against String.length (CHAR count, via
+   _mediaSyncSize / dataUrl.length), but localStorage stores UTF-16 — 2 bytes per
+   char for ASCII base64. So the real localStorage footprint is ~2× these numbers.
+   returnStorageReport measures that footprint (×2), so a 750000-char manifest
+   shows as ~1.5MB in the report. Keep the budget in localStorage-byte intent:
+   750000 chars ≈ 1.5MB on disk. */
+var MEDIA_SYNC_KEY='return_media_sync_v1';
+var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap (chars ≈ 440KB on disk) */
+var MEDIA_SYNC_TOTAL_MAX=750000;    /* aggregate budget (chars ≈ 1.5MB on disk) */
+
 (function(){
   var hash='';
   try{hash=window.location.hash.replace('#','');}catch(e){}
@@ -12296,15 +12314,9 @@ function returnMediaResolveUrlWithFallback(url,fallback){
        until the identical bytes are confirmed readable back from the manifest
        (see themeStudioEnsureMediaFallbacks migration).
    ════════════════════════════════════════════════════════════════════════ */
-var MEDIA_SYNC_KEY='return_media_sync_v1';
-/* NOTE on units: these caps are compared against String.length (CHAR count, via
-   _mediaSyncSize / dataUrl.length), but localStorage stores UTF-16 — 2 bytes per
-   char for ASCII base64. So the real localStorage footprint is ~2× these numbers.
-   returnStorageReport measures that footprint (×2), so a 750000-char manifest
-   shows as ~1.5MB in the report. Keep the budget in localStorage-byte intent:
-   750000 chars ≈ 1.5MB on disk. */
-var MEDIA_SYNC_ITEM_MAX=220000;     /* per-image cap (chars ≈ 440KB on disk) */
-var MEDIA_SYNC_TOTAL_MAX=750000;    /* aggregate budget (chars ≈ 1.5MB on disk) */
+/* MEDIA_SYNC_KEY / MEDIA_SYNC_ITEM_MAX / MEDIA_SYNC_TOTAL_MAX are declared
+   earlier (~line 8634, before the _migrateThemeAssets boot IIFE) so they're
+   assigned before any early-boot code that depends on them runs. */
 var _mediaSyncManifest=null;
 function mediaSyncLoad(){
   if(_mediaSyncManifest)return _mediaSyncManifest;

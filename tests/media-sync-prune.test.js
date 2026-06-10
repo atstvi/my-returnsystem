@@ -17,8 +17,15 @@ const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
-const block = sliceBlock(html,
+// MEDIA_SYNC_KEY/ITEM_MAX/TOTAL_MAX are declared early (before the
+// _migrateThemeAssets boot IIFE, ~line 8634) so they're assigned before any
+// early-boot code that depends on them runs; the rest of the media-sync
+// machinery is defined later (~line 12300+). Slice both pieces separately.
+const constants = sliceBlock(html,
   "var MEDIA_SYNC_KEY='return_media_sync_v1';",
+  'var MEDIA_SYNC_TOTAL_MAX=750000;') + 'var MEDIA_SYNC_TOTAL_MAX=750000;';
+const block = constants + '\n' + sliceBlock(html,
+  'var _mediaSyncManifest=null;',
   'window.mediaSyncResolve=mediaSyncResolve;');
 
 function makeSandbox() {
