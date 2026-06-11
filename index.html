@@ -5049,6 +5049,14 @@ to{opacity:1;transform:translateY(0)}}
   opacity:0;
   pointer-events:none;
 }
+/* Ad detected (see musicCheckAdState): dim the disc + show a mute badge */
+.music-mini-player.ad-playing .music-disc-face{opacity:.5}
+.music-mini-player.ad-playing .music-disc-face::after{
+  content:'🔇';position:absolute;inset:0;z-index:3;
+  display:flex;align-items:center;justify-content:center;
+  font-size:22px;background:rgba(0,0,0,.35);border-radius:50%;
+}
+.music-mini-player.ad-playing .music-mini-sub{color:var(--warning)}
 /* Spin animation when playing */
 .music-disc-face.music-disc-spinning{animation:music-disc-spin 3s linear infinite}
 /* Pulse ring when playing */
@@ -8356,6 +8364,8 @@ var musicCurrent={playlistId:'',itemIndex:0};
 var musicPlayer=null;
 var musicPlayerReady=false;
 var musicPlayerBooting=false;
+var musicAdPlaying=false;
+var musicAdWasMuted=false;
 var musicModes=['Study','Routine','Planning','Rest','Focus'];
 function musicEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function musicId(){return 'music_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
@@ -8379,7 +8389,28 @@ function musicReadForm(){var url=(document.getElementById('music-url-input')||{}
 function musicClearForm(){['music-title-input','music-url-input','music-mood-input','music-usecase-input','music-tags-input','music-notes-input','music-start-input','music-end-input','music-volume-input'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});var f=document.getElementById('music-cover-input');if(f)f.value='';musicCoverDraft='';}
 function musicSaveFromForm(){var p=musicReadForm();if(!p.url){if(typeof showToast==='function')showToast('YouTube URL을 입력해 주세요.');return;}if(!musicVideoId(p.url)&&!musicListId(p.url)){if(typeof showToast==='function')showToast('재생 가능한 YouTube 영상 또는 플레이리스트 URL이 필요해요.');return;}musicLoad();musicPlaylists.unshift(p);if(!musicSave())return;musicClearForm();var panel=document.getElementById('music-add-panel');if(panel)panel.style.display='none';musicRender();}
 function musicReadCover(file){if(!file)return;var reader=new FileReader();reader.onload=function(){var img=new Image();img.onload=function(){var max=640,scale=Math.min(1,max/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale));var c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);musicCoverDraft=c.toDataURL('image/jpeg',.82);};img.src=reader.result;};reader.readAsDataURL(file);}
-function musicEnsurePlayer(cb){if(musicPlayerReady&&musicPlayer){cb&&cb();return;}window.onYouTubeIframeAPIReady=function(){musicPlayer=new YT.Player('music-youtube-frame',{height:'1',width:'1',playerVars:{playsinline:1,origin:location.origin},events:{onReady:function(){musicPlayerReady=true;musicUpdateMini();cb&&cb();},onError:function(){if(typeof showToast==='function')showToast('YouTube embed 재생에 실패했어요. 원본 링크를 열어 주세요.');},onStateChange:function(e){if(e&&e.data===0)musicNext();musicUpdateMini();}}});};if(window.YT&&YT.Player){window.onYouTubeIframeAPIReady();return;}if(musicPlayerBooting)return;musicPlayerBooting=true;var sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';sc.onerror=function(){if(typeof showToast==='function')showToast('YouTube Player API를 불러오지 못했어요.');};document.head.appendChild(sc);}
+/* Heuristic ad detection: while an ad is loaded, the iframe player's
+   getVideoData().video_id no longer matches the song we asked it to
+   play. We can't read the (cross-origin) ad UI itself, so we use this
+   id mismatch as a proxy — mute playback and flag the mini player so
+   the UI doesn't show the ad as if it were the current song. */
+function musicCheckAdState(){
+  if(!musicPlayer||!musicPlayer.getVideoData)return;
+  var item=musicCurrentItem();
+  var expected=item?musicVideoId(item.youtubeUrl||''):'';
+  var data;
+  try{data=musicPlayer.getVideoData();}catch(e){return;}
+  var actual=(data&&data.video_id)||'';
+  var isAd=!!(expected&&actual&&actual!==expected);
+  if(isAd&&!musicAdPlaying){
+    musicAdPlaying=true;
+    try{musicAdWasMuted=!!(musicPlayer.isMuted&&musicPlayer.isMuted());if(!musicAdWasMuted&&musicPlayer.mute)musicPlayer.mute();}catch(e){}
+  }else if(!isAd&&musicAdPlaying){
+    musicAdPlaying=false;
+    try{if(!musicAdWasMuted&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}
+  }
+}
+function musicEnsurePlayer(cb){if(musicPlayerReady&&musicPlayer){cb&&cb();return;}window.onYouTubeIframeAPIReady=function(){musicPlayer=new YT.Player('music-youtube-frame',{height:'1',width:'1',playerVars:{playsinline:1,origin:location.origin},events:{onReady:function(){musicPlayerReady=true;musicUpdateMini();cb&&cb();},onError:function(){if(typeof showToast==='function')showToast('YouTube embed 재생에 실패했어요. 원본 링크를 열어 주세요.');},onStateChange:function(e){if(e&&e.data===0)musicNext();if(e&&(e.data===1||e.data===3))musicCheckAdState();musicUpdateMini();}}});};if(window.YT&&YT.Player){window.onYouTubeIframeAPIReady();return;}if(musicPlayerBooting)return;musicPlayerBooting=true;var sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';sc.onerror=function(){if(typeof showToast==='function')showToast('YouTube Player API를 불러오지 못했어요.');};document.head.appendChild(sc);}
 function musicPlayPlaylist(id,index){musicLoad();var p=musicPlaylists.find(function(x){return String(x.id)===String(id);});if(!p)return;musicCurrent={playlistId:p.id,itemIndex:index||0};musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});}
 function musicLoadCurrent(autoPlay){var item=musicCurrentItem();if(!item||!musicPlayer)return;var videoId=musicVideoId(item.youtubeUrl||''),listId=musicListId(item.youtubeUrl||'');try{if(item.volume!=null&&musicPlayer.setVolume)musicPlayer.setVolume(Math.max(0,Math.min(100,Number(item.volume)||80)));if(videoId){musicPlayer.loadVideoById({videoId:videoId,startSeconds:Number(item.startTime)||0,endSeconds:Number(item.endTime)||undefined});}else if(listId&&musicPlayer.loadPlaylist){musicPlayer.loadPlaylist({list:listId,listType:'playlist',index:0,startSeconds:Number(item.startTime)||0});}if(!autoPlay&&musicPlayer.pauseVideo)musicPlayer.pauseVideo();}catch(e){if(typeof showToast==='function')showToast('YouTube 재생을 시작하지 못했어요.');}musicUpdateMini(true);}
 function musicPlayPause(){if(!musicCurrent.playlistId){var rec=musicRecommend();if(rec&&rec.playlist)musicPlayPlaylist(rec.playlist.id,0);return;}musicEnsurePlayer(function(){if(!musicPlayer||!musicPlayer.getPlayerState)return;var st=musicPlayer.getPlayerState();if(st===1)musicPlayer.pauseVideo();else musicPlayer.playVideo();musicUpdateMini(true);});}
@@ -8803,7 +8834,7 @@ function musicPlaySong(id){var s=musicSongById(id);if(!s)return;musicQueue=[s];m
 musicPlayPlaylist=function(id,index){musicLoad();var pl=musicPlaylistById(id);if(!pl)return;musicQueue=(pl.songIds||[]).map(musicSongById).filter(Boolean);if(!musicQueue.length){if(typeof showToast==='function')showToast('이 플레이리스트에 노래가 없어요.');return;}musicCurrent={playlistId:pl.id,itemIndex:index||0};musicCurrentSongIndex=index||0;musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});};
 musicCurrentPlaylist=function(){return musicPlaylistById(musicCurrent.playlistId);};
 musicCurrentItem=function(){return musicQueue[Math.max(0,Math.min(musicQueue.length-1,musicCurrentSongIndex||0))]||null;};
-musicLoadCurrent=function(autoPlay){var item=musicCurrentItem();if(!item||!musicPlayer)return;var videoId=musicVideoId(item.youtubeUrl||'');try{if(item.volume!=null&&musicPlayer.setVolume)musicPlayer.setVolume(Math.max(0,Math.min(100,Number(item.volume)||80)));if(videoId)musicPlayer.loadVideoById({videoId:videoId,startSeconds:Number(item.startTime)||0,endSeconds:Number(item.endTime)||undefined});if(!autoPlay&&musicPlayer.pauseVideo)musicPlayer.pauseVideo();}catch(e){if(typeof showToast==='function')showToast('YouTube 재생을 시작하지 못했어요.');}musicUpdateMini(true);};
+musicLoadCurrent=function(autoPlay){var item=musicCurrentItem();if(!item||!musicPlayer)return;var videoId=musicVideoId(item.youtubeUrl||'');if(musicAdPlaying){musicAdPlaying=false;try{if(!musicAdWasMuted&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}}try{if(item.volume!=null&&musicPlayer.setVolume)musicPlayer.setVolume(Math.max(0,Math.min(100,Number(item.volume)||80)));if(videoId)musicPlayer.loadVideoById({videoId:videoId,startSeconds:Number(item.startTime)||0,endSeconds:Number(item.endTime)||undefined});if(!autoPlay&&musicPlayer.pauseVideo)musicPlayer.pauseVideo();}catch(e){if(typeof showToast==='function')showToast('YouTube 재생을 시작하지 못했어요.');}musicUpdateMini(true);};
 musicNext=function(){if(!musicQueue.length)return;musicCurrentSongIndex=(musicCurrentSongIndex+1)%musicQueue.length;musicCurrent.itemIndex=musicCurrentSongIndex;if(musicPlayerReady)musicLoadCurrent(true);};
 musicPrev=function(){if(!musicQueue.length)return;musicCurrentSongIndex=(musicCurrentSongIndex+musicQueue.length-1)%musicQueue.length;musicCurrent.itemIndex=musicCurrentSongIndex;if(musicPlayerReady)musicLoadCurrent(true);};
 musicPlayPause=function(){if(!musicQueue.length){var rec=musicRecommend();if(rec&&rec.song)musicPlaySong(rec.song.id);return;}musicEnsurePlayer(function(){if(!musicPlayer||!musicPlayer.getPlayerState)return;var st=musicPlayer.getPlayerState();if(st===1)musicPlayer.pauseVideo();else musicPlayer.playVideo();musicUpdateMini(true);});};
@@ -8844,6 +8875,12 @@ function musicFormatTime(sec){
 function musicUpdateProgress(){
   var fill=document.getElementById('music-mini-progress-fill'),time=document.getElementById('music-mini-time'),bar=document.getElementById('music-mini-progress');
   if(!fill||!time||!musicPlayer||!musicPlayer.getCurrentTime||!musicPlayer.getDuration)return;
+  if(musicAdPlaying){
+    fill.style.width='0%';
+    time.textContent='광고 재생 중';
+    if(bar){bar.setAttribute('aria-valuenow','0');bar.setAttribute('aria-valuetext','광고 재생 중');}
+    return;
+  }
   var cur=0,dur=0;
   try{cur=musicPlayer.getCurrentTime()||0;dur=musicPlayer.getDuration()||0;}catch(e){}
   var pct=dur?Math.max(0,Math.min(100,cur/dur*100)):0;
@@ -34126,6 +34163,16 @@ musicUpdateMini=function(show){
   if(_umV12)_umV12.apply(this,arguments);
   syncExpandedCover();
   syncPlayIcon();
+};
+
+/* ── Surface ad-detection state on the mini player (see musicCheckAdState) ── */
+var _umAd=(typeof musicUpdateMini==='function')?musicUpdateMini:null;
+musicUpdateMini=function(show){
+  if(_umAd)_umAd.apply(this,arguments);
+  var mini=document.getElementById('music-mini-player');
+  if(mini)mini.classList.toggle('ad-playing',!!musicAdPlaying);
+  var sub=document.getElementById('music-mini-sub');
+  if(sub&&musicAdPlaying)sub.textContent='🔇 광고 재생 중 · 잠시 음소거됨';
 };
 
 function syncPlayIcon(){
