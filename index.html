@@ -8846,7 +8846,7 @@ function musicUiEnsure(){
     var tagInput=document.getElementById('music-tags-input');
     var moodInput=document.getElementById('music-mood-input');
     var useInput=document.getElementById('music-usecase-input');
-    if(tagInput){tagInput.placeholder='직접 태그 추가';tagInput.insertAdjacentHTML('beforebegin','<div class="music-note">빠른 태그</div>'+musicPresetChipsHtml('song',[]));}
+    if(tagInput){tagInput.placeholder='직접 태그 추가';tagInput.insertAdjacentHTML('beforebegin','<div class="music-form-wide"><div class="music-note">빠른 태그</div>'+musicPresetChipsHtml('song',[])+'</div>');}
     if(moodInput)moodInput.placeholder='mood 직접 입력';
     if(useInput)useInput.placeholder='use case 직접 입력';
   }
@@ -8854,7 +8854,7 @@ function musicUiEnsure(){
   if(plPanel&&!plPanel.dataset.musicUx){
     plPanel.dataset.musicUx='1';
     var tags=document.getElementById('music-playlist-tags-input');
-    if(tags){tags.placeholder='직접 태그 추가';tags.insertAdjacentHTML('beforebegin','<div class="music-note">빠른 태그</div>'+musicPresetChipsHtml('playlist',[]));}
+    if(tags){tags.placeholder='직접 태그 추가';tags.insertAdjacentHTML('beforebegin','<div class="music-form-wide"><div class="music-note">빠른 태그</div>'+musicPresetChipsHtml('playlist',[])+'</div>');}
   }
   var songGrid=document.getElementById('music-grid'),plGrid=document.getElementById('music-playlist-grid');
   if(songGrid)songGrid.classList.add('music-song-list');
@@ -32690,6 +32690,7 @@ function musicShowManagePanel(id){
         '</span></div>';
     }).join('');
   }
+  var grpId='manage-pl-'+String(id).slice(-6);
   panel.innerHTML=
     '<div class="music-panel-head">'+
       '<div><div class="music-panel-title">플레이리스트 관리</div>'+
@@ -32698,6 +32699,20 @@ function musicShowManagePanel(id){
         '<button class="set-btn btn-ghost" type="button" id="music-manage-del" style="font-size:var(--text-xs)">삭제</button>'+
         '<button class="set-btn btn-ghost" type="button" id="music-manage-close">✕</button>'+
       '</div></div>'+
+    '<div class="music-form" style="grid-template-columns:1fr 1fr">'+
+      '<input class="set-inp music-form-wide" id="music-manage-title" placeholder="제목" value="'+musicEsc(pl.title||'')+'">'+
+      '<input class="set-inp" id="music-manage-mood" placeholder="mood" value="'+musicEsc(pl.mood||'')+'">'+
+      '<input class="set-inp" id="music-manage-usecase" placeholder="use case" value="'+musicEsc(pl.useCase||'')+'">'+
+      '<div class="music-form-wide">'+
+        '<span class="music-chip-label">태그</span>'+
+        musicPresetChipsHtml(grpId,pl.tags||[])+
+        '<input class="set-inp" id="music-manage-tags" placeholder="직접 입력" style="margin-top:6px" value="'+musicEsc((pl.tags||[]).join(', '))+'">'+
+      '</div>'+
+      '<textarea class="set-inp music-form-wide" id="music-manage-desc" rows="2" placeholder="설명">'+musicEsc(pl.description||'')+'</textarea>'+
+      '<div class="music-form-actions">'+
+        '<button class="set-btn btn-primary" type="button" id="music-manage-save-btn">정보 저장</button>'+
+      '</div>'+
+    '</div>'+
     '<div id="music-manage-list" style="display:flex;flex-direction:column;gap:var(--sp-2)">'+buildRows()+'</div>';
   var plGridPanel=document.getElementById('music-playlist-grid');
   plGridPanel=plGridPanel&&plGridPanel.closest('.music-panel');
@@ -32712,10 +32727,28 @@ function musicShowManagePanel(id){
     list.querySelectorAll('[data-mpl-rm]').forEach(function(b){b.addEventListener('click',function(){musicRemoveSongFromPlaylist(b.dataset.mplRm,b.dataset.sid);pl=musicPlaylistById(id);rebind();});});
   }
   rebind();
+  musicBindPresetChips(panel);
   panel.querySelector('#music-manage-close').addEventListener('click',musicCloseEditPanel);
   panel.querySelector('#music-manage-del').addEventListener('click',function(){
     if(!confirm('"'+pl.title+'" 를 삭제할까요?'))return;
     musicDeletePlaylist(id);musicCloseEditPanel();
+  });
+  panel.querySelector('#music-manage-save-btn').addEventListener('click',function(){
+    var tval=((document.getElementById('music-manage-title')||{}).value||'').trim();
+    if(tval)pl.title=tval;
+    pl.mood=((document.getElementById('music-manage-mood')||{}).value||'').trim();
+    pl.useCase=((document.getElementById('music-manage-usecase')||{}).value||'').trim();
+    pl.description=((document.getElementById('music-manage-desc')||{}).value||'').trim();
+    var chips=musicReadPresetChips(grpId);
+    var custom=musicSplitTags((document.getElementById('music-manage-tags')||{}).value||'');
+    var seen={};
+    pl.tags=chips.concat(custom).filter(function(t){var k=t.toLowerCase();if(seen[k])return false;seen[k]=1;return true;});
+    pl.updatedAt=Date.now();
+    musicSave();
+    var noteEl=panel.querySelector('.music-panel-head .music-note');
+    if(noteEl)noteEl.textContent=pl.title;
+    if(typeof showToast==='function')showToast('플레이리스트 정보를 저장했어요.');
+    musicRender();
   });
   panel.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
