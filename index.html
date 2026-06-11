@@ -558,6 +558,20 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .sit-card[data-sit-state="rest"] .sit-avatar{background:var(--t-50);border-color:var(--t-200)}
 .sit-card[data-sit-state="focus"] .sit-avatar{background:var(--w-50);border-color:var(--w-200)}
 
+/* ── D-DAY TRACKER (특별 일정) ── */
+.home-dday-card{display:flex;gap:var(--sp-3);padding:var(--sp-4);overflow-x:auto}
+.dday-chip{flex:0 0 auto;min-width:128px;display:flex;flex-direction:column;gap:2px;padding:var(--sp-3) var(--sp-4);border-radius:var(--r-lg);background:var(--bg-raised);border:1px solid transparent;cursor:pointer;transition:transform var(--t-snap),box-shadow var(--t-snap)}
+.dday-chip:hover{transform:translateY(-1px)}
+.dday-chip-num{font-size:var(--text-xl);font-weight:var(--fw-bold);color:var(--accent)}
+.dday-chip-title{font-size:var(--text-xs);font-weight:var(--fw-medium);color:var(--fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+.dday-chip-date{font-size:var(--text-2xs);color:var(--fg-4)}
+.dday-chip.imminent{background:var(--w-50);border-color:var(--w-200)}
+.dday-chip.imminent .dday-chip-num,.dday-chip.imminent .dday-chip-date{color:var(--w-600)}
+.dday-chip.today,.dday-chip.overdue{background:var(--d-50);border-color:rgba(220,38,38,.2)}
+.dday-chip.today .dday-chip-num,.dday-chip.overdue .dday-chip-num{color:var(--a-600)}
+.dday-chip.today{animation:dday-glow 2s ease-in-out infinite}
+@keyframes dday-glow{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--danger) 0%,transparent)}50%{box-shadow:0 0 10px 2px color-mix(in srgb,var(--danger) 35%,transparent)}}
+
 /* ── CARD SHELL ── */
 .card { background:var(--bg-card); border-radius:var(--r-lg); box-shadow:var(--elev-1); overflow:hidden; }
 .card-head {
@@ -6054,6 +6068,11 @@ to{opacity:1;transform:translateY(0)}}
             <input class="modal-time-inp modal-deadline-time" type="time" id="modal-dl-time-input">
           </div>
         </div>
+        <div class="modal-row" style="cursor:default">
+          <div class="mr-icon ic-danger">⭐</div>
+          <span class="mr-label">특별 일정</span>
+          <input type="checkbox" id="modal-special-toggle" style="width:18px;height:18px;accent-color:var(--accent);margin-left:auto" aria-label="특별 일정으로 표시 — 홈 화면에 디데이 카드로 표시">
+        </div>
         <div class="modal-row">
           <div class="mr-icon ic-accent">🔁</div>
           <span class="mr-label">반복</span>
@@ -6399,6 +6418,9 @@ to{opacity:1;transform:translateY(0)}}
           <div class="home-routine-quick" id="home-routine-quick" aria-label="습관 빠른 체크"></div>
         </div>
       </section>
+
+      <!-- 2.5 D-DAY — 특별 일정 카운트다운 -->
+      <section class="card home-dday-card" id="home-dday-card" aria-label="디데이 추적" style="display:none"></section>
 
       <!-- 3. TIMEGRID — 마감/일정 연결 캔버스 -->
       <section class="card home-timegrid-card" aria-label="타임그리드 — 마감과 할일 연결">
@@ -8289,6 +8311,7 @@ function _initHome() {
     try{ renderHomeOpsPanel(); }catch(e){ console.error('[home] renderHomeOpsPanel failed:',e); }
     try{ normalizeHomeLayoutOrder(); }catch(e){ console.error('[home] normalizeHomeLayoutOrder failed:',e); }
     try{ renderHomeSituation(); }catch(e){ console.error('[home] renderHomeSituation failed:',e); }
+    try{ renderHomeDdayCard(); }catch(e){ console.error('[home] renderHomeDdayCard failed:',e); }
     try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){ console.error('[home] homeRenderTimeGrid failed:',e); }
     try{ renderHomeTimeBlocks(); }catch(e){ console.error('[home] renderHomeTimeBlocks failed:',e); }
     try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){ console.error('[home] renderHomeInbox failed:',e); }
@@ -9632,6 +9655,41 @@ function homeUnskipDeadlineLink(task){
   setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(skipped));
   renderHomeSituation();
   homeToast('패스를 취소했어요');
+}
+/* "특별 일정" D-day tracker — shows tasks the user marked isSpecial as
+   horizontally-scrolling countdown chips. Hidden entirely when there are
+   none, and drops items more than a week past their deadline. */
+function renderHomeDdayCard(){
+  var card = document.getElementById('home-dday-card');
+  if(!card) return;
+  var list = (typeof tasks!=='undefined'?tasks:[]).filter(function(t){
+    if(!t.isSpecial || !t.deadlineDate) return false;
+    if(typeof taskEffectiveDone==='function' && taskEffectiveDone(t)) return false;
+    var s = dlState(t.deadlineDate);
+    if(s==='overdue'){
+      var overdueDays = Math.round((TODAY - new Date(t.deadlineDate+'T00:00')) / 86400000);
+      if(overdueDays > 7) return false;
+    }
+    return true;
+  });
+  list.sort(function(a,b){ return a.deadlineDate < b.deadlineDate ? -1 : a.deadlineDate > b.deadlineDate ? 1 : 0; });
+  if(!list.length){ card.style.display='none'; card.innerHTML=''; return; }
+  card.style.display='';
+  card.innerHTML = list.map(function(t){
+    var s = dlState(t.deadlineDate) || 'safe';
+    var cat = getCat(t.catId);
+    return '<div class="dday-chip '+s+'" data-task-id="'+t.id+'">'
+      +'<div class="dday-chip-num">'+tEscHtml(dlText(t.deadlineDate))+'</div>'
+      +'<div class="dday-chip-title">'+(cat.emoji?cat.emoji+' ':'')+tEscHtml(t.text)+'</div>'
+      +'<div class="dday-chip-date">'+tEscHtml(t.deadlineDate)+(t.deadlineTime?' '+tEscHtml(t.deadlineTime):'')+'</div>'
+      +'</div>';
+  }).join('');
+  card.querySelectorAll('.dday-chip').forEach(function(el){
+    el.addEventListener('click',function(){
+      var t = tasks.find(function(x){ return String(x.id)===el.getAttribute('data-task-id'); });
+      if(t && typeof tasksOpenModal==='function') tasksOpenModal(t);
+    });
+  });
 }
 function renderHomeSituation(){
   var card = document.querySelector('.sit-card');
@@ -17182,6 +17240,7 @@ function tasksOpenNewModal(seed){
   document.getElementById('modal-date-input').value=taskModalDraft.date||selDate||TK;
   document.getElementById('modal-dl-input').value=taskModalDraft.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=taskModalDraft.deadlineTime||'';
+  _syncSpecialToggle(taskModalDraft.deadlineDate,taskModalDraft.isSpecial);
   document.getElementById('modal-link-val').textContent='연결 없음';
   document.getElementById('modal-link-val').className='mr-value empty';
   document.getElementById('modal-cat-sel').value=taskModalDraft.catId;
@@ -17218,6 +17277,7 @@ function tasksOpenModal(task){
   document.getElementById('modal-date-input').value=task.date||selDate||TK;
   document.getElementById('modal-dl-input').value=task.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=task.deadlineTime||'';
+  _syncSpecialToggle(task.deadlineDate,task.isSpecial);
   var linkedTarget=tasks.find(function(t){return String(t.id)===String(task.deadlineId||'');});
   document.getElementById('modal-link-val').textContent=linkedTarget?taskLinkTargetLabel(linkedTarget):(task.deadlineId?'연결됨 ('+task.deadlineId+')':'연결 없음');
   document.getElementById('modal-link-val').className='mr-value'+(task.deadlineId?'':' empty');
@@ -17293,6 +17353,7 @@ function saveModal(){
         date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
         deadlineDate:document.getElementById('modal-dl-input').value||'',
         deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+        isSpecial:!!document.getElementById('modal-special-toggle').checked,
         catId:document.getElementById('modal-cat-sel').value,
         projectId:(document.getElementById('modal-project-sel')||{}).value||null,
         timeStart:document.getElementById('modal-ts').value,
@@ -17321,6 +17382,7 @@ function saveModal(){
       date:document.getElementById('modal-date-input').value||task.date||selDate||TK,
       deadlineDate:document.getElementById('modal-dl-input').value||'',
       deadlineTime:document.getElementById('modal-dl-time-input').value||'',
+      isSpecial:!!document.getElementById('modal-special-toggle').checked,
       catId:document.getElementById('modal-cat-sel').value,
       projectId:(document.getElementById('modal-project-sel')||{}).value||null,
       timeStart:document.getElementById('modal-ts').value,
@@ -17338,6 +17400,7 @@ function saveModal(){
     taskModalDraft.date=document.getElementById('modal-date-input').value||taskModalDraft.date||selDate||TK;
     taskModalDraft.deadlineDate=document.getElementById('modal-dl-input').value||'';
     taskModalDraft.deadlineTime=document.getElementById('modal-dl-time-input').value||'';
+    taskModalDraft.isSpecial=!!document.getElementById('modal-special-toggle').checked && !!taskModalDraft.deadlineDate;
     taskModalDraft.catId=document.getElementById('modal-cat-sel').value;
     var projectSel2=document.getElementById('modal-project-sel');
     if(projectSel2&&projectSel2.value) taskModalDraft.projectId=projectSel2.value;
@@ -17371,7 +17434,22 @@ function _writeTaskFromModal(task,fields){
   task.timeStart=fields.timeStart;
   task.timeEnd=fields.timeEnd;
   task.travelMin=fields.travelMin;
+  task.isSpecial=!!fields.isSpecial && !!fields.deadlineDate;
   task.updatedAt=Date.now();
+}
+
+/* Sync the "특별 일정" toggle with the deadline field: a special (D-day) task
+   must have a deadline, so clearing the deadline auto-disables/unchecks it. */
+function _syncSpecialToggle(deadlineDate,isSpecial){
+  var toggle=document.getElementById('modal-special-toggle');
+  var dl=document.getElementById('modal-dl-input');
+  if(!toggle||!dl)return;
+  toggle.checked=!!isSpecial && !!deadlineDate;
+  toggle.disabled=!deadlineDate;
+  dl.oninput=function(){
+    if(!dl.value){toggle.checked=false;toggle.disabled=true;}
+    else{toggle.disabled=false;}
+  };
 }
 
 /* Called after the scope picker choice; writes the edit to the task and
