@@ -8366,6 +8366,7 @@ var musicPlayerReady=false;
 var musicPlayerBooting=false;
 var musicAdPlaying=false;
 var musicAdWasMuted=false;
+var musicAdSince=0;
 var musicModes=['Study','Routine','Planning','Rest','Focus'];
 function musicEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
 function musicId(){return 'music_'+Date.now()+'_'+Math.random().toString(36).slice(2,8);}
@@ -8393,24 +8394,43 @@ function musicReadCover(file){if(!file)return;var reader=new FileReader();reader
    getVideoData().video_id no longer matches the song we asked it to
    play. We can't read the (cross-origin) ad UI itself, so we use this
    id mismatch as a proxy — mute playback and flag the mini player so
-   the UI doesn't show the ad as if it were the current song. */
-function musicCheckAdState(){
+   the UI doesn't show the ad as if it were the current song.
+   _musicAdTrace / musicAdDiag() are diagnostics so the heuristic can be
+   tuned against real-device traces (no real YouTube ads in dev sandbox). */
+var _musicAdTrace=[];
+function _maTrace(o){o.t=Date.now();_musicAdTrace.push(o);if(_musicAdTrace.length>50)_musicAdTrace.shift();console.debug('[musicAd]',o);}
+function musicAdDiag(){return _musicAdTrace.slice(-20);}
+function musicCheckAdState(state){
   if(!musicPlayer||!musicPlayer.getVideoData)return;
   var item=musicCurrentItem();
   var expected=item?musicVideoId(item.youtubeUrl||''):'';
   var data;
   try{data=musicPlayer.getVideoData();}catch(e){return;}
   var actual=(data&&data.video_id)||'';
-  var isAd=!!(expected&&actual&&actual!==expected);
+  var isAd=!!(expected&&actual!==expected);
+  _maTrace({state:state,expected:expected,actual:actual,isAd:isAd,wasAd:musicAdPlaying});
   if(isAd&&!musicAdPlaying){
     musicAdPlaying=true;
+    musicAdSince=Date.now();
     try{musicAdWasMuted=!!(musicPlayer.isMuted&&musicPlayer.isMuted());if(!musicAdWasMuted&&musicPlayer.mute)musicPlayer.mute();}catch(e){}
   }else if(!isAd&&musicAdPlaying){
     musicAdPlaying=false;
     try{if(!musicAdWasMuted&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}
   }
 }
-function musicEnsurePlayer(cb){if(musicPlayerReady&&musicPlayer){cb&&cb();return;}window.onYouTubeIframeAPIReady=function(){musicPlayer=new YT.Player('music-youtube-frame',{height:'1',width:'1',playerVars:{playsinline:1,origin:location.origin},events:{onReady:function(){musicPlayerReady=true;musicUpdateMini();cb&&cb();},onError:function(){if(typeof showToast==='function')showToast('YouTube embed 재생에 실패했어요. 원본 링크를 열어 주세요.');},onStateChange:function(e){if(e&&e.data===0)musicNext();if(e&&(e.data===1||e.data===3))musicCheckAdState();musicUpdateMini();}}});};if(window.YT&&YT.Player){window.onYouTubeIframeAPIReady();return;}if(musicPlayerBooting)return;musicPlayerBooting=true;var sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';sc.onerror=function(){if(typeof showToast==='function')showToast('YouTube Player API를 불러오지 못했어요.');};document.head.appendChild(sc);}
+/* Safety net: if the id-mismatch heuristic gets stuck "ad" for longer than
+   any real skippable/unskippable ad runs, assume it's a false positive
+   (e.g. getVideoData() never reporting our video's id) and unmute rather
+   than silencing playback indefinitely. */
+function musicAdWatchdog(){
+  if(musicAdPlaying&&musicAdSince&&Date.now()-musicAdSince>40000){
+    _maTrace({watchdog:true,clearedAfterMs:Date.now()-musicAdSince});
+    musicAdPlaying=false;
+    try{if(!musicAdWasMuted&&musicPlayer&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}
+    musicUpdateMini();
+  }
+}
+function musicEnsurePlayer(cb){if(musicPlayerReady&&musicPlayer){cb&&cb();return;}window.onYouTubeIframeAPIReady=function(){musicPlayer=new YT.Player('music-youtube-frame',{height:'1',width:'1',playerVars:{playsinline:1,origin:location.origin},events:{onReady:function(){musicPlayerReady=true;musicUpdateMini();cb&&cb();},onError:function(){if(typeof showToast==='function')showToast('YouTube embed 재생에 실패했어요. 원본 링크를 열어 주세요.');},onStateChange:function(e){if(e&&e.data===0)musicNext();if(e&&e.data===1){musicCheckAdState(e.data);setTimeout(function(){musicCheckAdState('recheck');},1200);}musicUpdateMini();}}});};if(window.YT&&YT.Player){window.onYouTubeIframeAPIReady();return;}if(musicPlayerBooting)return;musicPlayerBooting=true;var sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';sc.onerror=function(){if(typeof showToast==='function')showToast('YouTube Player API를 불러오지 못했어요.');};document.head.appendChild(sc);}
 function musicPlayPlaylist(id,index){musicLoad();var p=musicPlaylists.find(function(x){return String(x.id)===String(id);});if(!p)return;musicCurrent={playlistId:p.id,itemIndex:index||0};musicUpdateMini(true);musicEnsurePlayer(function(){musicLoadCurrent(true);});}
 function musicLoadCurrent(autoPlay){var item=musicCurrentItem();if(!item||!musicPlayer)return;var videoId=musicVideoId(item.youtubeUrl||''),listId=musicListId(item.youtubeUrl||'');try{if(item.volume!=null&&musicPlayer.setVolume)musicPlayer.setVolume(Math.max(0,Math.min(100,Number(item.volume)||80)));if(videoId){musicPlayer.loadVideoById({videoId:videoId,startSeconds:Number(item.startTime)||0,endSeconds:Number(item.endTime)||undefined});}else if(listId&&musicPlayer.loadPlaylist){musicPlayer.loadPlaylist({list:listId,listType:'playlist',index:0,startSeconds:Number(item.startTime)||0});}if(!autoPlay&&musicPlayer.pauseVideo)musicPlayer.pauseVideo();}catch(e){if(typeof showToast==='function')showToast('YouTube 재생을 시작하지 못했어요.');}musicUpdateMini(true);}
 function musicPlayPause(){if(!musicCurrent.playlistId){var rec=musicRecommend();if(rec&&rec.playlist)musicPlayPlaylist(rec.playlist.id,0);return;}musicEnsurePlayer(function(){if(!musicPlayer||!musicPlayer.getPlayerState)return;var st=musicPlayer.getPlayerState();if(st===1)musicPlayer.pauseVideo();else musicPlayer.playVideo();musicUpdateMini(true);});}
@@ -8875,6 +8895,7 @@ function musicFormatTime(sec){
 function musicUpdateProgress(){
   var fill=document.getElementById('music-mini-progress-fill'),time=document.getElementById('music-mini-time'),bar=document.getElementById('music-mini-progress');
   if(!fill||!time||!musicPlayer||!musicPlayer.getCurrentTime||!musicPlayer.getDuration)return;
+  musicAdWatchdog();
   if(musicAdPlaying){
     fill.style.width='0%';
     time.textContent='광고 재생 중';
