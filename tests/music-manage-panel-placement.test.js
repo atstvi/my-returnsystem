@@ -76,6 +76,13 @@ function makeSandbox(opts) {
     musicEsc: (s) => String(s == null ? '' : s),
     musicCloseEditPanel: () => {},
     musicClosePickerPanel: () => {},
+    musicPresetChipsHtml: () => '',
+    musicBindPresetChips: () => {},
+    musicReadPresetChips: () => [],
+    musicSplitTags: (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean),
+    musicSave: () => {},
+    musicRender: () => {},
+    showToast: () => {},
     confirm: () => true,
   };
   vm.createContext(sb);
