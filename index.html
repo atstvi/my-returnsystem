@@ -10990,11 +10990,15 @@ function editHomeRule(id){
 }
 
 function deleteHomeRule(id){
-  if (!confirm('이 활성 규칙을 삭제할까요?')) return;
-  var rules = loadTaskRules().filter(function(x){ return x.id !== id; });
-  saveTaskRules(rules);
-  taskRules = rules;
-  renderHomeOpsPanel();
+  var target = loadTaskRules().find(function(x){ return x.id === id; });
+  var run = function(){
+    var rules = loadTaskRules().filter(function(x){ return x.id !== id; });
+    saveTaskRules(rules);
+    taskRules = rules;
+    renderHomeOpsPanel();
+  };
+  if (typeof openConfirmDialog === 'function') openConfirmDialog('활성 규칙 삭제', '"'+((target&&target.taskText)||'이 활성 규칙')+'"을(를) 삭제할까요?', run);
+  else if (confirm('이 활성 규칙을 삭제할까요?')) run();
 }
 
 function editHomeRepeat(id){
@@ -11077,17 +11081,21 @@ function pruneRepeatSuppressions(ruleId){
 }
 
 function deleteHomeRepeat(id){
-  if (!confirm('이 반복 할일을 삭제할까요?')) return;
-  var repeats = loadRepeatItems().filter(function(x){ return x.id !== id; });
-  saveRepeatItems(repeats);
-  if (typeof tasks !== 'undefined') {
-    tasks = tasks.filter(function(t){ return t._repeatId !== id || t.done; });
-    if (typeof saveTaskData === 'function') saveTaskData();
-  }
-  pruneRepeatSuppressions(id);
-  renderHomeTasks();
-  renderHomeTimeBlocks();
-  renderHomeOpsPanel();
+  var target = loadRepeatItems().find(function(x){ return x.id === id; });
+  var run = function(){
+    var repeats = loadRepeatItems().filter(function(x){ return x.id !== id; });
+    saveRepeatItems(repeats);
+    if (typeof tasks !== 'undefined') {
+      tasks = tasks.filter(function(t){ return t._repeatId !== id || t.done; });
+      if (typeof saveTaskData === 'function') saveTaskData();
+    }
+    pruneRepeatSuppressions(id);
+    renderHomeTasks();
+    renderHomeTimeBlocks();
+    renderHomeOpsPanel();
+  };
+  if (typeof openConfirmDialog === 'function') openConfirmDialog('반복 할일 삭제', '"'+((target&&target.text)||'이 반복 할일')+'"을(를) 삭제할까요?', run);
+  else if (confirm('이 반복 할일을 삭제할까요?')) run();
 }
 
 function applyActiveTaskRules(){
@@ -17437,6 +17445,40 @@ function saveModal(){
     function _looksActiveRule(o){
       return !!(o&&(o._ruleGen||o.sourceType==='activeRule'||o._ruleId||o.activeRuleId));
     }
+    /* True if any field the scope picker would propagate actually changed
+       vs. the pre-edit snapshot. A done-only toggle (handled separately via
+       #modalCheck, never through this `snap`) must NOT trigger the
+       this/future/all picker. */
+    function _scopeRelevantFieldsChanged(snap,base){
+      base=base||{};
+      var str=function(k){return String((k===undefined||k===null)?'':k);};
+      if(str(snap.text)!==str(base.text))return true;
+      if(str(snap.note)!==str(base.note))return true;
+      if(str(snap.priority)!==str(base.priority))return true;
+      if(str(snap.date)!==str(base.date))return true;
+      if(str(snap.deadlineDate)!==str(base.deadlineDate))return true;
+      if(str(snap.deadlineTime)!==str(base.deadlineTime))return true;
+      if(!!snap.isSpecial!==!!base.isSpecial)return true;
+      if(str(snap.catId)!==str(base.catId))return true;
+      if(str(snap.projectId||'')!==str(base.projectId||''))return true;
+      if(str(snap.timeStart)!==str(base.timeStart))return true;
+      if(str(snap.timeEnd)!==str(base.timeEnd))return true;
+      if((parseInt(snap.travelMin,10)||0)!==(parseInt(base.travelMin,10)||0))return true;
+      return false;
+    }
+    /* True if the task's repeat/active-rule linkage itself was changed (e.g.
+       "반복 주기" set to "반복 없음" or "활성 규칙 메모" cleared via the row
+       editors, which mutate the live task directly before 저장 is clicked).
+       Such edits are scope-relevant even when no other field changed. */
+    function _repeatLinkageChanged(o,base){
+      base=base||{};
+      var keys=['_repeat','_repeatId','repeatRuleId','sourceType','_repeatOccurrence','_ruleId','_ruleGen','activeRuleId','_isTt'];
+      for(var i=0;i<keys.length;i++){
+        var k=keys[i];
+        if(JSON.stringify(o[k]===undefined?null:o[k])!==JSON.stringify(base[k]===undefined?null:base[k]))return true;
+      }
+      return false;
+    }
     var isTt=!!task._isTt;
     var isRepeat=_looksRepeat(snap0);
     var isActiveRule=!isRepeat&&!isTt&&_looksActiveRule(snap0);
@@ -17459,6 +17501,18 @@ function saveModal(){
         timeEnd:document.getElementById('modal-te').value,
         travelMin:parseInt(task.travelMin,10)||0
       };
+      if(!_scopeRelevantFieldsChanged(snap,snap0)&&!_repeatLinkageChanged(task,snap0)){
+        /* Nothing the scope picker covers changed (e.g. only 완료 toggled via
+           #modalCheck) -- save directly without asking "이 항목만/이후/모든". */
+        _writeTaskFromModal(task,snap);
+        syncTaskRepeatItem(task);
+        saveTaskData();
+        if(typeof renderProjects==='function')renderProjects();
+        taskModalSnapshot=null;
+        taskModalDraft=null;
+        tasksCloseModal();renderList();renderCal();
+        return;
+      }
       var kind=isTt?'tt':(isActiveRule?'rule':'repeat');
       /* Check for a saved default scope (device-local, set via "다음부터 이 선택 사용" checkbox). */
       var _defaultScopeKey=kind==='tt'?'repeat_scope_tt_default':(kind==='rule'?'repeat_scope_rule_default':'repeat_scope_default');
