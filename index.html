@@ -8261,6 +8261,7 @@ to{opacity:1;transform:translateY(0)}}
       <button type="button" class="music-ep-btn music-ep-play" id="music-play-btn" aria-label="재생/일시정지">▶</button>
       <button type="button" class="music-ep-btn" id="music-next-btn" aria-label="다음">⏭</button>
       <button type="button" class="music-ep-btn" id="music-repeat-btn" aria-label="반복">↻</button>
+      <button type="button" class="music-ep-btn" id="music-ad-diag-btn" aria-label="광고 감지 진단" title="광고 감지 진단">🔍</button>
     </div>
     <div class="music-ep-vol">
       <span class="music-ep-vol-icon">🔈</span>
@@ -8402,8 +8403,32 @@ function musicReadCover(file){if(!file)return;var reader=new FileReader();reader
    _musicAdTrace / musicAdDiag() are diagnostics so the heuristic can be
    tuned against real-device traces (no real YouTube ads in dev sandbox). */
 var _musicAdTrace=[];
-function _maTrace(o){o.t=Date.now();_musicAdTrace.push(o);if(_musicAdTrace.length>50)_musicAdTrace.shift();console.debug('[musicAd]',o);}
+function _maTrace(o){o.t=Date.now();_musicAdTrace.push(o);if(_musicAdTrace.length>50)_musicAdTrace.shift();console.log('[musicAd]',o);}
 function musicAdDiag(){return _musicAdTrace.slice(-20);}
+/* On-screen diagnostic for the ad heuristic (see 작업 규칙: 화면에 결과를 찍는
+   진단 버튼). Bound to #music-ad-diag-btn so it can be checked on a real
+   device while an ad is actually playing, without opening devtools. */
+function musicShowAdDiag(){
+  var lines=[];
+  lines.push('musicAdPlaying='+musicAdPlaying+' wasMuted='+musicAdWasMuted);
+  var item=musicCurrentItem();
+  lines.push('expected video_id='+(item?musicVideoId(item.youtubeUrl||''):'(none)'));
+  var live='(player not ready)';
+  try{
+    if(musicPlayer&&musicPlayer.getVideoData){
+      var d=musicPlayer.getVideoData();
+      live='actual video_id='+((d&&d.video_id)||'')+' state='+(musicPlayer.getPlayerState?musicPlayer.getPlayerState():'?')+' muted='+(musicPlayer.isMuted?musicPlayer.isMuted():'?');
+    }
+  }catch(e){live='error: '+e.message;}
+  lines.push('live: '+live);
+  lines.push('--- recent checks ---');
+  var trace=musicAdDiag();
+  if(!trace.length)lines.push('(no checks recorded yet — play a song first)');
+  trace.forEach(function(o){
+    lines.push((o.state||'')+': expected='+o.expected+' actual='+o.actual+' isAd='+o.isAd+' wasAd='+o.wasAd+(o.watchdog?' WATCHDOG':''));
+  });
+  alert(lines.join('\n'));
+}
 function musicCheckAdState(state){
   if(!musicPlayer||!musicPlayer.getVideoData)return;
   var item=musicCurrentItem();
@@ -34508,6 +34533,15 @@ function bindControls(){
       applyRepeatUI(repeatBtn);
       var label={off:'반복 꺼짐',all:'전체 반복',one:'한 곡 반복'}[musicState.repeat];
       if(typeof showToast==='function')showToast(label);
+    });
+  }
+
+  var adDiagBtn=document.getElementById('music-ad-diag-btn');
+  if(adDiagBtn&&!adDiagBtn.dataset.v12){
+    adDiagBtn.dataset.v12='1';
+    adDiagBtn.addEventListener('click',function(e){
+      e.stopPropagation();
+      musicShowAdDiag();
     });
   }
 
