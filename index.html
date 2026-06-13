@@ -8395,14 +8395,11 @@ function musicReadForm(){var url=(document.getElementById('music-url-input')||{}
 function musicClearForm(){['music-title-input','music-url-input','music-mood-input','music-usecase-input','music-tags-input','music-notes-input','music-start-input','music-end-input','music-volume-input'].forEach(function(id){var el=document.getElementById(id);if(el)el.value='';});var f=document.getElementById('music-cover-input');if(f)f.value='';musicCoverDraft='';}
 function musicSaveFromForm(){var p=musicReadForm();if(!p.url){if(typeof showToast==='function')showToast('YouTube URL을 입력해 주세요.');return;}if(!musicVideoId(p.url)&&!musicListId(p.url)){if(typeof showToast==='function')showToast('재생 가능한 YouTube 영상 또는 플레이리스트 URL이 필요해요.');return;}musicLoad();musicPlaylists.unshift(p);if(!musicSave())return;musicClearForm();var panel=document.getElementById('music-add-panel');if(panel)panel.style.display='none';musicRender();}
 function musicReadCover(file){if(!file)return;var reader=new FileReader();reader.onload=function(){var img=new Image();img.onload=function(){var max=640,scale=Math.min(1,max/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*scale)),h=Math.max(1,Math.round(img.height*scale));var c=document.createElement('canvas');c.width=w;c.height=h;c.getContext('2d').drawImage(img,0,0,w,h);musicCoverDraft=c.toDataURL('image/jpeg',.82);};img.src=reader.result;};reader.readAsDataURL(file);}
-/* Heuristic ad detection: while an ad is loaded, the iframe player's
-   getVideoData().video_id no longer matches the song we asked it to
-   play. We can't read the (cross-origin) ad UI itself, so we use this
-   id mismatch as a proxy — mute playback and flag the mini player so
-   the UI doesn't show the ad as if it were the current song.
+/* Heuristic ad detection: see musicCheckAdState for the two signals used.
    _musicAdTrace / musicAdDiag() are diagnostics so the heuristic can be
    tuned against real-device traces (no real YouTube ads in dev sandbox). */
 var _musicAdTrace=[];
+var _musicDurationCache={};
 function _maTrace(o){o.t=Date.now();_musicAdTrace.push(o);if(_musicAdTrace.length>50)_musicAdTrace.shift();console.log('[musicAd]',o);}
 function musicAdDiag(){return _musicAdTrace.slice(-20);}
 /* On-screen diagnostic for the ad heuristic (see 작업 규칙: 화면에 결과를 찍는
@@ -8412,12 +8409,13 @@ function musicShowAdDiag(){
   var lines=[];
   lines.push('musicAdPlaying='+musicAdPlaying+' wasMuted='+musicAdWasMuted);
   var item=musicCurrentItem();
-  lines.push('expected video_id='+(item?musicVideoId(item.youtubeUrl||''):'(none)'));
+  var expectedId=item?musicVideoId(item.youtubeUrl||''):'';
+  lines.push('expected video_id='+(expectedId||'(none)')+' cachedDur='+(_musicDurationCache[expectedId]||0));
   var live='(player not ready)';
   try{
     if(musicPlayer&&musicPlayer.getVideoData){
       var d=musicPlayer.getVideoData();
-      live='actual video_id='+((d&&d.video_id)||'')+' state='+(musicPlayer.getPlayerState?musicPlayer.getPlayerState():'?')+' muted='+(musicPlayer.isMuted?musicPlayer.isMuted():'?');
+      live='actual video_id='+((d&&d.video_id)||'')+' dur='+(musicPlayer.getDuration?Math.round(musicPlayer.getDuration()):'?')+' state='+(musicPlayer.getPlayerState?musicPlayer.getPlayerState():'?')+' muted='+(musicPlayer.isMuted?musicPlayer.isMuted():'?');
     }
   }catch(e){live='error: '+e.message;}
   lines.push('live: '+live);
@@ -8425,7 +8423,7 @@ function musicShowAdDiag(){
   var trace=musicAdDiag();
   if(!trace.length)lines.push('(no checks recorded yet — play a song first)');
   trace.forEach(function(o){
-    lines.push((o.state||'')+': expected='+o.expected+' actual='+o.actual+' isAd='+o.isAd+' wasAd='+o.wasAd+(o.watchdog?' WATCHDOG':''));
+    lines.push((o.state||'')+': dur='+o.dur+' cached='+o.cached+' idMismatch='+o.idMismatch+' durMismatch='+o.durMismatch+' isAd='+o.isAd+' wasAd='+o.wasAd+(o.watchdog?' WATCHDOG':''));
   });
   alert(lines.join('\n'));
 }
@@ -8436,8 +8434,18 @@ function musicCheckAdState(state){
   var data;
   try{data=musicPlayer.getVideoData();}catch(e){return;}
   var actual=(data&&data.video_id)||'';
-  var isAd=!!(expected&&actual!==expected);
-  _maTrace({state:state,expected:expected,actual:actual,isAd:isAd,wasAd:musicAdPlaying});
+  var dur=0;
+  try{dur=musicPlayer.getDuration?(musicPlayer.getDuration()||0):0;}catch(e){}
+  var idMismatch=!!(expected&&actual!==expected);
+  var cached=expected?(_musicDurationCache[expected]||0):0;
+  /* Most in-stream YouTube ads run 45s or less. getVideoData().video_id
+     usually does NOT change while an ad plays (confirmed via musicAdDiag on
+     a real device), so once we've recorded a video's real (longer) duration,
+     a sudden drop to <=45s while the same video_id is still reported is a
+     much stronger signal that an ad is overlaying it. */
+  var durMismatch=!!(cached&&dur>0&&dur<=45&&Math.abs(dur-cached)>5);
+  var isAd=idMismatch||durMismatch;
+  _maTrace({state:state,expected:expected,actual:actual,dur:Math.round(dur),cached:cached,idMismatch:idMismatch,durMismatch:durMismatch,isAd:isAd,wasAd:musicAdPlaying});
   if(isAd&&!musicAdPlaying){
     musicAdPlaying=true;
     musicAdSince=Date.now();
@@ -8445,6 +8453,9 @@ function musicCheckAdState(state){
   }else if(!isAd&&musicAdPlaying){
     musicAdPlaying=false;
     try{if(!musicAdWasMuted&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}
+  }
+  if(!isAd&&expected&&dur>45){
+    _musicDurationCache[expected]=dur;
   }
 }
 /* Safety net: if the id-mismatch heuristic gets stuck "ad" for longer than
@@ -8924,7 +8935,10 @@ function musicFormatTime(sec){
 function musicUpdateProgress(){
   var fill=document.getElementById('music-mini-progress-fill'),time=document.getElementById('music-mini-time'),bar=document.getElementById('music-mini-progress');
   if(!fill||!time||!musicPlayer||!musicPlayer.getCurrentTime||!musicPlayer.getDuration)return;
+  var wasAd=musicAdPlaying;
+  musicCheckAdState('progress');
   musicAdWatchdog();
+  if(musicAdPlaying!==wasAd&&typeof musicUpdateMini==='function')musicUpdateMini();
   if(musicAdPlaying){
     fill.style.width='0%';
     time.textContent='광고 재생 중';
