@@ -8399,7 +8399,13 @@ function musicReadCover(file){if(!file)return;var reader=new FileReader();reader
    _musicAdTrace / musicAdDiag() are diagnostics so the heuristic can be
    tuned against real-device traces (no real YouTube ads in dev sandbox). */
 var _musicAdTrace=[];
-var _musicDurationCache={};
+/* Persisted across sessions (see setReturnStorageItem) so that once a song's
+   real duration has been observed, a pre-roll ad on a LATER play of the same
+   song can also be caught immediately (durMismatch on the very first check),
+   not just mid-roll ads within the same session. */
+var MUSIC_AD_DUR_CACHE_KEY='music_ad_duration_cache_v1';
+var _musicDurationCache=(function(){try{return JSON.parse(localStorage.getItem(MUSIC_AD_DUR_CACHE_KEY)||'{}')||{};}catch(e){return {};}})();
+function _saveMusicDurationCache(){try{setReturnStorageItem(MUSIC_AD_DUR_CACHE_KEY,JSON.stringify(_musicDurationCache));}catch(e){}}
 function _maTrace(o){o.t=Date.now();_musicAdTrace.push(o);if(_musicAdTrace.length>50)_musicAdTrace.shift();console.log('[musicAd]',o);}
 function musicAdDiag(){return _musicAdTrace.slice(-20);}
 /* On-screen diagnostic for the ad heuristic (see 작업 규칙: 화면에 결과를 찍는
@@ -8454,8 +8460,9 @@ function musicCheckAdState(state){
     musicAdPlaying=false;
     try{if(!musicAdWasMuted&&musicPlayer.unMute)musicPlayer.unMute();}catch(e){}
   }
-  if(!isAd&&expected&&dur>45){
+  if(!isAd&&expected&&dur>45&&_musicDurationCache[expected]!==dur){
     _musicDurationCache[expected]=dur;
+    _saveMusicDurationCache();
   }
 }
 /* Safety net: if the id-mismatch heuristic gets stuck "ad" for longer than
@@ -13295,7 +13302,7 @@ var RETURN_DATA_MAP = {
   assets:           {owner:'localStorage + IndexedDB', keys:['return_theme_studio_assets_v1'], read:'themeStudioAssets', write:'themeStudioSaveAssets', sync:'firebase-blob (incl syncDataUrl)', media:'syncDataUrl ≤220KB×N INLINE', ids:'asset_+ts+rand', versioned:'createdAt', notes:'R4 base64 dup vs media store'},
   stickers:         {owner:'localStorage', keys:['global_stickers_v1','global_sticker_edit_visible','global_sticker_shadow'], read:'loadGlobalStickers', write:'saveGlobalStickers', sync:'firebase-blob', media:'syncDataUrl ≤220KB INLINE', ids:'gs_+ts+rand', versioned:false, notes:'R4 quota'},
   banners:          {owner:'localStorage + IndexedDB', keys:['home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1'], read:'loadHomeBanner', write:'saveHomeBanner', sync:'firebase-blob', media:'syncDataUrl ≤180KB INLINE', ids:'return-media: ref', versioned:false, notes:'R4 quota'},
-  music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8'], read:'musicLoad', write:'musicSave', sync:'firebase-blob (music_playlists_v1: union-merge by createdAt vs _returnSessionLoadMs)', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain'},
+  music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8','music_ad_duration_cache_v1'], read:'musicLoad', write:'musicSave', sync:'firebase-blob (music_playlists_v1: union-merge by createdAt vs _returnSessionLoadMs)', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain; music_ad_duration_cache_v1 is a small videoId→duration(sec) map used to detect pre-/mid-roll ads (musicCheckAdState)'},
   media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'via mediaSync manifest', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
   mediaSync:        {owner:'localStorage→IDB overflow (return_media_sync_v1)', keys:['return_media_sync_v1'], read:'mediaSyncGet/mediaSyncResolve', write:'mediaSyncPut', sync:'firebase-blob (single dedup key)', media:'compressed bytes, ONE copy per id, capped', ids:'media id', versioned:false, notes:'Stage 4: single cross-device media channel; dedups inline syncDataUrl'},
   overflow:         {owner:'IndexedDB (return_overflow_v1)', keys:[], read:'_idbCache', write:'_idbSet', sync:'via firebase-blob from cache', media:'whatever overflowed', ids:'n/a', versioned:false, notes:'quota escape hatch'},
