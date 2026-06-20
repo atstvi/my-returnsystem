@@ -13313,7 +13313,7 @@ var RETURN_DATA_MAP = {
   schedules:        {owner:'localStorage', keys:['timetables_v1','timetable_palette_v1'], read:'loadTimetables', write:'saveTimetables', sync:'firebase-blob', media:false, ids:'slot id includes Date.now()+random (UNSTABLE)', versioned:false, notes:'R5 slot-id regen → dup tasks'},
   routines:         {owner:'localStorage', keys:['routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1'], read:'loadRoutineData', write:'saveRoutineData', sync:'firebase-blob', media:false, ids:'seeded/Date.now()', versioned:false, notes:'reseeds when empty'},
   projects:         {owner:'localStorage', keys:['projects_v1'], read:'loadProjects', write:'saveProjects', sync:'firebase-blob', media:false, ids:'Date.now()', versioned:'updatedAt field unused for merge', notes:'manual CRUD'},
-  diaryRecords:     {owner:'localStorage + Notion', keys:['diary_entries_v1','diary_trackers_v1','diary_tracker_values_v1','memos_v5','metrics_v1','phil_cards','return_check_logs'], read:'loadAll/_initDiary', write:'saveAll/saveData', sync:'firebase-blob + notion-bidirectional', media:'INLINE images', ids:'date-keyed', versioned:'entry.updatedAt', notes:'R4 quota; R10 Notion second writer'},
+  diaryRecords:     {owner:'localStorage + Notion', keys:['diary_entries_v1','diary_trackers_v1','diary_tracker_values_v1','memos_v5','metrics_v1','phil_cards','return_check_logs'], read:'loadAll/_initDiary', write:'saveAll/saveData', sync:'firebase-blob + notion-bidirectional', media:'_blocks images via MediaStore (return-media: refs; IndexedDB + synced manifest). Legacy inline base64 migrated by diaryMigrateInlineImagesToMediaStore', ids:'date-keyed', versioned:'entry.updatedAt', notes:'R4 quota; R10 Notion second writer'},
   themeSettings:    {owner:'localStorage', keys:['return_theme_studio_state_v1','return_theme_color','return_theme_mode','return_theme_palette'], read:'themeStudioGet', write:'themeStudioSet', sync:'firebase-blob + cloud-settings', media:'iconFallbacks ≤700KB INLINE', ids:'n/a', versioned:false, notes:'R4 quota'},
   presets:          {owner:'localStorage', keys:['return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','theme_palette_presets_v1'], read:'themeStudioAllPresets', write:'themeStudio*Preset', sync:'firebase-blob', media:'possible inline', ids:'asset_+ts', versioned:false, notes:''},
   assets:           {owner:'localStorage + IndexedDB', keys:['return_theme_studio_assets_v1'], read:'themeStudioAssets', write:'themeStudioSaveAssets', sync:'firebase-blob (incl syncDataUrl)', media:'syncDataUrl ≤220KB×N INLINE', ids:'asset_+ts+rand', versioned:'createdAt', notes:'R4 base64 dup vs media store'},
@@ -15242,14 +15242,13 @@ document.addEventListener('paste', function(e){
   e.preventDefault();
   if(_currentPage === 'diary' && typeof currentDate !== 'undefined'){
     files.forEach(function(file){
-      var reader=new FileReader();
-      reader.onload=function(ev){
+      diaryStoreBlockImageFile(file).then(function(ref){
+        if(!ref)return;
         if(!entries[currentDate])entries[currentDate]={};
         if(!entries[currentDate]._blocks)entries[currentDate]._blocks=[];
-        entries[currentDate]._blocks.push({type:'image',content:ev.target.result,caption:''});
+        entries[currentDate]._blocks.push({type:'image',content:ref,caption:''});
         reRenderBlocks(); scheduleBlockSave();
-      };
-      reader.readAsDataURL(file);
+      });
     });
   } else {
     files.forEach(addComposerImage);
@@ -19976,7 +19975,6 @@ function renderBlock(block, idx) {
 
     if (block.content) {
       var img = document.createElement('img');
-      img.src = block.content;
       img.referrerPolicy = 'no-referrer';
       img.alt = block.caption || '이미지';
       img.onerror = function(){
@@ -19989,6 +19987,17 @@ function renderBlock(block, idx) {
         fallback.addEventListener('click', function(){ if(/^https?:\/\//i.test(block.content||'')) window.open(block.content,'_blank'); else pickImageForBlock(idx, block); });
         imgWrap.appendChild(fallback);
       };
+      /* return-media: refs resolve through MediaStore (IndexedDB → synced
+         manifest, seeding IDB on a fresh device). Plain data/URL values render
+         directly. A ref that resolves to nothing (e.g. an oversized image that
+         only lives on another device) falls through to the placeholder. */
+      if (typeof MediaStore!=='undefined' && MediaStore && typeof MediaStore.isRef==='function' && MediaStore.isRef(block.content)) {
+        MediaStore.resolve(block.content,'').then(function(resolved){
+          if(resolved) img.src=resolved; else img.onerror();
+        }).catch(function(){ try{ img.onerror(); }catch(_e){} });
+      } else {
+        img.src = block.content;
+      }
       imgWrap.appendChild(img);
       imgWrap.addEventListener('click', function() { pickImageForBlock(idx, block); });
     } else {
@@ -20083,6 +20092,76 @@ function reRenderBlocks() {
   blocks.forEach(function(b, i) { renderBlock(b, i); });
 }
 
+/* Diary block image storage — route every diary image through MediaStore so
+   the raw base64 NEVER lands in the diary_entries_v1 blob (that was the quota +
+   Firebase-bloat trap that made image sync get abandoned). The file is first
+   compressed (fileToBannerDataUrl: ≤1200px / jpeg .72) so it typically fits the
+   ≤220KB synced-manifest cap and becomes cross-device from creation, then
+   stored as a 'return-media:<id>' ref. The original always lands in IndexedDB
+   locally, so the image is never lost even when it is too large to sync.
+   Falls back to a compressed inline data URL only if MediaStore is unavailable. */
+function diaryStoreBlockImageFile(file){
+  return new Promise(function(resolve){
+    if(!file){ resolve(''); return; }
+    var finish=function(dataUrl){
+      if(!/^data:image/.test(String(dataUrl||''))){ resolve(dataUrl||''); return; }
+      if(typeof MediaStore!=='undefined' && MediaStore && typeof MediaStore.put==='function'){
+        try{
+          MediaStore.put(dataUrl,{role:'diary'})
+            .then(function(ref){ resolve(ref||dataUrl); })
+            .catch(function(){ resolve(dataUrl); });
+        }catch(_e){ resolve(dataUrl); }
+      } else { resolve(dataUrl); }
+    };
+    try{
+      if(typeof fileToBannerDataUrl==='function') fileToBannerDataUrl(file,finish);
+      else { var r=new FileReader(); r.onload=function(e){ finish(e.target.result); }; r.onerror=function(){ resolve(''); }; r.readAsDataURL(file); }
+    }catch(_e){
+      try{ var r2=new FileReader(); r2.onload=function(e){ finish(e.target.result); }; r2.onerror=function(){ resolve(''); }; r2.readAsDataURL(file); }
+      catch(_e2){ resolve(''); }
+    }
+  });
+}
+
+/* One-time migration: move any legacy inline base64 images sitting in diary
+   blocks into the MediaStore (IndexedDB + synced manifest) and replace them
+   with refs, so the diary blob stops carrying raw base64 and old images become
+   cross-device. Idempotent, originals preserved in IndexedDB (never lost). The
+   "done" marker is DEVICE-LOCAL (raw localStorage, never synced) so each device
+   migrates its own inline images independently — a synced flag would let one
+   device's completion skip another device's still-inline images. */
+function diaryMigrateInlineImagesToMediaStore(){
+  if(typeof entries!=='object'||!entries)return Promise.resolve(0);
+  if(typeof MediaStore==='undefined'||!MediaStore||typeof MediaStore.put!=='function')return Promise.resolve(0);
+  var jobs=[], migrated=0;
+  Object.keys(entries).forEach(function(date){
+    var e=entries[date]; if(!e||!Array.isArray(e._blocks))return;
+    e._blocks.forEach(function(b){
+      if(b&&b.type==='image'&&typeof b.content==='string'&&/^data:image/.test(b.content)){
+        var dataUrl=b.content;
+        jobs.push(MediaStore.put(dataUrl,{role:'diary'}).then(function(ref){
+          if(ref&&/^return-media:/.test(String(ref))){ b.content=ref; migrated++; }
+        }).catch(function(){}));
+      }
+    });
+  });
+  var markDone=function(){ try{ localStorage.setItem('diary_img_migrated_v1','1'); }catch(_e){} };
+  if(!jobs.length){ markDone(); return Promise.resolve(0); }
+  return Promise.all(jobs).then(function(){
+    if(migrated&&typeof saveAll==='function'){ try{ saveAll(); }catch(_e){} }
+    markDone();
+    try{ if(typeof _apTrace==='function')_apTrace('diary:img-migrate','migrated '+migrated); }catch(_e){}
+    return migrated;
+  });
+}
+/* Kick the migration once per device, deferred so IndexedDB + MediaStore are
+   ready. Guarded by the device-local marker. */
+try{
+  if(!localStorage.getItem('diary_img_migrated_v1')){
+    setTimeout(function(){ try{ diaryMigrateInlineImagesToMediaStore(); }catch(_e){} }, 3500);
+  }
+}catch(_e){}
+
 /* Image picker */
 function pickImageForBlock(idx, block) {
   var input = document.getElementById('img-file-input');
@@ -20090,15 +20169,13 @@ function pickImageForBlock(idx, block) {
   input.onchange = function() {
     var file = input.files[0];
     if (!file) return;
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      block.content = e.target.result;
+    diaryStoreBlockImageFile(file).then(function(ref){
+      block.content = ref;
       if (!entries[currentDate]._blocks) entries[currentDate]._blocks = [];
       entries[currentDate]._blocks[idx] = block;
       reRenderBlocks();
       scheduleBlockSave();
-    };
-    reader.readAsDataURL(file);
+    });
     input.value = '';
   };
   input.click();
