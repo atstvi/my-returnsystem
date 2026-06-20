@@ -11252,12 +11252,17 @@ applyActiveTaskRules=function(){
   var seen={};
   tasks=tasks.filter(function(t){
     if(!t||!t._ruleId)return true;
+    // Prune non-done generated tasks that belong to a rule whose endDate has passed.
+    var parentRule=rules.find(function(r){return r.id===t._ruleId;});
+    if(parentRule&&parentRule.endDate&&t.date>parentRule.endDate&&!t.done)return false;
     var sig=[t._ruleId,t._ruleSourceId||'',t.date||'',t.deadlineDate||'',t.text||''].join('|');
     if(seen[sig]&&!t.done)return false;
     seen[sig]=true;
     return true;
   });
   function addRuleTask(rule, dk, src){
+    if(rule.endDate && dk > rule.endDate) return;
+    if(rule.startDate && dk < rule.startDate) return;
     var sourceId=src?String(src.id):('weekday:'+dk);
     var deadline=(src&&(src.deadlineDate||src.date))||dk;
     if(tasks.some(function(t){return t._ruleId===rule.id&&t._ruleSourceId===sourceId&&t.date===dk&&t.deadlineDate===deadline;}))return;
@@ -11739,12 +11744,14 @@ function expectedForExistingGenerated(t, expectedMap){
       if(sourceTaskId.indexOf('weekday:')===0){
         var anchor=taskDateKeyLocal(sourceTaskId.slice(8)||t.triggerDate||t.occurrenceDate||t.date);
         var due=taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
+        if(!ruleDateInRange(rule,due))return null;
         return buildRuleExpected(rule,due,null,sourceTaskId);
       }
       var src=sourceById[sourceTaskId];
       if(src){
         var anchor2=taskDateKeyLocal(src.deadlineDate||src.date);
         var due2=taskAddDaysKey(anchor2,-(parseInt(rule.offsetDays,10)||0));
+        if(!ruleDateInRange(rule,due2))return null;
         return buildRuleExpected(rule,due2,src,sourceTaskId);
       }
     }
