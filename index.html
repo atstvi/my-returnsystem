@@ -11704,7 +11704,9 @@ function buildExpectedGeneratedMap(opts){
         var due=taskAddDaysKey(anchor,-offset);
         if(!ruleDateInRange(rule,due))return;
         var exp=buildRuleExpected(rule,due,src,String(src.id));
-        if(exp&&!genSuppressions[exp.scheduleKey])expected[exp.scheduleKey]=exp;
+        /* Also check old '|' format suppression key for backward-compat */
+        var _oldKey=activeRuleGenerationKey(rule.id,String(src.id),due);
+        if(exp&&!genSuppressions[exp.scheduleKey]&&!genSuppressions[_oldKey])expected[exp.scheduleKey]=exp;
       });
     }else if(type==='weekday'){
       var days=repeatWeekdays(rule);
@@ -11719,7 +11721,9 @@ function buildExpectedGeneratedMap(opts){
         if(!ruleDateInRange(rule,due2))continue;
         var sourceTaskId='weekday:'+anchor;
         var exp2=buildRuleExpected(rule,due2,null,sourceTaskId);
-        if(exp2&&!genSuppressions[exp2.scheduleKey])expected[exp2.scheduleKey]=exp2;
+        /* Also check old '|' format key (sourceTaskId was due date, not anchor) */
+        var _oldKey2=activeRuleGenerationKey(rule.id,'weekday:'+due2,due2);
+        if(exp2&&!genSuppressions[exp2.scheduleKey]&&!genSuppressions[_oldKey2])expected[exp2.scheduleKey]=exp2;
       }
     }
   });
@@ -11767,11 +11771,17 @@ function reconcileGeneratedTasks(opts){
   opts=opts||{};
   if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
   var expected=buildExpectedGeneratedMap(opts);
+  var genSuppressions=loadGeneratedTaskSuppressions();
   var changed=0, seen={}, next=[];
   tasks.forEach(function(t){
     if(!t){return;}
     if(!isGeneratedTask(t)){next.push(t);return;}
     var exp=expectedForExistingGenerated(t,expected);
+    /* expectedForExistingGenerated's fallback (rule lookup) bypasses the
+       suppression check that buildExpectedGeneratedMap applies. A task deleted
+       on another device arrives via Firebase sync still present in tasks[], so
+       the fallback would wrongly keep it. Re-check suppression here. */
+    if(exp){var _tKey=generatedTaskKey(t);if(_tKey&&genSuppressions[_tKey])exp=null;}
     if(!exp&&!isGeneratedManual(t)){
       changed++;
       return;
