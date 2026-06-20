@@ -25917,6 +25917,23 @@ function fbApplyData(data){
   var taskUnionMergeAfterFbApply = false;
   try {
     var _fbWriter = (typeof _rawSetItem === 'function') ? _rawSetItem : localStorage.setItem.bind(localStorage);
+    /* DIARY IN-FLIGHT EDIT GUARD: if the user is mid-edit (the 4s autosave
+       debounce is still pending), the textarea content has NOT yet been
+       committed into `entries` or localStorage. The per-date LWW merge below
+       would then compare the cloud entry against a STALE saved entry, let cloud
+       win, and the reloader/loadDate would repaint the textarea — wiping the
+       text the user is actively typing. Flush the in-progress edit now (which
+       stamps a fresh updatedAt) and write it to localStorage so the merge sees
+       the freshest local value and KEEPS the user's text. */
+    try {
+      if (typeof saveTimer !== 'undefined' && saveTimer &&
+          typeof commitCurrent === 'function' &&
+          typeof currentDate !== 'undefined' && currentDate &&
+          typeof entries !== 'undefined' && entries) {
+        commitCurrent();
+        _fbWriter('diary_entries_v1', JSON.stringify(entries));
+      }
+    } catch(_diaryFlushErr){}
     /* Keys that must never be overwritten from a cloud blob — they are device-local
        flags. Blobs written before this fix may still carry them; skip on apply so
        a cloud value of e.g. 'entity' cannot re-enable entity mode on reload. */
@@ -26329,9 +26346,23 @@ function fbApplyData(data){
   /* Routine tab */
   safeCall('renderRoutine');
   try { if(typeof renderRoutine==='function') renderRoutine(); } catch(e){ console.warn('renderRoutine render failed:', e&&e.message); }
-  /* Diary tab — re-render current date if diary is initialized */
+  /* Diary tab — re-render current date if diary is initialized, but NEVER while
+     the user is actively editing it. Re-rendering replaces the textarea content
+     and resets the caret; doing that mid-typing is exactly what made "쓰던 분량
+     이 사라지는" happen. "Actively editing" = the 4s autosave debounce is still
+     pending (saveTimer truthy) OR a diary textarea currently holds focus. Fix A
+     above already flushed any in-flight edit into entries, so skipping the
+     repaint loses nothing — the next autosave commit keeps the user's text. */
   try {
-    if(typeof loadDate==='function' && typeof currentDate!=='undefined' && currentDate){
+    var _diaryEditing = (typeof saveTimer !== 'undefined' && !!saveTimer);
+    if(!_diaryEditing){
+      try {
+        var _ae = document.activeElement;
+        if(_ae && _ae.tagName === 'TEXTAREA' &&
+           (/^diary_/.test(_ae.id||'') || (_ae.closest && _ae.closest('#block-list')))) _diaryEditing = true;
+      } catch(_aeErr){}
+    }
+    if(typeof loadDate==='function' && typeof currentDate!=='undefined' && currentDate && !_diaryEditing){
       loadDate(currentDate);
     }
   } catch(e){ console.warn('loadDate render failed:', e&&e.message); }
