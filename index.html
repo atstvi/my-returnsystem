@@ -11704,7 +11704,9 @@ function buildExpectedGeneratedMap(opts){
         var due=taskAddDaysKey(anchor,-offset);
         if(!ruleDateInRange(rule,due))return;
         var exp=buildRuleExpected(rule,due,src,String(src.id));
-        if(exp&&!genSuppressions[exp.scheduleKey])expected[exp.scheduleKey]=exp;
+        /* Also check old '|' format suppression key for backward-compat */
+        var _oldKey=activeRuleGenerationKey(rule.id,String(src.id),due);
+        if(exp&&!genSuppressions[exp.scheduleKey]&&!genSuppressions[_oldKey])expected[exp.scheduleKey]=exp;
       });
     }else if(type==='weekday'){
       var days=repeatWeekdays(rule);
@@ -11719,7 +11721,9 @@ function buildExpectedGeneratedMap(opts){
         if(!ruleDateInRange(rule,due2))continue;
         var sourceTaskId='weekday:'+anchor;
         var exp2=buildRuleExpected(rule,due2,null,sourceTaskId);
-        if(exp2&&!genSuppressions[exp2.scheduleKey])expected[exp2.scheduleKey]=exp2;
+        /* Also check old '|' format key (sourceTaskId was due date, not anchor) */
+        var _oldKey2=activeRuleGenerationKey(rule.id,'weekday:'+due2,due2);
+        if(exp2&&!genSuppressions[exp2.scheduleKey]&&!genSuppressions[_oldKey2])expected[exp2.scheduleKey]=exp2;
       }
     }
   });
@@ -11767,11 +11771,17 @@ function reconcileGeneratedTasks(opts){
   opts=opts||{};
   if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
   var expected=buildExpectedGeneratedMap(opts);
+  var genSuppressions=loadGeneratedTaskSuppressions();
   var changed=0, seen={}, next=[];
   tasks.forEach(function(t){
     if(!t){return;}
     if(!isGeneratedTask(t)){next.push(t);return;}
     var exp=expectedForExistingGenerated(t,expected);
+    /* expectedForExistingGenerated's fallback (rule lookup) bypasses the
+       suppression check that buildExpectedGeneratedMap applies. A task deleted
+       on another device arrives via Firebase sync still present in tasks[], so
+       the fallback would wrongly keep it. Re-check suppression here. */
+    if(exp){var _tKey=generatedTaskKey(t);if(_tKey&&genSuppressions[_tKey])exp=null;}
     if(!exp&&!isGeneratedManual(t)){
       changed++;
       return;
@@ -12091,7 +12101,7 @@ function renderHomeTimeBlocks(){
     if(virtual){ el.style.opacity='.92'; el.style.borderStyle='dashed'; el.style.left='var(--sp-6)'; el.style.right='var(--sp-6)'; el.style.zIndex='1'; }
     var bar=document.createElement('div');bar.className='htb-vbar';
     var ck=document.createElement('button');ck.className='task-check'+(t.done?' done':'');ck.style.cssText='width:18px;height:18px;flex-shrink:0';
-    ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); });
+    ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); });
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
     var travelInfo=parseInt(t.travelMin,10)||0;
@@ -17121,6 +17131,7 @@ function buildTaskEl(task){
 
 function toggleDone(task,el,ck){
   task.done=!task.done;
+  task.updatedAt=Date.now();
   saveTaskData();
   try { renderHomeTasks(); } catch(e) {}
   if(task.done){
@@ -25954,6 +25965,20 @@ function fbApplyData(data){
             if(Array.isArray(_cloudArr)&&Array.isArray(_localArr)){
               var _cloudArrIds={};
               _cloudArr.forEach(function(t){if(t&&t.id!=null)_cloudArrIds[String(t.id)]=true;});
+              /* Per-item LWW: for items present in both local and cloud, keep
+                 whichever has the higher updatedAt (local wins when it was edited
+                 more recently than the last cloud snapshot — e.g. an in-flight edit
+                 within the 450ms fbSaveNow debounce). Cloud wins on tie. */
+              var _localById={};
+              _localArr.forEach(function(t){if(t&&t.id!=null)_localById[String(t.id)]=t;});
+              var _lwwChanged=false;
+              var _lwwArr=_cloudArr.map(function(ct){
+                if(!ct||ct.id==null)return ct;
+                var lt=_localById[String(ct.id)];
+                if(!lt)return ct;
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)){_lwwChanged=true;return lt;}
+                return ct;
+              });
               /* For tasks/projects: createdAt; for inbox: ts */
               var _localArrOnly=_localArr.filter(function(t){
                 if(!t||t.id==null)return false;
@@ -25965,9 +25990,9 @@ function fbApplyData(data){
                  duplicate ids from earlier broken sync rounds, and the concat
                  could reintroduce them. Collapse to one copy per id and push the
                  cleaned value back to cloud when anything changed. */
-              var _mergedArr=_cloudArr.concat(_localArrOnly);
+              var _mergedArr=_lwwArr.concat(_localArrOnly);
               var _dd=returnDedupById(_mergedArr);
-              if(_localArrOnly.length||_dd.removed>0){
+              if(_localArrOnly.length||_dd.removed>0||_lwwChanged){
                 _fbWriter(k,JSON.stringify(_dd.arr));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
@@ -26683,23 +26708,34 @@ async function fbSaveNow(opts){
           }catch(_me){}
         }
         if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'){
-          /* Union-merge: preserve locally-created items not yet in cloud.
-             Items created after localApplyBaseline that are absent from cloud
-             are appended to the cloud array, then pushed outbound. */
+          /* Union-merge: preserve locally-created items not yet in cloud, and
+             apply per-item LWW for items present in both (local wins when its
+             updatedAt is higher — i.e. a local edit beat the outbound debounce). */
           try{
             var _snCloudArr=JSON.parse(cloud.fullValue||'[]')||[];
             var _snOursArr=JSON.parse(ours||'[]')||[];
             if(Array.isArray(_snCloudArr)&&Array.isArray(_snOursArr)&&localApplyBaseline>0){
               var _snCloudIds={};
               _snCloudArr.forEach(function(t){if(t&&t.id!=null)_snCloudIds[String(t.id)]=true;});
+              /* Per-item LWW for shared items: keep whichever has higher updatedAt. */
+              var _snLocalById={};
+              _snOursArr.forEach(function(t){if(t&&t.id!=null)_snLocalById[String(t.id)]=t;});
+              var _snLwwChanged=false;
+              var _snLwwArr=_snCloudArr.map(function(ct){
+                if(!ct||ct.id==null)return ct;
+                var lt=_snLocalById[String(ct.id)];
+                if(!lt)return ct;
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)){_snLwwChanged=true;return lt;}
+                return ct;
+              });
               var _snLocalOnly=_snOursArr.filter(function(t){
                 if(!t||t.id==null)return false;
                 if(_snCloudIds[String(t.id)])return false;
                 var created=Number(t.createdAt||t.ts||0);
                 return created>localApplyBaseline;
               });
-              if(_snLocalOnly.length){
-                valueToAbsorb=JSON.stringify(_snCloudArr.concat(_snLocalOnly));
+              if(_snLocalOnly.length||_snLwwChanged){
+                valueToAbsorb=JSON.stringify(_snLwwArr.concat(_snLocalOnly));
               }
             }
           }catch(_ae){}
@@ -31319,6 +31355,7 @@ function themeStudioApplyPresetCategories(preset,cats){
   themeStudioMarkRolesFromState(cur,cats);
   themeStudioSet(cur);
   if(cats.indexOf('banner')>=0&&!(cur.banner&&cur.banner.image))themeStudioClearHomeBannerImage();
+  if(cats.indexOf('banner')>=0&&!(cur.banner&&cur.banner.hobbyImage))themeStudioClearHobbyBannerImage();
 }
 function themeStudioApplyPreset(id){
   var preset=themeStudioAllPresets().find(function(p){return p.id===id;});
