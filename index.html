@@ -15626,6 +15626,18 @@ function tPad(n){return n<10?'0'+n:''+n;}
 function tasksAddDays(d,n){var r=new Date(d);r.setDate(r.getDate()+n);return r;}
 var TK = dk(TODAY);
 
+/* Whether hardcoded sample/demo data may be seeded (and thus eventually synced).
+   The app ships with a built-in Firebase config, so the cloud is active by
+   default even without a user-saved fb_config; seeding before the cloud's real
+   data loads pushes demo items up and pollutes every device. So allow seeding
+   ONLY for explicit local-only users, or after the cloud has loaded once
+   (_fb_loaded_once, set at the end of fbApplyData). */
+function returnAllowSampleSeed(){
+  try{
+    if(localStorage.getItem('_fb_local_only')==='1')return true;
+    return localStorage.getItem('_fb_loaded_once')==='1';
+  }catch(e){ return false; }
+}
 /* Sample tasks */
 var tasks = [
   {id:1,text:'기말 보고서 최종 제출',catId:'uni',    date:TK, priority:'high',done:false,deadlineDate:dk(tasksAddDays(TODAY,2)),deadlineId:'',timeStart:'',timeEnd:'',note:'교수님 이메일로 PDF + 출력본',subs:[{text:'초안 작성',done:true},{text:'참고문헌 정리',done:false},{text:'PDF 변환',done:false}],_ruleId:'',_repeat:false},
@@ -15642,6 +15654,7 @@ var tasks = [
 try {
   var storedTasks = JSON.parse(localStorage.getItem('task_items_v1') || 'null');
   if (Array.isArray(storedTasks) && storedTasks.length) tasks = storedTasks;
+  else if (!returnAllowSampleSeed()) tasks = []; /* cloud user pre-load: show nothing rather than demo */
 } catch(e) {}
 function normalizeTimetableTaskCategories(){
   if(!Array.isArray(tasks))return false;
@@ -18672,8 +18685,8 @@ var draftType    = 'event';
 var draftRepeat  = '';
 var draftWeekdays = [];
 
-/* ── Seed data if empty ── */
-if (!items.length && cats.length) {
+/* ── Seed data if empty ── (gated: never seed+sync demo before cloud loads) */
+if (!items.length && cats.length && typeof returnAllowSampleSeed==='function' && returnAllowSampleSeed()) {
   var td = dateKey(new Date());
   var y = new Date(); y.setDate(y.getDate()-2); var yd = dateKey(y);
   items = [
@@ -21176,8 +21189,8 @@ var clickDay = 0, clickTime = '09:00';
 /* ── Load/Save ── */
 function loadTimetables() {
   try { timetables = JSON.parse(localStorage.getItem('timetables_v1') || '[]'); } catch(e) { timetables = []; }
-  if (!timetables.length) {
-    /* Seed default */
+  if (!timetables.length && typeof returnAllowSampleSeed==='function' && returnAllowSampleSeed()) {
+    /* Seed default (gated: never seed+sync demo before cloud loads) */
     timetables = [{
       id: Date.now(), name: '2026년 1학기', startDate: '2026-03-03', endDate: '2026-06-20',
       showSat: false, slots: [
@@ -23842,8 +23855,10 @@ function loadRoutineData(){
     }
   }catch(_e){}
   /* Only seed when the key has never been written — null means first launch.
-     An empty array ([]) means the user intentionally deleted all routines. */
-  if(_rawHabits===null&&!routineHabits.length&&!routineBundles.length)seedRoutineData();
+     An empty array ([]) means the user intentionally deleted all routines.
+     Also gated on returnAllowSampleSeed() so demo routines aren't pushed up and
+     synced before the user's real cloud data has loaded. */
+  if(_rawHabits===null&&!routineHabits.length&&!routineBundles.length&&typeof returnAllowSampleSeed==='function'&&returnAllowSampleSeed())seedRoutineData();
 }
 function pruneRoutineLogs(){
   /* Keep only the last 90 days of logs to prevent unbounded growth.
@@ -26383,6 +26398,11 @@ function fbApplyData(data){
        via Firebase. Allows return-media: refs to resolve locally going forward,
        even if this device never uploaded the original file. Fire-and-forget. */
     try { _fbSeedMediaFromSyncedAssets(); } catch(e){}
+    /* Mark that the cloud has been loaded at least once on this device. Sample/
+       demo seeding (tasks/hobby/timetable/routine) is gated on this so demo data
+       is never pushed up and synced before the user's real data has arrived —
+       the root cause of "정체불명의 할일·일정" appearing across devices. */
+    try { localStorage.setItem('_fb_loaded_once','1'); } catch(e){}
   } finally {
     _applyingFbData = false;
   }
