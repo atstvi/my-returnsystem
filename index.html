@@ -31639,6 +31639,7 @@ function themeStudioApply(state){
   body.dataset.themeDensity=state.density||'comfortable';
   body.dataset.themeRadius=state.radius||'soft';
   setReturnStorageItem('return_theme_color',c.accent||THEME_STUDIO_DEFAULT.colors.accent);
+  try{var _tcMeta=document.querySelector('meta[name="theme-color"]');if(_tcMeta)_tcMeta.setAttribute('content',c.accent||THEME_STUDIO_DEFAULT.colors.accent);}catch(_tcErr){}
   themeStudioApplySkinSlots(state);
   themeStudioApplyBackground(state);
   themeStudioApplyBanner(state);
@@ -31772,6 +31773,73 @@ function themeStudioSetFaviconHref(href){
   apple.href=href;
   document.head.appendChild(apple);
 }
+/* Build a themed app icon (PNG Blob) at the requested size for the PWA manifest.
+   Mirrors themeStudioApplyFavicon's drawing, but full-bleed (no rounded corners)
+   so it works as a maskable icon and at install-icon sizes (192/512). */
+function themeStudioBuildThemedIcon(value,fallback,size){
+  return new Promise(function(resolve){
+    var accent=getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#C2433D';
+    function finish(c){ try{ c.toBlob(function(b){ resolve(b); },'image/png'); }catch(e){ resolve(null); } }
+    function drawText(text){
+      var c=document.createElement('canvas');c.width=size;c.height=size;
+      var ctx=c.getContext('2d');
+      ctx.fillStyle=accent;ctx.fillRect(0,0,size,size);
+      ctx.fillStyle='#fff';ctx.textAlign='center';ctx.textBaseline='middle';
+      var isEmoji=/[\uD800-\uDBFF☀-➿]/.test(text);
+      ctx.font=(isEmoji?'':'700 ')+Math.round(size*0.5)+'px system-ui,Pretendard,sans-serif';
+      ctx.fillText(String(text||'R').slice(0,2),size/2,size*0.54);
+      finish(c);
+    }
+    function drawImage(url){
+      var img=new Image();
+      img.onload=function(){ try{ var c=document.createElement('canvas');c.width=size;c.height=size;var ctx=c.getContext('2d');
+        ctx.fillStyle=accent;ctx.fillRect(0,0,size,size);
+        ctx.drawImage(img,0,0,size,size);finish(c);
+      }catch(e){ drawText('R'); } };
+      img.onerror=function(){ drawText('R'); };
+      img.src=url;
+    }
+    value=value||'R';
+    if(isReturnMediaRef(value))returnMediaResolveUrlWithFallback(value,fallback||themeStudioMediaFallbackForUrl(value)).then(function(url){if(url)drawImage(url);else drawText('R');});
+    else if(isReturnDisplayableImageUrl(value))drawImage(value);
+    else drawText(value);
+  });
+}
+/* Write a themed manifest + 192/512 icons into the SW cache at real same-origin
+   URLs. The service worker serves these cache-first, so the INSTALLED app's
+   title-bar color and icon follow the active theme. Desktop/mobile only pick up
+   the change on next (re)install or Chrome's periodic manifest-update check —
+   blob/data-URL manifests fail Chrome's install requirements, hence this path. */
+function themeStudioApplyPwaManifest(value,fallback){
+  try{
+    if(typeof caches==='undefined'||!caches||!caches.open)return;
+    var accent=(document.querySelector('meta[name="theme-color"]')||{}).content
+      ||getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#C2433D';
+    var base=window.location.pathname.replace(/\/[^\/]*$/,'/');
+    Promise.all([
+      themeStudioBuildThemedIcon(value,fallback,192),
+      themeStudioBuildThemedIcon(value,fallback,512)
+    ]).then(function(blobs){
+      if(!blobs[0]||!blobs[1])return;
+      var manifest=JSON.stringify({
+        name:'Return',short_name:'Return',
+        description:'일상 루프 — 체크인 · 일기 · 루틴 · 할일 · 음악',
+        start_url:base,scope:base,display:'standalone',orientation:'portrait',
+        background_color:accent,theme_color:accent,lang:'ko',
+        icons:[
+          {src:'themed-icon-192.png',sizes:'192x192',type:'image/png',purpose:'any'},
+          {src:'themed-icon-512.png',sizes:'512x512',type:'image/png',purpose:'any'},
+          {src:'themed-icon-512.png',sizes:'512x512',type:'image/png',purpose:'maskable'}
+        ]
+      });
+      caches.open('return-v1').then(function(c){
+        c.put(base+'themed-icon-192.png',new Response(blobs[0],{headers:{'Content-Type':'image/png'}}));
+        c.put(base+'themed-icon-512.png',new Response(blobs[1],{headers:{'Content-Type':'image/png'}}));
+        c.put(base+'manifest.json',new Response(manifest,{headers:{'Content-Type':'application/manifest+json'}}));
+      }).catch(function(){});
+    }).catch(function(){});
+  }catch(e){}
+}
 function themeStudioApplyFavicon(value,fallback){
   value=value||'R';
   function drawTextIcon(text){
@@ -31840,6 +31908,7 @@ var map={home:'tab-home',inbox:'tab-inbox',diary:'tab-diary',routine:'tab-routin
      sync+async resolution path. Writing here races with that function and causes
      a no-src <img> to overwrite the emoji fallback, resulting in a blank circle. */
   themeStudioApplyFavicon(icons.app||'R',iconFallback('app'));
+  themeStudioApplyPwaManifest(icons.app||'R',iconFallback('app'));
   themeStudioResolveMediaPreviews(document.body);
 }
 function themeStudioApplyPreview(state){
