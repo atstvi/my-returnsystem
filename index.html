@@ -31833,9 +31833,18 @@ function themeStudioApplyPwaManifest(value,fallback){
         ]
       });
       caches.open('return-v1').then(function(c){
-        c.put(base+'themed-icon-192.png',new Response(blobs[0],{headers:{'Content-Type':'image/png'}}));
-        c.put(base+'themed-icon-512.png',new Response(blobs[1],{headers:{'Content-Type':'image/png'}}));
-        c.put(base+'manifest.json',new Response(manifest,{headers:{'Content-Type':'application/manifest+json'}}));
+        return Promise.all([
+          c.put(base+'themed-icon-192.png',new Response(blobs[0],{headers:{'Content-Type':'image/png'}})),
+          c.put(base+'themed-icon-512.png',new Response(blobs[1],{headers:{'Content-Type':'image/png'}})),
+          c.put(base+'manifest.json',new Response(manifest,{headers:{'Content-Type':'application/manifest+json'}}))
+        ]);
+      }).then(function(){
+        /* Force Chrome to re-read the themed manifest right now.
+           Without this, Chrome uses the manifest it fetched at page-load start
+           (before our cache write). A versioned URL triggers a re-fetch;
+           the SW serves the new themed version via ignoreSearch cache match. */
+        var _ml=document.querySelector('link[rel="manifest"]');
+        if(_ml)_ml.setAttribute('href','manifest.json?tv='+Date.now());
       }).catch(function(){});
     }).catch(function(){});
   }catch(e){}
