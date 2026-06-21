@@ -54,7 +54,9 @@ self.addEventListener('fetch', function(e) {
      follow the active theme. (themed-icon-* are virtual — only ever in cache.) */
   if (/\/(manifest\.json|themed-icon-(?:192|512)\.png)$/.test(url.pathname)) {
     e.respondWith(
-      caches.open(CACHE).then(function(c) { return c.match(e.request); })
+      /* ignoreSearch so manifest.json?tv=<timestamp> (written by themeStudioApplyPwaManifest
+         to force Chrome to re-read the themed manifest) matches the cache entry. */
+      caches.open(CACHE).then(function(c) { return c.match(e.request, {ignoreSearch: true}); })
         .then(function(r) { return r || fetch(e.request); })
     );
     return;
