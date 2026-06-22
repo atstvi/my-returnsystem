@@ -12269,8 +12269,12 @@ function renderHomeTimeBlocks(){
     var tts = JSON.parse(localStorage.getItem('timetables_v1') || '[]');
     var todayKey = homeTodayKey();
     var jsDow = new Date(todayKey+'T00:00').getDay();
-    var slotDay = jsDow === 0 ? -1 : jsDow - 1;
+    /* Consistent with getTodayDayIdx(): 일요일→6, 월→0…토→5 */
+    var slotDay = jsDow === 0 ? 6 : jsDow - 1;
     tts.forEach(function(tt){
+      /* Skip semesters whose date range doesn't include today */
+      if (tt.startDate && todayKey < tt.startDate) return;
+      if (tt.endDate && todayKey > tt.endDate) return;
       (tt.slots || []).forEach(function(s){
         if (s.day !== slotDay) return;
         /* Build the slot's prep items once and overlay the per-date check state
@@ -15868,8 +15872,8 @@ function buildTimetableExpectedTasks(ttList){
       var cur=new Date(start);
       cur.setDate(start.getDate()+d);
       var jsDow=cur.getDay();
-      var slotDay=jsDow===0?-1:jsDow-1;
-      if(slotDay<0)continue;
+      /* Consistent with getTodayDayIdx(): 일요일→6, 월→0…토→5 */
+      var slotDay=jsDow===0?6:jsDow-1;
       var dateKey=timetableTaskDateKey(cur);
       tt.slots.forEach(function(s,idx){
         if(!s||s.day!==slotDay||!s.title||!s.timeStart)return;
@@ -21303,6 +21307,7 @@ function saveTimetables() {
   var saved=setReturnStorageItem('timetables_v1', JSON.stringify(timetables));
   if(!saved)return false;
   try { if(typeof reconcileTimetableTasks==='function') reconcileTimetableTasks({timetables:timetables,source:'saveTimetables'}); } catch(e) {}
+  try { if(typeof homeRefreshCards==='function') homeRefreshCards({}); } catch(e) {}
   return true;
 }
 
@@ -21857,8 +21862,8 @@ function generateTasks() {
     var cur = new Date(start);
     cur.setDate(start.getDate() + d);
     var jsDow = cur.getDay();
-    var slotDay = jsDow === 0 ? -1 : jsDow - 1;
-    if (slotDay < 0) continue;
+    /* Consistent with getTodayDayIdx(): 일요일→6, 월→0…토→5 */
+    var slotDay = jsDow === 0 ? 6 : jsDow - 1;
 
     var dateKey = cur.getFullYear() + '-' + scPad(cur.getMonth()+1) + '-' + scPad(cur.getDate());
 
