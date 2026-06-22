@@ -2821,6 +2821,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .focus-timer-mini-clock{font-family:var(--font-mono);font-size:var(--text-lg);font-weight:var(--fw-bold);color:var(--fg);letter-spacing:0}
 .focus-timer-mini-label{font-size:var(--text-xs);color:var(--fg-4);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .focus-timer-mini-btn{width:36px;height:36px;border-radius:var(--r-full);background:var(--accent);color:white;font-size:16px;flex-shrink:0}
+.htb-timer-btn.running{background:var(--accent-light)!important;animation:htbTimerPulse 1.8s ease-in-out infinite}
+@keyframes htbTimerPulse{0%,100%{opacity:1}50%{opacity:.5}}
 .routine-state-wrap{position:relative;display:inline-flex;align-items:center}
 .routine-state-pick{width:42px;height:42px}
 .routine-state-menu{
@@ -12248,6 +12250,27 @@ function renderHomeTimeBlocks(){
       if(typeof saveTaskData==='function')saveTaskData();
       renderHomeTimeBlocks();
     });
+    /* One-tap focus timer for real tasks: start measuring time for this task
+       straight from the timeline, no need to open the task or the timer tab. */
+    var timerBtn=null;
+    if(!virtual && isRealTask){
+      timerBtn=document.createElement('button');
+      timerBtn.className='htb-timer-btn';
+      timerBtn.type='button';
+      var _ftActive=typeof focusTimerState!=='undefined' && (focusTimerState.running||focusTimerState.elapsed>0) && String(focusTimerState.linkedTaskId||'')===String(t.id);
+      timerBtn.textContent=_ftActive?'⏲':'⏱';
+      timerBtn.title=_ftActive?'이 할일 타이머 보기':'이 할일로 타이머 시작';
+      if(_ftActive)timerBtn.classList.add('running');
+      timerBtn.style.cssText='border:0;border-radius:var(--r-full);background:var(--bg-card);color:'+(_ftActive?'var(--accent)':'var(--fg-3)')+';font-size:var(--text-2xs);padding:0 var(--sp-2);height:20px;box-shadow:var(--shadow-1);cursor:pointer;flex-shrink:0';
+      timerBtn.addEventListener('click',function(e){
+        e.stopPropagation();
+        if(typeof focusTimerState!=='undefined' && (focusTimerState.running||focusTimerState.elapsed>0) && String(focusTimerState.linkedTaskId||'')===String(t.id)){
+          if(typeof goPage==='function')goPage('timer');
+        } else {
+          focusTimerStartForTask(t.id);
+        }
+      });
+    }
     var resize=document.createElement('div');
     resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;touch-action:none';
     resize.innerHTML='<span style="width:24px;height:2px;border-radius:var(--r-full);background:currentColor;opacity:.35"></span>';
@@ -12334,7 +12357,7 @@ function renderHomeTimeBlocks(){
         e.dataTransfer.effectAllowed='move';
       });
     }
-    el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); if(metaEl)el.appendChild(metaEl); el.appendChild(time); el.appendChild(resize);
+    el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); if(metaEl)el.appendChild(metaEl); el.appendChild(time); if(timerBtn)el.appendChild(timerBtn); el.appendChild(resize);
     slots.appendChild(el);
   }
 
@@ -35662,6 +35685,20 @@ function focusTimerLogSession(ms){
   var task=focusTimerLinkedTask();
   focusTimerLog.push({mode:focusTimerState.mode,phase:focusTimerState.phase,durationMs:Math.round(ms||0),taskId:focusTimerState.linkedTaskId||'',taskText:task?task.text:'',completedAt:Date.now()});
   focusTimerSaveLog();
+}
+function focusTimerStartForTask(taskId){
+  if(!taskId)return;
+  /* If a session is already in progress, log it before switching tasks so its
+     time isn't silently lost. */
+  if((focusTimerState.running||focusTimerState.elapsed>0)&&focusTimerElapsedMs()>1000){
+    focusTimerLogSession(focusTimerElapsedMs());
+  }
+  if(focusTimerState.timer)clearInterval(focusTimerState.timer);
+  focusTimerState.elapsed=0;focusTimerState.startedAt=0;focusTimerState.running=false;focusTimerState.timer=null;
+  /* "측정" — default to stopwatch so a single tap starts counting up for the task. */
+  focusTimerState.mode='stopwatch';focusTimerState.phase='work';
+  focusTimerStart({mode:'stopwatch',linkedTaskId:String(taskId),reset:true});
+  if(typeof goPage==='function')goPage('timer');
 }
 function focusTimerStart(opts){
   opts=opts||{};
