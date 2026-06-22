@@ -39,6 +39,28 @@
    ─────────────────────────────────────────────────────────────────────── */
 (function _gcalHandleOauthCallback(){
   try{
+    /* ── Authorization Code flow (PKCE) ── ?code=... in query string */
+    var q=window.location.search||'';
+    if(q.indexOf('code=')>=0){
+      var qp=new URLSearchParams(q);
+      var code=qp.get('code');
+      var state=qp.get('state')||'';
+      if(code){
+        var payload={type:'gcal_code', code:code, state:state};
+        try{ if(window.opener&&!window.opener.closed){ window.opener.postMessage(payload,location.origin); } }catch(e){}
+        try{ if('BroadcastChannel' in window){ var bc2=new BroadcastChannel('return-gcal-oauth'); bc2.postMessage(payload); setTimeout(function(){try{bc2.close();}catch(e){}},80); } }catch(e){}
+        try{ localStorage.setItem('gcal_oauth_msg',JSON.stringify(payload)); }catch(e){}
+        try{
+          document.open();
+          document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>Google Calendar — 로그인 완료</title><style>body{font-family:system-ui,-apple-system,Pretendard,sans-serif;background:#FAF9F7;color:#3a3a3a;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:24px;text-align:center}.box{max-width:360px}h1{font-size:18px;margin:0 0 12px}p{font-size:14px;color:#7a7a7a;line-height:1.5;margin:0 0 16px}button{background:#C2433D;color:#fff;border:0;border-radius:999px;padding:10px 20px;font-size:14px;cursor:pointer}</style></head><body><div class="box"><div style="font-size:32px;margin-bottom:8px">✓</div><h1>로그인 완료</h1><p>Return 앱에서 Google Calendar 동기화가 시작됩니다.<br>이 창이 자동으로 닫히지 않으면 닫아주세요.</p><button onclick="window.close()">닫기</button></div></body></html>');
+          document.close();
+        }catch(e){}
+        setTimeout(function(){ try{ window.close(); }catch(e){} }, 100);
+        return;
+      }
+    }
+
+    /* ── Implicit Grant flow (legacy) ── #access_token=... in hash */
     var h=window.location.hash||'';
     if(h.indexOf('access_token')<0) return;
     var params=new URLSearchParams(h.replace(/^#/,''));
@@ -8104,8 +8126,11 @@ to{opacity:1;transform:translateY(0)}}
           <div class="set-detail" id="gcal-detail">
             <div class="field-group">
               <div class="field-label">Google Calendar OAuth Client ID</div>
-              <div class="field-help">Google Cloud Console에서 OAuth 클라이언트 ID를 만들고 승인된 JavaScript 원본에 현재 배포 도메인을 추가해야 해요.</div>
+              <div class="field-help">Google Cloud Console → API 및 서비스 → 사용자 인증 정보에서 OAuth 클라이언트 ID를 만들고, 승인된 JavaScript 원본에 현재 도메인을 추가해야 해요. <strong>자동 갱신</strong>을 원하면 클라이언트 유형을 <strong>데스크톱 앱</strong>으로 만드세요.</div>
               <input class="set-inp mono" id="gcal-client-id" placeholder="xxxxx.apps.googleusercontent.com">
+              <div class="field-label" style="margin-top:var(--sp-4)">Client Secret <span style="font-weight:400;color:var(--fg-4)">(자동 갱신용 · 선택)</span></div>
+              <div class="field-help">데스크톱 앱 타입 OAuth 클라이언트의 비밀키. 입력하면 60분마다 재로그인 없이 자동으로 토큰이 갱신됩니다. 개인 앱이므로 로컬에만 저장되며 Firebase에 동기화되지 않습니다.</div>
+              <input class="set-inp mono" id="gcal-client-secret" type="password" placeholder="GOCSPX-...">
               <div class="field-label" style="margin-top:var(--sp-4)">일정 캘린더 ID</div>
               <input class="set-inp mono" id="gcal-calendar-id" placeholder="primary 또는 xxx@group.calendar.google.com">
               <div class="field-label" style="margin-top:var(--sp-4)">할일/준비 캘린더 ID</div>
@@ -30009,18 +30034,26 @@ function gcalLoadConfig(){
   _gcalToken=_gcalCfg._savedToken||_gcalToken;
   _gcalTokenExp=_gcalCfg._savedTokenExp||_gcalTokenExp||0;
   var cid=document.getElementById('gcal-client-id'),
+      csec=document.getElementById('gcal-client-secret'),
       cal=document.getElementById('gcal-calendar-id'),
       tcal=document.getElementById('gcal-task-calendar-id'),
       auto=document.getElementById('gcal-auto-sync'),
       rem=document.getElementById('gcal-reminder-min');
   if(cid)cid.value=_gcalCfg.clientId||'';
+  if(csec)csec.value=_gcalCfg.clientSecret||'';
   if(cal)cal.value=_gcalCfg.calendarId||'primary';
   if(tcal)tcal.value=_gcalCfg.taskCalendarId||'';
   if(auto)auto.checked=!!_gcalCfg.autoSync;
   if(rem)rem.value=String(_gcalCfg.reminderMin||0);
+  var hasRefresh=!!_gcalCfg._savedRefreshToken;
   if(_gcalToken && _gcalTokenExp > Date.now()){
     var minsLeft=Math.round((_gcalTokenExp-Date.now())/60000);
-    gcalStatus('연결됨 — 토큰 만료까지 약 '+minsLeft+'분','ok');
+    gcalStatus('연결됨'+(hasRefresh?' · 자동 갱신 활성':'')
+      +' — 토큰 만료까지 약 '+minsLeft+'분','ok');
+  } else if(hasRefresh){
+    /* Token expired but refresh_token available — auto-renew on next sync */
+    gcalStatus('토큰 만료됨 — 다음 동기화 시 자동 갱신 예정 (refresh_token 보유)','ok');
+    _gcalToken=null;
   } else if(_gcalToken && _gcalTokenExp > 0) {
     gcalStatus('토큰 만료됨 — "Google 로그인"을 다시 눌러주세요','err');
     _gcalToken=null;
@@ -30041,6 +30074,7 @@ function gcalSaveConfig(silent){
   }
   var reminderEl=document.getElementById('gcal-reminder-min');
   _gcalCfg.clientId=elVal('gcal-client-id',_gcalCfg.clientId||'')||'';
+  _gcalCfg.clientSecret=elVal('gcal-client-secret',_gcalCfg.clientSecret||'')||'';
   _gcalCfg.calendarId=elVal('gcal-calendar-id',_gcalCfg.calendarId||'primary')||'primary';
   _gcalCfg.taskCalendarId=elVal('gcal-task-calendar-id',_gcalCfg.taskCalendarId||'')||'';
   _gcalCfg.autoSync=elChecked('gcal-auto-sync',_gcalCfg.autoSync);
@@ -30051,6 +30085,15 @@ function gcalSaveConfig(silent){
 }
 saveGcalKey=gcalSaveConfig;
 function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_gcalToken=null;_gcalTokenExp=0;gcalLoadConfig();showToast('Google Calendar 연동을 해제했어요');}
+/* Proactively refresh token when the app regains visibility so it's ready for
+   the next sync without any user-visible delay or error. */
+document.addEventListener('visibilitychange',function(){
+  if(document.visibilityState==='visible'&&_gcalCfg&&_gcalCfg.clientId){
+    if(!_gcalToken||Date.now()>_gcalTokenExp-5*60*1000){
+      gcalEnsureToken(false).catch(function(){});
+    }
+  }
+});
 async function gcalEnsureToken(showUi){
   if(_gcalToken&&Date.now()<_gcalTokenExp-60000)return true;
   if(!_gcalCfg.clientId)return false;
@@ -30060,6 +30103,17 @@ async function gcalEnsureToken(showUi){
   if(_gcalEnsureTokenPromise)return _gcalEnsureTokenPromise;
   _gcalEnsureTokenPromise=(async function(){
     try{
+      /* 1. refresh_token path — silent, no user interaction, no network round-trip
+            to Google's GIS library. Only available when clientSecret + refresh_token
+            are both stored (requires Desktop-app OAuth client type). */
+      if(_gcalCfg._savedRefreshToken&&_gcalCfg.clientSecret){
+        var refreshed=await gcalRefreshAccessToken();
+        if(refreshed)return true;
+        /* If refresh_token is revoked/expired, clear it so we fall through to re-auth */
+        _gcalCfg._savedRefreshToken='';
+        setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+      }
+      /* 2. GIS silent refresh — works when Google session is active in the browser */
       await loadScript('https://accounts.google.com/gsi/client');
       if(!window.google||!google.accounts||!google.accounts.oauth2)return false;
       return await new Promise(function(resolve){
@@ -30086,30 +30140,82 @@ async function gcalEnsureToken(showUi){
         setTimeout(function(){if(!finished)resolve(false);},12000);
       });
     }catch(e){
-      console.warn('gcal token refresh',e);
+      console.warn('[gcal] ensureToken failed:',e&&e.message);
       return false;
     }
   })();
   try{return await _gcalEnsureTokenPromise;}finally{_gcalEnsureTokenPromise=null;}
 }
+/* ── PKCE helpers ── */
+function gcalPkceVerifier(){
+  var arr=new Uint8Array(96);
+  crypto.getRandomValues(arr);
+  return btoa(String.fromCharCode.apply(null,arr))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+async function gcalPkceChallenge(verifier){
+  var buf=new TextEncoder().encode(verifier);
+  var hash=await crypto.subtle.digest('SHA-256',buf);
+  return btoa(String.fromCharCode.apply(null,new Uint8Array(hash)))
+    .replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'');
+}
+
+/* Exchange authorization code for access_token + refresh_token.
+   Requires Desktop-app type OAuth client (client_secret is allowed client-side). */
+async function gcalExchangeCode(code, codeVerifier, redirectUri){
+  var resp=await fetch('https://oauth2.googleapis.com/token',{
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body:new URLSearchParams({
+      code:code,
+      client_id:_gcalCfg.clientId,
+      client_secret:_gcalCfg.clientSecret,
+      redirect_uri:redirectUri,
+      code_verifier:codeVerifier,
+      grant_type:'authorization_code'
+    }).toString()
+  });
+  if(!resp.ok){
+    var errBody=''; try{errBody=await resp.text();}catch(_){}
+    throw new Error('gcal code exchange '+resp.status+': '+errBody);
+  }
+  return await resp.json();
+}
+
+/* Use stored refresh_token to get a new access_token without user interaction. */
+async function gcalRefreshAccessToken(){
+  if(!_gcalCfg.clientId||!_gcalCfg.clientSecret||!_gcalCfg._savedRefreshToken)return false;
+  try{
+    var resp=await fetch('https://oauth2.googleapis.com/token',{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({
+        refresh_token:_gcalCfg._savedRefreshToken,
+        client_id:_gcalCfg.clientId,
+        client_secret:_gcalCfg.clientSecret,
+        grant_type:'refresh_token'
+      }).toString()
+    });
+    if(!resp.ok)return false;
+    var data=await resp.json();
+    if(!data.access_token)return false;
+    _gcalToken=data.access_token;
+    _gcalTokenExp=Date.now()+Number(data.expires_in||3600)*1000;
+    _gcalCfg._savedToken=_gcalToken;
+    _gcalCfg._savedTokenExp=_gcalTokenExp;
+    setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+    gcalLoadConfig();
+    return true;
+  }catch(e){
+    console.warn('[gcal] refresh_token failed:',e&&e.message);
+    return false;
+  }
+}
+
 function gcalAuth(){
   gcalSaveConfig();
   var clientId=_gcalCfg.clientId;
   if(!clientId){showToast('OAuth Client ID를 입력해주세요');return;}
-  /* COOP-safe OAuth flow.
-     Chrome's Cross-Origin-Opener-Policy blocks reading pop.location/.closed
-     when the popup is on accounts.google.com. So instead of polling the popup
-     from the opener, the popup itself (after Google redirects it back to our
-     same-origin redirect URI with #access_token=...) detects the hash on load
-     and posts the token back to the opener via:
-       1) BroadcastChannel('return-gcal-oauth') — primary
-       2) localStorage 'gcal_oauth_msg' write — fallback (storage events fire
-          across same-origin windows even when opener handles are blocked)
-     Then the popup closes itself.
-     The handler that reads the hash and forwards the token lives at app boot
-     (see the IIFE near the bottom of this script that checks for an oauth
-     callback hash on page load).
-  */
   if(location.protocol==='file:'){
     showToast('file:// 환경에서는 Google 로그인을 사용할 수 없어요. 배포 후 다시 시도해주세요.');
     return;
@@ -30117,66 +30223,121 @@ function gcalAuth(){
   var redirect=location.origin+location.pathname;
   var state='gcal_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
   try{ sessionStorage.setItem('gcal_oauth_state',state); }catch(e){}
-  var url='https://accounts.google.com/o/oauth2/v2/auth?response_type=token'
-    +'&client_id='+encodeURIComponent(clientId)
-    +'&redirect_uri='+encodeURIComponent(redirect)
-    +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
-    +'&include_granted_scopes=true'
-    +'&state='+encodeURIComponent(state);
-  /* Open the popup. We DO want the opener handle so the callback page can
-     window.opener.postMessage(). Browsers default `noopener` to false when
-     `window.open` is called from script with no rel/feature spec, but we
-     omit `noopener` explicitly to be safe across browsers.
-     Width 520 / height 640 fits Google's OAuth UI. */
-  window.open(url,'gcal_auth','width=520,height=640');
-  // Receive the token through the channels listed above.
+
   var done=false;
-  function finish(token, expiresIn){
+  function finishToken(accessToken, expiresIn, refreshToken){
     if(done) return; done=true;
-    _gcalToken=token;
+    _gcalToken=accessToken;
     _gcalTokenExp=Date.now()+Number(expiresIn||3600)*1000;
-    _gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;
+    _gcalCfg._savedToken=_gcalToken;
+    _gcalCfg._savedTokenExp=_gcalTokenExp;
+    if(refreshToken) _gcalCfg._savedRefreshToken=refreshToken;
     setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
     gcalLoadConfig();
     showToast('Google Calendar 인증 완료 — 동기화를 시작해요');
     cleanup();
-    /* Auto-sync immediately after auth so user sees it working */
     setTimeout(function(){ gcalSync({silent:true,auto:true}).catch(function(e){ console.warn('gcal post-auth sync',e); }); }, 400);
   }
+
   var bc=null;
   try { if('BroadcastChannel' in window) bc=new BroadcastChannel('return-gcal-oauth'); }catch(e){}
-  function onBC(ev){
-    var d=ev&&ev.data||{};
-    if(d&&d.type==='gcal_token'&&d.state===state) finish(d.token, d.expiresIn);
-  }
-  if(bc) bc.addEventListener('message', onBC);
-  function onMessage(ev){
-    /* Only accept messages from our own origin */
-    if(ev.origin && ev.origin !== location.origin) return;
-    var d=ev&&ev.data||{};
-    if(d&&d.type==='gcal_token'&&d.state===state) finish(d.token, d.expiresIn);
-  }
-  window.addEventListener('message', onMessage);
-  function onStorage(ev){
-    if(ev.key!=='gcal_oauth_msg'||!ev.newValue) return;
-    try{
-      var d=JSON.parse(ev.newValue);
-      if(d&&d.type==='gcal_token'&&d.state===state){
-        try{ localStorage.removeItem('gcal_oauth_msg'); }catch(e){}
-        finish(d.token, d.expiresIn);
+
+  /* Use PKCE Authorization Code flow when clientSecret is configured (Desktop app type).
+     Falls back to implicit grant (no clientSecret) for backward compatibility. */
+  var usePkce=!!(clientId&&_gcalCfg.clientSecret);
+  if(usePkce){
+    /* Async: generate PKCE verifier, open popup */
+    var codeVerifier=gcalPkceVerifier();
+    try{ sessionStorage.setItem('gcal_pkce_verifier',codeVerifier); }catch(e){}
+    gcalPkceChallenge(codeVerifier).then(function(codeChallenge){
+      var url='https://accounts.google.com/o/oauth2/v2/auth'
+        +'?response_type=code'
+        +'&client_id='+encodeURIComponent(clientId)
+        +'&redirect_uri='+encodeURIComponent(redirect)
+        +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+        +'&code_challenge='+encodeURIComponent(codeChallenge)
+        +'&code_challenge_method=S256'
+        +'&access_type=offline'
+        +'&prompt=consent'
+        +'&state='+encodeURIComponent(state);
+      window.open(url,'gcal_auth','width=520,height=640');
+    });
+
+    if(bc) bc.addEventListener('message', function onBC(ev){
+      var d=ev&&ev.data||{};
+      if(d.type==='gcal_code'&&d.state===state){
+        bc.removeEventListener('message',onBC);
+        gcalExchangeCode(d.code, codeVerifier, redirect).then(function(data){
+          finishToken(data.access_token, data.expires_in, data.refresh_token);
+        }).catch(function(e){
+          gcalStatus('코드 교환 실패: '+e.message,'err');
+          done=true; cleanup();
+        });
       }
-    }catch(e){}
+    });
+    window.addEventListener('message', function onMsg(ev){
+      if(ev.origin&&ev.origin!==location.origin)return;
+      var d=ev&&ev.data||{};
+      if(d.type==='gcal_code'&&d.state===state){
+        window.removeEventListener('message',onMsg);
+        gcalExchangeCode(d.code, codeVerifier, redirect).then(function(data){
+          finishToken(data.access_token, data.expires_in, data.refresh_token);
+        }).catch(function(e){ gcalStatus('코드 교환 실패: '+e.message,'err'); done=true; cleanup(); });
+      }
+    });
+    window.addEventListener('storage', function onSt(ev){
+      if(ev.key!=='gcal_oauth_msg'||!ev.newValue)return;
+      try{
+        var d=JSON.parse(ev.newValue);
+        if(d.type==='gcal_code'&&d.state===state){
+          try{localStorage.removeItem('gcal_oauth_msg');}catch(_){}
+          window.removeEventListener('storage',onSt);
+          gcalExchangeCode(d.code, codeVerifier, redirect).then(function(data){
+            finishToken(data.access_token, data.expires_in, data.refresh_token);
+          }).catch(function(e){ gcalStatus('코드 교환 실패: '+e.message,'err'); done=true; cleanup(); });
+        }
+      }catch(e){}
+    });
+  } else {
+    /* Implicit grant — no clientSecret configured */
+    var url='https://accounts.google.com/o/oauth2/v2/auth?response_type=token'
+      +'&client_id='+encodeURIComponent(clientId)
+      +'&redirect_uri='+encodeURIComponent(redirect)
+      +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
+      +'&include_granted_scopes=true'
+      +'&state='+encodeURIComponent(state);
+    window.open(url,'gcal_auth','width=520,height=640');
+
+    function onBC(ev){
+      var d=ev&&ev.data||{};
+      if(d&&d.type==='gcal_token'&&d.state===state) finishToken(d.token, d.expiresIn, null);
+    }
+    if(bc) bc.addEventListener('message', onBC);
+    function onMessage(ev){
+      if(ev.origin && ev.origin !== location.origin) return;
+      var d=ev&&ev.data||{};
+      if(d&&d.type==='gcal_token'&&d.state===state) finishToken(d.token, d.expiresIn, null);
+    }
+    window.addEventListener('message', onMessage);
+    function onStorage(ev){
+      if(ev.key!=='gcal_oauth_msg'||!ev.newValue) return;
+      try{
+        var d=JSON.parse(ev.newValue);
+        if(d&&d.type==='gcal_token'&&d.state===state){
+          try{ localStorage.removeItem('gcal_oauth_msg'); }catch(e){}
+          finishToken(d.token, d.expiresIn, null);
+        }
+      }catch(e){}
+    }
+    window.addEventListener('storage', onStorage);
   }
-  window.addEventListener('storage', onStorage);
-  // 3-minute safety timeout: stop listening if the user abandons the popup.
+
   var timeout=setTimeout(function(){
     if(!done){ gcalStatus('Google 로그인 취소됨'); cleanup(); }
   }, 3*60*1000);
   function cleanup(){
     clearTimeout(timeout);
-    window.removeEventListener('storage', onStorage);
-    window.removeEventListener('message', onMessage);
-    if(bc){ try{ bc.removeEventListener('message', onBC); bc.close(); }catch(e){} }
+    if(bc){ try{ bc.close(); }catch(e){} }
   }
 }
 /* OAuth callback handler — moved to a HEAD script that runs before the
@@ -30688,7 +30849,11 @@ var _gcalAutoTimer=null;
 var _gcalDedupedThisSession=false;
 var _gcalSyncBusy=false;
 function gcalQueueAutoSync(){
-  if(!_gcalCfg||!_gcalCfg.autoSync||!_gcalToken||Date.now()>_gcalTokenExp-60000)return;
+  if(!_gcalCfg||!_gcalCfg.autoSync)return;
+  /* Allow queuing even when current token is expired — gcalSync calls
+     gcalEnsureToken which will use refresh_token or GIS silent refresh. */
+  var hasAuth=_gcalToken||(!!_gcalCfg._savedRefreshToken&&!!_gcalCfg.clientSecret);
+  if(!hasAuth)return;
   clearTimeout(_gcalAutoTimer);
   _gcalAutoTimer=setTimeout(function(){gcalSync({silent:true,auto:true}).catch(function(e){console.warn('gcal auto sync',e);});},2500);
 }
