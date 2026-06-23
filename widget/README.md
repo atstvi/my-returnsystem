@@ -45,10 +45,13 @@ npm run dev      # = tauri dev (핫리로드로 위젯 창 실행)
 ### 배포 빌드 (.msi 설치파일)
 ```bash
 cd widget
-# (최초 1회) 아이콘 풀세트 생성 — .ico 등 번들에 필요한 파일들 생성
-npm run icon
+npm install
 npm run build    # = tauri build → src-tauri/target/release/bundle/msi/ 에 설치파일
 ```
+
+> 아이콘 세트(`src-tauri/icons/` 의 `.ico`·`.png`)는 repo에 **이미 커밋**돼 있어 별도 생성이
+> 필요 없다. 아이콘을 바꾸려면 `src-tauri/icons/icon.png`(512px)를 교체하고 `npm run icon` 으로
+> 재생성하면 된다.
 
 생성된 `.msi`를 실행해 설치하면 바탕화면 위젯 앱이 된다.
 
