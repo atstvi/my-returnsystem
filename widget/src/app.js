@@ -285,6 +285,43 @@
     if (show) dbgRender();
   });
 
+  function copyText(text) {
+    // navigator.clipboard is often unavailable/blocked in WebView2, so fall back
+    // to a temporary textarea + execCommand("copy"), which works there.
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (_) {}
+    try {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      var ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return ok;
+    } catch (_) { return false; }
+  }
+
+  on("dbg-copy", function () {
+    var ok = copyText(dbgRead().join("\n"));
+    var btn = $id("dbg-copy");
+    if (btn) {
+      btn.textContent = ok ? "복사됨" : "복사 실패";
+      setTimeout(function () { if (btn) btn.textContent = "복사"; }, 1500);
+    }
+  });
+
+  on("dbg-clear", function () {
+    try { localStorage.removeItem(DBG_KEY); } catch (_) {}
+    dbgRender();
+  });
+
   on("retry-btn", function () {
     showView("loading");
     var user = fbAuth.currentUser;
