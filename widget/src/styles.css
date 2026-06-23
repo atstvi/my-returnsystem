@@ -1,12 +1,16 @@
 /* Transparent window → the rounded card floats on the desktop. */
 :root {
-  --w-bg: rgba(22, 24, 28, 0.92);
-  --w-bg-bar: rgba(36, 39, 46, 0.96);
-  --w-fg: #f2f3f5;
-  --w-fg-dim: #9aa0a8;
-  --w-border: rgba(255, 255, 255, 0.08);
-  --w-accent: #6ea8fe;
-  --w-radius: 14px;
+  --w-bg:       rgba(22, 24, 28, 0.92);
+  --w-bg-bar:   rgba(36, 39, 46, 0.96);
+  --w-bg-card:  rgba(32, 35, 42, 0.80);
+  --w-fg:       #f2f3f5;
+  --w-fg-dim:   #9aa0a8;
+  --w-fg-faint: #60666e;
+  --w-border:   rgba(255, 255, 255, 0.08);
+  --w-accent:   #6ea8fe;
+  --w-green:    #4ade80;
+  --w-yellow:   #fbbf24;
+  --w-radius:   14px;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -14,12 +18,14 @@
 html, body {
   width: 100%;
   height: 100%;
-  background: transparent; /* let the window transparency show through */
+  background: transparent;
   overflow: hidden;
   font-family: "Pretendard", "Segoe UI", system-ui, -apple-system, sans-serif;
   -webkit-user-select: none;
   user-select: none;
 }
+
+/* ── Card shell ──────────────────────────────────────────────────────────── */
 
 .widget-card {
   width: 100%;
@@ -35,6 +41,8 @@ html, body {
   color: var(--w-fg);
 }
 
+/* ── Title bar (drag handle) ─────────────────────────────────────────────── */
+
 .widget-bar {
   display: flex;
   align-items: center;
@@ -42,7 +50,8 @@ html, body {
   padding: 8px 10px;
   background: var(--w-bg-bar);
   border-bottom: 1px solid var(--w-border);
-  cursor: grab; /* signals the drag handle */
+  cursor: grab;
+  flex-shrink: 0;
 }
 .widget-bar:active { cursor: grabbing; }
 
@@ -50,7 +59,7 @@ html, body {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.2px;
-  pointer-events: none; /* clicks fall through to drag region */
+  pointer-events: none;
 }
 
 .widget-controls { display: flex; gap: 4px; }
@@ -73,15 +82,287 @@ html, body {
 .wbtn-close:hover { background: #e5484d; color: #fff; }
 .wbtn.pinned { background: var(--w-accent); color: #0b1220; }
 
+/* ── Main body ───────────────────────────────────────────────────────────── */
+
 .widget-body {
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
-.w0-hello { text-align: center; }
-.w0-emoji { font-size: 34px; margin-bottom: 8px; }
-.w0-text { font-size: 14px; font-weight: 600; }
-.w0-sub { margin-top: 4px; font-size: 12px; color: var(--w-fg-dim); }
+/* ── Generic view helpers ────────────────────────────────────────────────── */
+
+.view {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+/* Centered splash (loading / auth / error) */
+.view-center {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+}
+
+/* Column layout for the habit list view */
+.view-col {
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Loading view ────────────────────────────────────────────────────────── */
+
+.w-spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(255,255,255,0.12);
+  border-top-color: var(--w-accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.w-spinner-label {
+  font-size: 12px;
+  color: var(--w-fg-dim);
+  margin-top: 2px;
+}
+
+/* ── Auth view ───────────────────────────────────────────────────────────── */
+
+.w-logo {
+  font-size: 36px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.w-auth-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.w-auth-sub {
+  font-size: 12px;
+  color: var(--w-fg-dim);
+  line-height: 1.5;
+}
+
+.w-sign-btn {
+  margin-top: 6px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: var(--w-accent);
+  color: #0b1220;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.12s ease;
+}
+.w-sign-btn:hover { opacity: 0.85; }
+
+.w-auth-err {
+  font-size: 11px;
+  color: #f87171;
+  min-height: 14px;
+  max-width: 240px;
+}
+
+/* ── Habit list view ─────────────────────────────────────────────────────── */
+
+.w-date-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 4px;
+  flex-shrink: 0;
+}
+
+.w-date-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--w-fg-dim);
+  flex: 1;
+}
+
+.w-sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--w-fg-faint);
+  transition: background 0.3s ease;
+}
+.w-sync-dot.syncing {
+  background: var(--w-accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+.habit-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.12) transparent;
+}
+.habit-list::-webkit-scrollbar { width: 4px; }
+.habit-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+
+/* Bundle section */
+.bundle {
+  margin-bottom: 6px;
+}
+
+.bundle-hd {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 4px 2px;
+  font-size: 11px;
+  color: var(--w-fg-dim);
+}
+
+.bundle-icon { font-size: 13px; }
+
+.bundle-name {
+  flex: 1;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.1px;
+}
+
+.bundle-prog {
+  font-size: 10px;
+  color: var(--w-fg-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Habit row */
+.habit-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: 7px;
+  transition: background 0.1s ease;
+}
+.habit-row:hover { background: rgba(255,255,255,0.04); }
+
+.habit-mark {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 1.5px solid var(--w-fg-faint);
+  color: transparent;
+}
+
+/* State variants */
+.habit-mark.s-done {
+  background: var(--w-green);
+  border-color: var(--w-green);
+  color: #0a1a0f;
+}
+.habit-mark.s-skip {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.20);
+  color: var(--w-fg-dim);
+}
+.habit-mark.s-rest {
+  background: var(--w-yellow);
+  border-color: var(--w-yellow);
+  color: #1a1000;
+}
+.habit-mark.s-none {
+  background: transparent;
+  border-color: var(--w-fg-faint);
+  color: transparent;
+}
+
+.habit-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.habit-name {
+  font-size: 12px;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Completed habit — dim the name */
+.habit-row:has(.s-done) .habit-name,
+.habit-row:has(.s-skip) .habit-name {
+  color: var(--w-fg-dim);
+}
+
+/* ── Footer row ──────────────────────────────────────────────────────────── */
+
+.w-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px 6px;
+  border-top: 1px solid var(--w-border);
+  flex-shrink: 0;
+}
+
+.w-sync-time {
+  font-size: 10px;
+  color: var(--w-fg-faint);
+}
+
+.w-sign-out-btn {
+  font-size: 14px;
+  opacity: 0.45;
+}
+.w-sign-out-btn:hover { opacity: 1; background: rgba(255,255,255,0.08); }
+
+/* ── Error view ──────────────────────────────────────────────────────────── */
+
+.w-err-icon { font-size: 28px; }
+
+.w-err-msg {
+  font-size: 12px;
+  color: var(--w-fg-dim);
+  text-align: center;
+  white-space: pre-wrap;
+  max-width: 220px;
+}
+
+.w-retry-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--w-border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--w-fg);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.w-retry-btn:hover { background: rgba(255,255,255,0.08); }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.w-empty {
+  text-align: center;
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--w-fg-faint);
+}
