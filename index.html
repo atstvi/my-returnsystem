@@ -791,6 +791,59 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .chip-purple { background:var(--p-50); color:var(--p-600); }
 .chip-warn { background:var(--w-50); color:var(--w-600); }
 
+/* ── HOME UNIFIED WIDGET STATS BAR ── */
+.home-widget-stats {
+  display:flex; align-items:stretch; gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-6);
+  border-bottom:.5px solid var(--border-subtle);
+  flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none;
+}
+.home-widget-stats::-webkit-scrollbar { display:none; }
+.wstat {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  flex:1; min-width:60px; gap:2px; background:var(--bg-raised);
+  border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3);
+  border:none; cursor:pointer; transition:background var(--t-snap);
+  color:inherit; text-align:center;
+}
+.wstat:hover { background:var(--bg-hover); }
+.wstat-icon { font-size:var(--text-sm); line-height:1; }
+.wstat-val { font-family:var(--font-mono); font-size:var(--text-sm); font-weight:var(--fw-bold); color:var(--fg-1); }
+.wstat-label { font-size:var(--text-2xs); color:var(--fg-3); white-space:nowrap; }
+.wstat-routine-dots {
+  display:flex; gap:2px; align-items:center; flex-wrap:wrap; justify-content:center;
+  max-width:80px;
+}
+.wstat-rdot {
+  width:6px; height:6px; border-radius:var(--r-full); flex-shrink:0;
+  background:var(--border); transition:background var(--t-snap);
+}
+.wstat-rdot.done { background:var(--t-400); }
+.wstat-rdot.skip { background:var(--p-300); }
+.wstat-rdot.rest { background:var(--fg-4); }
+.wstat-timer {
+  flex:1.4; min-width:90px; flex-direction:row; gap:var(--sp-2);
+  align-items:center; justify-content:center; flex-wrap:wrap;
+}
+.wstat-timer-time {
+  font-family:var(--font-mono); font-size:var(--text-sm); font-weight:var(--fw-bold);
+  color:var(--accent); min-width:3.4em; text-align:center; flex-shrink:0;
+}
+.wstat-timer-time.running { color:var(--t-500); }
+.wstat-timer-btn {
+  font-size:var(--text-2xs); font-weight:var(--fw-semibold);
+  background:var(--accent); color:var(--on-accent);
+  border:none; border-radius:var(--r-full);
+  padding:2px var(--sp-3); cursor:pointer;
+  transition:opacity var(--t-snap); flex-shrink:0;
+}
+.wstat-timer-btn:hover { opacity:.82; }
+.wstat-timer-btn.stop { background:var(--w-400); }
+@media (max-width:639px) {
+  .home-widget-stats { padding:var(--sp-3) var(--sp-4); gap:var(--sp-2); }
+  .wstat { min-width:52px; padding:var(--sp-2); }
+}
+
 /* ── TASKS ── */
 .tasks-list { display:flex; flex-direction:column; padding:0 var(--sp-4) var(--sp-2); }
 .task-item {
@@ -6614,6 +6667,29 @@ to{opacity:1;transform:translateY(0)}}
           </div>
         </div>
 
+        <!-- Unified widget stats bar -->
+        <div class="home-widget-stats" id="home-widget-stats">
+          <button class="wstat" id="wstat-routine" type="button" onclick="goPage('routine')" title="루틴 페이지로 이동">
+            <div class="wstat-routine-dots" id="wstat-routine-dots"></div>
+            <span class="wstat-val" id="wstat-routine-val">0/0</span>
+            <span class="wstat-label">루틴</span>
+          </button>
+          <button class="wstat" id="wstat-tasks" type="button" onclick="goPage('tasks')" title="할일 페이지로 이동">
+            <span class="wstat-icon">✓</span>
+            <span class="wstat-val" id="wstat-tasks-val">0/0</span>
+            <span class="wstat-label">할일</span>
+          </button>
+          <button class="wstat" id="wstat-inbox" type="button" onclick="goPage('inbox')" title="인박스 페이지로 이동">
+            <span class="wstat-icon">📥</span>
+            <span class="wstat-val" id="wstat-inbox-val">0개</span>
+            <span class="wstat-label">인박스</span>
+          </button>
+          <div class="wstat wstat-timer" id="wstat-timer-box">
+            <span class="wstat-timer-time" id="wstat-timer-time">00:00</span>
+            <button class="wstat-timer-btn" id="wstat-timer-btn" type="button">집중 시작</button>
+          </div>
+        </div>
+
         <!-- All-day -->
         <div class="htb-allday">
           <span class="htb-allday-label">종일</span>
@@ -8485,6 +8561,7 @@ function _initHome() {
     try{ if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid(); }catch(e){ console.error('[home] homeRenderTimeGrid failed:',e); }
     try{ renderHomeTimeBlocks(); }catch(e){ console.error('[home] renderHomeTimeBlocks failed:',e); }
     try{ setHomeCaptureType('inbox'); renderHomeInbox(); }catch(e){ console.error('[home] renderHomeInbox failed:',e); }
+    try{ renderHomeWidget(); _bindHomeWidgetTimer(); }catch(e){ console.error('[home] renderHomeWidget failed:',e); }
     try{ window.dispatchEvent(new Event('resize')); }catch(e){ console.error('[home] resize dispatch failed:',e); }
   });
 }
@@ -9893,6 +9970,7 @@ function homeRefreshCards(opts){
     try{if(typeof window.homeRenderTimeGrid==='function')window.homeRenderTimeGrid();}catch(e){}
     try{renderHomeTimeBlocks();}catch(e){}
     try{renderHomeOpsPanel();}catch(e){}
+    try{renderHomeWidget();_bindHomeWidgetTimer();}catch(e){}
   });
 }
 function homeTaskUrgent(t){
@@ -10341,6 +10419,7 @@ function renderHomeTasks(){
   var rp = document.getElementById('home-repeat-desc');
   if (rd) rd.textContent = '활성 규칙 ' + rules.length + '개. 자동 생성된 할일은 오늘 목록에 함께 보여요.';
   if (rp) rp.textContent = '오늘 반복/규칙 할일 ' + repeats + '개. 필요하면 할일 탭에서 세부 조정해요.';
+  try{renderHomeWidget();}catch(e){}
 }
 
 function setHomeTaskView(view){
@@ -12557,6 +12636,7 @@ function renderHomeInbox(){
     row.appendChild(dot); row.appendChild(text); row.appendChild(action);
     list.appendChild(row);
   });
+  try{renderHomeWidget();}catch(e){}
 }
 function openInboxItemFromHome(id){
   goPage('inbox');
@@ -24618,6 +24698,97 @@ function renderHomeRoutineQuick(){
       renderHomeRoutineQuick();
     });
   });
+  try{renderHomeWidget();}catch(e){}
+}
+/* ── HOME UNIFIED WIDGET ── */
+var _focusTimer={startedAt:0,elapsed:0,timer:null};
+function _focusTimerLabel(){
+  var ms=(_focusTimer.elapsed||0)+(_focusTimer.startedAt?Date.now()-_focusTimer.startedAt:0);
+  var mins=Math.floor(ms/60000), secs=Math.floor((ms%60000)/1000);
+  return String(mins).padStart(2,'0')+':'+String(secs).padStart(2,'0');
+}
+function renderHomeWidget(){
+  /* routine stats */
+  var dotsEl=document.getElementById('wstat-routine-dots');
+  var routineValEl=document.getElementById('wstat-routine-val');
+  if(dotsEl&&routineValEl&&typeof routineHabits!=='undefined'&&typeof routineTodayLog==='function'){
+    var log=routineTodayLog(), total=routineHabits.length, done=0;
+    var html='';
+    routineHabits.forEach(function(h){
+      var st=(log[h.id]||{}).state||'';
+      if(st==='done'||st==='skip')done++;
+      html+='<span class="wstat-rdot '+(st||'')+'" title="'+routineEsc(h.title||'')+'"></span>';
+    });
+    dotsEl.innerHTML=html||'<span class="wstat-rdot" style="opacity:.3"></span>';
+    routineValEl.textContent=done+'/'+total;
+  }
+  /* task stats */
+  var tasksValEl=document.getElementById('wstat-tasks-val');
+  if(tasksValEl&&typeof homeTodayTasks==='function'){
+    var today=homeTodayTasks();
+    var tdone=today.filter(function(t){return t.done;}).length;
+    tasksValEl.textContent=tdone+'/'+today.length;
+  }
+  /* inbox stats */
+  var inboxValEl=document.getElementById('wstat-inbox-val');
+  if(inboxValEl&&typeof inboxItems!=='undefined'){
+    var unread=inboxItems.filter(function(i){return !i.done&&i.unread;}).length;
+    inboxValEl.textContent=unread+'개';
+    var inboxBtn=document.getElementById('wstat-inbox');
+    if(inboxBtn)inboxBtn.style.setProperty('--wstat-accent',unread>0?'var(--w-400)':'var(--fg-3)');
+  }
+  /* timer display — shows routine timer if running, else focus timer */
+  var timeEl=document.getElementById('wstat-timer-time');
+  var timerBtn=document.getElementById('wstat-timer-btn');
+  if(!timeEl||!timerBtn)return;
+  var routineRunning=typeof routineTimerState!=='undefined'&&routineTimerState.startedAt;
+  var focusRunning=_focusTimer.startedAt;
+  if(routineRunning){
+    var rHabit=typeof routineHabitById==='function'?routineHabitById(routineTimerState.habitId):null;
+    timeEl.className='wstat-timer-time running';
+    timeEl.textContent=routineTimerLabel();
+    timerBtn.className='wstat-timer-btn stop';
+    timerBtn.textContent=(rHabit?routineEsc(rHabit.icon||'')+'중지':'중지');
+  } else if(focusRunning){
+    timeEl.className='wstat-timer-time running';
+    timeEl.textContent=_focusTimerLabel();
+    timerBtn.className='wstat-timer-btn stop';
+    timerBtn.textContent='집중 중지';
+  } else {
+    var base=_focusTimer.elapsed?_focusTimerLabel():'00:00';
+    timeEl.className='wstat-timer-time';
+    timeEl.textContent=base;
+    timerBtn.className='wstat-timer-btn';
+    timerBtn.textContent=_focusTimer.elapsed?'계속':'집중 시작';
+  }
+}
+function _bindHomeWidgetTimer(){
+  var btn=document.getElementById('wstat-timer-btn');
+  if(!btn||btn.dataset.wbound)return;
+  btn.dataset.wbound='1';
+  btn.addEventListener('click',function(){
+    var routineRunning=typeof routineTimerState!=='undefined'&&routineTimerState.startedAt;
+    if(routineRunning){
+      if(typeof routineStopTimer==='function')routineStopTimer(true);
+      renderHomeWidget();
+      return;
+    }
+    if(_focusTimer.startedAt){
+      clearInterval(_focusTimer.timer);
+      _focusTimer.elapsed+=Date.now()-_focusTimer.startedAt;
+      _focusTimer.startedAt=0;
+      _focusTimer.timer=null;
+      renderHomeWidget();
+      if(typeof showToast==='function')showToast('집중 타이머를 멈췄어요');
+    } else {
+      _focusTimer.startedAt=Date.now();
+      _focusTimer.timer=setInterval(function(){
+        var el=document.getElementById('wstat-timer-time');
+        if(el)el.textContent=_focusTimerLabel();
+      },1000);
+      renderHomeWidget();
+    }
+  });
 }
 function renderRoutine(){renderRoutineConditions();renderRoutineBundles();renderRoutineLibrary();renderRoutineStats();}
 function renderRoutineConditions(){var root=document.getElementById('routine-condition-row');if(!root)return;var opts=[{id:'mini',label:'Mini',hint:'기운이 적은 날, 아주 작게'},{id:'plus',label:'Plus',hint:'평소처럼 균형 있게'},{id:'max',label:'Max',hint:'여유 있는 날, 충분히'}];root.innerHTML=opts.map(function(o){return '<button class="routine-condition '+(routineCondition===o.id?'active':'')+'" type="button" data-routine-condition="'+o.id+'"><strong>'+routineEsc(o.label)+'</strong><span>'+routineEsc(o.hint)+'</span></button>';}).join('');root.querySelectorAll('[data-routine-condition]').forEach(function(btn){btn.addEventListener('click',function(){routineCondition=btn.getAttribute('data-routine-condition')||'plus';saveRoutineData();renderRoutine();});});}
@@ -25136,6 +25307,7 @@ function routineStartTimer(habitId){
   routineTimerSave();
   renderRoutineTimerToast(routineHabitById(habitId));
   try{renderRoutine();}catch(e){}
+  try{renderHomeWidget();}catch(e){}
 }
 function routinePauseTimer(){
   if(routineTimerState.timer)clearInterval(routineTimerState.timer);
@@ -25174,6 +25346,7 @@ function routineFinishTimer(){
   saveRoutineData();
   if(typeof showToast==='function')showToast('루틴을 완료로 기록했어요');
   try{renderRoutine();renderHomeRoutineQuick();}catch(e){}
+  try{renderHomeWidget();}catch(e){}
 }
 function routineResetTimer(show){
   if(routineTimerState.timer)clearInterval(routineTimerState.timer);
