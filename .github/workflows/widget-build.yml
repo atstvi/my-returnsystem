@@ -1,0 +1,55 @@
+name: Build Widget (Windows)
+
+# Builds the Tauri PC desktop widget into a Windows .msi installer on a cloud
+# Windows runner, so a non-technical user just downloads + double-clicks the
+# installer instead of installing Rust/MSVC/Node locally. A green run also
+# proves the widget actually compiles + bundles on Windows.
+
+on:
+  workflow_dispatch: {}        # lets you re-run it manually from the Actions tab
+  push:
+    paths:
+      - 'widget/**'
+      - '.github/workflows/widget-build.yml'
+
+jobs:
+  build-msi:
+    name: build windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            widget/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('widget/src-tauri/Cargo.toml') }}
+
+      - name: Install widget deps (Tauri CLI)
+        working-directory: widget
+        run: npm install
+
+      - name: Generate icon set (.ico etc.)
+        working-directory: widget
+        run: npm run icon
+
+      - name: Build .msi
+        working-directory: widget
+        run: npm run build
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: return-widget-windows-msi
+          path: widget/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
