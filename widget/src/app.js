@@ -112,29 +112,61 @@
   fbAuth = firebase.auth();
   fbDb   = firebase.firestore();
 
-  // Persist auth across restarts (IndexedDB-backed by Firebase SDK).
+  // Persist auth across restarts (IndexedDB-backed by Firebase SDK). Once the
+  // user signs in once, signInWithCredential's session is restored on launch and
+  // onAuthStateChanged fires with the user — no re-login needed.
   fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function () {});
 
-  // On startup: check whether we're returning from a signInWithRedirect flow.
-  // This call is a no-op if there's no pending redirect result; it resolves
-  // instantly via the cached auth token when the user was already signed in.
-  dbg("getRedirectResult() …");
-  fbAuth.getRedirectResult().then(function (res) {
-    if (res && res.user) {
-      dbg("getRedirectResult OK · user=" + (res.user.email || res.user.uid));
-    } else {
-      dbg("getRedirectResult · no pending redirect (null)");
+  // ── OAuth (system browser + loopback) ────────────────────────────────────────
+  // Firebase sign-in cannot complete inside Tauri's WebView2: both popup and
+  // redirect rely on cross-origin postMessage with firebaseapp.com, which
+  // WebView2 blocks (confirmed via the diagnostics log). Instead we run the
+  // standard desktop OAuth flow (RFC 8252): open Google sign-in in the real
+  // system browser, catch the loopback redirect on the local server, exchange
+  // the auth code (PKCE) for an id_token, and hand that straight to Firebase via
+  // signInWithCredential — no iframe/postMessage involved.
+
+  var OAUTH_REDIRECT = "http://127.0.0.1:14317/oauth2callback"; // server route
+  var OAUTH_POLL = "/oauth2result"; // same-origin (localhost) poll endpoint
+  var CFG_KEY = "widget_oauth_cfg";
+
+  function readCfg() { return safeJson(localStorage.getItem(CFG_KEY), {}); }
+  function saveCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (_) {} }
+
+  function b64url(bytes) {
+    return btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)))
+      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+  }
+  function pkceVerifier() {
+    var a = new Uint8Array(32);
+    crypto.getRandomValues(a);
+    return b64url(a);
+  }
+  function pkceChallenge(verifier) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then(b64url);
+  }
+
+  // Open a URL in the real system browser via the opener plugin (raw invoke, so
+  // it works with withGlobalTauri and no JS bundler). Falls back to window.open
+  // when running in a plain browser (for testing index.html directly).
+  function openExternal(url) {
+    if (TAURI && TAURI.core && typeof TAURI.core.invoke === "function") {
+      return TAURI.core.invoke("plugin:opener|open_url", { url: url, with: null });
     }
-  }).catch(function (e) {
-    // Surface redirect errors (e.g. Google account mismatch) in the auth view.
-    // Normal "no pending redirect" case silently resolves with null — no action.
-    dbg("getRedirectResult ERR · " + (e && e.code ? e.code : "") + " " + (e && e.message ? e.message : String(e)));
-    if (e && e.code !== "auth/no-auth-event") {
-      var errEl = $id("auth-err");
-      if (errEl) errEl.textContent = "로그인 오류: " + (e.message || String(e));
-      showView("auth");
-    }
-  });
+    window.open(url, "_blank");
+    return Promise.resolve();
+  }
+
+  function resetSignInBtn() {
+    var b = $id("sign-in-btn");
+    if (b) { b.textContent = "Google로 로그인"; b.disabled = false; }
+  }
+  function failAuth(msg) {
+    var e = $id("auth-err");
+    if (e) e.textContent = msg;
+    resetSignInBtn();
+    showView("auth");
+  }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
 
@@ -143,21 +175,102 @@
   on("sign-in-btn", function () {
     var errEl = $id("auth-err");
     if (errEl) errEl.textContent = "";
+
+    var clientId = ($id("oauth-client-id") && $id("oauth-client-id").value || "").trim();
+    var clientSecret = ($id("oauth-client-secret") && $id("oauth-client-secret").value || "").trim();
+    if (!clientId) {
+      if (errEl) errEl.textContent = "OAuth 클라이언트 ID를 입력하세요 ('OAuth 설정' 펼치기).";
+      var d = $id("oauth-cfg"); if (d) d.open = true;
+      return;
+    }
+    saveCfg({ clientId: clientId, clientSecret: clientSecret });
+
     var btn = $id("sign-in-btn");
-    if (btn) { btn.textContent = "연결 중…"; btn.disabled = true; }
-    // signInWithPopup is blocked in Tauri WebView2 (cross-process window.opener
-    // postMessage doesn't work). signInWithRedirect navigates the WebView to
-    // Google auth; the sessionStorage proxy installed by the inline script in
-    // index.html ensures Firebase's pending-redirect marker (written here just
-    // before navigation) survives the cross-origin round-trip.
-    dbg("signInWithRedirect() → navigating to Google");
-    var provider = new firebase.auth.GoogleAuthProvider();
-    fbAuth.signInWithRedirect(provider).catch(function (e) {
-      dbg("signInWithRedirect ERR · " + (e && e.code ? e.code : "") + " " + (e && e.message ? e.message : String(e)));
-      if (errEl) errEl.textContent = "로그인 오류: " + (e.message || String(e));
-      if (btn) { btn.textContent = "Google로 로그인"; btn.disabled = false; }
+    if (btn) { btn.textContent = "브라우저에서 로그인 중…"; btn.disabled = true; }
+    dbg("oauth start · clientId=" + clientId.slice(0, 12) + "…");
+
+    var verifier = pkceVerifier();
+    pkceChallenge(verifier).then(function (challenge) {
+      var state = "w_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+      var url = "https://accounts.google.com/o/oauth2/v2/auth"
+        + "?response_type=code"
+        + "&client_id=" + encodeURIComponent(clientId)
+        + "&redirect_uri=" + encodeURIComponent(OAUTH_REDIRECT)
+        + "&scope=" + encodeURIComponent("openid email profile")
+        + "&code_challenge=" + encodeURIComponent(challenge)
+        + "&code_challenge_method=S256"
+        + "&prompt=select_account"
+        + "&state=" + encodeURIComponent(state);
+      return openExternal(url).then(function () {
+        dbg("browser opened · polling for code");
+        pollForCode(state, verifier, clientId, clientSecret);
+      });
+    }).catch(function (e) {
+      dbg("oauth start ERR · " + (e && e.message ? e.message : String(e)));
+      failAuth("로그인 시작 오류: " + (e.message || e));
     });
   });
+
+  // Poll the local server for the auth code captured from the loopback redirect.
+  function pollForCode(state, verifier, clientId, clientSecret) {
+    var tries = 0;
+    var MAX = 200; // ~5 min at 1.5s intervals
+    var timer = setInterval(function () {
+      tries++;
+      if (tries > MAX) {
+        clearInterval(timer);
+        dbg("oauth poll timeout");
+        failAuth("로그인 시간이 초과됐어요. 다시 시도해주세요.");
+        return;
+      }
+      fetch(OAUTH_POLL + "?state=" + encodeURIComponent(state), { cache: "no-store" })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.code) {
+            clearInterval(timer);
+            dbg("oauth code received · exchanging");
+            exchangeAndSignIn(d.code, verifier, clientId, clientSecret);
+          }
+        })
+        .catch(function () { /* server not ready / transient — keep polling */ });
+    }, 1500);
+  }
+
+  // Exchange the auth code for an id_token (PKCE) and sign in to Firebase.
+  function exchangeAndSignIn(code, verifier, clientId, clientSecret) {
+    var body = {
+      code: code,
+      client_id: clientId,
+      redirect_uri: OAUTH_REDIRECT,
+      code_verifier: verifier,
+      grant_type: "authorization_code"
+    };
+    if (clientSecret) body.client_secret = clientSecret;
+
+    fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams(body).toString()
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.text().then(function (t) {
+          throw new Error("토큰 교환 " + resp.status + ": " + t);
+        });
+      }
+      return resp.json();
+    }).then(function (data) {
+      if (!data.id_token) throw new Error("id_token 없음 (scope에 openid 필요)");
+      dbg("token exchange OK · signInWithCredential");
+      var cred = firebase.auth.GoogleAuthProvider.credential(data.id_token);
+      return fbAuth.signInWithCredential(cred);
+    }).then(function () {
+      dbg("signInWithCredential OK");
+      // onAuthStateChanged takes over from here (loads habits).
+    }).catch(function (e) {
+      dbg("exchange/signIn ERR · " + (e && e.message ? e.message : String(e)));
+      failAuth("로그인 오류: " + (e.message || e));
+    });
+  }
 
   on("sign-out-btn", function () {
     teardownListener();
@@ -190,13 +303,20 @@
       return;
     }
     dbg("onAuthStateChanged · user=" + (user.email || user.uid));
-    // Auth succeeded — the sessionStorage backup that carried Firebase's
-    // pending-redirect marker across the WebView2 navigation is no longer
-    // needed; remove it so stale data doesn't interfere with future flows.
-    try { localStorage.removeItem("__w_ss"); } catch (_) {}
     showView("loading");
     startListener(user);
   });
+
+  // Prefill the OAuth config inputs from the last saved values, and auto-expand
+  // the config section on first run (when no client ID has been entered yet).
+  (function prefillCfg() {
+    var c = readCfg();
+    var idEl = $id("oauth-client-id");
+    var secEl = $id("oauth-client-secret");
+    if (idEl) idEl.value = c.clientId || "";
+    if (secEl) secEl.value = c.clientSecret || "";
+    if (!c.clientId) { var d = $id("oauth-cfg"); if (d) d.open = true; }
+  })();
 
   // ── Firestore reader ───────────────────────────────────────────────────────
   // Mirrors fbReadSplitData() from the main app: reads the main users/{uid}

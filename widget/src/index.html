@@ -5,65 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Return Widget</title>
   <link rel="stylesheet" href="styles.css" />
-  <script>
-    // Fix for Firebase signInWithRedirect in Tauri/WebView2:
-    // WebView2 clears sessionStorage on cross-origin navigation round-trips,
-    // so Firebase's pending-redirect marker (written to sessionStorage just before
-    // the OAuth redirect) is gone by the time the app loads again after auth.
-    // getRedirectResult() then finds no pending redirect → onAuthStateChanged
-    // fires with null user → the login screen re-appears even though auth succeeded.
-    //
-    // Fix: proxy sessionStorage.setItem so every write is also mirrored to
-    // localStorage (which survives cross-origin navigation). On each page load,
-    // restore the mirror into sessionStorage BEFORE the Firebase SDK loads so
-    // getRedirectResult() sees the pending marker and completes normally.
-    (function () {
-      // Tiny logger shared with app.js (#dbg-log panel) — records the restore
-      // step so a stuck login can be diagnosed from a screenshot.
-      function _dbg(m) {
-        try {
-          var log = JSON.parse(localStorage.getItem("__w_dbg") || "[]");
-          log.push(new Date().toLocaleTimeString() + "  " + m);
-          if (log.length > 40) log = log.slice(-40);
-          localStorage.setItem("__w_dbg", JSON.stringify(log));
-        } catch (_) {}
-      }
-
-      // Step 1 — restore backup from previous navigation (if any).
-      var _restored = 0;
-      try {
-        var _b = localStorage.getItem("__w_ss");
-        if (_b) {
-          var _d = JSON.parse(_b);
-          for (var _k in _d) {
-            if (Object.prototype.hasOwnProperty.call(_d, _k)) {
-              try { sessionStorage.setItem(_k, _d[_k]); _restored++; } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-      _dbg("ss restore · " + _restored + " keys from backup");
-
-      // Step 2 — proxy sessionStorage so future writes stay backed up.
-      // Firebase writes the pending-redirect marker here just before navigation.
-      try {
-        var _ss = window.sessionStorage;
-        var _oSet = _ss.setItem.bind(_ss);
-        var _oDel = _ss.removeItem.bind(_ss);
-        var _oClear = _ss.clear.bind(_ss);
-        function _snap() {
-          try {
-            var s = {};
-            for (var i = 0; i < _ss.length; i++) { var k = _ss.key(i); s[k] = _ss.getItem(k); }
-            localStorage.setItem("__w_ss", JSON.stringify(s));
-          } catch (_) {}
-        }
-        _ss.setItem    = function (k, v) { _oSet(k, v); _snap(); };
-        _ss.removeItem = function (k)    { _oDel(k);    _snap(); };
-        _ss.clear      = function ()     { _oClear(); localStorage.removeItem("__w_ss"); };
-      } catch (_) {}
-    })();
-  </script>
 </head>
 <body>
   <!-- The whole card is the widget surface. The top bar is the drag handle. -->
@@ -93,6 +34,22 @@
         <div class="w-auth-sub">Google 계정으로 로그인하면<br>오늘의 루틴을 볼 수 있어요.</div>
         <button class="w-sign-btn" id="sign-in-btn" type="button">Google로 로그인</button>
         <div class="w-auth-err" id="auth-err"></div>
+
+        <!-- OAuth client config. Auth runs in the system browser (WebView2 can't
+             complete Firebase sign-in), which needs a Google OAuth client. Reuse
+             the one set up for Google Calendar in the main app. -->
+        <details class="w-oauth-cfg" id="oauth-cfg">
+          <summary>OAuth 설정</summary>
+          <input class="w-inp" id="oauth-client-id" type="text" autocomplete="off"
+                 placeholder="클라이언트 ID (…apps.googleusercontent.com)" />
+          <input class="w-inp" id="oauth-client-secret" type="password" autocomplete="off"
+                 placeholder="클라이언트 시크릿 (Desktop 앱 유형)" />
+          <div class="w-oauth-hint">
+            Google Cloud Console에서 이 클라이언트의 <b>승인된 리디렉션 URI</b>에<br>
+            <code>http://127.0.0.1:14317/oauth2callback</code> 를 추가하세요.
+          </div>
+        </details>
+
         <button class="w-dbg-toggle" id="dbg-toggle" type="button">진단 로그</button>
         <pre class="w-dbg-log" id="dbg-log" style="display:none"></pre>
       </div>
