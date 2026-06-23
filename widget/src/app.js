@@ -21,6 +21,37 @@
     if (el) el.addEventListener("click", fn);
   }
 
+  // ── Auth diagnostics ─────────────────────────────────────────────────────────
+  // The widget can't easily open devtools, and the auth flow involves a
+  // cross-origin redirect round-trip, so we keep a persistent on-screen log.
+  // It's stored in localStorage (survives the redirect) and rendered into the
+  // #dbg-log panel so a screenshot is enough to diagnose a stuck login.
+  var DBG_KEY = "__w_dbg";
+
+  function dbgRead() {
+    try { return JSON.parse(localStorage.getItem(DBG_KEY) || "[]"); }
+    catch (_) { return []; }
+  }
+
+  function dbg(msg) {
+    var line = new Date().toLocaleTimeString() + "  " + msg;
+    var log = dbgRead();
+    log.push(line);
+    if (log.length > 40) log = log.slice(-40);
+    try { localStorage.setItem(DBG_KEY, JSON.stringify(log)); } catch (_) {}
+    dbgRender();
+    try { console.log("[widget] " + msg); } catch (_) {}
+  }
+
+  function dbgRender() {
+    var el = $id("dbg-log");
+    if (el) el.textContent = dbgRead().join("\n");
+  }
+
+  // Render whatever was logged before this load (e.g. before the redirect).
+  dbgRender();
+  dbg("page load · origin=" + location.origin);
+
   on("pin-btn", function () {
     if (!appWindow) return;
     pinned = !pinned;
@@ -87,9 +118,17 @@
   // On startup: check whether we're returning from a signInWithRedirect flow.
   // This call is a no-op if there's no pending redirect result; it resolves
   // instantly via the cached auth token when the user was already signed in.
-  fbAuth.getRedirectResult().catch(function (e) {
+  dbg("getRedirectResult() …");
+  fbAuth.getRedirectResult().then(function (res) {
+    if (res && res.user) {
+      dbg("getRedirectResult OK · user=" + (res.user.email || res.user.uid));
+    } else {
+      dbg("getRedirectResult · no pending redirect (null)");
+    }
+  }).catch(function (e) {
     // Surface redirect errors (e.g. Google account mismatch) in the auth view.
     // Normal "no pending redirect" case silently resolves with null — no action.
+    dbg("getRedirectResult ERR · " + (e && e.code ? e.code : "") + " " + (e && e.message ? e.message : String(e)));
     if (e && e.code !== "auth/no-auth-event") {
       var errEl = $id("auth-err");
       if (errEl) errEl.textContent = "로그인 오류: " + (e.message || String(e));
@@ -111,13 +150,26 @@
     // Google auth; the sessionStorage proxy installed by the inline script in
     // index.html ensures Firebase's pending-redirect marker (written here just
     // before navigation) survives the cross-origin round-trip.
+    dbg("signInWithRedirect() → navigating to Google");
     var provider = new firebase.auth.GoogleAuthProvider();
-    fbAuth.signInWithRedirect(provider);
+    fbAuth.signInWithRedirect(provider).catch(function (e) {
+      dbg("signInWithRedirect ERR · " + (e && e.code ? e.code : "") + " " + (e && e.message ? e.message : String(e)));
+      if (errEl) errEl.textContent = "로그인 오류: " + (e.message || String(e));
+      if (btn) { btn.textContent = "Google로 로그인"; btn.disabled = false; }
+    });
   });
 
   on("sign-out-btn", function () {
     teardownListener();
     fbAuth.signOut();
+  });
+
+  on("dbg-toggle", function () {
+    var el = $id("dbg-log");
+    if (!el) return;
+    var show = el.style.display === "none";
+    el.style.display = show ? "" : "none";
+    if (show) dbgRender();
   });
 
   on("retry-btn", function () {
@@ -133,9 +185,11 @@
   fbAuth.onAuthStateChanged(function (user) {
     teardownListener();
     if (!user) {
+      dbg("onAuthStateChanged · null (signed out)");
       showView("auth");
       return;
     }
+    dbg("onAuthStateChanged · user=" + (user.email || user.uid));
     // Auth succeeded — the sessionStorage backup that carried Firebase's
     // pending-redirect marker across the WebView2 navigation is no longer
     // needed; remove it so stale data doesn't interfere with future flows.

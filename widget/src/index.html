@@ -18,18 +18,31 @@
     // restore the mirror into sessionStorage BEFORE the Firebase SDK loads so
     // getRedirectResult() sees the pending marker and completes normally.
     (function () {
+      // Tiny logger shared with app.js (#dbg-log panel) — records the restore
+      // step so a stuck login can be diagnosed from a screenshot.
+      function _dbg(m) {
+        try {
+          var log = JSON.parse(localStorage.getItem("__w_dbg") || "[]");
+          log.push(new Date().toLocaleTimeString() + "  " + m);
+          if (log.length > 40) log = log.slice(-40);
+          localStorage.setItem("__w_dbg", JSON.stringify(log));
+        } catch (_) {}
+      }
+
       // Step 1 — restore backup from previous navigation (if any).
+      var _restored = 0;
       try {
         var _b = localStorage.getItem("__w_ss");
         if (_b) {
           var _d = JSON.parse(_b);
           for (var _k in _d) {
             if (Object.prototype.hasOwnProperty.call(_d, _k)) {
-              try { sessionStorage.setItem(_k, _d[_k]); } catch (_) {}
+              try { sessionStorage.setItem(_k, _d[_k]); _restored++; } catch (_) {}
             }
           }
         }
       } catch (_) {}
+      _dbg("ss restore · " + _restored + " keys from backup");
 
       // Step 2 — proxy sessionStorage so future writes stay backed up.
       // Firebase writes the pending-redirect marker here just before navigation.
@@ -80,6 +93,8 @@
         <div class="w-auth-sub">Google 계정으로 로그인하면<br>오늘의 루틴을 볼 수 있어요.</div>
         <button class="w-sign-btn" id="sign-in-btn" type="button">Google로 로그인</button>
         <div class="w-auth-err" id="auth-err"></div>
+        <button class="w-dbg-toggle" id="dbg-toggle" type="button">진단 로그</button>
+        <pre class="w-dbg-log" id="dbg-log" style="display:none"></pre>
       </div>
 
       <!-- Habit list (main view) -->
