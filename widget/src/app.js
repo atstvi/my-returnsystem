@@ -452,12 +452,41 @@
     try { return JSON.parse(s); } catch (_) { return fallback; }
   }
 
+  // Last snapshot, kept so tab switches and the per-minute now-line refresh can
+  // re-render without re-fetching from Firestore.
+  var lastData = { habits: [], bundles: [], logs: {}, tasks: [] };
+
   function applyData(keys) {
-    var habits  = safeJson(keys["routine_habits_v1"],  []);
-    var bundles = safeJson(keys["routine_bundles_v1"], []);
-    var logs    = safeJson(keys["routine_logs_v1"],    {});
-    renderHabits(habits, bundles, logs);
+    lastData = {
+      habits:  safeJson(keys["routine_habits_v1"],  []),
+      bundles: safeJson(keys["routine_bundles_v1"], []),
+      logs:    safeJson(keys["routine_logs_v1"],    {}),
+      tasks:   safeJson(keys["task_items_v1"],      [])
+    };
+    renderHabits(lastData.habits, lastData.bundles, lastData.logs);
+    if (curTab === "timeline") renderTimeline();
   }
+
+  // ── Tabs (해빗 / 타임블록) ───────────────────────────────────────────────────
+
+  var curTab = "habits";
+
+  function setTab(name) {
+    curTab = name;
+    var hl = $id("habit-list");
+    var tl = $id("timeline-list");
+    if (hl) hl.style.display = name === "habits" ? "" : "none";
+    if (tl) tl.style.display = name === "timeline" ? "" : "none";
+    var th = $id("tab-habits"); if (th) th.classList.toggle("active", name === "habits");
+    var tt = $id("tab-timeline"); if (tt) tt.classList.toggle("active", name === "timeline");
+    if (name === "timeline") renderTimeline();
+  }
+
+  on("tab-habits", function () { setTab("habits"); });
+  on("tab-timeline", function () { setTab("timeline"); });
+
+  // Keep the now-line current while the timeline is open.
+  setInterval(function () { if (curTab === "timeline") renderTimeline(); }, 60000);
 
   // Returns "YYYY-MM-DD" in local time (same key the main app uses).
   function todayKey() {
@@ -553,6 +582,81 @@
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  // ── Timeline (W3) ────────────────────────────────────────────────────────────
+  // Read-only vertical timeline of today's timed tasks with a "now" line. Mirrors
+  // the main app's notion of a timed item: a task on today's date with a timeStart
+  // (HH:MM), or a deadline falling today (deadlineTime). Sorted by time, with the
+  // now-line inserted between past and upcoming items.
+
+  function parseHM(s) {
+    var p = String(s || "").split(":");
+    var h = parseInt(p[0], 10);
+    if (isNaN(h)) return null;
+    var m = parseInt(p[1], 10);
+    return h * 60 + (isNaN(m) ? 0 : m);
+  }
+
+  function fmtMins(m) {
+    var h = Math.floor(m / 60), mm = m % 60;
+    return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm;
+  }
+
+  function todayTimed(tasks) {
+    var TK = todayKey();
+    var out = [];
+    (tasks || []).forEach(function (t) {
+      if (!t || t._travelOnly) return;
+      var isDeadlineToday = t.deadlineDate === TK;
+      var date = isDeadlineToday ? t.deadlineDate : t.date;
+      if (date !== TK) return;
+      var time = isDeadlineToday ? (t.deadlineTime || t.timeStart) : t.timeStart;
+      var mins = parseHM(time);
+      if (mins == null) return;
+      out.push({
+        mins: mins,
+        text: t.text || t.title || "",
+        done: !!t.done,
+        deadline: isDeadlineToday && !t.timeStart
+      });
+    });
+    out.sort(function (a, b) { return a.mins - b.mins; });
+    return out;
+  }
+
+  function renderTimeline() {
+    var list = $id("timeline-list");
+    if (!list) return;
+    var items = todayTimed(lastData.tasks);
+    if (!items.length) {
+      list.innerHTML = '<div class="w-empty">오늘 시간 일정이 없어요</div>';
+      return;
+    }
+    var now = new Date();
+    var nowMins = now.getHours() * 60 + now.getMinutes();
+    var nowRow =
+      '<div class="tl-now"><span class="tl-now-dot"></span>' +
+      '<span class="tl-now-time">지금 ' + fmtMins(nowMins) + '</span></div>';
+
+    var html = "";
+    var placed = false;
+    items.forEach(function (it) {
+      if (!placed && it.mins >= nowMins) { html += nowRow; placed = true; }
+      var cls = "tl-row";
+      if (it.done) cls += " tl-done";
+      else if (it.mins < nowMins) cls += " tl-past";
+      html +=
+        '<div class="' + cls + '">' +
+          '<span class="tl-time">' + esc(fmtMins(it.mins)) + '</span>' +
+          '<span class="tl-bar"></span>' +
+          '<span class="tl-text">' + esc(it.text) +
+            (it.deadline ? ' <span class="tl-tag">마감</span>' : '') +
+          '</span>' +
+        '</div>';
+    });
+    if (!placed) html += nowRow;
+    list.innerHTML = html;
   }
 
   // ── Sync indicator ─────────────────────────────────────────────────────────
