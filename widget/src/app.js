@@ -104,16 +104,15 @@
   on("sign-in-btn", function () {
     var errEl = $id("auth-err");
     if (errEl) errEl.textContent = "";
-    // signInWithPopup is blocked in Tauri WebView2 (cross-process window.opener
-    // postMessage doesn't work). signInWithRedirect navigates the current WebView
-    // to Google auth and back — WebView2 handles the tauri:// return navigation
-    // via Tauri's registered custom scheme handler.
     var btn = $id("sign-in-btn");
     if (btn) { btn.textContent = "연결 중…"; btn.disabled = true; }
+    // signInWithPopup is blocked in Tauri WebView2 (cross-process window.opener
+    // postMessage doesn't work). signInWithRedirect navigates the WebView to
+    // Google auth; the sessionStorage proxy installed by the inline script in
+    // index.html ensures Firebase's pending-redirect marker (written here just
+    // before navigation) survives the cross-origin round-trip.
     var provider = new firebase.auth.GoogleAuthProvider();
     fbAuth.signInWithRedirect(provider);
-    // After this line the WebView navigates away to Google auth.
-    // onAuthStateChanged fires with the user when it returns.
   });
 
   on("sign-out-btn", function () {
@@ -137,6 +136,10 @@
       showView("auth");
       return;
     }
+    // Auth succeeded — the sessionStorage backup that carried Firebase's
+    // pending-redirect marker across the WebView2 navigation is no longer
+    // needed; remove it so stale data doesn't interfere with future flows.
+    try { localStorage.removeItem("__w_ss"); } catch (_) {}
     showView("loading");
     startListener(user);
   });
