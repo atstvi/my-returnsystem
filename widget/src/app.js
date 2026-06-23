@@ -84,6 +84,19 @@
   // Persist auth across restarts (IndexedDB-backed by Firebase SDK).
   fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function () {});
 
+  // On startup: check whether we're returning from a signInWithRedirect flow.
+  // This call is a no-op if there's no pending redirect result; it resolves
+  // instantly via the cached auth token when the user was already signed in.
+  fbAuth.getRedirectResult().catch(function (e) {
+    // Surface redirect errors (e.g. Google account mismatch) in the auth view.
+    // Normal "no pending redirect" case silently resolves with null — no action.
+    if (e && e.code !== "auth/no-auth-event") {
+      var errEl = $id("auth-err");
+      if (errEl) errEl.textContent = "로그인 오류: " + (e.message || String(e));
+      showView("auth");
+    }
+  });
+
   // ── Auth ───────────────────────────────────────────────────────────────────
 
   var unsubSnap = null; // Firestore onSnapshot unsubscribe handle
@@ -91,10 +104,16 @@
   on("sign-in-btn", function () {
     var errEl = $id("auth-err");
     if (errEl) errEl.textContent = "";
+    // signInWithPopup is blocked in Tauri WebView2 (cross-process window.opener
+    // postMessage doesn't work). signInWithRedirect navigates the current WebView
+    // to Google auth and back — WebView2 handles the tauri:// return navigation
+    // via Tauri's registered custom scheme handler.
+    var btn = $id("sign-in-btn");
+    if (btn) { btn.textContent = "연결 중…"; btn.disabled = true; }
     var provider = new firebase.auth.GoogleAuthProvider();
-    fbAuth.signInWithPopup(provider).catch(function (e) {
-      if (errEl) errEl.textContent = "로그인 실패: " + (e.message || String(e));
-    });
+    fbAuth.signInWithRedirect(provider);
+    // After this line the WebView navigates away to Google auth.
+    // onAuthStateChanged fires with the user when it returns.
   });
 
   on("sign-out-btn", function () {
