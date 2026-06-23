@@ -1,31 +1,26 @@
-// Return Widget — W1: Firebase auth + Firestore habit reader (read-only)
+// Return Widget — multi-window, block-style timeblock calendar
 //
-// Uses the global Tauri API (withGlobalTauri: true) so the widget stays
-// buildless. Firebase compat SDK is loaded via <script> CDN tags in
-// index.html, same pattern the main web app uses.
+// Two windows load this same file from different URLs:
+//   http://localhost:14317/              → VIEW_MODE = "habits"  (habit list)
+//   http://localhost:14317/?view=timeline → VIEW_MODE = "timeline" (block calendar)
+// Auth state is shared via Firebase's IndexedDB (same origin).
 
 (function () {
   "use strict";
 
-  // ── Tauri window controls ──────────────────────────────────────────────────
+  // ── Window mode ────────────────────────────────────────────────────────────
+  var VIEW_MODE = (new URLSearchParams(location.search).get("view")) || "habits";
 
+  // ── Tauri window controls ──────────────────────────────────────────────────
   var TAURI = window.__TAURI__;
   var hasTauri = !!(TAURI && TAURI.window && typeof TAURI.window.getCurrentWindow === "function");
   var appWindow = hasTauri ? TAURI.window.getCurrentWindow() : null;
   var pinned = false;
 
   function $id(id) { return document.getElementById(id); }
-
-  function on(id, fn) {
-    var el = $id(id);
-    if (el) el.addEventListener("click", fn);
-  }
+  function on(id, fn) { var el = $id(id); if (el) el.addEventListener("click", fn); }
 
   // ── Auth diagnostics ─────────────────────────────────────────────────────────
-  // The widget can't easily open devtools, and the auth flow involves a
-  // cross-origin redirect round-trip, so we keep a persistent on-screen log.
-  // It's stored in localStorage (survives the redirect) and rendered into the
-  // #dbg-log panel so a screenshot is enough to diagnose a stuck login.
   var DBG_KEY = "__w_dbg";
 
   function dbgRead() {
@@ -48,9 +43,8 @@
     if (el) el.textContent = dbgRead().join("\n");
   }
 
-  // Render whatever was logged before this load (e.g. before the redirect).
   dbgRender();
-  dbg("page load · origin=" + location.origin);
+  dbg("page load · origin=" + location.origin + " · view=" + VIEW_MODE);
 
   on("pin-btn", function () {
     if (!appWindow) return;
@@ -63,23 +57,14 @@
           btn.title = pinned ? "고정 해제" : "항상 위에 고정";
         }
       })
-      .catch(function (e) {
-        console.error("[widget] setAlwaysOnTop:", e);
-        pinned = !pinned;
-      });
+      .catch(function (e) { console.error("[widget] setAlwaysOnTop:", e); pinned = !pinned; });
   });
 
-  on("min-btn", function () {
-    if (appWindow) appWindow.minimize().catch(console.error);
-  });
-
-  on("close-btn", function () {
-    if (appWindow) appWindow.close().catch(console.error);
-  });
+  on("min-btn", function () { if (appWindow) appWindow.minimize().catch(console.error); });
+  on("close-btn", function () { if (appWindow) appWindow.close().catch(console.error); });
 
   // ── Views ──────────────────────────────────────────────────────────────────
-
-  var ALL_VIEWS = ["loading", "auth", "habits", "error"];
+  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "error"];
 
   function showView(name) {
     ALL_VIEWS.forEach(function (v) {
@@ -95,40 +80,22 @@
   }
 
   // ── Firebase init ──────────────────────────────────────────────────────────
-  // Same project and config as the main web app (DEFAULT_FB_CONFIG).
-
   var FB_CONFIG = {
-    apiKey:      "AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY",
-    authDomain:  "my-return-system.firebaseapp.com",
-    projectId:   "my-return-system"
+    apiKey:     "AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY",
+    authDomain: "my-return-system.firebaseapp.com",
+    projectId:  "my-return-system"
   };
 
   var fbAuth, fbDb;
-  try {
-    firebase.app();
-  } catch (_) {
-    firebase.initializeApp(FB_CONFIG);
-  }
+  try { firebase.app(); } catch (_) { firebase.initializeApp(FB_CONFIG); }
   fbAuth = firebase.auth();
   fbDb   = firebase.firestore();
-
-  // Persist auth across restarts (IndexedDB-backed by Firebase SDK). Once the
-  // user signs in once, signInWithCredential's session is restored on launch and
-  // onAuthStateChanged fires with the user — no re-login needed.
   fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(function () {});
 
-  // ── OAuth (system browser + loopback) ────────────────────────────────────────
-  // Firebase sign-in cannot complete inside Tauri's WebView2: both popup and
-  // redirect rely on cross-origin postMessage with firebaseapp.com, which
-  // WebView2 blocks (confirmed via the diagnostics log). Instead we run the
-  // standard desktop OAuth flow (RFC 8252): open Google sign-in in the real
-  // system browser, catch the loopback redirect on the local server, exchange
-  // the auth code (PKCE) for an id_token, and hand that straight to Firebase via
-  // signInWithCredential — no iframe/postMessage involved.
-
-  var OAUTH_REDIRECT = "http://127.0.0.1:14317/oauth2callback"; // server route
-  var OAUTH_POLL = "/oauth2result"; // same-origin (localhost) poll endpoint
-  var CFG_KEY = "widget_oauth_cfg";
+  // ── OAuth (system browser + loopback) ─────────────────────────────────────
+  var OAUTH_REDIRECT = "http://127.0.0.1:14317/oauth2callback";
+  var OAUTH_POLL     = "/oauth2result";
+  var CFG_KEY        = "widget_oauth_cfg";
 
   function readCfg() { return safeJson(localStorage.getItem(CFG_KEY), {}); }
   function saveCfg(c) { try { localStorage.setItem(CFG_KEY, JSON.stringify(c)); } catch (_) {} }
@@ -138,17 +105,12 @@
       .replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
   }
   function pkceVerifier() {
-    var a = new Uint8Array(32);
-    crypto.getRandomValues(a);
-    return b64url(a);
+    var a = new Uint8Array(32); crypto.getRandomValues(a); return b64url(a);
   }
   function pkceChallenge(verifier) {
     return crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)).then(b64url);
   }
 
-  // Open a URL in the real system browser via the opener plugin (raw invoke, so
-  // it works with withGlobalTauri and no JS bundler). Falls back to window.open
-  // when running in a plain browser (for testing index.html directly).
   function openExternal(url) {
     if (TAURI && TAURI.core && typeof TAURI.core.invoke === "function") {
       return TAURI.core.invoke("plugin:opener|open_url", { url: url, with: null });
@@ -169,13 +131,11 @@
   }
 
   // ── Auth ───────────────────────────────────────────────────────────────────
-
-  var unsubSnap = null; // Firestore onSnapshot unsubscribe handle
+  var unsubSnap = null;
 
   on("sign-in-btn", function () {
     var errEl = $id("auth-err");
     if (errEl) errEl.textContent = "";
-
     var clientId = ($id("oauth-client-id") && $id("oauth-client-id").value || "").trim();
     var clientSecret = ($id("oauth-client-secret") && $id("oauth-client-secret").value || "").trim();
     if (!clientId) {
@@ -184,11 +144,9 @@
       return;
     }
     saveCfg({ clientId: clientId, clientSecret: clientSecret });
-
     var btn = $id("sign-in-btn");
     if (btn) { btn.textContent = "브라우저에서 로그인 중…"; btn.disabled = true; }
     dbg("oauth start · clientId=" + clientId.slice(0, 12) + "…");
-
     var verifier = pkceVerifier();
     pkceChallenge(verifier).then(function (challenge) {
       var state = "w_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
@@ -211,10 +169,8 @@
     });
   });
 
-  // Poll the local server for the auth code captured from the loopback redirect.
   function pollForCode(state, verifier, clientId, clientSecret) {
-    var tries = 0;
-    var MAX = 200; // ~5 min at 1.5s intervals
+    var tries = 0, MAX = 200;
     var timer = setInterval(function () {
       tries++;
       if (tries > MAX) {
@@ -232,31 +188,22 @@
             exchangeAndSignIn(d.code, verifier, clientId, clientSecret);
           }
         })
-        .catch(function () { /* server not ready / transient — keep polling */ });
+        .catch(function () {});
     }, 1500);
   }
 
-  // Exchange the auth code for an id_token (PKCE) and sign in to Firebase.
   function exchangeAndSignIn(code, verifier, clientId, clientSecret) {
     var body = {
-      code: code,
-      client_id: clientId,
-      redirect_uri: OAUTH_REDIRECT,
-      code_verifier: verifier,
-      grant_type: "authorization_code"
+      code: code, client_id: clientId, redirect_uri: OAUTH_REDIRECT,
+      code_verifier: verifier, grant_type: "authorization_code"
     };
     if (clientSecret) body.client_secret = clientSecret;
-
     fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams(body).toString()
     }).then(function (resp) {
-      if (!resp.ok) {
-        return resp.text().then(function (t) {
-          throw new Error("토큰 교환 " + resp.status + ": " + t);
-        });
-      }
+      if (!resp.ok) return resp.text().then(function (t) { throw new Error("토큰 교환 " + resp.status + ": " + t); });
       return resp.json();
     }).then(function (data) {
       if (!data.id_token) throw new Error("id_token 없음 (scope에 openid 필요)");
@@ -265,17 +212,15 @@
       return fbAuth.signInWithCredential(cred);
     }).then(function () {
       dbg("signInWithCredential OK");
-      // onAuthStateChanged takes over from here (loads habits).
     }).catch(function (e) {
       dbg("exchange/signIn ERR · " + (e && e.message ? e.message : String(e)));
       failAuth("로그인 오류: " + (e.message || e));
     });
   }
 
-  on("sign-out-btn", function () {
-    teardownListener();
-    fbAuth.signOut();
-  });
+  function signOut() { teardownListener(); fbAuth.signOut(); }
+  on("sign-out-btn",     signOut);
+  on("tbl-sign-out-btn", signOut);
 
   on("dbg-toggle", function () {
     var el = $id("dbg-log");
@@ -286,25 +231,17 @@
   });
 
   function copyText(text) {
-    // navigator.clipboard is often unavailable/blocked in WebView2, so fall back
-    // to a temporary textarea + execCommand("copy"), which works there.
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text);
-        return true;
+        navigator.clipboard.writeText(text); return true;
       }
     } catch (_) {}
     try {
       var ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.focus(); ta.select();
       var ok = document.execCommand("copy");
-      document.body.removeChild(ta);
-      return ok;
+      document.body.removeChild(ta); return ok;
     } catch (_) { return false; }
   }
 
@@ -325,41 +262,26 @@
   on("retry-btn", function () {
     showView("loading");
     var user = fbAuth.currentUser;
-    if (user) {
-      startListener(user);
-    } else {
-      showView("auth");
-    }
+    if (user) startListener(user); else showView("auth");
   });
 
   fbAuth.onAuthStateChanged(function (user) {
     teardownListener();
-    if (!user) {
-      dbg("onAuthStateChanged · null (signed out)");
-      showView("auth");
-      return;
-    }
+    if (!user) { dbg("onAuthStateChanged · null (signed out)"); showView("auth"); return; }
     dbg("onAuthStateChanged · user=" + (user.email || user.uid));
     showView("loading");
     startListener(user);
   });
 
-  // Prefill the OAuth config inputs from the last saved values, and auto-expand
-  // the config section on first run (when no client ID has been entered yet).
   (function prefillCfg() {
     var c = readCfg();
-    var idEl = $id("oauth-client-id");
-    var secEl = $id("oauth-client-secret");
+    var idEl = $id("oauth-client-id"), secEl = $id("oauth-client-secret");
     if (idEl) idEl.value = c.clientId || "";
     if (secEl) secEl.value = c.clientSecret || "";
     if (!c.clientId) { var d = $id("oauth-cfg"); if (d) d.open = true; }
   })();
 
   // ── Firestore reader ───────────────────────────────────────────────────────
-  // Mirrors fbReadSplitData() from the main app: reads the main users/{uid}
-  // document (legacy blob path) and the users/{uid}/data subcollection (split
-  // path for large keys), then reassembles chunked values.
-
   function teardownListener() {
     if (unsubSnap) { unsubSnap(); unsubSnap = null; }
   }
@@ -368,13 +290,12 @@
     var ref = fbDb.collection("users").doc(user.uid);
     setSyncing(true);
 
-    // Initial load
     readAllKeys(ref)
       .then(function (keys) {
         applyData(keys);
         setSyncing(false);
         updateSyncTime();
-        showView("habits");
+        showView(VIEW_MODE === "timeline" ? "timeline" : "habits");
       })
       .catch(function (e) {
         console.error("[widget] initial load:", e);
@@ -382,8 +303,6 @@
         setSyncing(false);
       });
 
-    // Live updates — re-read split subcollection on every main-doc change,
-    // same strategy the main app uses (onSnapshot → readAllKeys).
     unsubSnap = ref.onSnapshot(
       function () {
         setSyncing(true);
@@ -392,29 +311,17 @@
             applyData(keys);
             setSyncing(false);
             updateSyncTime();
-            // Stay on the habit view; don't call showView again to avoid flicker.
           })
-          .catch(function (e) {
-            console.warn("[widget] snapshot re-read:", e);
-            setSyncing(false);
-          });
+          .catch(function (e) { console.warn("[widget] snapshot re-read:", e); setSyncing(false); });
       },
-      function (err) {
-        console.warn("[widget] onSnapshot error:", err);
-      }
+      function (err) { console.warn("[widget] onSnapshot error:", err); }
     );
   }
 
   async function readAllKeys(ref) {
     var keys = {};
-
-    // 1. Main document (legacy blob — small keys stored inline)
     var snap = await ref.get();
-    if (snap.exists && snap.data() && snap.data().keys) {
-      Object.assign(keys, snap.data().keys);
-    }
-
-    // 2. Split subcollection (large keys split into chunks)
+    if (snap.exists && snap.data() && snap.data().keys) Object.assign(keys, snap.data().keys);
     try {
       var qs = await ref.collection("data").get();
       var chunks = {};
@@ -422,38 +329,23 @@
         var d = doc.data() || {};
         var key = d.key;
         if (!key) return;
-        if (d.value != null && d.part == null) {
-          // Single-doc value — overrides the blob copy (fresher)
-          keys[key] = d.value;
-          return;
-        }
+        if (d.value != null && d.part == null) { keys[key] = d.value; return; }
         if (d.part != null) {
           if (!chunks[key]) chunks[key] = [];
           chunks[key][d.part] = d.value || "";
         }
       });
-      // Reassemble chunked values
-      Object.keys(chunks).forEach(function (k) {
-        keys[k] = chunks[k].join("");
-      });
-    } catch (e) {
-      // Permission error or network issue — proceed with whatever the main
-      // doc gave us; degraded but still useful.
-      console.warn("[widget] split read skipped:", e.message || e);
-    }
-
+      Object.keys(chunks).forEach(function (k) { keys[k] = chunks[k].join(""); });
+    } catch (e) { console.warn("[widget] split read skipped:", e.message || e); }
     return keys;
   }
 
-  // ── Data extraction & rendering ────────────────────────────────────────────
-
+  // ── Data extraction ────────────────────────────────────────────────────────
   function safeJson(s, fallback) {
     if (!s) return fallback;
     try { return JSON.parse(s); } catch (_) { return fallback; }
   }
 
-  // Last snapshot, kept so tab switches and the per-minute now-line refresh can
-  // re-render without re-fetching from Firestore.
   var lastData = { habits: [], bundles: [], logs: {}, tasks: [] };
 
   function applyData(keys) {
@@ -463,84 +355,51 @@
       logs:    safeJson(keys["routine_logs_v1"],    {}),
       tasks:   safeJson(keys["task_items_v1"],      [])
     };
-    renderHabits(lastData.habits, lastData.bundles, lastData.logs);
-    if (curTab === "timeline") renderTimeline();
+    if (VIEW_MODE === "timeline") {
+      renderTimelineBlocks();
+    } else {
+      renderHabits(lastData.habits, lastData.bundles, lastData.logs);
+    }
   }
 
-  // ── Tabs (해빗 / 타임블록) ───────────────────────────────────────────────────
-
-  var curTab = "habits";
-
-  function setTab(name) {
-    curTab = name;
-    var hl = $id("habit-list");
-    var tl = $id("timeline-list");
-    if (hl) hl.style.display = name === "habits" ? "" : "none";
-    if (tl) tl.style.display = name === "timeline" ? "" : "none";
-    var th = $id("tab-habits"); if (th) th.classList.toggle("active", name === "habits");
-    var tt = $id("tab-timeline"); if (tt) tt.classList.toggle("active", name === "timeline");
-    if (name === "timeline") renderTimeline();
-  }
-
-  on("tab-habits", function () { setTab("habits"); });
-  on("tab-timeline", function () { setTab("timeline"); });
-
-  // Keep the now-line current while the timeline is open.
-  setInterval(function () { if (curTab === "timeline") renderTimeline(); }, 60000);
-
-  // Returns "YYYY-MM-DD" in local time (same key the main app uses).
   function todayKey() {
     var d = new Date();
-    var y = d.getFullYear();
-    var m = String(d.getMonth() + 1).padStart(2, "0");
-    var day = String(d.getDate()).padStart(2, "0");
-    return y + "-" + m + "-" + day;
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
   }
 
   var KO_DAYS = ["일", "월", "화", "수", "목", "금", "토"];
 
+  // ── Habits rendering ───────────────────────────────────────────────────────
   var STATE_MARK  = { done: "✓", skip: "—", rest: "◑", "": "" };
   var STATE_CLASS = { done: "s-done", skip: "s-skip", rest: "s-rest", "": "s-none" };
 
   function renderHabits(habits, bundles, logs) {
-    // Date label
     var dateEl = $id("today-label");
     if (dateEl) {
       var d = new Date();
-      dateEl.textContent =
-        (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + KO_DAYS[d.getDay()] + ")";
+      dateEl.textContent = (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + KO_DAYS[d.getDay()] + ")";
     }
-
     var list = $id("habit-list");
     if (!list) return;
-
     var todayLog = logs[todayKey()] || {};
+    if (!habits.length) { list.innerHTML = '<div class="w-empty">등록된 습관이 없어요</div>'; return; }
 
-    if (!habits.length) {
-      list.innerHTML = '<div class="w-empty">등록된 습관이 없어요</div>';
-      return;
-    }
-
-    // Index habits by id for bundle lookup
     var byId = {};
     habits.forEach(function (h) { if (h && h.id) byId[String(h.id)] = h; });
-
     var rendered = {};
     var html = "";
 
-    // Bundles first (ordered)
     bundles.forEach(function (b) {
       if (!b || !Array.isArray(b.habitIds) || !b.habitIds.length) return;
       var bHabits = b.habitIds.map(function (id) { return byId[String(id)]; }).filter(Boolean);
       if (!bHabits.length) return;
-
       var done = bHabits.filter(function (h) {
         var st = (todayLog[h.id] || {}).state || "";
         return st === "done" || st === "skip";
       }).length;
-
-      html += '<div class="bundle">';
-      html += '<div class="bundle-hd">';
+      html += '<div class="bundle"><div class="bundle-hd">';
       html += '<span class="bundle-icon">' + esc(b.icon || "") + '</span>';
       html += '<span class="bundle-name">' + esc(b.title || "") + '</span>';
       html += '<span class="bundle-prog">' + done + '/' + bHabits.length + '</span>';
@@ -552,44 +411,30 @@
       html += '</div>';
     });
 
-    // Habits not assigned to any bundle
     var loose = habits.filter(function (h) { return h && h.id && !rendered[String(h.id)]; });
     if (loose.length) {
       html += '<div class="bundle">';
-      loose.forEach(function (h) {
-        html += habitRow(h, (todayLog[h.id] || {}).state || "");
-      });
+      loose.forEach(function (h) { html += habitRow(h, (todayLog[h.id] || {}).state || ""); });
       html += '</div>';
     }
-
     list.innerHTML = html;
   }
 
   function habitRow(h, state) {
-    var mark = STATE_MARK[state]  || "";
+    var mark = STATE_MARK[state] || "";
     var cls  = STATE_CLASS[state] || "s-none";
-    return (
-      '<div class="habit-row">' +
-        '<span class="habit-mark ' + cls + '">' + esc(mark) + '</span>' +
-        '<span class="habit-icon">' + esc(h.icon || h.emoji || "") + '</span>' +
-        '<span class="habit-name">' + esc(h.title || h.name || "") + '</span>' +
-      '</div>'
-    );
+    return '<div class="habit-row">' +
+      '<span class="habit-mark ' + cls + '">' + esc(mark) + '</span>' +
+      '<span class="habit-icon">' + esc(h.icon || h.emoji || "") + '</span>' +
+      '<span class="habit-name">' + esc(h.title || h.name || "") + '</span>' +
+      '</div>';
   }
 
   function esc(s) {
-    return String(s)
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
+    return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
-  // ── Timeline (W3) ────────────────────────────────────────────────────────────
-  // Read-only vertical timeline of today's timed tasks with a "now" line. Mirrors
-  // the main app's notion of a timed item: a task on today's date with a timeStart
-  // (HH:MM), or a deadline falling today (deadlineTime). Sorted by time, with the
-  // now-line inserted between past and upcoming items.
-
+  // ── Time helpers ───────────────────────────────────────────────────────────
   function parseHM(s) {
     var p = String(s || "").split(":");
     var h = parseInt(p[0], 10);
@@ -603,76 +448,153 @@
     return (h < 10 ? "0" : "") + h + ":" + (mm < 10 ? "0" : "") + mm;
   }
 
-  function todayTimed(tasks) {
-    var TK = todayKey();
-    var out = [];
-    (tasks || []).forEach(function (t) {
+  function nowMins() {
+    var n = new Date(); return n.getHours() * 60 + n.getMinutes();
+  }
+
+  // ── Block calendar ─────────────────────────────────────────────────────────
+  // Each task with a timeStart is drawn as a rectangle whose height is
+  // proportional to its duration (timeEnd − timeStart). Blocks are positioned
+  // absolutely on a fixed-height time grid.
+
+  var TB_START_HOUR  = 6;    // grid starts at 06:00
+  var TB_END_HOUR    = 24;   // grid ends at 24:00
+  var TB_PX_PER_HOUR = 72;   // 72px = 1 hour; 36px = 30 min; 18px = 15 min
+  var TB_LABEL_W     = 44;   // px reserved for hour labels on the left
+
+  function renderTimelineBlocks() {
+    var grid = $id("tb-grid");
+    if (!grid) return;
+
+    var dateEl = $id("tbl-date-label");
+    if (dateEl) {
+      var d = new Date();
+      dateEl.textContent = (d.getMonth() + 1) + "월 " + d.getDate() + "일 (" + KO_DAYS[d.getDay()] + ")";
+    }
+
+    var TK         = todayKey();
+    var pxPerMin   = TB_PX_PER_HOUR / 60;
+    var totalH     = (TB_END_HOUR - TB_START_HOUR) * TB_PX_PER_HOUR;
+    var nm         = nowMins();
+
+    // Collect today's timed tasks (same logic as main app)
+    var items = [];
+    (lastData.tasks || []).forEach(function (t) {
       if (!t || t._travelOnly) return;
       var isDeadlineToday = t.deadlineDate === TK;
       var date = isDeadlineToday ? t.deadlineDate : t.date;
       if (date !== TK) return;
-      var time = isDeadlineToday ? (t.deadlineTime || t.timeStart) : t.timeStart;
-      var mins = parseHM(time);
-      if (mins == null) return;
-      out.push({
-        mins: mins,
+      var timeS = isDeadlineToday ? (t.deadlineTime || t.timeStart) : t.timeStart;
+      var startMins = parseHM(timeS);
+      if (startMins == null) return;
+      var endMins = parseHM(t.timeEnd);
+      if (endMins == null || endMins <= startMins) endMins = startMins + 60;
+      // Clamp to grid
+      var s = Math.max(startMins, TB_START_HOUR * 60);
+      var e = Math.min(endMins,   TB_END_HOUR   * 60);
+      if (e <= s) return;
+      items.push({
+        startMins: s, endMins: e,
         text: t.text || t.title || "",
         done: !!t.done,
         deadline: isDeadlineToday && !t.timeStart
       });
     });
-    out.sort(function (a, b) { return a.mins - b.mins; });
-    return out;
-  }
 
-  function renderTimeline() {
-    var list = $id("timeline-list");
-    if (!list) return;
-    var items = todayTimed(lastData.tasks);
-    if (!items.length) {
-      list.innerHTML = '<div class="w-empty">오늘 시간 일정이 없어요</div>';
-      return;
-    }
-    var now = new Date();
-    var nowMins = now.getHours() * 60 + now.getMinutes();
-    var nowRow =
-      '<div class="tl-now"><span class="tl-now-dot"></span>' +
-      '<span class="tl-now-time">지금 ' + fmtMins(nowMins) + '</span></div>';
+    // Overlap detection: assign column index so parallel tasks sit side by side.
+    // Greedy left-first column packing.
+    items.sort(function (a, b) { return a.startMins - b.startMins; });
+    var colEnds = [];
+    items.forEach(function (it) {
+      var col = 0;
+      while (col < colEnds.length && colEnds[col] > it.startMins) col++;
+      it.col = col;
+      colEnds[col] = it.endMins;
+    });
+    var numCols = colEnds.length || 1;
 
     var html = "";
-    var placed = false;
+
+    // Hour lines and labels
+    for (var h = TB_START_HOUR; h <= TB_END_HOUR; h++) {
+      var top = (h - TB_START_HOUR) * TB_PX_PER_HOUR;
+      html += '<div class="tb-hour" style="top:' + top + 'px">';
+      html += '<span class="tb-hour-label">' + (h < 10 ? "0" : "") + h + '</span>';
+      html += '<div class="tb-hour-line"></div>';
+      html += '</div>';
+    }
+
+    // Task blocks
     items.forEach(function (it) {
-      if (!placed && it.mins >= nowMins) { html += nowRow; placed = true; }
-      var cls = "tl-row";
-      if (it.done) cls += " tl-done";
-      else if (it.mins < nowMins) cls += " tl-past";
-      html +=
-        '<div class="' + cls + '">' +
-          '<span class="tl-time">' + esc(fmtMins(it.mins)) + '</span>' +
-          '<span class="tl-bar"></span>' +
-          '<span class="tl-text">' + esc(it.text) +
-            (it.deadline ? ' <span class="tl-tag">마감</span>' : '') +
-          '</span>' +
-        '</div>';
+      var top    = (it.startMins - TB_START_HOUR * 60) * pxPerMin;
+      var height = Math.max(18, (it.endMins - it.startMins) * pxPerMin);
+      // Column positioning within the block zone (right of the label column)
+      var colW   = (100 - 0) / numCols;  // each column is 1/numCols of the block zone
+      var leftPct  = it.col * colW;
+      var widthPct = colW;
+
+      var cls = "tb-block";
+      if (it.done)                                 cls += " tb-block-done";
+      else if (it.endMins <= nm)                   cls += " tb-block-past";
+      else if (it.startMins <= nm && nm < it.endMins) cls += " tb-block-now";
+
+      // left/width expressed via CSS calc so they respond to window resize.
+      // Block zone spans from TB_LABEL_W+2 px to right-4px.
+      var zoneStart = (TB_LABEL_W + 2) + "px";
+      var zoneEnd   = "4px";
+      var left  = "calc(" + zoneStart + " + " + leftPct  + "% * (100% - " + zoneStart + " - " + zoneEnd + ") / 100)";
+      var width = "calc(" + widthPct  + "% * (100% - " + zoneStart + " - " + zoneEnd + ") / 100 - 2px)";
+
+      html += '<div class="' + cls + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';width:' + width + '">';
+      html += '<div class="tb-block-title">' + esc(it.text);
+      if (it.deadline) html += ' <span class="tb-tag">마감</span>';
+      html += '</div>';
+      if (height >= 34) {
+        html += '<div class="tb-block-time">' + fmtMins(it.startMins) + '–' + fmtMins(it.endMins) + '</div>';
+      }
+      html += '</div>';
     });
-    if (!placed) html += nowRow;
-    list.innerHTML = html;
+
+    // Now-line
+    if (nm >= TB_START_HOUR * 60 && nm <= TB_END_HOUR * 60) {
+      var nowTop = (nm - TB_START_HOUR * 60) * pxPerMin;
+      html += '<div class="tb-now-line" style="top:' + nowTop + 'px">'
+        + '<div class="tb-now-dot"></div>'
+        + '</div>';
+    }
+
+    grid.style.height = totalH + "px";
+    grid.innerHTML = html;
+
+    // Scroll so now-line is roughly 1/3 from the top
+    if (nm >= TB_START_HOUR * 60 && nm <= TB_END_HOUR * 60) {
+      var scroll = $id("tb-scroll");
+      if (scroll) {
+        var nowTop = (nm - TB_START_HOUR * 60) * pxPerMin;
+        scroll.scrollTop = Math.max(0, nowTop - scroll.clientHeight / 3);
+      }
+    }
   }
 
-  // ── Sync indicator ─────────────────────────────────────────────────────────
+  // Refresh now-line every minute while the timeline window is active.
+  setInterval(function () {
+    if (VIEW_MODE === "timeline") renderTimelineBlocks();
+  }, 60000);
 
+  // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
-    var dot = $id("sync-dot");
+    var id  = VIEW_MODE === "timeline" ? "tbl-sync-dot" : "sync-dot";
+    var dot = $id(id);
     if (dot) dot.className = "w-sync-dot" + (active ? " syncing" : "");
   }
 
   function updateSyncTime() {
-    var el = $id("sync-time");
+    var id = VIEW_MODE === "timeline" ? "tbl-sync-time" : "sync-time";
+    var el = $id(id);
     if (!el) return;
     var d = new Date();
-    var h = String(d.getHours()).padStart(2, "0");
-    var m = String(d.getMinutes()).padStart(2, "0");
-    el.textContent = h + ":" + m + " 동기화됨";
+    el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
+                     String(d.getMinutes()).padStart(2, "0") + " 동기화됨";
   }
 
 })();
