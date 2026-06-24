@@ -180,6 +180,29 @@ fn show_window(app: &tauri::AppHandle, label: &str) {
     }
 }
 
+// JS-callable commands — invoked from applyWidgetPrefs when the web app pushes
+// a changed widget_prefs_v1 (e.g. user toggled a window off from Settings).
+#[tauri::command]
+fn set_window_visible(app: tauri::AppHandle, label: String, visible: bool) {
+    if let Some(win) = app.get_webview_window(&label) {
+        if visible {
+            let _ = win.show();
+        } else {
+            let _ = win.hide();
+        }
+    }
+}
+
+#[tauri::command]
+fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) {
+    let mgr = app.autolaunch();
+    if enabled {
+        let _ = mgr.enable();
+    } else {
+        let _ = mgr.disable();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     start_local_server();
@@ -195,6 +218,7 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_opener::init())
+        .invoke_handler(tauri::generate_handler![set_window_visible, set_autostart_enabled])
         .setup(|app| {
             let handle = app.handle();
 
@@ -228,6 +252,8 @@ pub fn run() {
                 MenuItem::with_id(app, "calendar-show", "📅 달력 위젯", true, None::<&str>)?;
             let memo_item =
                 MenuItem::with_id(app, "memo-show", "📝 메모 위젯", true, None::<&str>)?;
+            let quickinput_item =
+                MenuItem::with_id(app, "quickinput-show", "⚡ 빠른 입력 위젯", true, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let auto_item = CheckMenuItem::with_id(
                 app,
@@ -241,7 +267,7 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&habits_item, &timeline_item, &timer_item, &calendar_item, &memo_item, &sep1, &auto_item, &sep2, &quit_item],
+                &[&habits_item, &timeline_item, &timer_item, &calendar_item, &memo_item, &quickinput_item, &sep1, &auto_item, &sep2, &quit_item],
             )?;
 
             let auto_item_handle = auto_item.clone();
@@ -256,7 +282,8 @@ pub fn run() {
                     "timeline-show" => toggle_window(app, "timeline"),
                     "timer-show"    => toggle_window(app, "timer"),
                     "calendar-show" => toggle_window(app, "calendar"),
-                    "memo-show"     => toggle_window(app, "memo"),
+                    "memo-show"       => toggle_window(app, "memo"),
+                    "quickinput-show" => toggle_window(app, "quickinput"),
                     "autostart" => {
                         let mgr = app.autolaunch();
                         let enabled = mgr.is_enabled().unwrap_or(false);
@@ -278,6 +305,7 @@ pub fn run() {
                         show_window(tray.app_handle(), "timer");
                         show_window(tray.app_handle(), "calendar");
                         show_window(tray.app_handle(), "memo");
+                        show_window(tray.app_handle(), "quickinput");
                     }
                 })
                 .build(app)?;
