@@ -1,0 +1,74 @@
+name: Release Widget (.msi)
+
+# Builds the Tauri PC desktop widget and publishes the Windows .msi as a GitHub
+# Release asset, so downloading is a one-click affair (Releases page) instead of
+# digging a zip out of an Actions run's artifacts.
+#
+# Trigger: push a tag like `widget-v0.2.0`. Kept as a SEPARATE workflow from
+# widget-build.yml so the tag trigger never collides with that file's path
+# filter (path filters can suppress tag-triggered runs).
+#
+#   git tag widget-v0.2.0
+#   git push origin widget-v0.2.0
+#
+# The tag can also be created from the GitHub UI (Releases → Draft a new release
+# → choose a tag → Publish): a tag push fires this workflow either way.
+
+on:
+  push:
+    tags:
+      - 'widget-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. widget-v0.2.0). Must already exist.'
+        required: true
+
+permissions:
+  contents: write   # needed to create the Release and upload the .msi
+
+jobs:
+  release-msi:
+    name: build + publish windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # For workflow_dispatch, check out the requested tag; for a tag push
+          # the default checkout already lands on the tag.
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            widget/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('widget/src-tauri/Cargo.toml') }}
+
+      - name: Install widget deps (Tauri CLI)
+        working-directory: widget
+        run: npm install
+
+      - name: Build .msi
+        working-directory: widget
+        run: npm run build
+
+      - name: Publish Release with .msi
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          name: Return Widget ${{ github.event.inputs.tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+          files: widget/src-tauri/target/release/bundle/msi/*.msi
