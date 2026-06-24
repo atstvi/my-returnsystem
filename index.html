@@ -27524,6 +27524,9 @@ async function fbLoadAll(){
         try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','entity 6d merge (load)',mres); }catch(_e){}
       }catch(mErr){ try{ console.warn('[entity] 6d merge failed (legacy authoritative):',mErr&&mErr.message); }catch(_){} }
     }
+    /* W4b: fold any PC-widget focus sessions into the local timer log. Isolated
+       fire-and-forget — never blocks or fails hydration. */
+    try{ pullWidgetFocusSessions(ref); }catch(_e){}
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotEvents++; window.__SYNC_DEBUG.state.timestamps.lastSnapshotAt=Date.now(); window.__SYNC_DEBUG.log('fb','onSnapshot fired',{exists:s.exists}); } }catch(_e){}
@@ -36335,6 +36338,80 @@ function focusTimerSaveLog(){
   try{localStorage.setItem(FOCUS_TIMER_LOG_KEY,JSON.stringify(focusTimerLog.slice(-200)));}catch(e){}
 }
 
+/* ── W4b: fold PC-widget focus sessions into the timer log ───────────────────
+   The desktop widget's timer writes each completed session as its own immutable
+   doc to users/{uid}/widget_focus_sessions/{id} (append-only — per-doc keying
+   means two devices never touch the same doc, so there is NO array-merge
+   hazard). This pulls them down and folds the not-yet-seen ones into the
+   device-local focus_timer_log_v1 history.
+
+   focus_timer_log_v1 is intentionally device-local (NOT Firebase-synced — see
+   shouldFbSyncKey), so we dedup against a per-device consumed-id set rather than
+   deleting docs on consume: deleting would "steal" a session from a device that
+   hasn't pulled it yet. Cloud docs are pruned only by AGE, so every device that
+   syncs within the window gets every session exactly once. */
+var WIDGET_FOCUS_CONSUMED_KEY='widget_focus_consumed_v1'; /* device-local */
+var WIDGET_FOCUS_PRUNE_DAYS=21;
+var _widgetFocusPulling=false;
+function widgetFocusConsumedSet(){
+  try{var a=JSON.parse(localStorage.getItem(WIDGET_FOCUS_CONSUMED_KEY)||'[]');return Array.isArray(a)?a:[];}catch(e){return [];}
+}
+function widgetFocusSaveConsumed(arr){
+  try{localStorage.setItem(WIDGET_FOCUS_CONSUMED_KEY,JSON.stringify((arr||[]).slice(-1000)));}catch(e){}
+}
+/* Pure fold: given the cloud session docs + this device's consumed-id set,
+   decide which become new log entries, which ids to remember as consumed, and
+   which (aged-out) docs to delete from the cloud. No I/O — unit-tested. */
+function widgetFocusFold(docs,consumedIds,nowMs,pruneDays){
+  var seen={}; (consumedIds||[]).forEach(function(id){seen[id]=true;});
+  var pruneBefore=nowMs-((pruneDays||21)*86400000);
+  var entries=[],newIds=[],deleteIds=[];
+  (docs||[]).forEach(function(d){
+    if(!d||!d.id)return;
+    var completedAt=Number(d.completedAt)||nowMs;
+    if(!seen[d.id]){
+      entries.push({
+        mode:d.mode||'pomodoro',
+        phase:d.phase||'work',
+        durationMs:Math.round(Number(d.durationMs)||0),
+        taskId:d.taskId||'',
+        taskText:d.taskText||'',
+        completedAt:completedAt,
+        source:'widget'
+      });
+      seen[d.id]=true; newIds.push(d.id);
+    }
+    if(completedAt<pruneBefore)deleteIds.push(d.id);
+  });
+  return {entries:entries,newIds:newIds,deleteIds:deleteIds};
+}
+function pullWidgetFocusSessions(ref){
+  if(_widgetFocusPulling)return Promise.resolve();
+  if(typeof fbDb==='undefined'||!fbDb||typeof fbUser==='undefined'||!fbUser)return Promise.resolve();
+  try{ ref=ref||fbDb.collection('users').doc(fbUser.uid); }catch(e){return Promise.resolve();}
+  _widgetFocusPulling=true;
+  return ref.collection('widget_focus_sessions').get().then(function(qs){
+    var docs=[],byId={};
+    qs.forEach(function(doc){ var d=doc.data()||{}; if(!d.id)d.id=doc.id; docs.push(d); byId[d.id]=doc.ref; });
+    var consumed=widgetFocusConsumedSet();
+    var res=widgetFocusFold(docs,consumed,Date.now(),WIDGET_FOCUS_PRUNE_DAYS);
+    if(res.entries.length){
+      focusTimerLog.push.apply(focusTimerLog,res.entries);
+      focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});
+      focusTimerSaveLog();
+      widgetFocusSaveConsumed(consumed.concat(res.newIds));
+      try{ if(typeof _currentPage!=='undefined'&&_currentPage==='timer'&&typeof renderFocusTimer==='function')renderFocusTimer(); }catch(e){}
+      try{ if(typeof renderFocusTimerMini==='function')renderFocusTimerMini(); }catch(e){}
+      try{ console.log('[widget-focus] folded '+res.entries.length+' widget session(s) into timer log'); }catch(e){}
+    }
+    /* Prune aged-out cloud docs (any device may; delete is idempotent). Bound
+       the per-run delete count so a huge backlog can't stall the pull. */
+    res.deleteIds.slice(0,400).forEach(function(id){ var r=byId[id]; if(r&&r.delete)r.delete().catch(function(){}); });
+  }).catch(function(e){ try{console.warn('[widget-focus] pull failed:',e&&e.message);}catch(_){} })
+   .then(function(){ _widgetFocusPulling=false; });
+}
+
+
 /* ── Audio engine ──────────────────────────────────────────────────────── */
 function _focusAudioCtxGet(){
   if(!_focusAudio.ctx||_focusAudio.ctx.state==='closed'){
@@ -36728,6 +36805,8 @@ function _initTimer(){
   focusTimerState.mode=focusTimerCfg.mode||'pomodoro';
   if(!focusTimerState.targetMs)focusTimerSetTarget();
   renderFocusTimer();
+  /* Pull any PC-widget sessions logged since last visit (re-renders on fold). */
+  try{ pullWidgetFocusSessions(); }catch(e){}
 }
 focusTimerLoadCfg();
 focusTimerLoadLog();
