@@ -64,15 +64,14 @@
   on("close-btn", function () { if (appWindow) appWindow.close().catch(console.error); });
 
   // ── Views ──────────────────────────────────────────────────────────────────
-  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "calendar", "memo", "quickinput", "error"];
+  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "workstation", "calendar", "quickinput", "error"];
 
   // The data view this window lands on after auth.
   function mainViewName() {
-    return VIEW_MODE === "timeline"   ? "timeline"
-         : VIEW_MODE === "timer"      ? "timer"
-         : VIEW_MODE === "calendar"   ? "calendar"
-         : VIEW_MODE === "memo"       ? "memo"
-         : VIEW_MODE === "quickinput" ? "quickinput"
+    return VIEW_MODE === "timeline"    ? "timeline"
+         : VIEW_MODE === "workstation" ? "workstation"
+         : VIEW_MODE === "calendar"    ? "calendar"
+         : VIEW_MODE === "quickinput"  ? "quickinput"
          : "habits";
   }
 
@@ -232,7 +231,7 @@
   on("sign-out-btn",     signOut);
   on("tbl-sign-out-btn", signOut);
   on("cal-sign-out-btn", signOut);
-  on("memo-sign-out-btn", signOut);
+  on("ws-sign-out-btn",  signOut);
 
   on("dbg-toggle", function () {
     var el = $id("dbg-log");
@@ -315,10 +314,7 @@
         setSyncing(false);
       });
 
-    // The timer window is data-independent (it only writes sessions). Skip the
-    // live onSnapshot subscription — no need to re-read the whole keyspace on
-    // every cloud change just to keep a clock ticking.
-    if (VIEW_MODE === "timer") return;
+    // (no early return here — workstation needs live updates for timer state sync)
 
     unsubSnap = ref.onSnapshot(
       function () {
@@ -393,11 +389,10 @@
     // a window accidentally hiding itself before it can receive future prefs.
     if (!VIEW_MODE) {
       var WIN_VIS = [
-        {label: "timeline",   key: "showTimeline"},
-        {label: "timer",      key: "showTimer"},
-        {label: "calendar",   key: "showCalendar"},
-        {label: "memo",       key: "showMemo"},
-        {label: "quickinput", key: "showQuickinput"}
+        {label: "timeline",    key: "showTimeline"},
+        {label: "workstation", key: "showWorkstation"},
+        {label: "calendar",    key: "showCalendar"},
+        {label: "quickinput",  key: "showQuickinput"}
       ];
       var tauriCore = window.__TAURI__ && window.__TAURI__.core;
       if (tauriCore) {
@@ -430,26 +425,51 @@
     };
     if (VIEW_MODE === "timeline") {
       renderTimelineBlocks();
-    } else if (VIEW_MODE === "timer") {
-      renderTimer();   // timer is data-independent; just make sure it's drawn
+    } else if (VIEW_MODE === "workstation") {
+      // Absorb timer state from main app
+      var ts = safeJson(keys["widget_timer_state_v1"], null);
+      if (ts && typeof ts === "object") wsApplyTimerState(ts);
+      // Absorb which task is linked
+      var ws = safeJson(keys["widget_workstation_v1"], null);
+      if (ws && typeof ws === "object") wsApplyWorkstationState(ws);
+      // Absorb task notes
+      wsTaskNotes = safeJson(keys["task_notes_v1"], {}) || {};
+      renderWorkstation();
     } else if (VIEW_MODE === "calendar") {
       renderCalendar();
-    } else if (VIEW_MODE === "memo") {
-      // Only absorb cloud memos when not editing AND no save is in-flight.
-      // Firestore echoes our own writes as stale snapshots before the commit
-      // settles — absorbing them would revert adds/deletes just made locally.
-      if (!activeMemoId && !_memoSaving) {
-        memos = safeJson(keys[MEMO_KEY], []) || [];
-        if (!Array.isArray(memos)) memos = [];
-        renderMemoList();
-      }
     } else if (VIEW_MODE === "quickinput") {
       // Absorb category list from main app (return_inbox_cats syncs via Firestore)
       var cats = safeJson(keys["return_inbox_cats"], []);
       if (Array.isArray(cats) && cats.length) qiInboxCats = cats;
       renderQuickinput();
     } else {
+      // habits window: watch timer state changes to auto-show/hide workstation
+      var hbTs = safeJson(keys["widget_timer_state_v1"], null);
+      habitsApplyTimerActive(hbTs);
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
+    }
+  }
+
+  // ── Habits window: auto-show workstation when timer becomes active ──────────
+  var _lastTimerActive = false;
+  var _wsHideTimer = null;
+
+  function habitsApplyTimerActive(ts) {
+    if (!VIEW_MODE || VIEW_MODE !== "") return;  // only habits window (VIEW_MODE === "")
+    var active = !!(ts && ts.active);
+    if (active === _lastTimerActive) return;
+    _lastTimerActive = active;
+    var tauriCore = window.__TAURI__ && window.__TAURI__.core;
+    if (!tauriCore) return;
+    if (active) {
+      if (_wsHideTimer) { clearTimeout(_wsHideTimer); _wsHideTimer = null; }
+      tauriCore.invoke("set_window_visible", {label: "workstation", visible: true}).catch(function() {});
+    } else {
+      // Delay hide so the user can see the final state for a moment
+      _wsHideTimer = setTimeout(function() {
+        _wsHideTimer = null;
+        tauriCore.invoke("set_window_visible", {label: "workstation", visible: false}).catch(function() {});
+      }, 4000);
     }
   }
 
@@ -816,11 +836,10 @@
 
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
-    if (VIEW_MODE === "timer") return;   // timer window has no sync indicator
-    var dotId = VIEW_MODE === "timeline"   ? "tbl-sync-dot"
-              : VIEW_MODE === "calendar"   ? "cal-sync-dot"
-              : VIEW_MODE === "quickinput" ? "qi-sync-dot"
-              : VIEW_MODE === "memo"       ? null
+    var dotId = VIEW_MODE === "timeline"    ? "tbl-sync-dot"
+              : VIEW_MODE === "calendar"    ? "cal-sync-dot"
+              : VIEW_MODE === "quickinput"  ? "qi-sync-dot"
+              : VIEW_MODE === "workstation" ? null
               : "sync-dot";
     if (!dotId) return;
     var dot = $id(dotId);
@@ -828,11 +847,10 @@
   }
 
   function updateSyncTime() {
-    if (VIEW_MODE === "timer") return;
-    var timeId = VIEW_MODE === "timeline"   ? "tbl-sync-time"
-               : VIEW_MODE === "calendar"   ? "cal-sync-time"
-               : VIEW_MODE === "memo"       ? "memo-sync-time"
-               : VIEW_MODE === "quickinput" ? "qi-sync-time"
+    var timeId = VIEW_MODE === "timeline"    ? "tbl-sync-time"
+               : VIEW_MODE === "calendar"    ? "cal-sync-time"
+               : VIEW_MODE === "quickinput"  ? "qi-sync-time"
+               : VIEW_MODE === "workstation" ? "ws-sync-time"
                : "sync-time";
     var el = $id(timeId);
     if (!el) return;
@@ -841,191 +859,393 @@
                      String(d.getMinutes()).padStart(2, "0") + " 동기화됨";
   }
 
-  // ── Timer window (Pomodoro / countdown / stopwatch) ─────────────────────────
-  // A standalone focus timer. Config lives device-local (the widget runs on its
-  // own localhost origin, separate from the web app). Completed sessions are
-  // written to Firestore as APPEND-ONLY immutable docs under
-  //   users/{uid}/widget_focus_sessions/{id}
-  // Each session is its own doc keyed by a unique id → two devices never touch
-  // the same doc, so there is no array-merge hazard. A later web-app change will
-  // fold these into the main app's focus_timer_log_v1 history (and delete the
-  // consumed docs); until then the write is harmless and inert.
+  // ── Workstation window (task goal + timer + notes) ──────────────────────────
+  // The workstation is a unified focus widget that replaces the old separate
+  // timer and memo windows. It:
+  //   • Shows the linked task's title as a standby goal
+  //   • Runs a Pomodoro/countdown/stopwatch timer (state synced with the main
+  //     app via Firestore key widget_timer_state_v1)
+  //   • Lets the user search/create a task when the timer is running but no
+  //     task is linked
+  //   • Offers a quick-notes textarea saved to task_notes_v1[taskId]
+  //
+  // The main app writes widget_timer_state_v1 on every timer transition, and
+  // the workstation window applies that state reactively. The workstation can
+  // also pause/resume/stop the timer, writing back to the same key.
+  //
+  // widget_workstation_v1: { taskId, taskTitle, due?, openedAt }
+  // task_notes_v1:         { [taskId]: { text, updatedAt } }
 
-  var TIMER_CFG_KEY = "widget_timer_cfg";
-  var timerCfg = {
+  // ── Workstation state ────────────────────────────────────────────────────────
+  var WS_TIMER_KEY  = "widget_timer_state_v1";
+  var WS_CFG_KEY    = "widget_timer_cfg";
+  var TASK_NOTES_KEY = "task_notes_v1";
+
+  // Timer config (device-local)
+  var wsCfg = {
     mode: "pomodoro",
     pomodoro: { work: 25, short: 5, long: 15, longAfter: 4 },
     countdown: { minutes: 25 }
   };
-  var timerState = {
+  // Timer runtime state (synced with main app via Firestore)
+  var wsTimer = {
     running: false, startedAt: 0, elapsed: 0,
     mode: "pomodoro", phase: "work", pomCount: 0,
     targetMs: 0, tick: null
   };
-  var timerFootMsg = "";
+  var wsTimerFootMsg = "";
+  // Linked task (from widget_workstation_v1, set by main app when user clicks 📌)
+  var wsTaskId    = "";
+  var wsTaskTitle = "";
+  var wsTaskDue   = "";
+  // Notes (task_notes_v1)
+  var wsTaskNotes = {};        // full map { taskId: { text, updatedAt } }
+  var _wsNotesSaveTimer = null;
 
-  function loadTimerCfg() {
-    var s = safeJson(localStorage.getItem(TIMER_CFG_KEY), null);
+  function wsLoadCfg() {
+    var s = safeJson(localStorage.getItem(WS_CFG_KEY), null);
     if (s && typeof s === "object") {
-      if (s.mode) timerCfg.mode = s.mode;
-      if (s.pomodoro) timerCfg.pomodoro = Object.assign({}, timerCfg.pomodoro, s.pomodoro);
-      if (s.countdown) timerCfg.countdown = Object.assign({}, timerCfg.countdown, s.countdown);
+      if (s.mode) wsCfg.mode = s.mode;
+      if (s.pomodoro) wsCfg.pomodoro = Object.assign({}, wsCfg.pomodoro, s.pomodoro);
+      if (s.countdown) wsCfg.countdown = Object.assign({}, wsCfg.countdown, s.countdown);
     }
-    timerState.mode = timerCfg.mode;
+    wsTimer.mode = wsCfg.mode;
   }
-  function saveTimerCfg() {
-    try { localStorage.setItem(TIMER_CFG_KEY, JSON.stringify(timerCfg)); } catch (_) {}
+  function wsSaveCfg() {
+    try { localStorage.setItem(WS_CFG_KEY, JSON.stringify(wsCfg)); } catch (_) {}
   }
 
   function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-  function timerElapsedMs() {
-    return (timerState.elapsed || 0) +
-      (timerState.running && timerState.startedAt ? Date.now() - timerState.startedAt : 0);
+  // Apply timer state received from Firestore (written by main app or by us)
+  function wsApplyTimerState(ts) {
+    if (!ts || typeof ts !== "object") return;
+    var newMode = ts.mode || "pomodoro";
+    wsCfg.mode = newMode;
+    wsTimer.mode  = newMode;
+    wsTimer.phase = ts.phase || "work";
+    wsTimer.pomCount = ts.pomCount || 0;
+    wsTimer.targetMs = ts.targetMs || 0;
+    wsTimer.elapsed  = ts.elapsed  || 0;
+    wsTimer.running  = !!ts.running;
+    wsTimer.startedAt = wsTimer.running ? (ts.startedAt || Date.now()) : 0;
+    // Adjust local tick
+    if (wsTimer.running) {
+      if (!wsTimer.tick) wsTimer.tick = setInterval(wsTimerTick, 1000);
+    } else {
+      if (wsTimer.tick) { clearInterval(wsTimer.tick); wsTimer.tick = null; }
+    }
   }
-  function timerRemainingMs() {
-    if (!timerState.targetMs) return null;
-    return Math.max(0, timerState.targetMs - timerElapsedMs());
+
+  // Apply which task is linked (from widget_workstation_v1)
+  function wsApplyWorkstationState(ws) {
+    if (!ws || typeof ws !== "object") return;
+    var newId = String(ws.taskId || "");
+    var changed = newId !== wsTaskId;
+    wsTaskId    = newId;
+    wsTaskTitle = ws.taskTitle || "";
+    wsTaskDue   = ws.due || "";
+    // If task changed, populate notes from our cached map
+    if (changed) {
+      var el = $id("ws-notes-area");
+      if (el) el.value = wsTaskNotes[wsTaskId] ? wsTaskNotes[wsTaskId].text || "" : "";
+    }
   }
-  function timerFormatMs(ms) {
+
+  function wsTimerElapsedMs() {
+    return (wsTimer.elapsed || 0) +
+      (wsTimer.running && wsTimer.startedAt ? Date.now() - wsTimer.startedAt : 0);
+  }
+  function wsTimerRemainingMs() {
+    if (!wsTimer.targetMs) return null;
+    return Math.max(0, wsTimer.targetMs - wsTimerElapsedMs());
+  }
+  function wsTimerFormatMs(ms) {
     var total = Math.max(0, Math.floor((ms || 0) / 1000));
     var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
     return (h ? String(h).padStart(2, "0") + ":" : "") +
       String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
   }
-  function timerPhaseLabel() {
-    var ph = timerState.phase;
+  function wsTimerPhaseLabel() {
+    var ph = wsTimer.phase;
     if (ph === "short_break") return "짧은 휴식";
     if (ph === "long_break")  return "긴 휴식";
     return "집중";
   }
-  function timerSetTarget() {
-    var m = timerCfg.mode;
-    if (m === "stopwatch") { timerState.targetMs = 0; return; }
-    if (m === "countdown") { timerState.targetMs = (timerCfg.countdown.minutes || 25) * 60000; return; }
-    var p = timerCfg.pomodoro, ph = timerState.phase;
-    if (ph === "short_break")     timerState.targetMs = (p.short || 5) * 60000;
-    else if (ph === "long_break") timerState.targetMs = (p.long  || 15) * 60000;
-    else                          timerState.targetMs = (p.work  || 25) * 60000;
+  function wsTimerSetTarget() {
+    var m = wsCfg.mode;
+    if (m === "stopwatch") { wsTimer.targetMs = 0; return; }
+    if (m === "countdown") { wsTimer.targetMs = (wsCfg.countdown.minutes || 25) * 60000; return; }
+    var p = wsCfg.pomodoro, ph = wsTimer.phase;
+    if (ph === "short_break")     wsTimer.targetMs = (p.short || 5) * 60000;
+    else if (ph === "long_break") wsTimer.targetMs = (p.long  || 15) * 60000;
+    else                          wsTimer.targetMs = (p.work  || 25) * 60000;
   }
-  function timerNextPhase() {
-    var longAfter = timerCfg.pomodoro.longAfter || 4;
-    if (timerState.phase === "work") {
-      timerState.pomCount = (timerState.pomCount || 0) + 1;
-      timerState.phase = (timerState.pomCount % longAfter === 0) ? "long_break" : "short_break";
+  function wsTimerNextPhase() {
+    var longAfter = wsCfg.pomodoro.longAfter || 4;
+    if (wsTimer.phase === "work") {
+      wsTimer.pomCount = (wsTimer.pomCount || 0) + 1;
+      wsTimer.phase = (wsTimer.pomCount % longAfter === 0) ? "long_break" : "short_break";
     } else {
-      timerState.phase = "work";
+      wsTimer.phase = "work";
     }
-    timerState.elapsed = 0; timerState.startedAt = 0; timerState.running = false;
-    timerSetTarget();
+    wsTimer.elapsed = 0; wsTimer.startedAt = 0; wsTimer.running = false;
+    wsTimerSetTarget();
   }
 
-  function timerStart() {
-    timerState.mode = timerCfg.mode;
-    if (timerState.elapsed === 0) timerSetTarget();
-    timerState.startedAt = Date.now(); timerState.running = true;
-    if (timerState.tick) clearInterval(timerState.tick);
-    timerState.tick = setInterval(timerTick, 1000);
-    requestNotifyPermission();
-    renderTimer();
+  // Write current timer state to Firestore (notify main app)
+  function wsTimerSync() {
+    var ref = userRef(); if (!ref) return;
+    var val = JSON.stringify({
+      active:    wsTimer.running || wsTimerElapsedMs() > 0,
+      running:   wsTimer.running,
+      mode:      wsCfg.mode,
+      phase:     wsTimer.phase,
+      pomCount:  wsTimer.pomCount,
+      targetMs:  wsTimer.targetMs,
+      elapsed:   wsTimerElapsedMs(),
+      startedAt: wsTimer.running ? wsTimer.startedAt : 0,
+      taskId:    wsTaskId || null,
+      taskTitle: wsTaskTitle || null,
+      updatedAt: Date.now()
+    });
+    var now = Date.now();
+    ref.collection("data").doc(docIdForKey(WS_TIMER_KEY))
+      .set({ key: WS_TIMER_KEY, value: val, updatedAtMs: now })
+      .then(function() {
+        return ref.set({ updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+      })
+      .catch(function(e) { console.warn("[widget/ws] timer sync ERR:", e && e.message || e); });
   }
-  function timerPause() {
-    if (!timerState.running) return;
-    if (timerState.tick) clearInterval(timerState.tick);
-    timerState.elapsed += (Date.now() - timerState.startedAt);
-    timerState.startedAt = 0; timerState.running = false; timerState.tick = null;
-    renderTimer();
+
+  function wsTimerStart() {
+    wsTimer.mode = wsCfg.mode;
+    if (wsTimer.elapsed === 0) wsTimerSetTarget();
+    wsTimer.startedAt = Date.now(); wsTimer.running = true;
+    if (wsTimer.tick) clearInterval(wsTimer.tick);
+    wsTimer.tick = setInterval(wsTimerTick, 1000);
+    wsRequestNotify();
+    renderWorkstation();
+    wsTimerSync();
   }
-  function timerResume() {
-    if (timerState.running) return;
-    if (!timerState.targetMs && timerCfg.mode !== "stopwatch") timerSetTarget();
-    timerState.startedAt = Date.now(); timerState.running = true;
-    if (timerState.tick) clearInterval(timerState.tick);
-    timerState.tick = setInterval(timerTick, 1000);
-    renderTimer();
+  function wsTimerPause() {
+    if (!wsTimer.running) return;
+    if (wsTimer.tick) clearInterval(wsTimer.tick);
+    wsTimer.elapsed += (Date.now() - wsTimer.startedAt);
+    wsTimer.startedAt = 0; wsTimer.running = false; wsTimer.tick = null;
+    renderWorkstation();
+    wsTimerSync();
   }
-  function timerReset() {
-    if (timerState.tick) clearInterval(timerState.tick);
-    timerState.running = false; timerState.startedAt = 0; timerState.elapsed = 0; timerState.tick = null;
-    timerSetTarget();
-    renderTimer();
+  function wsTimerResume() {
+    if (wsTimer.running) return;
+    if (!wsTimer.targetMs && wsCfg.mode !== "stopwatch") wsTimerSetTarget();
+    wsTimer.startedAt = Date.now(); wsTimer.running = true;
+    if (wsTimer.tick) clearInterval(wsTimer.tick);
+    wsTimer.tick = setInterval(wsTimerTick, 1000);
+    renderWorkstation();
+    wsTimerSync();
   }
-  function timerFinish() {
-    var elapsed = timerElapsedMs();
-    var mode = timerCfg.mode, phase = timerState.phase;
-    if (timerState.tick) clearInterval(timerState.tick);
-    timerState.tick = null; timerState.running = false;
-    timerLogSession(elapsed, mode, phase);
-    notifyDone(timerPhaseLabel(), elapsed);
+  function wsTimerReset() {
+    if (wsTimer.tick) clearInterval(wsTimer.tick);
+    wsTimer.running = false; wsTimer.startedAt = 0; wsTimer.elapsed = 0; wsTimer.tick = null;
+    wsTimerSetTarget();
+    renderWorkstation();
+    wsTimerSync();
+  }
+  function wsTimerFinish() {
+    var elapsed = wsTimerElapsedMs();
+    var mode = wsCfg.mode, phase = wsTimer.phase;
+    if (wsTimer.tick) clearInterval(wsTimer.tick);
+    wsTimer.tick = null; wsTimer.running = false;
+    wsTimerLogSession(elapsed, mode, phase);
+    wsNotifyDone(wsTimerPhaseLabel(), elapsed);
     if (mode === "pomodoro") {
-      timerNextPhase();
+      wsTimerNextPhase();
     } else {
-      timerState.elapsed = 0; timerState.startedAt = 0; timerSetTarget();
+      wsTimer.elapsed = 0; wsTimer.startedAt = 0; wsTimerSetTarget();
     }
-    renderTimer();
+    renderWorkstation();
+    wsTimerSync();
   }
-  function timerTick() {
-    var remaining = timerRemainingMs();
-    if (remaining !== null && remaining <= 0) { timerFinish(); return; }
-    var disp = remaining !== null ? timerFormatMs(remaining) : timerFormatMs(timerElapsedMs());
-    var cl = $id("timer-clock"); if (cl) cl.textContent = disp;
-    if (timerState.targetMs) {
-      var fill = $id("timer-progress-fill");
-      if (fill) fill.style.width = clamp((1 - remaining / timerState.targetMs) * 100, 0, 100) + "%";
+  function wsTimerTick() {
+    var remaining = wsTimerRemainingMs();
+    if (remaining !== null && remaining <= 0) { wsTimerFinish(); return; }
+    var disp = remaining !== null ? wsTimerFormatMs(remaining) : wsTimerFormatMs(wsTimerElapsedMs());
+    var cl = $id("ws-timer-clock"); if (cl) cl.textContent = disp;
+    if (wsTimer.targetMs && remaining !== null) {
+      var fill = $id("ws-progress-fill");
+      if (fill) fill.style.width = clamp((1 - remaining / wsTimer.targetMs) * 100, 0, 100) + "%";
     }
   }
 
-  // ── Session write (append-only) ─────────────────────────────────────────────
-  function timerLogSession(ms, mode, phase) {
-    if (!ms || ms < 1000) return;   // ignore trivially short sessions
+  function wsTimerLogSession(ms, mode, phase) {
+    if (!ms || ms < 1000) return;
     var rec = {
       id: "wts_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
       mode: mode, phase: phase, durationMs: Math.round(ms),
-      taskId: "", taskText: "",
-      completedAt: Date.now(),
-      source: "widget"
+      taskId: wsTaskId || "", taskText: wsTaskTitle || "",
+      completedAt: Date.now(), source: "widget"
     };
-    var label = (phase === "work" ? "집중" : phase === "short_break" ? "짧은 휴식" : phase === "long_break" ? "긴 휴식" : "세션");
+    var label = wsTimerPhaseLabel();
     var user = fbAuth.currentUser;
-    if (!user || !fbDb) { timerFootMsg = "로그인 필요 — 기록 안 됨"; renderTimer(); return; }
-    timerFootMsg = label + " " + timerFormatMs(ms) + " 기록 중…";
+    if (!user || !fbDb) {
+      wsTimerFootMsg = "로그인 필요 — 기록 안 됨";
+      renderWorkstation();
+      return;
+    }
+    wsTimerFootMsg = label + " " + wsTimerFormatMs(ms) + " 기록 중…";
     fbDb.collection("users").doc(user.uid)
       .collection("widget_focus_sessions").doc(rec.id).set(rec)
-      .then(function () {
-        dbg("session logged · " + rec.mode + "/" + rec.phase + " " + Math.round(ms / 1000) + "s");
-        timerFootMsg = "✓ " + label + " " + timerFormatMs(ms) + " 기록됨";
-        renderTimer();
+      .then(function() {
+        wsTimerFootMsg = "✓ " + label + " " + wsTimerFormatMs(ms) + " 기록됨";
+        renderWorkstation();
       })
-      .catch(function (e) {
-        dbg("session log ERR · " + (e && e.message ? e.message : String(e)));
-        timerFootMsg = "기록 실패 — 다시 시도하세요";
-        renderTimer();
+      .catch(function(e) {
+        wsTimerFootMsg = "기록 실패";
+        renderWorkstation();
       });
   }
 
-  function requestNotifyPermission() {
+  function wsRequestNotify() {
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "default") {
-        Notification.requestPermission().catch(function () {});
+        Notification.requestPermission().catch(function() {});
       }
     } catch (_) {}
   }
-  function notifyDone(label, ms) {
+  function wsNotifyDone(label, ms) {
     try {
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-        new Notification("Return 타이머", { body: label + " 완료! (" + timerFormatMs(ms) + ")" });
+        new Notification("Return 타이머", { body: label + " 완료! (" + wsTimerFormatMs(ms) + ")" });
       }
     } catch (_) {}
   }
 
-  // ── Timer rendering ─────────────────────────────────────────────────────────
-  var TIMER_MODES = [
+  // ── Task search / create (when timer active, no task linked) ─────────────────
+  var _wsSearchDebounce = null;
+
+  function wsSearchTasks(query) {
+    var resultsEl = $id("ws-search-results");
+    if (!resultsEl) return;
+    var q = (query || "").trim().toLowerCase();
+    var tasks = lastData.tasks || [];
+    var open = tasks.filter(function(t) { return !t.done; });
+    var matches = q
+      ? open.filter(function(t) { return (t.text || "").toLowerCase().indexOf(q) !== -1; }).slice(0, 6)
+      : open.slice(0, 6);
+
+    var html = "";
+    matches.forEach(function(t) {
+      html += '<div class="ws-search-item" data-task-id="' + esc(String(t.id)) +
+              '" data-task-title="' + esc(t.text || "") + '">' +
+              '<span class="ws-search-icon">📋</span>' +
+              '<span class="ws-search-text">' + esc(t.text || "") + '</span></div>';
+    });
+    if (q && !matches.length) {
+      html += '<div class="ws-search-item ws-search-create" data-create="1" data-task-title="' + esc(query) + '">' +
+              '<span class="ws-search-icon">＋</span>' +
+              '<span class="ws-search-text">"' + esc(query) + '" 할일 생성</span></div>';
+    } else if (q) {
+      html += '<div class="ws-search-item ws-search-create" data-create="1" data-task-title="' + esc(query) + '">' +
+              '<span class="ws-search-icon">＋</span>' +
+              '<span class="ws-search-text">"' + esc(query) + '" 새 할일로 생성</span></div>';
+    }
+    resultsEl.innerHTML = html;
+  }
+
+  function wsLinkTask(taskId, taskTitle, create) {
+    if (create) {
+      // Create new task and link it
+      var newTask = {
+        id: Date.now(),
+        text: taskTitle,
+        done: false,
+        cat: "task",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        source: "widget"
+      };
+      var ref = userRef(); if (!ref) return;
+      ref.collection("data").doc(docIdForKey("task_items_v1")).get().then(function(doc) {
+        var arr = [];
+        if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {} }
+        if (!Array.isArray(arr)) arr = [];
+        arr.unshift(newTask);
+        var val = JSON.stringify(arr);
+        var now = Date.now();
+        var batch = fbDb.batch();
+        batch.set(ref.collection("data").doc(docIdForKey("task_items_v1")),
+                  { key: "task_items_v1", value: val, updatedAtMs: now });
+        batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+        return batch.commit();
+      }).then(function() {
+        wsTaskId = String(newTask.id);
+        wsTaskTitle = taskTitle;
+        wsTimerSync();
+        renderWorkstation();
+        wsWriteWorkstationKey();
+      }).catch(function(e) { console.warn("[widget/ws] create task ERR:", e && e.message || e); });
+    } else {
+      wsTaskId = String(taskId);
+      wsTaskTitle = taskTitle;
+      wsTimerSync();
+      renderWorkstation();
+      wsWriteWorkstationKey();
+    }
+    var inp = $id("ws-search-inp");
+    if (inp) inp.value = "";
+    wsSearchTasks("");
+  }
+
+  function wsWriteWorkstationKey() {
+    var ref = userRef(); if (!ref) return;
+    var val = JSON.stringify({ taskId: wsTaskId, taskTitle: wsTaskTitle, due: wsTaskDue, openedAt: Date.now() });
+    var now = Date.now();
+    var batch = fbDb.batch();
+    batch.set(ref.collection("data").doc(docIdForKey("widget_workstation_v1")),
+              { key: "widget_workstation_v1", value: val, updatedAtMs: now });
+    batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+    batch.commit().catch(function(e) { console.warn("[widget/ws] workstation key ERR:", e && e.message || e); });
+  }
+
+  // ── Notes save ───────────────────────────────────────────────────────────────
+  function wsNotesSaveNow() {
+    if (_wsNotesSaveTimer) { clearTimeout(_wsNotesSaveTimer); _wsNotesSaveTimer = null; }
+    if (!wsTaskId) return;
+    var ref = userRef(); if (!ref) return;
+    var el = $id("ws-notes-area");
+    var text = el ? el.value : "";
+    wsTaskNotes[wsTaskId] = { text: text, updatedAt: Date.now() };
+    var val = JSON.stringify(wsTaskNotes);
+    var now = Date.now();
+    var batch = fbDb.batch();
+    batch.set(ref.collection("data").doc(docIdForKey(TASK_NOTES_KEY)),
+              { key: TASK_NOTES_KEY, value: val, updatedAtMs: now });
+    batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+    batch.commit()
+      .then(function() {
+        var savedEl = $id("ws-notes-saved");
+        if (savedEl) {
+          var d = new Date();
+          savedEl.textContent = String(d.getHours()).padStart(2,"0") + ":" +
+                                String(d.getMinutes()).padStart(2,"0") + " 저장됨";
+        }
+      })
+      .catch(function(e) { console.warn("[widget/ws] notes save ERR:", e && e.message || e); });
+  }
+  function wsNotesScheduleSave() {
+    if (_wsNotesSaveTimer) clearTimeout(_wsNotesSaveTimer);
+    _wsNotesSaveTimer = setTimeout(wsNotesSaveNow, 1200);
+  }
+
+  // ── Workstation rendering ─────────────────────────────────────────────────────
+  var WS_MODES = [
     ["pomodoro",  "🍅 포모"],
     ["countdown", "⏱ 카운트"],
     ["stopwatch", "⏲ 스톱"]
   ];
 
-  function timerSettingRow(label, field, val, unit) {
+  function wsTimerSettingRow(label, field, val, unit) {
     return '<div class="tm-set-row"><span class="tm-set-label">' + label + '</span>' +
       '<span class="tm-set-ctl">' +
         '<button class="tm-step" data-act="dec" data-field="' + field + '" type="button">−</button>' +
@@ -1035,88 +1255,118 @@
       '</span></div>';
   }
 
-  function renderTimer() {
-    var root = $id("timer-root");
-    if (!root) return;
-    var running = timerState.running;
-    var paused  = !running && timerState.elapsed > 0;
+  function renderWorkstation() {
+    if (VIEW_MODE !== "workstation") return;
+
+    var running = wsTimer.running;
+    var paused  = !running && wsTimer.elapsed > 0;
     var active  = running || paused;
-    var remaining = timerRemainingMs();
-    var display = remaining !== null ? timerFormatMs(remaining) : timerFormatMs(timerElapsedMs());
 
-    var html = "";
-
-    // Mode tabs (locked while a session is in progress)
-    html += '<div class="tm-tabs">';
-    TIMER_MODES.forEach(function (m) {
-      html += '<button class="tm-tab' + (timerCfg.mode === m[0] ? " active" : "") + '"' +
-        ' data-act="mode" data-mode="' + m[0] + '" type="button"' + (active ? " disabled" : "") + '>' +
-        m[1] + '</button>';
-    });
-    html += '</div>';
-
-    // Phase + pomodoro dots
-    if (timerCfg.mode === "pomodoro") {
-      html += '<div class="tm-phase' + (timerState.phase === "work" ? " work" : " brk") + '">' + timerPhaseLabel() + '</div>';
-      var longAfter = timerCfg.pomodoro.longAfter || 4;
-      var done = timerState.pomCount % longAfter;
-      var dots = "";
-      for (var i = 0; i < longAfter; i++) dots += '<span class="tm-dot' + (i < done ? " on" : "") + '"></span>';
-      html += '<div class="tm-dots">' + dots + '</div>';
-    } else {
-      html += '<div class="tm-phase brk">' + (timerCfg.mode === "countdown" ? "카운트다운" : "스톱워치") + '</div>';
+    // ── Task header ──────────────────────────────────────────────────────────
+    var hdr = $id("ws-task-header");
+    if (hdr) hdr.style.display = wsTaskId ? "" : "none";
+    if (wsTaskId) {
+      var titleEl = $id("ws-task-title");
+      if (titleEl) titleEl.textContent = wsTaskTitle || wsTaskId;
+      var metaEl = $id("ws-task-meta");
+      if (metaEl) metaEl.textContent = wsTaskDue ? "마감: " + wsTaskDue : "";
     }
 
-    // Clock
-    html += '<div class="tm-clock" id="timer-clock">' + display + '</div>';
+    // ── Timer ────────────────────────────────────────────────────────────────
+    var root = $id("ws-timer-root");
+    if (root) {
+      var remaining = wsTimerRemainingMs();
+      var display = remaining !== null ? wsTimerFormatMs(remaining) : wsTimerFormatMs(wsTimerElapsedMs());
+      var pct = (wsTimer.targetMs && remaining !== null)
+        ? clamp((1 - remaining / wsTimer.targetMs) * 100, 0, 100) : 0;
 
-    // Progress bar
-    var pct = (timerState.targetMs && remaining !== null)
-      ? clamp((1 - remaining / timerState.targetMs) * 100, 0, 100) : 0;
-    html += '<div class="tm-progress"><div class="tm-progress-fill" id="timer-progress-fill" style="width:' + pct + '%"></div></div>';
-
-    // Controls
-    html += '<div class="tm-controls">';
-    if (running)      html += '<button class="tm-btn tm-btn-main" data-act="pause"  type="button">일시정지</button>';
-    else if (paused)  html += '<button class="tm-btn tm-btn-main" data-act="resume" type="button">계속</button>';
-    else              html += '<button class="tm-btn tm-btn-main" data-act="start"  type="button">시작</button>';
-    if (active)       html += '<button class="tm-btn" data-act="finish" type="button" title="현재 세션 기록하고 종료">완료</button>';
-    html += '<button class="tm-btn tm-btn-icon" data-act="reset" type="button" title="초기화">↺</button>';
-    html += '</div>';
-
-    // Settings (only when idle)
-    if (!active) {
-      html += '<div class="tm-settings">';
-      if (timerCfg.mode === "pomodoro") {
-        html += timerSettingRow("집중",      "work",  timerCfg.pomodoro.work,  "분");
-        html += timerSettingRow("짧은 휴식", "short", timerCfg.pomodoro.short, "분");
-        html += timerSettingRow("긴 휴식",   "long",  timerCfg.pomodoro.long,  "분");
-      } else if (timerCfg.mode === "countdown") {
-        html += timerSettingRow("시간", "cd", timerCfg.countdown.minutes, "분");
-      } else {
-        html += '<div class="tm-hint">시작하면 시간이 위로 올라가요.<br>완료를 누르면 그 시간이 기록돼요.</div>';
-      }
+      var html = "";
+      // Mode tabs
+      html += '<div class="tm-tabs">';
+      WS_MODES.forEach(function(m) {
+        html += '<button class="tm-tab' + (wsCfg.mode === m[0] ? " active" : "") +
+          '" data-act="mode" data-mode="' + m[0] + '" type="button"' + (active ? " disabled" : "") + '>' +
+          m[1] + '</button>';
+      });
       html += '</div>';
+
+      // Phase / dots
+      if (wsCfg.mode === "pomodoro") {
+        html += '<div class="tm-phase' + (wsTimer.phase === "work" ? " work" : " brk") + '">' + wsTimerPhaseLabel() + '</div>';
+        var longAfter = wsCfg.pomodoro.longAfter || 4;
+        var done = wsTimer.pomCount % longAfter;
+        var dots = "";
+        for (var i = 0; i < longAfter; i++) dots += '<span class="tm-dot' + (i < done ? " on" : "") + '"></span>';
+        html += '<div class="tm-dots">' + dots + '</div>';
+      } else {
+        html += '<div class="tm-phase brk">' + (wsCfg.mode === "countdown" ? "카운트다운" : "스톱워치") + '</div>';
+      }
+
+      html += '<div class="tm-clock" id="ws-timer-clock">' + display + '</div>';
+      html += '<div class="tm-progress"><div class="tm-progress-fill" id="ws-progress-fill" style="width:' + pct + '%"></div></div>';
+
+      html += '<div class="tm-controls">';
+      if (running)     html += '<button class="tm-btn tm-btn-main" data-act="pause"  type="button">일시정지</button>';
+      else if (paused) html += '<button class="tm-btn tm-btn-main" data-act="resume" type="button">계속</button>';
+      else             html += '<button class="tm-btn tm-btn-main" data-act="start"  type="button">시작</button>';
+      if (active)      html += '<button class="tm-btn" data-act="finish" type="button">완료</button>';
+      html += '<button class="tm-btn tm-btn-icon" data-act="reset" type="button" title="초기화">↺</button>';
+      html += '</div>';
+
+      if (!active) {
+        html += '<div class="tm-settings">';
+        if (wsCfg.mode === "pomodoro") {
+          html += wsTimerSettingRow("집중",      "work",  wsCfg.pomodoro.work,  "분");
+          html += wsTimerSettingRow("짧은 휴식", "short", wsCfg.pomodoro.short, "분");
+          html += wsTimerSettingRow("긴 휴식",   "long",  wsCfg.pomodoro.long,  "분");
+        } else if (wsCfg.mode === "countdown") {
+          html += wsTimerSettingRow("시간", "cd", wsCfg.countdown.minutes, "분");
+        } else {
+          html += '<div class="tm-hint">시작하면 시간이 올라가요.<br>완료를 누르면 기록돼요.</div>';
+        }
+        html += '</div>';
+      }
+
+      if (wsTimerFootMsg) {
+        html += '<div class="ws-timer-foot">' + esc(wsTimerFootMsg) + '</div>';
+      }
+
+      root.innerHTML = html;
     }
 
-    // Footer: last-session message + sign out
-    html += '<div class="tm-foot">';
-    html += '<span class="tm-foot-msg">' + esc(timerFootMsg) + '</span>';
-    html += '<button class="wbtn w-sign-out-btn" data-act="signout" type="button" title="로그아웃">⇱</button>';
-    html += '</div>';
+    // ── Task search (timer active, no task linked) ───────────────────────────
+    var searchEl = $id("ws-task-search");
+    if (searchEl) searchEl.style.display = (active && !wsTaskId) ? "" : "none";
 
-    root.innerHTML = html;
+    // ── Notes (task linked) ──────────────────────────────────────────────────
+    var notesEl = $id("ws-notes-section");
+    if (notesEl) {
+      var showNotes = !!wsTaskId;
+      notesEl.style.display = showNotes ? "" : "none";
+      if (showNotes) {
+        var ta = $id("ws-notes-area");
+        if (ta && !ta._wsWired) {
+          ta._wsWired = true;
+          ta.addEventListener("input", wsNotesScheduleSave);
+        }
+        // Populate if empty and we have data
+        if (ta && !ta._wsPopulated) {
+          ta._wsPopulated = true;
+          ta.value = (wsTaskNotes[wsTaskId] && wsTaskNotes[wsTaskId].text) || "";
+        }
+      }
+    }
   }
 
-  function adjustTimerCfg(field, delta) {
+  function wsAdjustCfg(field, delta) {
     if (field === "cd") {
-      timerCfg.countdown.minutes = clamp(timerCfg.countdown.minutes + delta, 1, 180);
+      wsCfg.countdown.minutes = clamp(wsCfg.countdown.minutes + delta, 1, 180);
     } else {
-      timerCfg.pomodoro[field] = clamp((timerCfg.pomodoro[field] || 0) + delta, 1, 120);
+      wsCfg.pomodoro[field] = clamp((wsCfg.pomodoro[field] || 0) + delta, 1, 120);
     }
-    saveTimerCfg();
-    if (!timerState.running && timerState.elapsed === 0) timerSetTarget();
-    renderTimer();
+    wsSaveCfg();
+    if (!wsTimer.running && wsTimer.elapsed === 0) wsTimerSetTarget();
+    renderWorkstation();
   }
 
   // ── Monthly Calendar (W7) ──────────────────────────────────────────────────
@@ -1249,7 +1499,9 @@
     if (VIEW_MODE === "calendar") renderCalendar();
   }, 60000);
 
-  // ── Sticky Memo (W8) ───────────────────────────────────────────────────────
+  // ── (Memo window removed — replaced by Workstation) ─────────────────────────
+
+  // ── Sticky Memo stub (code kept for reference, no longer rendered) ──────────
   var MEMO_KEY = "widget_memo_v1";
   var memos        = [];    // [{id, color, html, updatedAt}]
   var activeMemoId = null;  // id of memo currently open in editor
@@ -1632,111 +1884,68 @@
     });
   }
 
-  // Wire memo window events (only in the memo window)
-  if (VIEW_MODE === "memo") {
-    on("memo-add-btn", addMemo);
-
-    var memoListEl = $id("memo-list");
-    if (memoListEl) {
-      memoListEl.addEventListener("click", function (e) {
-        var card = e.target.closest && e.target.closest("[data-memo-id]");
-        if (!card) return;
-        var id = card.getAttribute("data-memo-id");
-        if (id) openMemoEditor(id);
-      });
-    }
-
-    var memoToolbarEl = $id("memo-toolbar");
-    if (memoToolbarEl) {
-      memoToolbarEl.addEventListener("click", function (e) {
-        var btn = e.target.closest && e.target.closest("[data-act]");
-        if (!btn) return;
-        var act = btn.getAttribute("data-act");
-        if      (act === "back")      { closeMemoEditor(); }
-        else if (act === "bold")      { execFmt("bold"); }
-        else if (act === "italic")    { execFmt("italic"); }
-        else if (act === "underline") { execFmt("underline"); }
-        else if (act === "link") {
-          var url = window.prompt("링크 URL을 입력하세요:");
-          if (url) {
-            document.execCommand("createLink", false, url);
-            var c = $id("memo-content"); if (c) c.focus();
-          }
-        } else if (act === "delete" && activeMemoId) {
-          if (window.confirm("이 메모를 삭제할까요?")) deleteMemo(activeMemoId);
-        }
-      });
-    }
-
-    var fontsizeEl = $id("memo-fontsize");
-    if (fontsizeEl) {
-      fontsizeEl.addEventListener("change", function () {
-        applyFontSizePx(parseInt(fontsizeEl.value, 10));
-      });
-    }
-
-    var bgColorEl = $id("memo-bg-color");
-    if (bgColorEl) {
-      bgColorEl.addEventListener("input", function () {
-        var m = memoById(activeMemoId);
-        if (m) m.color = bgColorEl.value;
-        var content = $id("memo-content");
-        if (content) content.style.background = bgColorEl.value;
-      });
-      bgColorEl.addEventListener("change", function () { memoScheduleSave(); });
-    }
-
-    var memoContentEl = $id("memo-content");
-    if (memoContentEl) {
-      memoContentEl.addEventListener("input", function () {
-        var m = memoById(activeMemoId);
-        if (m) { m.html = memoContentEl.innerHTML; m.updatedAt = Date.now(); }
-        memoScheduleSave();
-      });
-      // Open links in the system browser (Ctrl/Cmd+click on an anchor)
-      memoContentEl.addEventListener("click", function (e) {
-        var a = e.target.closest && e.target.closest("a[href]");
-        if (a && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault();
-          openExternal(a.getAttribute("href")).catch(function () {});
-        }
-      });
-    }
-  }
-
   // Wire quick input window
   if (VIEW_MODE === "quickinput") {
     renderQuickinput();
   }
 
-  // Wire the timer window (delegated clicks) and prime it. Only in the timer
-  // window so its interval/handlers never run in the habit/timeline windows.
-  if (VIEW_MODE === "timer") {
-    loadTimerCfg();
-    timerSetTarget();
-    var timerView = $id("view-timer");
-    if (timerView) {
-      timerView.addEventListener("click", function (e) {
+  // Wire workstation window
+  if (VIEW_MODE === "workstation") {
+    wsLoadCfg();
+    wsTimerSetTarget();
+    on("ws-sign-out-btn", signOut);
+
+    var wsView = $id("view-workstation");
+    if (wsView) {
+      // Timer click delegation
+      wsView.addEventListener("click", function(e) {
         var b = e.target.closest && e.target.closest("[data-act]");
         if (!b) return;
         var act = b.getAttribute("data-act");
         if (act === "mode") {
-          if (timerState.running || timerState.elapsed > 0) return;  // locked mid-session
-          timerCfg.mode = b.getAttribute("data-mode");
-          timerState.mode = timerCfg.mode;
-          timerState.phase = "work"; timerState.pomCount = 0;
-          saveTimerCfg(); timerSetTarget(); renderTimer();
-        } else if (act === "start")  { timerStart(); }
-        else if (act === "pause")    { timerPause(); }
-        else if (act === "resume")   { timerResume(); }
-        else if (act === "finish")   { timerFinish(); }
-        else if (act === "reset")    { timerReset(); }
-        else if (act === "inc")      { adjustTimerCfg(b.getAttribute("data-field"), b.getAttribute("data-field") === "cd" ? 5 : 1); }
-        else if (act === "dec")      { adjustTimerCfg(b.getAttribute("data-field"), b.getAttribute("data-field") === "cd" ? -5 : -1); }
-        else if (act === "signout")  { signOut(); }
+          if (wsTimer.running || wsTimer.elapsed > 0) return;
+          wsCfg.mode = b.getAttribute("data-mode");
+          wsTimer.mode = wsCfg.mode;
+          wsTimer.phase = "work"; wsTimer.pomCount = 0;
+          wsSaveCfg(); wsTimerSetTarget(); renderWorkstation();
+        } else if (act === "start")  { wsTimerStart(); }
+        else if (act === "pause")    { wsTimerPause(); }
+        else if (act === "resume")   { wsTimerResume(); }
+        else if (act === "finish")   { wsTimerFinish(); }
+        else if (act === "reset")    { wsTimerReset(); }
+        else if (act === "inc") {
+          var f = b.getAttribute("data-field");
+          wsAdjustCfg(f, f === "cd" ? 5 : 1);
+        } else if (act === "dec") {
+          var f2 = b.getAttribute("data-field");
+          wsAdjustCfg(f2, f2 === "cd" ? -5 : -1);
+        }
+
+        // Task search result click
+        var item = e.target.closest && e.target.closest(".ws-search-item");
+        if (item) {
+          var taskId    = item.getAttribute("data-task-id");
+          var taskTitle = item.getAttribute("data-task-title");
+          var create    = item.getAttribute("data-create") === "1";
+          if (taskTitle) wsLinkTask(taskId, taskTitle, create);
+        }
       });
+
+      // Search input
+      var searchInp = $id("ws-search-inp");
+      if (searchInp) {
+        searchInp.addEventListener("input", function() {
+          if (_wsSearchDebounce) clearTimeout(_wsSearchDebounce);
+          var q = this.value;
+          _wsSearchDebounce = setTimeout(function() { wsSearchTasks(q); }, 200);
+        });
+        searchInp.addEventListener("focus", function() {
+          wsSearchTasks(this.value);
+        });
+      }
     }
-    renderTimer();
+
+    renderWorkstation();
   }
 
 })();
