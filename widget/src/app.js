@@ -446,6 +446,9 @@
       // habits window: watch timer state changes to auto-show/hide workstation
       var hbTs = safeJson(keys["widget_timer_state_v1"], null);
       habitsApplyTimerActive(hbTs);
+      // Also auto-show workstation when a task is linked via 🖥 from main app
+      var hbWs = safeJson(keys["widget_workstation_v1"], null);
+      habitsApplyWorkstationLink(hbWs);
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
     }
   }
@@ -453,9 +456,10 @@
   // ── Habits window: auto-show workstation when timer becomes active ──────────
   var _lastTimerActive = false;
   var _wsHideTimer = null;
+  var _lastWorkstationOpenedAt = 0;
 
   function habitsApplyTimerActive(ts) {
-    if (!VIEW_MODE || VIEW_MODE !== "") return;  // only habits window (VIEW_MODE === "")
+    if (VIEW_MODE !== "") return;  // only habits window (VIEW_MODE === "")
     var active = !!(ts && ts.active);
     if (active === _lastTimerActive) return;
     _lastTimerActive = active;
@@ -470,6 +474,21 @@
         _wsHideTimer = null;
         tauriCore.invoke("set_window_visible", {label: "workstation", visible: false}).catch(function() {});
       }, 4000);
+    }
+  }
+
+  // Show workstation window when user clicks 🖥 on a task in the main app
+  function habitsApplyWorkstationLink(ws) {
+    if (VIEW_MODE !== "") return;
+    var openedAt = ws && ws.openedAt ? Number(ws.openedAt) : 0;
+    if (!openedAt || openedAt <= _lastWorkstationOpenedAt) return;
+    _lastWorkstationOpenedAt = openedAt;
+    if (Date.now() - openedAt < 15000) {  // show if link was set < 15s ago
+      var tauriCore = window.__TAURI__ && window.__TAURI__.core;
+      if (tauriCore) {
+        if (_wsHideTimer) { clearTimeout(_wsHideTimer); _wsHideTimer = null; }
+        tauriCore.invoke("set_window_visible", {label: "workstation", visible: true}).catch(function() {});
+      }
     }
   }
 
@@ -1138,16 +1157,16 @@
     matches.forEach(function(t) {
       html += '<div class="ws-search-item" data-task-id="' + esc(String(t.id)) +
               '" data-task-title="' + esc(t.text || "") + '">' +
-              '<span class="ws-search-icon">📋</span>' +
+              '<span class="ws-search-icon">◈</span>' +
               '<span class="ws-search-text">' + esc(t.text || "") + '</span></div>';
     });
     if (q && !matches.length) {
       html += '<div class="ws-search-item ws-search-create" data-create="1" data-task-title="' + esc(query) + '">' +
-              '<span class="ws-search-icon">＋</span>' +
+              '<span class="ws-search-icon">+</span>' +
               '<span class="ws-search-text">"' + esc(query) + '" 할일 생성</span></div>';
     } else if (q) {
       html += '<div class="ws-search-item ws-search-create" data-create="1" data-task-title="' + esc(query) + '">' +
-              '<span class="ws-search-icon">＋</span>' +
+              '<span class="ws-search-icon">+</span>' +
               '<span class="ws-search-text">"' + esc(query) + '" 새 할일로 생성</span></div>';
     }
     resultsEl.innerHTML = html;
@@ -1240,9 +1259,9 @@
 
   // ── Workstation rendering ─────────────────────────────────────────────────────
   var WS_MODES = [
-    ["pomodoro",  "🍅 포모"],
-    ["countdown", "⏱ 카운트"],
-    ["stopwatch", "⏲ 스톱"]
+    ["pomodoro",  "🎯 집중"],
+    ["countdown", "⏳ 카운트"],
+    ["stopwatch", "▷ 스톱"]
   ];
 
   function wsTimerSettingRow(label, field, val, unit) {
@@ -1310,7 +1329,7 @@
       else if (paused) html += '<button class="tm-btn tm-btn-main" data-act="resume" type="button">계속</button>';
       else             html += '<button class="tm-btn tm-btn-main" data-act="start"  type="button">시작</button>';
       if (active)      html += '<button class="tm-btn" data-act="finish" type="button">완료</button>';
-      html += '<button class="tm-btn tm-btn-icon" data-act="reset" type="button" title="초기화">↺</button>';
+      html += '<button class="tm-btn tm-btn-icon" data-act="reset" type="button" title="초기화">⟲</button>';
       html += '</div>';
 
       if (!active) {
@@ -1842,46 +1861,76 @@
     var ref = userRef(); if (!ref) return;
 
     setSyncing(true);
-    var key    = "inbox_v1";
-    var docRef = ref.collection("data").doc(docIdForKey(key));
-    docRef.get().then(function (doc) {
-      var arr = [];
-      if (doc.exists) {
-        try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
-        if (!Array.isArray(arr)) arr = [];
-      }
-      var now  = Date.now();
-      var item = {
-        id:     now,
-        text:   text,
-        cat:    qiType === "task" ? "task" : qiCat,
-        ts:     now,
-        done:   false,
-        unread: qiType === "task"   // 할일은 "처리 필요"로 표시
-      };
-      if (qiAttachedImage) item.imgs = [qiAttachedImage];
-      arr.unshift(item);
-      var value = JSON.stringify(arr);
-      var batch = fbDb.batch();
-      batch.set(docRef, {key: key, value: value, updatedAtMs: now});
-      batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
-      return batch.commit();
-    }).then(function () {
+    var now = Date.now();
+
+    function onSuccess() {
       if (textEl) textEl.value = "";
       qiAttachedImage = null;
       _qiUpdateImgPreview();
       setSyncing(false);
       updateSyncTime();
-      // Brief send feedback
       var sendBtn = $id("qi-send");
       if (sendBtn) {
         sendBtn.textContent = "✓";
         setTimeout(function () { sendBtn.textContent = "전송"; }, 1200);
       }
-    }).catch(function (e) {
+    }
+    function onError(e) {
       console.warn("[widget/qi] send ERR:", e && e.message || e);
       setSyncing(false);
-    });
+    }
+
+    if (qiType === "task") {
+      // Write to task_items_v1 as a proper task (appears in main app task list)
+      var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
+      taskDocRef.get().then(function (doc) {
+        var arr = [];
+        if (doc.exists) {
+          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
+          if (!Array.isArray(arr)) arr = [];
+        }
+        var newTask = {
+          id:        now,
+          text:      text,
+          done:      false,
+          cat:       "task",
+          createdAt: now,
+          updatedAt: now,
+          source:    "widget"
+        };
+        if (qiAttachedImage) newTask.imgs = [qiAttachedImage];
+        arr.unshift(newTask);
+        var batch = fbDb.batch();
+        batch.set(taskDocRef, {key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
+        return batch.commit();
+      }).then(onSuccess).catch(onError);
+    } else {
+      // Write to inbox_v1 (idea / memo / buy etc.)
+      var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
+      inboxDocRef.get().then(function (doc) {
+        var arr = [];
+        if (doc.exists) {
+          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
+          if (!Array.isArray(arr)) arr = [];
+        }
+        var item = {
+          id:        now,
+          text:      text,
+          cat:       qiCat,
+          ts:        now,
+          updatedAt: now,
+          done:      false,
+          unread:    true   // 인박스 항목도 unread=true 로 홈 화면에 표시
+        };
+        if (qiAttachedImage) item.imgs = [qiAttachedImage];
+        arr.unshift(item);
+        var batch = fbDb.batch();
+        batch.set(inboxDocRef, {key: "inbox_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
+        return batch.commit();
+      }).then(onSuccess).catch(onError);
+    }
   }
 
   // Wire quick input window
