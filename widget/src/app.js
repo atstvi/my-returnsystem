@@ -434,6 +434,8 @@
       if (ws && typeof ws === "object") wsApplyWorkstationState(ws);
       // Absorb task notes
       wsTaskNotes = safeJson(keys["task_notes_v1"], {}) || {};
+      // Refresh sessions for current task (task_items_v1 may have been updated)
+      if (wsTaskId) wsLoadTaskSessions(wsTaskId);
       renderWorkstation();
     } else if (VIEW_MODE === "calendar") {
       renderCalendar();
@@ -920,6 +922,8 @@
   // Notes (task_notes_v1)
   var wsTaskNotes = {};        // full map { taskId: { text, updatedAt } }
   var _wsNotesSaveTimer = null;
+  // Focus sessions for the currently linked task (loaded from task.sessions)
+  var wsTaskSessions = [];
 
   function wsLoadCfg() {
     var s = safeJson(localStorage.getItem(WS_CFG_KEY), null);
@@ -964,11 +968,39 @@
     wsTaskId    = newId;
     wsTaskTitle = ws.taskTitle || "";
     wsTaskDue   = ws.due || "";
-    // If task changed, populate notes from our cached map
     if (changed) {
+      wsLoadTaskSessions(newId);
       var el = $id("ws-notes-area");
-      if (el) el.value = wsTaskNotes[wsTaskId] ? wsTaskNotes[wsTaskId].text || "" : "";
+      if (el) { el.value = wsTaskNotes[wsTaskId] ? wsTaskNotes[wsTaskId].text || "" : ""; el._wsPopulated = true; el._wsWired = false; }
     }
+  }
+
+  function wsLoadTaskSessions(taskId) {
+    wsTaskSessions = [];
+    if (!taskId) return;
+    var task = (lastData.tasks || []).find(function(t) { return String(t.id) === taskId; });
+    if (task && Array.isArray(task.sessions)) wsTaskSessions = task.sessions.slice();
+  }
+
+  function wsUpdateTaskSessions(session) {
+    var ref = userRef(); if (!ref || !fbDb) return;
+    var docRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
+    docRef.get().then(function(doc) {
+      var arr = [];
+      if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch(_) {} }
+      if (!Array.isArray(arr)) arr = [];
+      var task = arr.find(function(t) { return String(t.id) === wsTaskId; });
+      if (!task) return;
+      if (!Array.isArray(task.sessions)) task.sessions = [];
+      task.sessions.unshift({ durationMs: session.durationMs, completedAt: session.completedAt, mode: session.mode, phase: session.phase });
+      task.sessions = task.sessions.slice(0, 50);
+      task.updatedAt = Date.now();
+      var now = Date.now();
+      var batch = fbDb.batch();
+      batch.set(docRef, { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+      batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+      return batch.commit();
+    }).catch(function(e) { console.warn("[widget/ws] update task sessions ERR:", e && e.message || e); });
   }
 
   function wsTimerElapsedMs() {
@@ -1117,7 +1149,11 @@
       .collection("widget_focus_sessions").doc(rec.id).set(rec)
       .then(function() {
         wsTimerFootMsg = "✓ " + label + " " + wsTimerFormatMs(ms) + " 기록됨";
+        // Update local sessions list immediately (before Firestore round-trip)
+        wsTaskSessions.unshift({ durationMs: rec.durationMs, completedAt: rec.completedAt, mode: rec.mode, phase: rec.phase });
         renderWorkstation();
+        // Also persist sessions into the task object in task_items_v1
+        if (wsTaskId) wsUpdateTaskSessions(rec);
       })
       .catch(function(e) {
         wsTimerFootMsg = "기록 실패";
@@ -1207,6 +1243,7 @@
     } else {
       wsTaskId = String(taskId);
       wsTaskTitle = taskTitle;
+      wsLoadTaskSessions(wsTaskId);
       wsTimerSync();
       renderWorkstation();
       wsWriteWorkstationKey();
@@ -1237,6 +1274,7 @@
     wsTimer.running = false; wsTimer.startedAt = 0; wsTimer.elapsed = 0;
     wsTimerSetTarget();
     wsTaskId = ""; wsTaskTitle = ""; wsTaskDue = ""; wsTimerFootMsg = "";
+    wsTaskSessions = [];
     var ta = $id("ws-notes-area");
     if (ta) { ta.value = ""; ta._wsPopulated = false; ta._wsWired = false; }
     wsWriteWorkstationKey();
@@ -1351,14 +1389,35 @@
 
       if (!active) {
         html += '<div class="tm-settings">';
-        if (wsCfg.mode === "pomodoro") {
-          html += wsTimerSettingRow("집중",      "work",  wsCfg.pomodoro.work,  "분");
-          html += wsTimerSettingRow("짧은 휴식", "short", wsCfg.pomodoro.short, "분");
-          html += wsTimerSettingRow("긴 휴식",   "long",  wsCfg.pomodoro.long,  "분");
-        } else if (wsCfg.mode === "countdown") {
-          html += wsTimerSettingRow("시간", "cd", wsCfg.countdown.minutes, "분");
+        if (wsTaskId) {
+          // Show focus session timeline for this task
+          if (wsTaskSessions.length === 0) {
+            html += '<div class="ws-sess-empty">이 할일 기록 없음</div>';
+          } else {
+            var totalMs = wsTaskSessions.reduce(function(a, s) { return a + (s.durationMs || 0); }, 0);
+            html += '<div class="ws-sess-total">총 집중 ' + wsTimerFormatMs(totalMs) + '</div>';
+            wsTaskSessions.slice(0, 8).forEach(function(s) {
+              var d = new Date(s.completedAt);
+              var timeStr = (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+                            String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+              var modeLabel = (s.phase === "break" || s.phase === "longBreak") ? "휴식" : "집중";
+              html += '<div class="ws-sess-row">' +
+                '<span class="ws-sess-time">' + timeStr + '</span>' +
+                '<span class="ws-sess-label">' + modeLabel + '</span>' +
+                '<span class="ws-sess-dur">' + wsTimerFormatMs(s.durationMs || 0) + '</span>' +
+                '</div>';
+            });
+          }
         } else {
-          html += '<div class="tm-hint">시작하면 시간이 올라가요.<br>완료를 누르면 기록돼요.</div>';
+          if (wsCfg.mode === "pomodoro") {
+            html += wsTimerSettingRow("집중",      "work",  wsCfg.pomodoro.work,  "분");
+            html += wsTimerSettingRow("짧은 휴식", "short", wsCfg.pomodoro.short, "분");
+            html += wsTimerSettingRow("긴 휴식",   "long",  wsCfg.pomodoro.long,  "분");
+          } else if (wsCfg.mode === "countdown") {
+            html += wsTimerSettingRow("시간", "cd", wsCfg.countdown.minutes, "분");
+          } else {
+            html += '<div class="tm-hint">시작하면 시간이 올라가요.<br>완료를 누르면 기록돼요.</div>';
+          }
         }
         html += '</div>';
       }
