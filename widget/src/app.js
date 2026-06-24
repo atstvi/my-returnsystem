@@ -475,7 +475,7 @@
   function habitRow(h, state) {
     var mark = STATE_MARK[state] || "";
     var cls  = STATE_CLASS[state] || "s-none";
-    return '<div class="habit-row">' +
+    return '<div class="habit-row" data-habit-id="' + esc(String(h.id)) + '">' +
       '<span class="habit-mark ' + cls + '">' + esc(mark) + '</span>' +
       '<span class="habit-icon">' + esc(h.icon || h.emoji || "") + '</span>' +
       '<span class="habit-name">' + esc(h.title || h.name || "") + '</span>' +
@@ -484,6 +484,128 @@
 
   function esc(s) {
     return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+
+  // ── W6: habit state write-back (OFF by default) ─────────────────────────────
+  // The widget can toggle today's habit state and write it back. This is the
+  // highest-risk path in the project (routine_logs_v1 is blob-synced with a
+  // per-date, cloud-wins-per-(date,habit) union merge — see index.html
+  // fbApplyData), so it is GATED behind a device-local opt-in (default OFF) and
+  // must pass the two-device verification matrix (docs/WIDGET_DESIGN.md §6.1)
+  // before being relied on.
+  //
+  // Write strategy (minimise the clobber window): fresh-read cloud
+  // routine_logs_v1, apply ONLY the single toggled (date,habit), write the doc
+  // back with the SAME deterministic doc id the web app uses
+  // (fbDocIdForKey → encodeURIComponent), then bump the user-doc header so the
+  // web app's onSnapshot fires and union-merges our change.
+  var WRITEBACK_KEY = "widget_writeback_enabled";
+  var writebackOn = false;
+  try { writebackOn = localStorage.getItem(WRITEBACK_KEY) === "1"; } catch (_) {}
+  var _habitWriteBusy = false;
+  var HABIT_STATES = ["", "done", "skip", "rest"];
+
+  // Stable per-device client id, DISTINCT from the web app's, so the web app
+  // never treats our write as a self-echo (and thus actually applies it).
+  var WIDGET_CLIENT_ID = (function () {
+    try {
+      var k = "widget_fb_client_id", v = localStorage.getItem(k);
+      if (!v) { v = "widget_" + Date.now() + "_" + Math.floor(Math.random() * 1e6); localStorage.setItem(k, v); }
+      return v;
+    } catch (_) { return "widget_" + Date.now(); }
+  })();
+
+  function docIdForKey(k) { return encodeURIComponent(k).replace(/\./g, "%2E"); }
+
+  function userRef() {
+    var u = fbAuth.currentUser;
+    return (u && fbDb) ? fbDb.collection("users").doc(u.uid) : null;
+  }
+
+  // Fresh-read routine_logs_v1 straight from the cloud data subcollection
+  // (handles the single-doc and chunked-doc layouts), falling back to the
+  // last snapshot copy if the query is unavailable.
+  function readRoutineLogsFresh(ref) {
+    return ref.collection("data").where("key", "==", "routine_logs_v1").get()
+      .then(function (qs) {
+        var whole = null, parts = [];
+        qs.forEach(function (doc) {
+          var d = doc.data() || {};
+          if (d.value != null && d.part == null) whole = d.value;
+          else if (d.part != null) parts[d.part] = d.value || "";
+        });
+        var raw = whole != null ? whole : (parts.length ? parts.join("") : "{}");
+        return safeJson(raw, {}) || {};
+      })
+      .catch(function () { return JSON.parse(JSON.stringify(lastData.logs || {})); });
+  }
+
+  function writeRoutineLogs(ref, logs) {
+    var value = JSON.stringify(logs || {});
+    // routine_logs_v1 is tiny in practice; refuse to write if it would need
+    // chunking (the widget doesn't replicate the web app's chunk cleanup).
+    if (value.length > 700000) return Promise.reject(new Error("routine_logs too large for widget write"));
+    var now = Date.now();
+    var batch = fbDb.batch();
+    batch.set(ref.collection("data").doc(docIdForKey("routine_logs_v1")),
+              { key: "routine_logs_v1", value: value, updatedAtMs: now });
+    // Bump the user-doc header (merge) so the web app's onSnapshot fires.
+    batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+    return batch.commit();
+  }
+
+  function cycleHabit(habitId) {
+    if (!writebackOn || _habitWriteBusy) return;
+    var ref = userRef();
+    if (!ref) return;
+    _habitWriteBusy = true;
+    setSyncing(true);
+    readRoutineLogsFresh(ref).then(function (logs) {
+      var dk = todayKey();
+      logs[dk] = logs[dk] || {};
+      var entry = logs[dk][habitId] || {};
+      var cur = entry.state || "";
+      var next = HABIT_STATES[(HABIT_STATES.indexOf(cur) + 1) % HABIT_STATES.length];
+      logs[dk][habitId] = { state: next, updatedAt: Date.now() };
+      // Optimistic local update so the row reflects immediately.
+      lastData.logs = logs;
+      renderHabits(lastData.habits, lastData.bundles, lastData.logs);
+      return writeRoutineLogs(ref, logs);
+    }).then(function () {
+      dbg("habit write OK · " + habitId);
+      setSyncing(false); updateSyncTime();
+    }).catch(function (e) {
+      dbg("habit write ERR · " + (e && e.message ? e.message : String(e)));
+      setSyncing(false);
+    }).then(function () { _habitWriteBusy = false; });
+  }
+
+  function setWriteback(on) {
+    writebackOn = !!on;
+    try { localStorage.setItem(WRITEBACK_KEY, writebackOn ? "1" : "0"); } catch (_) {}
+    var btn = $id("edit-toggle-btn");
+    if (btn) {
+      btn.classList.toggle("on", writebackOn);
+      btn.title = writebackOn ? "쓰기 모드 ON — 해빗을 탭하면 상태가 바뀝니다" : "쓰기 모드 — 탭해서 해빗 상태 변경";
+    }
+    var list = $id("habit-list");
+    if (list) list.classList.toggle("writable", writebackOn);
+  }
+
+  // Wire the habits window's write-back affordances (only in that window).
+  if (VIEW_MODE === "habits") {
+    on("edit-toggle-btn", function () { setWriteback(!writebackOn); });
+    var _hl = $id("habit-list");
+    if (_hl) {
+      _hl.addEventListener("click", function (e) {
+        if (!writebackOn) return;
+        var row = e.target.closest && e.target.closest("[data-habit-id]");
+        if (!row) return;
+        var id = row.getAttribute("data-habit-id");
+        if (id) cycleHabit(id);
+      });
+    }
+    setWriteback(writebackOn);  // reflect persisted state on load
   }
 
   // ── Time helpers ───────────────────────────────────────────────────────────
