@@ -1227,6 +1227,23 @@
     batch.commit().catch(function(e) { console.warn("[widget/ws] workstation key ERR:", e && e.message || e); });
   }
 
+  function wsUnlinkTask() {
+    var elapsed = wsTimerElapsedMs();
+    if (elapsed >= 1000) {
+      if (wsTimer.tick) { clearInterval(wsTimer.tick); wsTimer.tick = null; }
+      wsTimerLogSession(elapsed, wsCfg.mode, wsTimer.phase);
+    }
+    if (wsTimer.tick) { clearInterval(wsTimer.tick); wsTimer.tick = null; }
+    wsTimer.running = false; wsTimer.startedAt = 0; wsTimer.elapsed = 0;
+    wsTimerSetTarget();
+    wsTaskId = ""; wsTaskTitle = ""; wsTaskDue = ""; wsTimerFootMsg = "";
+    var ta = $id("ws-notes-area");
+    if (ta) { ta.value = ""; ta._wsPopulated = false; ta._wsWired = false; }
+    wsWriteWorkstationKey();
+    wsTimerSync();
+    renderWorkstation();
+  }
+
   // ── Notes save ───────────────────────────────────────────────────────────────
   function wsNotesSaveNow() {
     if (_wsNotesSaveTimer) { clearTimeout(_wsNotesSaveTimer); _wsNotesSaveTimer = null; }
@@ -1943,6 +1960,7 @@
     wsLoadCfg();
     wsTimerSetTarget();
     on("ws-sign-out-btn", signOut);
+    on("ws-unlink-btn", wsUnlinkTask);
 
     var wsView = $id("view-workstation");
     if (wsView) {
