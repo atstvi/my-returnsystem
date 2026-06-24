@@ -13,6 +13,8 @@
 //     with its own tray toggle and block-style calendar view.
 // W4 (timer): a third window — "timer" — a standalone Pomodoro/countdown/
 //     stopwatch that logs completed focus sessions to Firestore (append-only).
+// W7 (calendar): monthly calendar window showing task dots per day.
+// W8 (memo): sticky-note memo widget with rich-text editing.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -222,6 +224,10 @@ pub fn run() {
                 MenuItem::with_id(app, "timeline-show", "⏱ 타임블록 위젯", true, None::<&str>)?;
             let timer_item =
                 MenuItem::with_id(app, "timer-show", "⏲ 타이머 위젯", true, None::<&str>)?;
+            let calendar_item =
+                MenuItem::with_id(app, "calendar-show", "📅 달력 위젯", true, None::<&str>)?;
+            let memo_item =
+                MenuItem::with_id(app, "memo-show", "📝 메모 위젯", true, None::<&str>)?;
             let sep1 = PredefinedMenuItem::separator(app)?;
             let auto_item = CheckMenuItem::with_id(
                 app,
@@ -235,7 +241,7 @@ pub fn run() {
             let quit_item = MenuItem::with_id(app, "quit", "종료", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
-                &[&habits_item, &timeline_item, &timer_item, &sep1, &auto_item, &sep2, &quit_item],
+                &[&habits_item, &timeline_item, &timer_item, &calendar_item, &memo_item, &sep1, &auto_item, &sep2, &quit_item],
             )?;
 
             let auto_item_handle = auto_item.clone();
@@ -249,6 +255,8 @@ pub fn run() {
                     "habits-show"   => toggle_window(app, "habits"),
                     "timeline-show" => toggle_window(app, "timeline"),
                     "timer-show"    => toggle_window(app, "timer"),
+                    "calendar-show" => toggle_window(app, "calendar"),
+                    "memo-show"     => toggle_window(app, "memo"),
                     "autostart" => {
                         let mgr = app.autolaunch();
                         let enabled = mgr.is_enabled().unwrap_or(false);
@@ -268,6 +276,8 @@ pub fn run() {
                         show_window(tray.app_handle(), "habits");
                         show_window(tray.app_handle(), "timeline");
                         show_window(tray.app_handle(), "timer");
+                        show_window(tray.app_handle(), "calendar");
+                        show_window(tray.app_handle(), "memo");
                     }
                 })
                 .build(app)?;
