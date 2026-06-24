@@ -17971,7 +17971,21 @@ function buildTaskEl(task){
     body.appendChild(prepListEl);
   }
 
-  el.appendChild(selCk);el.appendChild(dh);el.appendChild(ckWrap);el.appendChild(body);
+  /* 📌 Workstation button — opens task in the workstation widget */
+  var wsBtn=document.createElement('button');
+  wsBtn.className='task-ws-btn';
+  wsBtn.type='button';
+  wsBtn.title='작업대 위젯으로 열기';
+  wsBtn.textContent='🖥';
+  wsBtn.style.cssText='border:0;border-radius:var(--r-full);background:var(--bg-card);color:var(--fg-3);font-size:var(--text-2xs);padding:0 var(--sp-2);height:20px;box-shadow:var(--shadow-1);cursor:pointer;flex-shrink:0;margin-left:auto;opacity:0;transition:opacity .15s';
+  wsBtn.addEventListener('click',function(e){
+    e.stopPropagation();
+    openTaskWorkstation(task.id, task.text, task.deadlineDate||task.date||'');
+  });
+  el.addEventListener('mouseenter',function(){wsBtn.style.opacity='1';});
+  el.addEventListener('mouseleave',function(){wsBtn.style.opacity='0';});
+
+  el.appendChild(selCk);el.appendChild(dh);el.appendChild(ckWrap);el.appendChild(body);el.appendChild(wsBtn);
 
   /* Click: sel mode → toggle sel, else open modal */
   el.addEventListener('click',function(){
@@ -23908,7 +23922,7 @@ function closeSetNav() {
    the Tauri widget reads & applies it (timeline hour range, habit count cap,
    accent-color follow). Mirrors the notif_prefs_v1 settings pattern. */
 var WIDGET_PREFS_KEY='widget_prefs_v1';
-var WIDGET_PREFS_DEFAULT={timelineStartHour:6,timelineEndHour:24,habitLimit:0,followAccent:true,showTimeline:true,showTimer:true,showCalendar:true,showMemo:true,showQuickinput:true,autostart:true,widgetBgColor:''};
+var WIDGET_PREFS_DEFAULT={timelineStartHour:6,timelineEndHour:24,habitLimit:0,followAccent:true,showTimeline:true,showWorkstation:true,showCalendar:true,showQuickinput:true,autostart:true,widgetBgColor:''};
 function loadWidgetPrefs(){
   var p=Object.assign({},WIDGET_PREFS_DEFAULT);
   try{
@@ -23919,9 +23933,8 @@ function loadWidgetPrefs(){
       if(typeof s.habitLimit==='number')p.habitLimit=s.habitLimit;
       if(typeof s.followAccent==='boolean')p.followAccent=s.followAccent;
       if(typeof s.showTimeline==='boolean')p.showTimeline=s.showTimeline;
-      if(typeof s.showTimer==='boolean')p.showTimer=s.showTimer;
+      if(typeof s.showWorkstation==='boolean')p.showWorkstation=s.showWorkstation;
       if(typeof s.showCalendar==='boolean')p.showCalendar=s.showCalendar;
-      if(typeof s.showMemo==='boolean')p.showMemo=s.showMemo;
       if(typeof s.showQuickinput==='boolean')p.showQuickinput=s.showQuickinput;
       if(typeof s.autostart==='boolean')p.autostart=s.autostart;
       if(typeof s.widgetBgColor==='string')p.widgetBgColor=s.widgetBgColor;
@@ -23990,11 +24003,10 @@ function renderWidgetPanel(){
       '</div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--sp-3);padding:0 var(--sp-4) var(--sp-4)">'+
         [
-          {key:'showTimeline',   label:'⏱ 타임블록'},
-          {key:'showTimer',      label:'⏲ 타이머'},
-          {key:'showCalendar',   label:'📅 달력'},
-          {key:'showMemo',       label:'📝 메모'},
-          {key:'showQuickinput', label:'⚡ 빠른입력'}
+          {key:'showTimeline',    label:'⏱ 타임블록'},
+          {key:'showWorkstation', label:'🖥 작업대'},
+          {key:'showCalendar',    label:'📅 달력'},
+          {key:'showQuickinput',  label:'⚡ 빠른입력'}
         ].map(function(w){
           var on=p[w.key]!==false;
           return '<label style="display:flex;align-items:center;gap:var(--sp-2);font-size:var(--text-sm);cursor:pointer;user-select:none">'+
@@ -36719,6 +36731,7 @@ function focusTimerStop(){
   if(focusTimerState.mode==='pomodoro'){focusTimerState.phase='work';}
   focusTimerSetTarget();focusAudioStop();
   renderFocusTimer();renderFocusTimerMini();
+  syncWidgetTimerState();
   if(typeof showToast==='function')showToast(elapsed>=1000?('중단 — '+focusTimerFormatMs(elapsed)+' 기록됨'):'중단됨');
 }
 function focusTimerStartForTask(taskId){
@@ -36747,6 +36760,7 @@ function focusTimerStart(opts){
   focusTimerState.timer=setInterval(focusTimerTick,1000);
   focusAudioPlay(focusTimerCfg.sound,focusTimerCfg.soundVol);
   renderFocusTimer();renderFocusTimerMini();
+  syncWidgetTimerState();
 }
 function focusTimerPause(){
   if(!focusTimerState.running)return;
@@ -36754,6 +36768,7 @@ function focusTimerPause(){
   focusTimerState.elapsed+=(Date.now()-focusTimerState.startedAt);
   focusTimerState.startedAt=0;focusTimerState.running=false;focusTimerState.timer=null;
   focusAudioStop();renderFocusTimer();renderFocusTimerMini();
+  syncWidgetTimerState();
 }
 function focusTimerResume(){
   if(focusTimerState.running)return;
@@ -36763,12 +36778,14 @@ function focusTimerResume(){
   focusTimerState.timer=setInterval(focusTimerTick,1000);
   focusAudioPlay(focusTimerCfg.sound,focusTimerCfg.soundVol);
   renderFocusTimer();renderFocusTimerMini();
+  syncWidgetTimerState();
 }
 function focusTimerReset(){
   if(focusTimerState.timer)clearInterval(focusTimerState.timer);
   focusTimerState.running=false;focusTimerState.startedAt=0;focusTimerState.elapsed=0;focusTimerState.timer=null;
   focusTimerSetTarget();focusAudioStop();
   renderFocusTimer();renderFocusTimerMini();
+  syncWidgetTimerState();
 }
 function focusTimerFinish(auto){
   var elapsed=focusTimerElapsedMs();
@@ -36785,6 +36802,60 @@ function focusTimerFinish(auto){
     focusAudioStop();renderFocusTimer();renderFocusTimerMini();
     if(typeof showToast==='function')showToast('타이머 완료! ✓');
   }
+  syncWidgetTimerState();
+}
+
+/* ── Widget timer state sync ─────────────────────────────────────────────────
+   Writes widget_timer_state_v1 to Firestore after every timer state change so
+   the workstation widget stays in sync with the main app's focus timer.
+   Uses a short debounce to batch rapid calls (e.g. finish → nextPhase → start). */
+var _syncWidgetTimerDebounce = null;
+function syncWidgetTimerState(){
+  if(_syncWidgetTimerDebounce)clearTimeout(_syncWidgetTimerDebounce);
+  _syncWidgetTimerDebounce=setTimeout(_doSyncWidgetTimerState, 120);
+}
+function _doSyncWidgetTimerState(){
+  _syncWidgetTimerDebounce=null;
+  try{
+    if(!fbDb||!fbUser)return;
+    var linkedTask=focusTimerLinkedTask();
+    var val=JSON.stringify({
+      active:   focusTimerState.running||(focusTimerState.elapsed>0),
+      running:  focusTimerState.running,
+      mode:     focusTimerState.mode||focusTimerCfg.mode,
+      phase:    focusTimerState.phase||'work',
+      pomCount: focusTimerState.pomCount||0,
+      targetMs: focusTimerState.targetMs||0,
+      elapsed:  focusTimerElapsedMs(),
+      startedAt:focusTimerState.running?focusTimerState.startedAt:0,
+      taskId:   focusTimerState.linkedTaskId||null,
+      taskTitle:linkedTask?(linkedTask.text||''):null,
+      updatedAt:Date.now()
+    });
+    var ref=fbDb.collection('users').doc(fbUser.uid);
+    var docKey=encodeURIComponent('widget_timer_state_v1').replace(/\./g,'%2E');
+    var now=Date.now();
+    ref.collection('data').doc(docKey).set({key:'widget_timer_state_v1',value:val,updatedAtMs:now})
+      .then(function(){return ref.set({updatedAtMs:now,split:true},{merge:true});})
+      .catch(function(e){console.warn('[timer] widget sync ERR:',e&&e.message||e);});
+  }catch(e){console.warn('[timer] widget sync ERR:',e);}
+}
+
+/* ── Widget workstation key (📌 button in task list) ─────────────────────────
+   Opens the workstation widget focused on a specific task. */
+function openTaskWorkstation(taskId, taskTitle, due){
+  try{
+    if(!fbDb||!fbUser)return;
+    var val=JSON.stringify({taskId:String(taskId),taskTitle:taskTitle||'',due:due||'',openedAt:Date.now()});
+    var ref=fbDb.collection('users').doc(fbUser.uid);
+    var docKey=encodeURIComponent('widget_workstation_v1').replace(/\./g,'%2E');
+    var now=Date.now();
+    var batch=fbDb.batch();
+    batch.set(ref.collection('data').doc(docKey),{key:'widget_workstation_v1',value:val,updatedAtMs:now});
+    batch.set(ref,{updatedAtMs:now,split:true},{merge:true});
+    batch.commit().catch(function(e){console.warn('[ws] open workstation ERR:',e&&e.message||e);});
+    if(typeof showToast==='function')showToast('작업대 위젯으로 전송됨 🖥');
+  }catch(e){console.warn('[ws] open workstation ERR:',e);}
 }
 function focusTimerTick(){
   var remaining=focusTimerRemainingMs();
