@@ -64,12 +64,14 @@
   on("close-btn", function () { if (appWindow) appWindow.close().catch(console.error); });
 
   // ── Views ──────────────────────────────────────────────────────────────────
-  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "error"];
+  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "calendar", "memo", "error"];
 
   // The data view this window lands on after auth.
   function mainViewName() {
     return VIEW_MODE === "timeline" ? "timeline"
          : VIEW_MODE === "timer"    ? "timer"
+         : VIEW_MODE === "calendar" ? "calendar"
+         : VIEW_MODE === "memo"     ? "memo"
          : "habits";
   }
 
@@ -228,6 +230,8 @@
   function signOut() { teardownListener(); fbAuth.signOut(); }
   on("sign-out-btn",     signOut);
   on("tbl-sign-out-btn", signOut);
+  on("cal-sign-out-btn", signOut);
+  on("memo-sign-out-btn", signOut);
 
   on("dbg-toggle", function () {
     var el = $id("dbg-log");
@@ -396,6 +400,15 @@
       renderTimelineBlocks();
     } else if (VIEW_MODE === "timer") {
       renderTimer();   // timer is data-independent; just make sure it's drawn
+    } else if (VIEW_MODE === "calendar") {
+      renderCalendar();
+    } else if (VIEW_MODE === "memo") {
+      // Only absorb cloud memos when not actively editing (avoid clobbering the open editor)
+      if (!activeMemoId) {
+        memos = safeJson(keys[MEMO_KEY], []) || [];
+        if (!Array.isArray(memos)) memos = [];
+        renderMemoList();
+      }
     } else {
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
     }
@@ -765,15 +778,22 @@
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
     if (VIEW_MODE === "timer") return;   // timer window has no sync indicator
-    var id  = VIEW_MODE === "timeline" ? "tbl-sync-dot" : "sync-dot";
-    var dot = $id(id);
+    var dotId = VIEW_MODE === "timeline" ? "tbl-sync-dot"
+              : VIEW_MODE === "calendar" ? "cal-sync-dot"
+              : VIEW_MODE === "memo"     ? null
+              : "sync-dot";
+    if (!dotId) return;
+    var dot = $id(dotId);
     if (dot) dot.className = "w-sync-dot" + (active ? " syncing" : "");
   }
 
   function updateSyncTime() {
     if (VIEW_MODE === "timer") return;
-    var id = VIEW_MODE === "timeline" ? "tbl-sync-time" : "sync-time";
-    var el = $id(id);
+    var timeId = VIEW_MODE === "timeline" ? "tbl-sync-time"
+               : VIEW_MODE === "calendar" ? "cal-sync-time"
+               : VIEW_MODE === "memo"     ? "memo-sync-time"
+               : "sync-time";
+    var el = $id(timeId);
     if (!el) return;
     var d = new Date();
     el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
@@ -1056,6 +1076,345 @@
     saveTimerCfg();
     if (!timerState.running && timerState.elapsed === 0) timerSetTarget();
     renderTimer();
+  }
+
+  // ── Monthly Calendar (W7) ──────────────────────────────────────────────────
+  var calYear  = new Date().getFullYear();
+  var calMonth = new Date().getMonth();   // 0-based
+
+  function calDayKey(y, m, d) {
+    return y + "-" +
+      String(m + 1).padStart(2, "0") + "-" +
+      String(d).padStart(2, "0");
+  }
+
+  function renderCalendar() {
+    var grid  = $id("cal-grid");
+    if (!grid) return;
+
+    var label = $id("cal-month-label");
+    if (label) label.textContent = calYear + "년 " + (calMonth + 1) + "월";
+
+    // Build task index by date key
+    var tasksByDate = {};
+    (lastData.tasks || []).forEach(function (t) {
+      if (!t) return;
+      var dates = [];
+      if (t.date) dates.push(t.date);
+      if (t.deadlineDate && t.deadlineDate !== t.date) dates.push(t.deadlineDate);
+      dates.forEach(function (dk) {
+        if (!tasksByDate[dk]) tasksByDate[dk] = [];
+        tasksByDate[dk].push(t);
+      });
+    });
+
+    var today = new Date();
+    var firstDay = new Date(calYear, calMonth, 1).getDay();   // 0=Sun
+    var daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+    var todayDayNum = (today.getFullYear() === calYear && today.getMonth() === calMonth)
+      ? today.getDate() : -1;
+
+    var html = "";
+    // Leading blank cells before the 1st
+    for (var b = 0; b < firstDay; b++) {
+      html += '<div class="cal-cell cal-cell-blank"></div>';
+    }
+    for (var d = 1; d <= daysInMonth; d++) {
+      var dk    = calDayKey(calYear, calMonth, d);
+      var tasks = tasksByDate[dk] || [];
+      var done  = tasks.filter(function (t) { return !!t.done; }).length;
+      var total = tasks.length;
+      var isToday = d === todayDayNum;
+      var dow     = (firstDay + d - 1) % 7;
+      var cls     = "cal-cell"
+        + (isToday ? " cal-today" : "")
+        + (dow === 0 ? " cal-sun" : "")
+        + (dow === 6 ? " cal-sat" : "");
+      html += '<div class="' + cls + '" data-cal-day="' + d + '">';
+      html += '<span class="cal-day-num">' + d + '</span>';
+      if (total > 0) {
+        html += '<div class="cal-dots">';
+        var maxDots = Math.min(total, 3);
+        for (var i = 0; i < maxDots; i++) {
+          html += '<span class="cal-dot' + (i < done ? " done" : "") + '"></span>';
+        }
+        if (total > 3) html += '<span class="cal-more">+' + (total - 3) + '</span>';
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+    grid.innerHTML = html;
+  }
+
+  function showCalDayPanel(d) {
+    var dk = calDayKey(calYear, calMonth, d);
+    var panel     = $id("cal-day-panel");
+    var panelLabel = $id("cal-day-label");
+    var panelList  = $id("cal-day-list");
+    if (!panel || !panelList) return;
+
+    if (panelLabel) panelLabel.textContent = (calMonth + 1) + "월 " + d + "일";
+
+    var tasks = (lastData.tasks || []).filter(function (t) {
+      return t && (t.date === dk || t.deadlineDate === dk);
+    });
+
+    if (!tasks.length) {
+      panelList.innerHTML = '<div class="w-empty" style="padding:10px 12px">일정 없음</div>';
+    } else {
+      panelList.innerHTML = tasks.map(function (t) {
+        var isDeadline = t.deadlineDate === dk && t.date !== dk;
+        return '<div class="cal-task-row' + (t.done ? " done" : "") + '">' +
+          '<span class="cal-task-dot' + (t.done ? " done" : "") + '"></span>' +
+          '<span class="cal-task-text">' + esc(t.text || t.title || "") + '</span>' +
+          (isDeadline ? '<span class="tb-tag">마감</span>' : '') +
+          '</div>';
+      }).join("");
+    }
+    panel.style.display = "";
+  }
+
+  // Wire calendar events (only in the calendar window)
+  if (VIEW_MODE === "calendar") {
+    on("cal-prev", function () {
+      calMonth--;
+      if (calMonth < 0) { calMonth = 11; calYear--; }
+      var p = $id("cal-day-panel"); if (p) p.style.display = "none";
+      renderCalendar();
+    });
+    on("cal-next", function () {
+      calMonth++;
+      if (calMonth > 11) { calMonth = 0; calYear++; }
+      var p = $id("cal-day-panel"); if (p) p.style.display = "none";
+      renderCalendar();
+    });
+    on("cal-day-close", function () {
+      var p = $id("cal-day-panel"); if (p) p.style.display = "none";
+    });
+
+    var calGridEl = $id("cal-grid");
+    if (calGridEl) {
+      calGridEl.addEventListener("click", function (e) {
+        var cell = e.target.closest && e.target.closest("[data-cal-day]");
+        if (!cell) return;
+        var day = parseInt(cell.getAttribute("data-cal-day"), 10);
+        if (day) showCalDayPanel(day);
+      });
+    }
+  }
+
+  // Refresh calendar every minute (keeps today-highlight current at midnight rollover)
+  setInterval(function () {
+    if (VIEW_MODE === "calendar") renderCalendar();
+  }, 60000);
+
+  // ── Sticky Memo (W8) ───────────────────────────────────────────────────────
+  var MEMO_KEY = "widget_memo_v1";
+  var memos        = [];    // [{id, color, html, updatedAt}]
+  var activeMemoId = null;  // id of memo currently open in editor
+  var _memoSaveTimer = null;
+
+  var MEMO_BG_COLORS = ["#23252b", "#2b2012", "#102030", "#1a2b1a", "#2b1a2b", "#291a1a"];
+
+  function memoById(id) {
+    for (var i = 0; i < memos.length; i++) { if (memos[i].id === id) return memos[i]; }
+    return null;
+  }
+
+  function memoSaveNow() {
+    if (_memoSaveTimer) { clearTimeout(_memoSaveTimer); _memoSaveTimer = null; }
+    var ref = userRef(); if (!ref) return;
+    var value = JSON.stringify(memos);
+    if (value.length > 700000) { console.warn("[widget/memo] memos too large, skipping save"); return; }
+    var now = Date.now();
+    var batch = fbDb.batch();
+    batch.set(ref.collection("data").doc(docIdForKey(MEMO_KEY)),
+              { key: MEMO_KEY, value: value, updatedAtMs: now });
+    batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
+    batch.commit()
+      .then(function () {
+        var el = $id("memo-sync-time");
+        if (!el) return;
+        var d = new Date();
+        el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
+                         String(d.getMinutes()).padStart(2, "0") + " 저장됨";
+      })
+      .catch(function (e) { console.warn("[widget/memo] save ERR:", e && e.message || e); });
+  }
+
+  function memoScheduleSave() {
+    if (_memoSaveTimer) clearTimeout(_memoSaveTimer);
+    _memoSaveTimer = setTimeout(memoSaveNow, 1200);
+  }
+
+  function renderMemoList() {
+    var listEl = $id("memo-list");
+    if (!listEl) return;
+    if (!memos.length) {
+      listEl.innerHTML = '<div class="w-empty">메모가 없어요<br><small style="font-size:10px">+ 새 메모 버튼으로 추가하세요</small></div>';
+      return;
+    }
+    listEl.innerHTML = memos.map(function (m) {
+      var raw = (m.html || "").replace(/<[^>]+>/g, "");
+      var preview = raw.slice(0, 100) || "";
+      return '<div class="memo-card" data-memo-id="' + esc(m.id) + '" style="background:' + esc(m.color || "#23252b") + '">' +
+        (preview
+          ? '<div class="memo-card-content">' + esc(preview) + '</div>'
+          : '<div class="memo-card-content memo-card-empty">빈 메모</div>') +
+        '</div>';
+    }).join("");
+  }
+
+  function openMemoEditor(id) {
+    var m = memoById(id);
+    if (!m) return;
+    activeMemoId = id;
+    var listPane = $id("memo-list-pane");
+    var editPane = $id("memo-edit-pane");
+    if (listPane) listPane.style.display = "none";
+    if (editPane) editPane.style.display = "";
+
+    var content = $id("memo-content");
+    if (content) {
+      content.innerHTML = m.html || "";
+      content.style.background = m.color || "#23252b";
+      // Defer focus so display transition completes first
+      setTimeout(function () { if (content) content.focus(); }, 50);
+    }
+    var colorPick = $id("memo-bg-color");
+    if (colorPick) colorPick.value = m.color || "#23252b";
+  }
+
+  function closeMemoEditor() {
+    // Flush any pending save before leaving the editor
+    if (_memoSaveTimer) { clearTimeout(_memoSaveTimer); _memoSaveTimer = null; memoSaveNow(); }
+    activeMemoId = null;
+    var listPane = $id("memo-list-pane");
+    var editPane = $id("memo-edit-pane");
+    if (listPane) listPane.style.display = "";
+    if (editPane) editPane.style.display = "none";
+    renderMemoList();
+  }
+
+  function addMemo() {
+    var id = "wm_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+    var colorIdx = memos.length % MEMO_BG_COLORS.length;
+    memos.unshift({ id: id, color: MEMO_BG_COLORS[colorIdx], html: "", updatedAt: Date.now() });
+    openMemoEditor(id);
+    memoScheduleSave();
+  }
+
+  function deleteMemo(id) {
+    memos = memos.filter(function (m) { return m.id !== id; });
+    // Close editor before save so closeMemoEditor's memoSaveNow doesn't conflict
+    activeMemoId = null;
+    var listPane = $id("memo-list-pane");
+    var editPane = $id("memo-edit-pane");
+    if (listPane) listPane.style.display = "";
+    if (editPane) editPane.style.display = "none";
+    renderMemoList();
+    memoSaveNow();
+  }
+
+  function execFmt(cmd) {
+    document.execCommand(cmd, false, null);
+    var c = $id("memo-content"); if (c) c.focus();
+  }
+
+  function applyFontSizePx(px) {
+    var content = $id("memo-content");
+    if (!content) return;
+    content.focus();
+    var sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed) {
+      var range = sel.getRangeAt(0);
+      var span = document.createElement("span");
+      span.style.fontSize = px + "px";
+      try {
+        range.surroundContents(span);
+      } catch (_) {
+        // Selection spans multiple elements — wrap with execCommand fontSize marker then replace
+        document.execCommand("fontSize", false, "7");
+        content.querySelectorAll('font[size="7"]').forEach(function (f) {
+          var s = document.createElement("span");
+          s.style.fontSize = px + "px";
+          while (f.firstChild) s.appendChild(f.firstChild);
+          f.parentNode.replaceChild(s, f);
+        });
+      }
+    }
+  }
+
+  // Wire memo window events (only in the memo window)
+  if (VIEW_MODE === "memo") {
+    on("memo-add-btn", addMemo);
+
+    var memoListEl = $id("memo-list");
+    if (memoListEl) {
+      memoListEl.addEventListener("click", function (e) {
+        var card = e.target.closest && e.target.closest("[data-memo-id]");
+        if (!card) return;
+        var id = card.getAttribute("data-memo-id");
+        if (id) openMemoEditor(id);
+      });
+    }
+
+    var memoToolbarEl = $id("memo-toolbar");
+    if (memoToolbarEl) {
+      memoToolbarEl.addEventListener("click", function (e) {
+        var btn = e.target.closest && e.target.closest("[data-act]");
+        if (!btn) return;
+        var act = btn.getAttribute("data-act");
+        if      (act === "back")      { closeMemoEditor(); }
+        else if (act === "bold")      { execFmt("bold"); }
+        else if (act === "italic")    { execFmt("italic"); }
+        else if (act === "underline") { execFmt("underline"); }
+        else if (act === "link") {
+          var url = window.prompt("링크 URL을 입력하세요:");
+          if (url) {
+            document.execCommand("createLink", false, url);
+            var c = $id("memo-content"); if (c) c.focus();
+          }
+        } else if (act === "delete" && activeMemoId) {
+          if (window.confirm("이 메모를 삭제할까요?")) deleteMemo(activeMemoId);
+        }
+      });
+    }
+
+    var fontsizeEl = $id("memo-fontsize");
+    if (fontsizeEl) {
+      fontsizeEl.addEventListener("change", function () {
+        applyFontSizePx(parseInt(fontsizeEl.value, 10));
+      });
+    }
+
+    var bgColorEl = $id("memo-bg-color");
+    if (bgColorEl) {
+      bgColorEl.addEventListener("input", function () {
+        var m = memoById(activeMemoId);
+        if (m) m.color = bgColorEl.value;
+        var content = $id("memo-content");
+        if (content) content.style.background = bgColorEl.value;
+      });
+      bgColorEl.addEventListener("change", function () { memoScheduleSave(); });
+    }
+
+    var memoContentEl = $id("memo-content");
+    if (memoContentEl) {
+      memoContentEl.addEventListener("input", function () {
+        var m = memoById(activeMemoId);
+        if (m) { m.html = memoContentEl.innerHTML; m.updatedAt = Date.now(); }
+        memoScheduleSave();
+      });
+      // Open links in the system browser (Ctrl/Cmd+click on an anchor)
+      memoContentEl.addEventListener("click", function (e) {
+        var a = e.target.closest && e.target.closest("a[href]");
+        if (a && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          openExternal(a.getAttribute("href")).catch(function () {});
+        }
+      });
+    }
   }
 
   // Wire the timer window (delegated clicks) and prime it. Only in the timer
