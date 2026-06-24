@@ -425,8 +425,10 @@
     } else if (VIEW_MODE === "calendar") {
       renderCalendar();
     } else if (VIEW_MODE === "memo") {
-      // Only absorb cloud memos when not actively editing (avoid clobbering the open editor)
-      if (!activeMemoId) {
+      // Only absorb cloud memos when not editing AND no save is in-flight.
+      // Firestore echoes our own writes as stale snapshots before the commit
+      // settles — absorbing them would revert adds/deletes just made locally.
+      if (!activeMemoId && !_memoSaving) {
         memos = safeJson(keys[MEMO_KEY], []) || [];
         if (!Array.isArray(memos)) memos = [];
         renderMemoList();
@@ -1241,6 +1243,10 @@
   var _memoSaveTimer = null;
 
   var MEMO_BG_COLORS = ["#23252b", "#2b2012", "#102030", "#1a2b1a", "#2b1a2b", "#291a1a"];
+  // Guard: true while a Firestore batch.commit() is in-flight. applyData must
+  // not overwrite memos during this window or deleted/added entries get reverted
+  // by the stale snapshot Firestore echoes back before the write settles.
+  var _memoSaving = false;
 
   function memoById(id) {
     for (var i = 0; i < memos.length; i++) { if (memos[i].id === id) return memos[i]; }
@@ -1253,19 +1259,24 @@
     var value = JSON.stringify(memos);
     if (value.length > 700000) { console.warn("[widget/memo] memos too large, skipping save"); return; }
     var now = Date.now();
+    _memoSaving = true;   // block Firestore absorption until commit settles
     var batch = fbDb.batch();
     batch.set(ref.collection("data").doc(docIdForKey(MEMO_KEY)),
               { key: MEMO_KEY, value: value, updatedAtMs: now });
     batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
     batch.commit()
       .then(function () {
+        _memoSaving = false;
         var el = $id("memo-sync-time");
         if (!el) return;
         var d = new Date();
         el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
                          String(d.getMinutes()).padStart(2, "0") + " 저장됨";
       })
-      .catch(function (e) { console.warn("[widget/memo] save ERR:", e && e.message || e); });
+      .catch(function (e) {
+        _memoSaving = false;
+        console.warn("[widget/memo] save ERR:", e && e.message || e);
+      });
   }
 
   function memoScheduleSave() {
@@ -1313,7 +1324,8 @@
   }
 
   function closeMemoEditor() {
-    // Flush any pending save before leaving the editor
+    // Flush pending save BEFORE clearing activeMemoId — memoSaveNow() raises
+    // _memoSaving synchronously, so applyData won't absorb the stale echo.
     if (_memoSaveTimer) { clearTimeout(_memoSaveTimer); _memoSaveTimer = null; memoSaveNow(); }
     activeMemoId = null;
     var listPane = $id("memo-list-pane");
@@ -1333,14 +1345,15 @@
 
   function deleteMemo(id) {
     memos = memos.filter(function (m) { return m.id !== id; });
-    // Close editor before save so closeMemoEditor's memoSaveNow doesn't conflict
+    // Start save BEFORE clearing activeMemoId so _memoSaving is raised first,
+    // preventing the Firestore echo from restoring the just-deleted memo.
+    memoSaveNow();
     activeMemoId = null;
     var listPane = $id("memo-list-pane");
     var editPane = $id("memo-edit-pane");
     if (listPane) listPane.style.display = "";
     if (editPane) editPane.style.display = "none";
     renderMemoList();
-    memoSaveNow();
   }
 
   function execFmt(cmd) {
