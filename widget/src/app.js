@@ -64,7 +64,14 @@
   on("close-btn", function () { if (appWindow) appWindow.close().catch(console.error); });
 
   // ── Views ──────────────────────────────────────────────────────────────────
-  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "error"];
+  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "error"];
+
+  // The data view this window lands on after auth.
+  function mainViewName() {
+    return VIEW_MODE === "timeline" ? "timeline"
+         : VIEW_MODE === "timer"    ? "timer"
+         : "habits";
+  }
 
   function showView(name) {
     ALL_VIEWS.forEach(function (v) {
@@ -295,13 +302,18 @@
         applyData(keys);
         setSyncing(false);
         updateSyncTime();
-        showView(VIEW_MODE === "timeline" ? "timeline" : "habits");
+        showView(mainViewName());
       })
       .catch(function (e) {
         console.error("[widget] initial load:", e);
         showError("데이터를 불러오지 못했어요.\n" + (e.message || String(e)));
         setSyncing(false);
       });
+
+    // The timer window is data-independent (it only writes sessions). Skip the
+    // live onSnapshot subscription — no need to re-read the whole keyspace on
+    // every cloud change just to keep a clock ticking.
+    if (VIEW_MODE === "timer") return;
 
     unsubSnap = ref.onSnapshot(
       function () {
@@ -357,6 +369,8 @@
     };
     if (VIEW_MODE === "timeline") {
       renderTimelineBlocks();
+    } else if (VIEW_MODE === "timer") {
+      renderTimer();   // timer is data-independent; just make sure it's drawn
     } else {
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
     }
@@ -590,18 +604,328 @@
 
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
+    if (VIEW_MODE === "timer") return;   // timer window has no sync indicator
     var id  = VIEW_MODE === "timeline" ? "tbl-sync-dot" : "sync-dot";
     var dot = $id(id);
     if (dot) dot.className = "w-sync-dot" + (active ? " syncing" : "");
   }
 
   function updateSyncTime() {
+    if (VIEW_MODE === "timer") return;
     var id = VIEW_MODE === "timeline" ? "tbl-sync-time" : "sync-time";
     var el = $id(id);
     if (!el) return;
     var d = new Date();
     el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
                      String(d.getMinutes()).padStart(2, "0") + " 동기화됨";
+  }
+
+  // ── Timer window (Pomodoro / countdown / stopwatch) ─────────────────────────
+  // A standalone focus timer. Config lives device-local (the widget runs on its
+  // own localhost origin, separate from the web app). Completed sessions are
+  // written to Firestore as APPEND-ONLY immutable docs under
+  //   users/{uid}/widget_focus_sessions/{id}
+  // Each session is its own doc keyed by a unique id → two devices never touch
+  // the same doc, so there is no array-merge hazard. A later web-app change will
+  // fold these into the main app's focus_timer_log_v1 history (and delete the
+  // consumed docs); until then the write is harmless and inert.
+
+  var TIMER_CFG_KEY = "widget_timer_cfg";
+  var timerCfg = {
+    mode: "pomodoro",
+    pomodoro: { work: 25, short: 5, long: 15, longAfter: 4 },
+    countdown: { minutes: 25 }
+  };
+  var timerState = {
+    running: false, startedAt: 0, elapsed: 0,
+    mode: "pomodoro", phase: "work", pomCount: 0,
+    targetMs: 0, tick: null
+  };
+  var timerFootMsg = "";
+
+  function loadTimerCfg() {
+    var s = safeJson(localStorage.getItem(TIMER_CFG_KEY), null);
+    if (s && typeof s === "object") {
+      if (s.mode) timerCfg.mode = s.mode;
+      if (s.pomodoro) timerCfg.pomodoro = Object.assign({}, timerCfg.pomodoro, s.pomodoro);
+      if (s.countdown) timerCfg.countdown = Object.assign({}, timerCfg.countdown, s.countdown);
+    }
+    timerState.mode = timerCfg.mode;
+  }
+  function saveTimerCfg() {
+    try { localStorage.setItem(TIMER_CFG_KEY, JSON.stringify(timerCfg)); } catch (_) {}
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function timerElapsedMs() {
+    return (timerState.elapsed || 0) +
+      (timerState.running && timerState.startedAt ? Date.now() - timerState.startedAt : 0);
+  }
+  function timerRemainingMs() {
+    if (!timerState.targetMs) return null;
+    return Math.max(0, timerState.targetMs - timerElapsedMs());
+  }
+  function timerFormatMs(ms) {
+    var total = Math.max(0, Math.floor((ms || 0) / 1000));
+    var h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    return (h ? String(h).padStart(2, "0") + ":" : "") +
+      String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0");
+  }
+  function timerPhaseLabel() {
+    var ph = timerState.phase;
+    if (ph === "short_break") return "짧은 휴식";
+    if (ph === "long_break")  return "긴 휴식";
+    return "집중";
+  }
+  function timerSetTarget() {
+    var m = timerCfg.mode;
+    if (m === "stopwatch") { timerState.targetMs = 0; return; }
+    if (m === "countdown") { timerState.targetMs = (timerCfg.countdown.minutes || 25) * 60000; return; }
+    var p = timerCfg.pomodoro, ph = timerState.phase;
+    if (ph === "short_break")     timerState.targetMs = (p.short || 5) * 60000;
+    else if (ph === "long_break") timerState.targetMs = (p.long  || 15) * 60000;
+    else                          timerState.targetMs = (p.work  || 25) * 60000;
+  }
+  function timerNextPhase() {
+    var longAfter = timerCfg.pomodoro.longAfter || 4;
+    if (timerState.phase === "work") {
+      timerState.pomCount = (timerState.pomCount || 0) + 1;
+      timerState.phase = (timerState.pomCount % longAfter === 0) ? "long_break" : "short_break";
+    } else {
+      timerState.phase = "work";
+    }
+    timerState.elapsed = 0; timerState.startedAt = 0; timerState.running = false;
+    timerSetTarget();
+  }
+
+  function timerStart() {
+    timerState.mode = timerCfg.mode;
+    if (timerState.elapsed === 0) timerSetTarget();
+    timerState.startedAt = Date.now(); timerState.running = true;
+    if (timerState.tick) clearInterval(timerState.tick);
+    timerState.tick = setInterval(timerTick, 1000);
+    requestNotifyPermission();
+    renderTimer();
+  }
+  function timerPause() {
+    if (!timerState.running) return;
+    if (timerState.tick) clearInterval(timerState.tick);
+    timerState.elapsed += (Date.now() - timerState.startedAt);
+    timerState.startedAt = 0; timerState.running = false; timerState.tick = null;
+    renderTimer();
+  }
+  function timerResume() {
+    if (timerState.running) return;
+    if (!timerState.targetMs && timerCfg.mode !== "stopwatch") timerSetTarget();
+    timerState.startedAt = Date.now(); timerState.running = true;
+    if (timerState.tick) clearInterval(timerState.tick);
+    timerState.tick = setInterval(timerTick, 1000);
+    renderTimer();
+  }
+  function timerReset() {
+    if (timerState.tick) clearInterval(timerState.tick);
+    timerState.running = false; timerState.startedAt = 0; timerState.elapsed = 0; timerState.tick = null;
+    timerSetTarget();
+    renderTimer();
+  }
+  function timerFinish() {
+    var elapsed = timerElapsedMs();
+    var mode = timerCfg.mode, phase = timerState.phase;
+    if (timerState.tick) clearInterval(timerState.tick);
+    timerState.tick = null; timerState.running = false;
+    timerLogSession(elapsed, mode, phase);
+    notifyDone(timerPhaseLabel(), elapsed);
+    if (mode === "pomodoro") {
+      timerNextPhase();
+    } else {
+      timerState.elapsed = 0; timerState.startedAt = 0; timerSetTarget();
+    }
+    renderTimer();
+  }
+  function timerTick() {
+    var remaining = timerRemainingMs();
+    if (remaining !== null && remaining <= 0) { timerFinish(); return; }
+    var disp = remaining !== null ? timerFormatMs(remaining) : timerFormatMs(timerElapsedMs());
+    var cl = $id("timer-clock"); if (cl) cl.textContent = disp;
+    if (timerState.targetMs) {
+      var fill = $id("timer-progress-fill");
+      if (fill) fill.style.width = clamp((1 - remaining / timerState.targetMs) * 100, 0, 100) + "%";
+    }
+  }
+
+  // ── Session write (append-only) ─────────────────────────────────────────────
+  function timerLogSession(ms, mode, phase) {
+    if (!ms || ms < 1000) return;   // ignore trivially short sessions
+    var rec = {
+      id: "wts_" + Date.now() + "_" + Math.floor(Math.random() * 1e6),
+      mode: mode, phase: phase, durationMs: Math.round(ms),
+      taskId: "", taskText: "",
+      completedAt: Date.now(),
+      source: "widget"
+    };
+    var label = (phase === "work" ? "집중" : phase === "short_break" ? "짧은 휴식" : phase === "long_break" ? "긴 휴식" : "세션");
+    var user = fbAuth.currentUser;
+    if (!user || !fbDb) { timerFootMsg = "로그인 필요 — 기록 안 됨"; renderTimer(); return; }
+    timerFootMsg = label + " " + timerFormatMs(ms) + " 기록 중…";
+    fbDb.collection("users").doc(user.uid)
+      .collection("widget_focus_sessions").doc(rec.id).set(rec)
+      .then(function () {
+        dbg("session logged · " + rec.mode + "/" + rec.phase + " " + Math.round(ms / 1000) + "s");
+        timerFootMsg = "✓ " + label + " " + timerFormatMs(ms) + " 기록됨";
+        renderTimer();
+      })
+      .catch(function (e) {
+        dbg("session log ERR · " + (e && e.message ? e.message : String(e)));
+        timerFootMsg = "기록 실패 — 다시 시도하세요";
+        renderTimer();
+      });
+  }
+
+  function requestNotifyPermission() {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "default") {
+        Notification.requestPermission().catch(function () {});
+      }
+    } catch (_) {}
+  }
+  function notifyDone(label, ms) {
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("Return 타이머", { body: label + " 완료! (" + timerFormatMs(ms) + ")" });
+      }
+    } catch (_) {}
+  }
+
+  // ── Timer rendering ─────────────────────────────────────────────────────────
+  var TIMER_MODES = [
+    ["pomodoro",  "🍅 포모"],
+    ["countdown", "⏱ 카운트"],
+    ["stopwatch", "⏲ 스톱"]
+  ];
+
+  function timerSettingRow(label, field, val, unit) {
+    return '<div class="tm-set-row"><span class="tm-set-label">' + label + '</span>' +
+      '<span class="tm-set-ctl">' +
+        '<button class="tm-step" data-act="dec" data-field="' + field + '" type="button">−</button>' +
+        '<span class="tm-set-val">' + val + '</span>' +
+        '<button class="tm-step" data-act="inc" data-field="' + field + '" type="button">+</button>' +
+        '<span class="tm-set-unit">' + unit + '</span>' +
+      '</span></div>';
+  }
+
+  function renderTimer() {
+    var root = $id("timer-root");
+    if (!root) return;
+    var running = timerState.running;
+    var paused  = !running && timerState.elapsed > 0;
+    var active  = running || paused;
+    var remaining = timerRemainingMs();
+    var display = remaining !== null ? timerFormatMs(remaining) : timerFormatMs(timerElapsedMs());
+
+    var html = "";
+
+    // Mode tabs (locked while a session is in progress)
+    html += '<div class="tm-tabs">';
+    TIMER_MODES.forEach(function (m) {
+      html += '<button class="tm-tab' + (timerCfg.mode === m[0] ? " active" : "") + '"' +
+        ' data-act="mode" data-mode="' + m[0] + '" type="button"' + (active ? " disabled" : "") + '>' +
+        m[1] + '</button>';
+    });
+    html += '</div>';
+
+    // Phase + pomodoro dots
+    if (timerCfg.mode === "pomodoro") {
+      html += '<div class="tm-phase' + (timerState.phase === "work" ? " work" : " brk") + '">' + timerPhaseLabel() + '</div>';
+      var longAfter = timerCfg.pomodoro.longAfter || 4;
+      var done = timerState.pomCount % longAfter;
+      var dots = "";
+      for (var i = 0; i < longAfter; i++) dots += '<span class="tm-dot' + (i < done ? " on" : "") + '"></span>';
+      html += '<div class="tm-dots">' + dots + '</div>';
+    } else {
+      html += '<div class="tm-phase brk">' + (timerCfg.mode === "countdown" ? "카운트다운" : "스톱워치") + '</div>';
+    }
+
+    // Clock
+    html += '<div class="tm-clock" id="timer-clock">' + display + '</div>';
+
+    // Progress bar
+    var pct = (timerState.targetMs && remaining !== null)
+      ? clamp((1 - remaining / timerState.targetMs) * 100, 0, 100) : 0;
+    html += '<div class="tm-progress"><div class="tm-progress-fill" id="timer-progress-fill" style="width:' + pct + '%"></div></div>';
+
+    // Controls
+    html += '<div class="tm-controls">';
+    if (running)      html += '<button class="tm-btn tm-btn-main" data-act="pause"  type="button">일시정지</button>';
+    else if (paused)  html += '<button class="tm-btn tm-btn-main" data-act="resume" type="button">계속</button>';
+    else              html += '<button class="tm-btn tm-btn-main" data-act="start"  type="button">시작</button>';
+    if (active)       html += '<button class="tm-btn" data-act="finish" type="button" title="현재 세션 기록하고 종료">완료</button>';
+    html += '<button class="tm-btn tm-btn-icon" data-act="reset" type="button" title="초기화">↺</button>';
+    html += '</div>';
+
+    // Settings (only when idle)
+    if (!active) {
+      html += '<div class="tm-settings">';
+      if (timerCfg.mode === "pomodoro") {
+        html += timerSettingRow("집중",      "work",  timerCfg.pomodoro.work,  "분");
+        html += timerSettingRow("짧은 휴식", "short", timerCfg.pomodoro.short, "분");
+        html += timerSettingRow("긴 휴식",   "long",  timerCfg.pomodoro.long,  "분");
+      } else if (timerCfg.mode === "countdown") {
+        html += timerSettingRow("시간", "cd", timerCfg.countdown.minutes, "분");
+      } else {
+        html += '<div class="tm-hint">시작하면 시간이 위로 올라가요.<br>완료를 누르면 그 시간이 기록돼요.</div>';
+      }
+      html += '</div>';
+    }
+
+    // Footer: last-session message + sign out
+    html += '<div class="tm-foot">';
+    html += '<span class="tm-foot-msg">' + esc(timerFootMsg) + '</span>';
+    html += '<button class="wbtn w-sign-out-btn" data-act="signout" type="button" title="로그아웃">⇱</button>';
+    html += '</div>';
+
+    root.innerHTML = html;
+  }
+
+  function adjustTimerCfg(field, delta) {
+    if (field === "cd") {
+      timerCfg.countdown.minutes = clamp(timerCfg.countdown.minutes + delta, 1, 180);
+    } else {
+      timerCfg.pomodoro[field] = clamp((timerCfg.pomodoro[field] || 0) + delta, 1, 120);
+    }
+    saveTimerCfg();
+    if (!timerState.running && timerState.elapsed === 0) timerSetTarget();
+    renderTimer();
+  }
+
+  // Wire the timer window (delegated clicks) and prime it. Only in the timer
+  // window so its interval/handlers never run in the habit/timeline windows.
+  if (VIEW_MODE === "timer") {
+    loadTimerCfg();
+    timerSetTarget();
+    var timerView = $id("view-timer");
+    if (timerView) {
+      timerView.addEventListener("click", function (e) {
+        var b = e.target.closest && e.target.closest("[data-act]");
+        if (!b) return;
+        var act = b.getAttribute("data-act");
+        if (act === "mode") {
+          if (timerState.running || timerState.elapsed > 0) return;  // locked mid-session
+          timerCfg.mode = b.getAttribute("data-mode");
+          timerState.mode = timerCfg.mode;
+          timerState.phase = "work"; timerState.pomCount = 0;
+          saveTimerCfg(); timerSetTarget(); renderTimer();
+        } else if (act === "start")  { timerStart(); }
+        else if (act === "pause")    { timerPause(); }
+        else if (act === "resume")   { timerResume(); }
+        else if (act === "finish")   { timerFinish(); }
+        else if (act === "reset")    { timerReset(); }
+        else if (act === "inc")      { adjustTimerCfg(b.getAttribute("data-field"), b.getAttribute("data-field") === "cd" ? 5 : 1); }
+        else if (act === "dec")      { adjustTimerCfg(b.getAttribute("data-field"), b.getAttribute("data-field") === "cd" ? -5 : -1); }
+        else if (act === "signout")  { signOut(); }
+      });
+    }
+    renderTimer();
   }
 
 })();
