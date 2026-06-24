@@ -64,14 +64,15 @@
   on("close-btn", function () { if (appWindow) appWindow.close().catch(console.error); });
 
   // ── Views ──────────────────────────────────────────────────────────────────
-  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "calendar", "memo", "error"];
+  var ALL_VIEWS = ["loading", "auth", "habits", "timeline", "timer", "calendar", "memo", "quickinput", "error"];
 
   // The data view this window lands on after auth.
   function mainViewName() {
-    return VIEW_MODE === "timeline" ? "timeline"
-         : VIEW_MODE === "timer"    ? "timer"
-         : VIEW_MODE === "calendar" ? "calendar"
-         : VIEW_MODE === "memo"     ? "memo"
+    return VIEW_MODE === "timeline"   ? "timeline"
+         : VIEW_MODE === "timer"      ? "timer"
+         : VIEW_MODE === "calendar"   ? "calendar"
+         : VIEW_MODE === "memo"       ? "memo"
+         : VIEW_MODE === "quickinput" ? "quickinput"
          : "habits";
   }
 
@@ -378,6 +379,27 @@
     WIDGET_HABIT_LIMIT = (typeof p.habitLimit === "number" && p.habitLimit > 0) ? p.habitLimit : 0;
     var followAccent = p.followAccent !== false;   // default on
     applyAccent(followAccent ? keys["return_theme_color"] : "");
+    // Window visibility — only the habits window manages other windows to avoid
+    // a window accidentally hiding itself before it can receive future prefs.
+    if (!VIEW_MODE) {
+      var WIN_VIS = [
+        {label: "timeline",   key: "showTimeline"},
+        {label: "timer",      key: "showTimer"},
+        {label: "calendar",   key: "showCalendar"},
+        {label: "memo",       key: "showMemo"},
+        {label: "quickinput", key: "showQuickinput"}
+      ];
+      var tauriCore = window.__TAURI__ && window.__TAURI__.core;
+      if (tauriCore) {
+        WIN_VIS.forEach(function(w) {
+          var visible = p[w.key] !== false;  // default true if not explicitly false
+          tauriCore.invoke("set_window_visible", {label: w.label, visible: visible}).catch(function() {});
+        });
+        if (typeof p.autostart === "boolean") {
+          tauriCore.invoke("set_autostart_enabled", {enabled: p.autostart}).catch(function() {});
+        }
+      }
+    }
   }
   function applyAccent(color) {
     var c = (typeof color === "string") ? color.trim() : "";
@@ -409,6 +431,8 @@
         if (!Array.isArray(memos)) memos = [];
         renderMemoList();
       }
+    } else if (VIEW_MODE === "quickinput") {
+      renderQuickinput();
     } else {
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
     }
@@ -778,9 +802,10 @@
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
     if (VIEW_MODE === "timer") return;   // timer window has no sync indicator
-    var dotId = VIEW_MODE === "timeline" ? "tbl-sync-dot"
-              : VIEW_MODE === "calendar" ? "cal-sync-dot"
-              : VIEW_MODE === "memo"     ? null
+    var dotId = VIEW_MODE === "timeline"   ? "tbl-sync-dot"
+              : VIEW_MODE === "calendar"   ? "cal-sync-dot"
+              : VIEW_MODE === "quickinput" ? "qi-sync-dot"
+              : VIEW_MODE === "memo"       ? null
               : "sync-dot";
     if (!dotId) return;
     var dot = $id(dotId);
@@ -789,9 +814,10 @@
 
   function updateSyncTime() {
     if (VIEW_MODE === "timer") return;
-    var timeId = VIEW_MODE === "timeline" ? "tbl-sync-time"
-               : VIEW_MODE === "calendar" ? "cal-sync-time"
-               : VIEW_MODE === "memo"     ? "memo-sync-time"
+    var timeId = VIEW_MODE === "timeline"   ? "tbl-sync-time"
+               : VIEW_MODE === "calendar"   ? "cal-sync-time"
+               : VIEW_MODE === "memo"       ? "memo-sync-time"
+               : VIEW_MODE === "quickinput" ? "qi-sync-time"
                : "sync-time";
     var el = $id(timeId);
     if (!el) return;
@@ -1278,6 +1304,7 @@
     if (content) {
       content.innerHTML = m.html || "";
       content.style.background = m.color || "#23252b";
+      memoSetupImageResize(content);
       // Defer focus so display transition completes first
       setTimeout(function () { if (content) content.focus(); }, 50);
     }
@@ -1343,6 +1370,132 @@
         });
       }
     }
+  }
+
+  // ── Memo image resize ─────────────────────────────────────────────────────
+  // A grip div (fixed-positioned) appears at the bottom-right corner of a
+  // clicked image. Dragging the grip resizes the image proportionally.
+  var _memoResizeGrip = null;
+  var _memoResizeImg  = null;
+
+  function _removeMemoResizeGrip() {
+    if (_memoResizeGrip) { _memoResizeGrip.remove(); _memoResizeGrip = null; }
+    _memoResizeImg = null;
+  }
+
+  function _positionMemoGrip(img) {
+    if (!_memoResizeGrip) return;
+    var rect = img.getBoundingClientRect();
+    _memoResizeGrip.style.left = (rect.right  - 8) + "px";
+    _memoResizeGrip.style.top  = (rect.bottom - 8) + "px";
+  }
+
+  function _showMemoResizeGrip(img) {
+    _removeMemoResizeGrip();
+    var grip = document.createElement("div");
+    grip.className = "img-resize-grip";
+    document.body.appendChild(grip);
+    _memoResizeGrip = grip;
+    _positionMemoGrip(img);
+
+    grip.addEventListener("pointerdown", function (e) {
+      e.preventDefault();
+      grip.setPointerCapture(e.pointerId);
+      var startX  = e.clientX;
+      var startW  = img.offsetWidth  || img.naturalWidth  || 200;
+      var aspect  = (img.offsetHeight && img.offsetWidth) ? img.offsetHeight / img.offsetWidth : 1;
+
+      function onMove(e2) {
+        var newW = Math.max(40, startW + (e2.clientX - startX));
+        img.style.width  = newW + "px";
+        img.style.height = Math.round(newW * aspect) + "px";
+        _positionMemoGrip(img);
+      }
+      function onUp() {
+        grip.removeEventListener("pointermove", onMove);
+        grip.removeEventListener("pointerup",   onUp);
+        memoScheduleSave();
+      }
+      grip.addEventListener("pointermove", onMove);
+      grip.addEventListener("pointerup",   onUp);
+    });
+  }
+
+  function memoSetupImageResize(contentEl) {
+    contentEl.addEventListener("click", function (e) {
+      if (e.target === _memoResizeGrip) return;
+      if (e.target.tagName === "IMG") {
+        _memoResizeImg = e.target;
+        _showMemoResizeGrip(e.target);
+      } else {
+        _removeMemoResizeGrip();
+      }
+    });
+  }
+
+  // ── Quick input widget ─────────────────────────────────────────────────────
+  var qiCat  = "task";
+  var QI_CATS = [
+    {id: "task",  label: "할일",    emoji: "📋"},
+    {id: "memo",  label: "메모",    emoji: "📝"},
+    {id: "idea",  label: "아이디어", emoji: "💡"}
+  ];
+
+  function renderQuickinput() {
+    var catEl = $id("qi-cats");
+    if (catEl) {
+      catEl.innerHTML = QI_CATS.map(function (c) {
+        return '<button class="qi-cat' + (c.id === qiCat ? " active" : "") +
+               '" data-qicat="' + c.id + '" type="button">' + c.emoji + " " + c.label + "</button>";
+      }).join("");
+      catEl.querySelectorAll("[data-qicat]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          qiCat = this.getAttribute("data-qicat");
+          renderQuickinput();
+        });
+      });
+    }
+    on("qi-send",         qiSend);
+    on("qi-sign-out-btn", function () { if (fbAuth) fbAuth.signOut(); });
+    var textEl = $id("qi-text");
+    if (textEl && !textEl._qiWired) {
+      textEl._qiWired = true;
+      textEl.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); qiSend(); }
+      });
+    }
+  }
+
+  function qiSend() {
+    var textEl = $id("qi-text");
+    var text   = textEl ? (textEl.value || "").trim() : "";
+    if (!text) return;
+    var ref = userRef(); if (!ref) return;
+
+    setSyncing(true);
+    var key     = "inbox_v1";
+    var docRef  = ref.collection("data").doc(docIdForKey(key));
+    docRef.get().then(function (doc) {
+      var arr = [];
+      if (doc.exists) {
+        try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
+        if (!Array.isArray(arr)) arr = [];
+      }
+      var now = Date.now();
+      arr.unshift({id: now, text: text, cat: qiCat, ts: now, done: false, unread: true});
+      var value = JSON.stringify(arr);
+      var batch = fbDb.batch();
+      batch.set(docRef, {key: key, value: value, updatedAtMs: now});
+      batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
+      return batch.commit();
+    }).then(function () {
+      if (textEl) textEl.value = "";
+      setSyncing(false);
+      updateSyncTime();
+    }).catch(function (e) {
+      console.warn("[widget/qi] send ERR:", e && e.message || e);
+      setSyncing(false);
+    });
   }
 
   // Wire memo window events (only in the memo window)
@@ -1415,6 +1568,11 @@
         }
       });
     }
+  }
+
+  // Wire quick input window
+  if (VIEW_MODE === "quickinput") {
+    renderQuickinput();
   }
 
   // Wire the timer window (delegated clicks) and prime it. Only in the timer
