@@ -7708,6 +7708,9 @@ to{opacity:1;transform:translateY(0)}}
       <button class="set-tab" data-panel="notifications" onclick="switchTab('notifications',this)">
         <span class="set-tab-icon">🔔</span> 알림
       </button>
+      <button class="set-tab" data-panel="widget" onclick="switchTab('widget',this)">
+        <span class="set-tab-icon">🪟</span> 위젯
+      </button>
 
       <div class="nav-group-label">연동 · 데이터</div>
       <button class="set-tab" data-panel="sync" onclick="switchTab('sync',this)">
@@ -8229,6 +8232,15 @@ to{opacity:1;transform:translateY(0)}}
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- ── WIDGET ── -->
+      <div class="set-panel" id="panel-widget">
+        <div class="panel-header">
+          <div class="panel-title">위젯</div>
+          <div class="panel-sub">PC 바탕화면 위젯의 표시 방식을 여기서 정해요. 변경은 클라우드로 동기화돼 위젯에 반영됩니다.</div>
+        </div>
+        <div id="widget-panel-body"></div>
       </div>
 
       <!-- ── SYNC ── -->
@@ -23821,6 +23833,7 @@ function switchTab(id, btn) {
   document.querySelectorAll('.set-tab').forEach(function(b){ b.classList.remove('active'); });
   if (btn) btn.classList.add('active');
   if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); _updateArchiveStatusUI(); }
+  if (id === 'widget'){ try{ renderWidgetPanel(); }catch(e){} }
   /* Mobile: close nav drawer and update header label */
   closeSetNav();
   var curEl = document.getElementById('set-mob-cur');
@@ -23839,6 +23852,75 @@ function closeSetNav() {
   var ov = document.getElementById('set-nav-overlay');
   if (nav) nav.classList.remove('mobile-open');
   if (ov) ov.classList.remove('open');
+}
+
+/* ── W5: Widget preferences (synced to the PC desktop widget) ────────────────
+   Saved to widget_prefs_v1 — a CLOUD_SETTING_KEY, so it syncs to Firestore and
+   the Tauri widget reads & applies it (timeline hour range, habit count cap,
+   accent-color follow). Mirrors the notif_prefs_v1 settings pattern. */
+var WIDGET_PREFS_KEY='widget_prefs_v1';
+var WIDGET_PREFS_DEFAULT={timelineStartHour:6,timelineEndHour:24,habitLimit:0,followAccent:true};
+function loadWidgetPrefs(){
+  var p=Object.assign({},WIDGET_PREFS_DEFAULT);
+  try{
+    var s=JSON.parse(localStorage.getItem(WIDGET_PREFS_KEY)||'{}');
+    if(s&&typeof s==='object'){
+      if(typeof s.timelineStartHour==='number')p.timelineStartHour=s.timelineStartHour;
+      if(typeof s.timelineEndHour==='number')p.timelineEndHour=s.timelineEndHour;
+      if(typeof s.habitLimit==='number')p.habitLimit=s.habitLimit;
+      if(typeof s.followAccent==='boolean')p.followAccent=s.followAccent;
+    }
+  }catch(e){}
+  p.timelineStartHour=Math.max(0,Math.min(23,p.timelineStartHour));
+  p.timelineEndHour=Math.max(p.timelineStartHour+1,Math.min(24,p.timelineEndHour));
+  p.habitLimit=Math.max(0,Math.min(50,p.habitLimit));
+  return p;
+}
+function saveWidgetPrefs(p){ setReturnStorageItem(WIDGET_PREFS_KEY,JSON.stringify(p)); }
+function _wpUpdate(patch){
+  var p=loadWidgetPrefs();Object.assign(p,patch);
+  p.timelineEndHour=Math.max(p.timelineStartHour+1,Math.min(24,p.timelineEndHour));
+  saveWidgetPrefs(p);renderWidgetPanel();
+}
+function renderWidgetPanel(){
+  var host=document.getElementById('widget-panel-body');
+  if(!host)return;
+  var p=loadWidgetPrefs();
+  var hourOpts=function(sel,lo,hi){var o='';for(var h=lo;h<=hi;h++){o+='<option value="'+h+'"'+(h===sel?' selected':'')+'>'+(h<10?'0':'')+h+':00</option>';}return o;};
+  host.innerHTML=
+    '<div class="set-card"><div class="set-row">'+
+      '<div class="set-row-icon" style="background:var(--accent-light)">⬇️</div>'+
+      '<div class="set-row-body"><div class="set-row-label">위젯 내려받기</div>'+
+      '<div class="set-row-desc">Windows용 설치파일(.msi). 설치하면 바탕화면에 상주해요.</div></div>'+
+      '<div class="set-row-ctrl"><a class="set-btn btn-success" href="https://github.com/atstvi/my-returnsystem/releases/latest" target="_blank" rel="noopener">Releases 열기</a></div>'+
+    '</div></div>'+
+    '<div class="set-card"><div class="set-row">'+
+      '<div class="set-row-icon" style="background:var(--accent-light)">⏱</div>'+
+      '<div class="set-row-body"><div class="set-row-label">타임블록 시간 범위</div>'+
+      '<div class="set-row-desc">타임블록 위젯에 표시할 하루 시간대</div></div>'+
+      '<div class="set-row-ctrl" style="gap:var(--sp-2);align-items:center">'+
+        '<select class="set-btn" id="wp-tl-start" onchange="_wpUpdate({timelineStartHour:parseInt(this.value,10)})">'+hourOpts(p.timelineStartHour,0,23)+'</select>'+
+        '<span style="color:var(--fg-4)">~</span>'+
+        '<select class="set-btn" id="wp-tl-end" onchange="_wpUpdate({timelineEndHour:parseInt(this.value,10)})">'+hourOpts(p.timelineEndHour,1,24)+'</select>'+
+      '</div>'+
+    '</div></div>'+
+    '<div class="set-card"><div class="set-row">'+
+      '<div class="set-row-icon" style="background:var(--accent-light)">✅</div>'+
+      '<div class="set-row-body"><div class="set-row-label">해빗 표시 개수</div>'+
+      '<div class="set-row-desc">0 = 전체 표시. 습관이 많을 때 위젯을 간결하게</div></div>'+
+      '<div class="set-row-ctrl"><input type="number" class="set-btn" style="width:80px" min="0" max="50" value="'+p.habitLimit+'" onchange="_wpUpdate({habitLimit:Math.max(0,Math.min(50,parseInt(this.value,10)||0))})"></div>'+
+    '</div></div>'+
+    '<div class="set-card"><div class="set-row">'+
+      '<div class="set-row-icon" style="background:var(--accent-light)">🎨</div>'+
+      '<div class="set-row-body"><div class="set-row-label">앱 강조색 따라가기</div>'+
+      '<div class="set-row-desc">위젯 강조색을 앱 테마 색과 맞춰요</div></div>'+
+      '<div class="set-row-ctrl"><div class="toggle-wrap" onclick="_wpUpdate({followAccent:!loadWidgetPrefs().followAccent})">'+
+        '<div class="toggle-track'+(p.followAccent?' on':'')+'"><div class="toggle-thumb"></div></div></div></div>'+
+    '</div></div>'+
+    '<div class="set-card"><div class="set-row"><div class="set-row-body">'+
+      '<div class="set-row-label">사용법</div>'+
+      '<div class="set-row-desc">설치 후 로그인하면 해빗·타임블록·타이머 창이 바탕화면에 떠요. ×를 눌러도 트레이로 숨겨져 계속 돌고, 트레이 아이콘으로 다시 띄울 수 있어요. 여기서 바꾼 설정은 다음 동기화 때 위젯에 반영됩니다.</div>'+
+    '</div></div></div>';
 }
 
 /* Project polish overrides */
@@ -25845,7 +25927,7 @@ var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY',authDoma
    empty apiKey, that bad value propagated to settings/main and then poisoned
    EVERY device on next load, producing auth/api-key-not-valid. The config is now
    device-local only (DEFAULT_FB_CONFIG is the source of truth). */
-var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','groq_api_key'];
+var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','groq_api_key','widget_prefs_v1'];
 var MOVED_CLOUD_SETTING_KEYS=['return_theme_studio_state_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','return_theme_studio_assets_v1','theme_palette_presets_v1'];
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;

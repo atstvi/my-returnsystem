@@ -360,7 +360,32 @@
 
   var lastData = { habits: [], bundles: [], logs: {}, tasks: [] };
 
+  // ── Widget prefs (set from the web app's Settings → 위젯 panel, synced via
+  //    widget_prefs_v1). Applied across all three windows. ──────────────────
+  var WIDGET_HABIT_LIMIT = 0;   // 0 = show all
+  function applyWidgetPrefs(keys) {
+    var p = safeJson(keys["widget_prefs_v1"], {}) || {};
+    if (typeof p.timelineStartHour === "number") {
+      TB_START_HOUR = Math.max(0, Math.min(23, p.timelineStartHour));
+    }
+    if (typeof p.timelineEndHour === "number") {
+      TB_END_HOUR = Math.max(TB_START_HOUR + 1, Math.min(24, p.timelineEndHour));
+    }
+    WIDGET_HABIT_LIMIT = (typeof p.habitLimit === "number" && p.habitLimit > 0) ? p.habitLimit : 0;
+    var followAccent = p.followAccent !== false;   // default on
+    applyAccent(followAccent ? keys["return_theme_color"] : "");
+  }
+  function applyAccent(color) {
+    var c = (typeof color === "string") ? color.trim() : "";
+    if (c && c[0] !== "#") c = "#" + c;
+    var ok = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(c);
+    var root = document.documentElement;
+    if (ok) root.style.setProperty("--w-accent", c);
+    else root.style.removeProperty("--w-accent");
+  }
+
   function applyData(keys) {
+    applyWidgetPrefs(keys);
     lastData = {
       habits:  safeJson(keys["routine_habits_v1"],  []),
       bundles: safeJson(keys["routine_bundles_v1"], []),
@@ -404,8 +429,12 @@
     habits.forEach(function (h) { if (h && h.id) byId[String(h.id)] = h; });
     var rendered = {};
     var html = "";
+    // Optional cap on total habit rows (web app's 위젯 설정 → habitLimit).
+    var limit = WIDGET_HABIT_LIMIT > 0 ? WIDGET_HABIT_LIMIT : Infinity;
+    var shown = 0;
 
     bundles.forEach(function (b) {
+      if (shown >= limit) return;
       if (!b || !Array.isArray(b.habitIds) || !b.habitIds.length) return;
       var bHabits = b.habitIds.map(function (id) { return byId[String(id)]; }).filter(Boolean);
       if (!bHabits.length) return;
@@ -413,23 +442,32 @@
         var st = (todayLog[h.id] || {}).state || "";
         return st === "done" || st === "skip";
       }).length;
+      var rows = "";
+      bHabits.forEach(function (h) {
+        if (shown >= limit) return;
+        rendered[String(h.id)] = true;
+        rows += habitRow(h, (todayLog[h.id] || {}).state || "");
+        shown++;
+      });
+      if (!rows) return;
       html += '<div class="bundle"><div class="bundle-hd">';
       html += '<span class="bundle-icon">' + esc(b.icon || "") + '</span>';
       html += '<span class="bundle-name">' + esc(b.title || "") + '</span>';
       html += '<span class="bundle-prog">' + done + '/' + bHabits.length + '</span>';
       html += '</div>';
-      bHabits.forEach(function (h) {
-        rendered[String(h.id)] = true;
-        html += habitRow(h, (todayLog[h.id] || {}).state || "");
-      });
+      html += rows;
       html += '</div>';
     });
 
     var loose = habits.filter(function (h) { return h && h.id && !rendered[String(h.id)]; });
-    if (loose.length) {
-      html += '<div class="bundle">';
-      loose.forEach(function (h) { html += habitRow(h, (todayLog[h.id] || {}).state || ""); });
-      html += '</div>';
+    if (loose.length && shown < limit) {
+      var looseRows = "";
+      loose.forEach(function (h) {
+        if (shown >= limit) return;
+        looseRows += habitRow(h, (todayLog[h.id] || {}).state || "");
+        shown++;
+      });
+      if (looseRows) html += '<div class="bundle">' + looseRows + '</div>';
     }
     list.innerHTML = html;
   }
