@@ -379,6 +379,16 @@
     WIDGET_HABIT_LIMIT = (typeof p.habitLimit === "number" && p.habitLimit > 0) ? p.habitLimit : 0;
     var followAccent = p.followAccent !== false;   // default on
     applyAccent(followAccent ? keys["return_theme_color"] : "");
+    // Background base color — derive bg/bar/card levels from a single hex value
+    if (p.widgetBgColor && /^#[0-9a-fA-F]{6}$/.test(p.widgetBgColor)) {
+      var r = parseInt(p.widgetBgColor.slice(1, 3), 16);
+      var g = parseInt(p.widgetBgColor.slice(3, 5), 16);
+      var b = parseInt(p.widgetBgColor.slice(5, 7), 16);
+      var shift = function (v, d) { return Math.min(255, Math.max(0, v + d)); };
+      document.documentElement.style.setProperty("--w-bg",      "rgba("+r+","+g+","+b+",0.92)");
+      document.documentElement.style.setProperty("--w-bg-bar",  "rgba("+shift(r,14)+","+shift(g,14)+","+shift(b,14)+",0.96)");
+      document.documentElement.style.setProperty("--w-bg-card", "rgba("+shift(r,10)+","+shift(g,10)+","+shift(b,10)+",0.80)");
+    }
     // Window visibility — only the habits window manages other windows to avoid
     // a window accidentally hiding itself before it can receive future prefs.
     if (!VIEW_MODE) {
@@ -434,6 +444,9 @@
         renderMemoList();
       }
     } else if (VIEW_MODE === "quickinput") {
+      // Absorb category list from main app (return_inbox_cats syncs via Firestore)
+      var cats = safeJson(keys["return_inbox_cats"], []);
+      if (Array.isArray(cats) && cats.length) qiInboxCats = cats;
       renderQuickinput();
     } else {
       renderHabits(lastData.habits, lastData.bundles, lastData.logs);
@@ -1447,34 +1460,125 @@
   }
 
   // ── Quick input widget ─────────────────────────────────────────────────────
-  var qiCat  = "task";
-  var QI_CATS = [
+  // Quick input state
+  var qiType          = "inbox";   // "inbox" | "task"
+  var qiCat           = "task";
+  var qiAttachedImage = null;      // base64 JPEG, or null
+  // Populated from return_inbox_cats (synced from main app); fallback built-in
+  var qiInboxCats = [
     {id: "task",  label: "할일",    emoji: "📋"},
     {id: "memo",  label: "메모",    emoji: "📝"},
-    {id: "idea",  label: "아이디어", emoji: "💡"}
+    {id: "idea",  label: "아이디어", emoji: "💡"},
+    {id: "buy",   label: "구매",    emoji: "🛒"}
   ];
 
+  function _qiEffectiveCats() {
+    // When type=task force category to "task"; otherwise show full list
+    return qiType === "task"
+      ? qiInboxCats.filter(function (c) { return c.id === "task"; })
+      : qiInboxCats;
+  }
+
+  function _qiUpdateImgPreview() {
+    var el = $id("qi-img-preview");
+    if (!el) return;
+    if (qiAttachedImage) {
+      el.innerHTML = '<img src="' + qiAttachedImage + '"><button class="qi-img-clear" type="button">×</button>';
+      el.querySelector(".qi-img-clear").addEventListener("click", function () {
+        qiAttachedImage = null; _qiUpdateImgPreview();
+      });
+    } else {
+      el.innerHTML = "";
+    }
+  }
+
+  function qiResizeAndAttach(file) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      var img = new Image();
+      img.onload = function () {
+        var MAX = 900;
+        var scale = Math.min(1, MAX / Math.max(img.width, img.height));
+        var canvas = document.createElement("canvas");
+        canvas.width  = Math.round(img.width  * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        qiAttachedImage = canvas.toDataURL("image/jpeg", 0.82);
+        _qiUpdateImgPreview();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  }
+
   function renderQuickinput() {
-    var catEl = $id("qi-cats");
-    if (catEl) {
-      catEl.innerHTML = QI_CATS.map(function (c) {
-        return '<button class="qi-cat' + (c.id === qiCat ? " active" : "") +
-               '" data-qicat="' + c.id + '" type="button">' + c.emoji + " " + c.label + "</button>";
-      }).join("");
-      catEl.querySelectorAll("[data-qicat]").forEach(function (btn) {
-        btn.addEventListener("click", function () {
-          qiCat = this.getAttribute("data-qicat");
-          renderQuickinput();
-        });
+    // Type toggle
+    var typeRow = $id("qi-type-row");
+    if (typeRow && !typeRow._qiWired) {
+      typeRow._qiWired = true;
+      typeRow.addEventListener("click", function (e) {
+        var btn = e.target.closest("[data-qitype]");
+        if (!btn) return;
+        qiType = btn.getAttribute("data-qitype");
+        if (qiType === "task") qiCat = "task";
+        renderQuickinput();
       });
     }
+    if (typeRow) {
+      typeRow.querySelectorAll(".qi-type").forEach(function (b) {
+        b.classList.toggle("active", b.getAttribute("data-qitype") === qiType);
+      });
+    }
+
+    // Categories (hidden when type=task since cat is forced to "task")
+    var catEl  = $id("qi-cats");
+    var cats   = _qiEffectiveCats();
+    if (catEl) {
+      if (qiType === "task") {
+        catEl.innerHTML = "";
+      } else {
+        catEl.innerHTML = cats.map(function (c) {
+          return '<button class="qi-cat' + (c.id === qiCat ? " active" : "") +
+                 '" data-qicat="' + c.id + '" type="button">' + c.emoji + " " + c.label + "</button>";
+        }).join("");
+        catEl.querySelectorAll("[data-qicat]").forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            qiCat = this.getAttribute("data-qicat"); renderQuickinput();
+          });
+        });
+      }
+    }
+
     on("qi-send",         qiSend);
     on("qi-sign-out-btn", function () { if (fbAuth) fbAuth.signOut(); });
+
+    // Attach button
+    on("qi-attach", function () { var f = $id("qi-file"); if (f) f.click(); });
+    var fileEl = $id("qi-file");
+    if (fileEl && !fileEl._qiWired) {
+      fileEl._qiWired = true;
+      fileEl.addEventListener("change", function () {
+        if (this.files && this.files[0]) qiResizeAndAttach(this.files[0]);
+        this.value = "";
+      });
+    }
+
+    // Textarea: Enter=send, paste image
     var textEl = $id("qi-text");
     if (textEl && !textEl._qiWired) {
       textEl._qiWired = true;
       textEl.addEventListener("keydown", function (e) {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); qiSend(); }
+      });
+      textEl.addEventListener("paste", function (e) {
+        var items = e.clipboardData && e.clipboardData.items;
+        if (!items) return;
+        for (var i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf("image") !== -1) {
+            var blob = items[i].getAsFile();
+            if (blob) { qiResizeAndAttach(blob); break; }
+          }
+        }
       });
     }
   }
@@ -1482,20 +1586,29 @@
   function qiSend() {
     var textEl = $id("qi-text");
     var text   = textEl ? (textEl.value || "").trim() : "";
-    if (!text) return;
+    if (!text && !qiAttachedImage) return;
     var ref = userRef(); if (!ref) return;
 
     setSyncing(true);
-    var key     = "inbox_v1";
-    var docRef  = ref.collection("data").doc(docIdForKey(key));
+    var key    = "inbox_v1";
+    var docRef = ref.collection("data").doc(docIdForKey(key));
     docRef.get().then(function (doc) {
       var arr = [];
       if (doc.exists) {
         try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
         if (!Array.isArray(arr)) arr = [];
       }
-      var now = Date.now();
-      arr.unshift({id: now, text: text, cat: qiCat, ts: now, done: false, unread: true});
+      var now  = Date.now();
+      var item = {
+        id:     now,
+        text:   text,
+        cat:    qiType === "task" ? "task" : qiCat,
+        ts:     now,
+        done:   false,
+        unread: qiType === "task"   // 할일은 "처리 필요"로 표시
+      };
+      if (qiAttachedImage) item.imgs = [qiAttachedImage];
+      arr.unshift(item);
       var value = JSON.stringify(arr);
       var batch = fbDb.batch();
       batch.set(docRef, {key: key, value: value, updatedAtMs: now});
@@ -1503,8 +1616,16 @@
       return batch.commit();
     }).then(function () {
       if (textEl) textEl.value = "";
+      qiAttachedImage = null;
+      _qiUpdateImgPreview();
       setSyncing(false);
       updateSyncTime();
+      // Brief send feedback
+      var sendBtn = $id("qi-send");
+      if (sendBtn) {
+        sendBtn.textContent = "✓";
+        setTimeout(function () { sendBtn.textContent = "전송"; }, 1200);
+      }
     }).catch(function (e) {
       console.warn("[widget/qi] send ERR:", e && e.message || e);
       setSyncing(false);
