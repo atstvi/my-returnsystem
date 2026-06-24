@@ -461,6 +461,7 @@
   var TB_END_HOUR    = 24;   // grid ends at 24:00
   var TB_PX_PER_HOUR = 72;   // 72px = 1 hour; 36px = 30 min; 18px = 15 min
   var TB_LABEL_W     = 44;   // px reserved for hour labels on the left
+  var tbScrolledOnce = false; // auto-scroll to "now" only on the first render
 
   function renderTimelineBlocks() {
     var grid = $id("tb-grid");
@@ -528,10 +529,12 @@
     items.forEach(function (it) {
       var top    = (it.startMins - TB_START_HOUR * 60) * pxPerMin;
       var height = Math.max(18, (it.endMins - it.startMins) * pxPerMin);
-      // Column positioning within the block zone (right of the label column)
-      var colW   = (100 - 0) / numCols;  // each column is 1/numCols of the block zone
-      var leftPct  = it.col * colW;
-      var widthPct = colW;
+      // Column positioning within the block zone (right of the label column).
+      // Fractions are kept UNITLESS: CSS calc() forbids multiplying two
+      // unit-bearing values (e.g. `25% * (100% - 46px)`), but unitless×length
+      // is allowed (`0.25 * (100% - 46px)`).
+      var leftFrac  = it.col / numCols;
+      var widthFrac = 1 / numCols;
 
       var cls = "tb-block";
       if (it.done)                                 cls += " tb-block-done";
@@ -542,8 +545,9 @@
       // Block zone spans from TB_LABEL_W+2 px to right-4px.
       var zoneStart = (TB_LABEL_W + 2) + "px";
       var zoneEnd   = "4px";
-      var left  = "calc(" + zoneStart + " + " + leftPct  + "% * (100% - " + zoneStart + " - " + zoneEnd + ") / 100)";
-      var width = "calc(" + widthPct  + "% * (100% - " + zoneStart + " - " + zoneEnd + ") / 100 - 2px)";
+      var zoneW = "(100% - " + zoneStart + " - " + zoneEnd + ")";
+      var left  = "calc(" + zoneStart + " + " + leftFrac  + " * " + zoneW + ")";
+      var width = "calc(" + widthFrac + " * " + zoneW + " - 2px)";
 
       html += '<div class="' + cls + '" style="top:' + top + 'px;height:' + height + 'px;left:' + left + ';width:' + width + '">';
       html += '<div class="tb-block-title">' + esc(it.text);
@@ -555,9 +559,10 @@
       html += '</div>';
     });
 
-    // Now-line
-    if (nm >= TB_START_HOUR * 60 && nm <= TB_END_HOUR * 60) {
-      var nowTop = (nm - TB_START_HOUR * 60) * pxPerMin;
+    // Now-line (only when "now" falls inside the grid's hour range)
+    var nowInGrid = nm >= TB_START_HOUR * 60 && nm <= TB_END_HOUR * 60;
+    var nowTop = (nm - TB_START_HOUR * 60) * pxPerMin;
+    if (nowInGrid) {
       html += '<div class="tb-now-line" style="top:' + nowTop + 'px">'
         + '<div class="tb-now-dot"></div>'
         + '</div>';
@@ -566,12 +571,14 @@
     grid.style.height = totalH + "px";
     grid.innerHTML = html;
 
-    // Scroll so now-line is roughly 1/3 from the top
-    if (nm >= TB_START_HOUR * 60 && nm <= TB_END_HOUR * 60) {
+    // Scroll so the now-line sits roughly 1/3 from the top — but only once,
+    // on the first render. Re-scrolling on every snapshot/minute refresh would
+    // keep yanking the view back to "now" while the user is reading elsewhere.
+    if (nowInGrid && !tbScrolledOnce) {
       var scroll = $id("tb-scroll");
-      if (scroll) {
-        var nowTop = (nm - TB_START_HOUR * 60) * pxPerMin;
+      if (scroll && scroll.clientHeight) {
         scroll.scrollTop = Math.max(0, nowTop - scroll.clientHeight / 3);
+        tbScrolledOnce = true;
       }
     }
   }
