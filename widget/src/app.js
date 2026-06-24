@@ -376,6 +376,7 @@
     var followAccent = p.followAccent !== false;   // default on
     applyAccent(followAccent ? keys["return_theme_color"] : "");
     // Background base color — derive bg/bar/card levels from a single hex value
+    // Also auto-switch fg to dark text when background is light (luminance ≥ 0.5)
     if (p.widgetBgColor && /^#[0-9a-fA-F]{6}$/.test(p.widgetBgColor)) {
       var r = parseInt(p.widgetBgColor.slice(1, 3), 16);
       var g = parseInt(p.widgetBgColor.slice(3, 5), 16);
@@ -384,6 +385,11 @@
       document.documentElement.style.setProperty("--w-bg",      "rgba("+r+","+g+","+b+",0.92)");
       document.documentElement.style.setProperty("--w-bg-bar",  "rgba("+shift(r,14)+","+shift(g,14)+","+shift(b,14)+",0.96)");
       document.documentElement.style.setProperty("--w-bg-card", "rgba("+shift(r,10)+","+shift(g,10)+","+shift(b,10)+",0.80)");
+      // Relative luminance (sRGB) — flip to light-mode vars when bg is bright
+      var lum = 0.2126*(r/255) + 0.7152*(g/255) + 0.0722*(b/255);
+      document.documentElement.classList.toggle("w-light", lum >= 0.45);
+    } else {
+      document.documentElement.classList.remove("w-light");
     }
     // Window visibility — only the habits window manages other windows to avoid
     // a window accidentally hiding itself before it can receive future prefs.
