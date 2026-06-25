@@ -616,6 +616,23 @@
 
   function docIdForKey(k) { return encodeURIComponent(k).replace(/\./g, "%2E"); }
 
+  // Read the full JSON array for a Firestore data key, handling split-chunk docs
+  // (same strategy as main app's fbReadSplitData). Returns {arr, chunkDocIds}.
+  function readKeyArr(dataRef, key) {
+    return dataRef.collection("data").where("key", "==", key).get()
+      .then(function(qs) {
+        var whole = null, parts = [], chunkDocIds = [];
+        qs.forEach(function(doc) {
+          var d = doc.data() || {};
+          if (d.value != null && d.part == null) { whole = d.value; }
+          else if (d.part != null) { parts[Number(d.part)] = d.value || ""; chunkDocIds.push(doc.id); }
+        });
+        var raw = whole != null ? whole : (parts.length ? parts.join("") : "[]");
+        var arr = safeJson(raw, []);
+        return { arr: Array.isArray(arr) ? arr : [], chunkDocIds: chunkDocIds };
+      });
+  }
+
   function userRef() {
     var u = fbAuth.currentUser;
     return (u && fbDb) ? fbDb.collection("users").doc(u.uid) : null;
@@ -997,11 +1014,9 @@
 
   function wsUpdateTaskSessions(session) {
     var ref = userRef(); if (!ref || !fbDb) return;
-    var docRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
-    docRef.get().then(function(doc) {
-      var arr = [];
-      if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch(_) {} }
-      if (!Array.isArray(arr)) arr = [];
+    readKeyArr(ref, "task_items_v1").then(function(result) {
+      var arr = result.arr;
+      var chunkDocIds = result.chunkDocIds;
       var task = arr.find(function(t) { return String(t.id) === wsTaskId; });
       if (!task) return;
       if (!Array.isArray(task.sessions)) task.sessions = [];
@@ -1010,7 +1025,9 @@
       task.updatedAt = Date.now();
       var now = Date.now();
       var batch = fbDb.batch();
-      batch.set(docRef, { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+      batch.set(ref.collection("data").doc(docIdForKey("task_items_v1")),
+                { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+      chunkDocIds.forEach(function(cid) { batch.delete(ref.collection("data").doc(cid)); });
       batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
       return batch.commit();
     }).catch(function(e) { console.warn("[widget/ws] update task sessions ERR:", e && e.message || e); });
@@ -1228,27 +1245,32 @@
 
   function wsLinkTask(taskId, taskTitle, create) {
     if (create) {
-      // Create new task and link it
+      // Create new task and link it; use chunked read so we get the full existing
+      // array even when main app split it across multiple Firestore docs.
+      var ref = userRef(); if (!ref) return;
+      var _d = new Date();
+      var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
+      var _today = _d.getFullYear() + "-" + _pad(_d.getMonth()+1) + "-" + _pad(_d.getDate());
       var newTask = {
         id: Date.now(),
         text: taskTitle,
         done: false,
-        cat: "task",
+        date:  _today,    // required — visibleTasks() filters by t.date
+        catId: "etc",     // standard "기타" category; visible under 'all' filter
         createdAt: Date.now(),
         updatedAt: Date.now(),
         source: "widget"
       };
-      var ref = userRef(); if (!ref) return;
-      ref.collection("data").doc(docIdForKey("task_items_v1")).get().then(function(doc) {
-        var arr = [];
-        if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {} }
-        if (!Array.isArray(arr)) arr = [];
+      readKeyArr(ref, "task_items_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         arr.unshift(newTask);
-        var val = JSON.stringify(arr);
         var now = Date.now();
         var batch = fbDb.batch();
         batch.set(ref.collection("data").doc(docIdForKey("task_items_v1")),
-                  { key: "task_items_v1", value: val, updatedAtMs: now });
+                  { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+        // Delete stale chunk docs so they don't shadow the single base doc
+        chunkDocIds.forEach(function(cid) { batch.delete(ref.collection("data").doc(cid)); });
         batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
         return batch.commit();
       }).then(function() {
@@ -1348,28 +1370,42 @@
   }
 
   function wsNotesInsertImage(blob) {
+    // Resize to max 800px and convert to JPEG 0.80 to keep base64 under ~200KB.
+    // Notes are stored as HTML in task_notes_v1 (Firestore 1MB doc limit).
     var reader = new FileReader();
     reader.onload = function(ev) {
-      var img = document.createElement("img");
-      img.src = ev.target.result;
-      img.style.maxWidth = "100%";
-      img.style.borderRadius = "4px";
-      var el = $id("ws-notes-area");
-      if (!el) return;
-      el.focus();
-      var sel = window.getSelection();
-      if (sel && sel.rangeCount) {
-        var range = sel.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(img);
-        range.setStartAfter(img);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        el.appendChild(img);
-      }
-      wsNotesScheduleSave();
+      var rawSrc = ev.target.result;
+      var tempImg = new Image();
+      tempImg.onload = function() {
+        var MAX = 800;
+        var scale = Math.min(1, MAX / Math.max(tempImg.width, tempImg.height));
+        var canvas = document.createElement("canvas");
+        canvas.width  = Math.round(tempImg.width  * scale);
+        canvas.height = Math.round(tempImg.height * scale);
+        canvas.getContext("2d").drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+        var dataUrl = canvas.toDataURL("image/jpeg", 0.80);
+        var img = document.createElement("img");
+        img.src = dataUrl;
+        img.style.maxWidth = "100%";
+        img.style.borderRadius = "4px";
+        var el = $id("ws-notes-area");
+        if (!el) return;
+        el.focus();
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(img);
+          range.setStartAfter(img);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          el.appendChild(img);
+        }
+        wsNotesScheduleSave();
+      };
+      tempImg.src = rawSrc;
     };
     reader.readAsDataURL(blob);
   }
@@ -1468,7 +1504,7 @@
               var d = new Date(s.completedAt);
               var timeStr = (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
                             String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-              var modeLabel = (s.phase === "break" || s.phase === "longBreak") ? "휴식" : "집중";
+              var modeLabel = (s.phase === "short_break" || s.phase === "long_break") ? "휴식" : "집중";
               html += '<div class="ws-sess-row">' +
                 '<span class="ws-sess-time">' + timeStr + '</span>' +
                 '<span class="ws-sess-label">' + modeLabel + '</span>' +
@@ -1497,9 +1533,9 @@
       root.innerHTML = html;
     }
 
-    // ── Task search (timer active, no task linked) ───────────────────────────
+    // ── Task search (shown whenever no task is linked, regardless of timer state)
     var searchEl = $id("ws-task-search");
-    if (searchEl) searchEl.style.display = (active && !wsTaskId) ? "" : "none";
+    if (searchEl) searchEl.style.display = (!wsTaskId) ? "" : "none";
 
     // ── Notes (task linked) ──────────────────────────────────────────────────
     var notesEl = $id("ws-notes-section");
@@ -2063,23 +2099,6 @@
       setSyncing(false);
     }
 
-    // Read the full array for a key, handling split-chunk docs the same way the
-    // main app's fbReadSplitData does (uses where() to get ALL docs for the key).
-    function qiReadArr(dataRef, key) {
-      return dataRef.collection("data").where("key", "==", key).get()
-        .then(function(qs) {
-          var whole = null, parts = [], chunkDocIds = [];
-          qs.forEach(function(doc) {
-            var d = doc.data() || {};
-            if (d.value != null && d.part == null) { whole = d.value; }
-            else if (d.part != null) { parts[Number(d.part)] = d.value || ""; chunkDocIds.push(doc.id); }
-          });
-          var raw = whole != null ? whole : (parts.length ? parts.join("") : "[]");
-          var arr = safeJson(raw, []);
-          return { arr: Array.isArray(arr) ? arr : [], chunkDocIds: chunkDocIds };
-        });
-    }
-
     // Today's date key "YYYY-MM-DD" (same format as main app's TK / dk())
     var _d = new Date();
     var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
@@ -2088,7 +2107,7 @@
     if (qiType === "task") {
       // Write to task_items_v1 with proper schema: date + catId so visibleTasks()
       // can show it and the category filter works correctly.
-      qiReadArr(ref, "task_items_v1").then(function(result) {
+      readKeyArr(ref, "task_items_v1").then(function(result) {
         var arr = result.arr;
         var chunkDocIds = result.chunkDocIds;
         var newTask = {
@@ -2116,7 +2135,7 @@
       }).then(onSuccess).catch(onError);
     } else {
       // Write to inbox_v1 (idea / memo / buy etc.)
-      qiReadArr(ref, "inbox_v1").then(function(result) {
+      readKeyArr(ref, "inbox_v1").then(function(result) {
         var arr = result.arr;
         var chunkDocIds = result.chunkDocIds;
         var item = {
