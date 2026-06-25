@@ -921,6 +921,7 @@
     targetMs: 0, tick: null
   };
   var wsTimerFootMsg = "";
+  var _lastWidgetTimerSyncAt = 0;  // timestamp of our last wsTimerSync() write (self-echo guard)
   // Linked task (from widget_workstation_v1, set by main app when user clicks 📌)
   var wsTaskId    = "";
   var wsTaskTitle = "";
@@ -950,12 +951,16 @@
   // Apply timer state received from Firestore (written by main app or by us)
   function wsApplyTimerState(ts) {
     if (!ts || typeof ts !== "object") return;
+    // Skip our own echo: if updatedAt matches or precedes our last write, ignore it.
+    if (ts.updatedAt && ts.updatedAt <= _lastWidgetTimerSyncAt) return;
     var newMode = ts.mode || "pomodoro";
     wsCfg.mode = newMode;
     wsTimer.mode  = newMode;
     wsTimer.phase = ts.phase || "work";
     wsTimer.pomCount = ts.pomCount || 0;
     wsTimer.targetMs = ts.targetMs || 0;
+    // ts.elapsed is the ACCUMULATED elapsed only (not including current running
+    // segment). Combined with startedAt the reader can compute the current total.
     wsTimer.elapsed  = ts.elapsed  || 0;
     wsTimer.running  = !!ts.running;
     wsTimer.startedAt = wsTimer.running ? (ts.startedAt || Date.now()) : 0;
@@ -1055,6 +1060,7 @@
   // Write current timer state to Firestore (notify main app)
   function wsTimerSync() {
     var ref = userRef(); if (!ref) return;
+    _lastWidgetTimerSyncAt = Date.now();
     var val = JSON.stringify({
       active:    wsTimer.running || wsTimerElapsedMs() > 0,
       running:   wsTimer.running,
@@ -1062,11 +1068,15 @@
       phase:     wsTimer.phase,
       pomCount:  wsTimer.pomCount,
       targetMs:  wsTimer.targetMs,
-      elapsed:   wsTimerElapsedMs(),
+      // Write ACCUMULATED elapsed only (not including the current running segment).
+      // Reader computes real-time total as: elapsed + (now - startedAt).
+      // Writing wsTimerElapsedMs() here would cause the reader's startedAt-based
+      // calculation to double-count the current segment's duration.
+      elapsed:   wsTimer.elapsed,
       startedAt: wsTimer.running ? wsTimer.startedAt : 0,
       taskId:    wsTaskId || null,
       taskTitle: wsTaskTitle || null,
-      updatedAt: Date.now()
+      updatedAt: _lastWidgetTimerSyncAt
     });
     var now = Date.now();
     ref.collection("data").doc(docIdForKey(WS_TIMER_KEY))
