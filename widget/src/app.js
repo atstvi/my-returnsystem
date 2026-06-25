@@ -325,9 +325,9 @@
             setSyncing(false);
             updateSyncTime();
           })
-          .catch(function (e) { console.warn("[widget] snapshot re-read:", e); setSyncing(false); });
+          .catch(function (e) { console.warn("[widget] snapshot re-read:", e); setSyncing(false); setSyncError("연결 끊김"); });
       },
-      function (err) { console.warn("[widget] onSnapshot error:", err); }
+      function (err) { console.warn("[widget] onSnapshot error:", err); setSyncing(false); setSyncError("연결 끊김"); }
     );
   }
 
@@ -417,8 +417,18 @@
     if (c && c[0] !== "#") c = "#" + c;
     var ok = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(c);
     var root = document.documentElement;
-    if (ok) root.style.setProperty("--w-accent", c);
-    else root.style.removeProperty("--w-accent");
+    if (ok) {
+      root.style.setProperty("--w-accent", c);
+      // Also expose the accent as "r, g, b" so rgba(var(--w-accent-rgb), a)
+      // tints (timeline blocks, hover states) follow the chosen accent.
+      var hex = c.slice(1);
+      if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+      var r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) root.style.setProperty("--w-accent-rgb", r+", "+g+", "+b);
+    } else {
+      root.style.removeProperty("--w-accent");
+      root.style.removeProperty("--w-accent-rgb");
+    }
   }
 
   function applyData(keys) {
@@ -693,6 +703,7 @@
     }).catch(function (e) {
       dbg("habit write ERR · " + (e && e.message ? e.message : String(e)));
       setSyncing(false);
+      setSyncError("저장 실패");
     }).then(function () { _habitWriteBusy = false; });
   }
 
@@ -880,27 +891,43 @@
 
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
-    var dotId = VIEW_MODE === "timeline"    ? "tbl-sync-dot"
-              : VIEW_MODE === "calendar"    ? "cal-sync-dot"
-              : VIEW_MODE === "quickinput"  ? "qi-sync-dot"
-              : VIEW_MODE === "workstation" ? null
-              : "sync-dot";
+    var dotId = _syncDotId();
     if (!dotId) return;
     var dot = $id(dotId);
     if (dot) dot.className = "w-sync-dot" + (active ? " syncing" : "");
   }
 
+  function _syncDotId() {
+    return VIEW_MODE === "timeline"    ? "tbl-sync-dot"
+         : VIEW_MODE === "calendar"    ? "cal-sync-dot"
+         : VIEW_MODE === "quickinput"  ? "qi-sync-dot"
+         : VIEW_MODE === "workstation" ? null
+         : "sync-dot";
+  }
+  function _syncTimeId() {
+    return VIEW_MODE === "timeline"    ? "tbl-sync-time"
+         : VIEW_MODE === "calendar"    ? "cal-sync-time"
+         : VIEW_MODE === "quickinput"  ? "qi-sync-time"
+         : VIEW_MODE === "workstation" ? "ws-sync-time"
+         : "sync-time";
+  }
   function updateSyncTime() {
-    var timeId = VIEW_MODE === "timeline"    ? "tbl-sync-time"
-               : VIEW_MODE === "calendar"    ? "cal-sync-time"
-               : VIEW_MODE === "quickinput"  ? "qi-sync-time"
-               : VIEW_MODE === "workstation" ? "ws-sync-time"
-               : "sync-time";
-    var el = $id(timeId);
+    var el = $id(_syncTimeId());
     if (!el) return;
+    el.classList.remove("error");
     var d = new Date();
     el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
                      String(d.getMinutes()).padStart(2, "0") + " 동기화됨";
+    var dotId = _syncDotId();
+    if (dotId) { var dot = $id(dotId); if (dot) dot.classList.remove("error"); }
+  }
+
+  // Surface a write/sync failure to the user instead of swallowing it silently.
+  function setSyncError(msg) {
+    var dotId = _syncDotId();
+    if (dotId) { var dot = $id(dotId); if (dot) dot.className = "w-sync-dot error"; }
+    var el = $id(_syncTimeId());
+    if (el) { el.classList.add("error"); el.textContent = msg || "동기화 실패"; }
   }
 
   // ── Workstation window (task goal + timer + notes) ──────────────────────────
@@ -1101,7 +1128,7 @@
       .then(function() {
         return ref.set({ updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
       })
-      .catch(function(e) { console.warn("[widget/ws] timer sync ERR:", e && e.message || e); });
+      .catch(function(e) { console.warn("[widget/ws] timer sync ERR:", e && e.message || e); setSyncError("타이머 동기화 실패"); });
   }
 
   function wsTimerStart() {
@@ -1347,7 +1374,11 @@
                                 String(d.getMinutes()).padStart(2,"0") + " 저장됨";
         }
       })
-      .catch(function(e) { console.warn("[widget/ws] notes save ERR:", e && e.message || e); });
+      .catch(function(e) {
+        console.warn("[widget/ws] notes save ERR:", e && e.message || e);
+        var savedEl = $id("ws-notes-saved");
+        if (savedEl) savedEl.textContent = "저장 실패";
+      });
   }
   function wsNotesScheduleSave() {
     if (_wsNotesSaveTimer) clearTimeout(_wsNotesSaveTimer);
@@ -2097,6 +2128,7 @@
     function onError(e) {
       console.warn("[widget/qi] send ERR:", e && e.message || e);
       setSyncing(false);
+      setSyncError("전송 실패 — 다시 시도");
     }
 
     // Today's date key "YYYY-MM-DD" (same format as main app's TK / dk())
