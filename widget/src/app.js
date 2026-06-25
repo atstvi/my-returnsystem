@@ -2201,6 +2201,14 @@
           if (file) { wsNotesInsertImage(file); this.value = ""; }
         });
       }
+
+      // Re-read Firestore when window gains focus so task link is always fresh
+      // (the window may become visible before onSnapshot delivers the new task)
+      window.addEventListener("focus", function() {
+        var r = userRef();
+        if (!r) return;
+        readAllKeys(r).then(function(keys) { applyData(keys); }).catch(function() {});
+      });
     }
 
     renderWorkstation();
