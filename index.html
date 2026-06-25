@@ -27730,6 +27730,15 @@ async function fbLoadAll(){
         if(Object.keys(split.keys||{}).length){
           split.updatedAtMs = Number(d.updatedAtMs||0) || Date.now();
           fbApplyData(split);
+          /* If the write came from the desktop widget, apply its timer state to the
+             main app's focus timer so both sides stay in lockstep. clientId starts
+             with "widget_" (WIDGET_CLIENT_ID = "widget_<ts>_<rand>"). */
+          if(d.clientId&&String(d.clientId).indexOf('widget_')===0){
+            try{
+              var _wts=split.keys&&split.keys['widget_timer_state_v1'];
+              if(_wts){var _wtsObj=JSON.parse(_wts);if(_wtsObj&&typeof focusTimerApplyWidgetState==='function')focusTimerApplyWidgetState(_wtsObj);}
+            }catch(_we){}
+          }
           try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotApplied++; window.__SYNC_DEBUG.log('fb','onSnapshot applied',{splitKeys:Object.keys(split.keys).length}); } }catch(_e){}
         }
       }catch(splitErr){
@@ -36493,6 +36502,7 @@ var focusTimerState={
   mode:'pomodoro',phase:'work',pomCount:0,
   targetMs:0,linkedTaskId:'',timer:null
 };
+var _focusTimerLastSyncAt=0; /* timestamp of last _doSyncWidgetTimerState write (LWW guard) */
 var focusTimerLog=[];
 var focusTimerView='timer';      /* 'timer' | 'log' — top segmented control */
 var _ftlAnchor=null;             /* Date: start of the week shown in the records view */
@@ -36812,6 +36822,8 @@ function _doSyncWidgetTimerState(){
   try{
     if(!fbDb||!fbUser)return;
     var linkedTask=focusTimerLinkedTask();
+    var now=Date.now();
+    _focusTimerLastSyncAt=now;
     var val=JSON.stringify({
       active:   focusTimerState.running||(focusTimerState.elapsed>0),
       running:  focusTimerState.running,
@@ -36819,19 +36831,56 @@ function _doSyncWidgetTimerState(){
       phase:    focusTimerState.phase||'work',
       pomCount: focusTimerState.pomCount||0,
       targetMs: focusTimerState.targetMs||0,
-      elapsed:  focusTimerElapsedMs(),
+      // Write ACCUMULATED elapsed only (not including current running segment).
+      // Widget reader computes real-time total as: elapsed + (now - startedAt).
+      elapsed:  focusTimerState.elapsed||0,
       startedAt:focusTimerState.running?focusTimerState.startedAt:0,
       taskId:   focusTimerState.linkedTaskId||null,
       taskTitle:linkedTask?(linkedTask.text||''):null,
-      updatedAt:Date.now()
+      updatedAt:now
     });
     var ref=fbDb.collection('users').doc(fbUser.uid);
     var docKey=encodeURIComponent('widget_timer_state_v1').replace(/\./g,'%2E');
-    var now=Date.now();
     ref.collection('data').doc(docKey).set({key:'widget_timer_state_v1',value:val,updatedAtMs:now})
-      .then(function(){return ref.set({updatedAtMs:now,split:true},{merge:true});})
+      .then(function(){
+        // Include clientId so main app's own onSnapshot skips this as a self-echo
+        // and doesn't try to re-apply the timer state it just wrote.
+        return ref.set({updatedAtMs:now,clientId:FB_CLIENT_ID,split:true},{merge:true});
+      })
       .catch(function(e){console.warn('[timer] widget sync ERR:',e&&e.message||e);});
   }catch(e){console.warn('[timer] widget sync ERR:',e);}
+}
+
+/* ── Widget → main-app timer apply ──────────────────────────────────────────
+   Called from onSnapshot when the root-doc clientId indicates a widget write.
+   Merges the widget's live timer state into the main app's focusTimerState so
+   the two stay in lockstep regardless of which side the user controls.
+   Does NOT call syncWidgetTimerState() to avoid a sync echo loop. */
+function focusTimerApplyWidgetState(ts){
+  if(!ts||typeof ts!=='object')return;
+  var tsAt=Number(ts.updatedAt||0);
+  if(!tsAt)return;
+  /* LWW: if the main app's own timer was updated more recently, keep it. */
+  if(tsAt<=(_focusTimerLastSyncAt||0))return;
+  /* Stop any running local tick before overwriting state */
+  if(focusTimerState.running&&focusTimerState.timer){
+    clearInterval(focusTimerState.timer);focusTimerState.timer=null;
+  }
+  focusTimerState.mode        = ts.mode||focusTimerState.mode;
+  focusTimerState.phase       = ts.phase||'work';
+  focusTimerState.pomCount    = ts.pomCount||0;
+  focusTimerState.targetMs    = ts.targetMs||0;
+  focusTimerState.elapsed     = ts.elapsed||0;
+  focusTimerState.running     = !!ts.running;
+  focusTimerState.startedAt   = focusTimerState.running?(ts.startedAt||Date.now()):0;
+  focusTimerState.linkedTaskId= ts.taskId||'';
+  if(focusTimerCfg)focusTimerCfg.mode=focusTimerState.mode;
+  if(focusTimerState.running){
+    if(focusTimerState.timer)clearInterval(focusTimerState.timer);
+    focusTimerState.timer=setInterval(focusTimerTick,1000);
+  }
+  try{if(typeof renderFocusTimer==='function')renderFocusTimer();}catch(_){}
+  try{if(typeof renderFocusTimerMini==='function')renderFocusTimerMini();}catch(_){}
 }
 
 /* ── Widget workstation key (📌 button in task list) ─────────────────────────

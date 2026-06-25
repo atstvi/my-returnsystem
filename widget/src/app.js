@@ -325,9 +325,9 @@
             setSyncing(false);
             updateSyncTime();
           })
-          .catch(function (e) { console.warn("[widget] snapshot re-read:", e); setSyncing(false); });
+          .catch(function (e) { console.warn("[widget] snapshot re-read:", e); setSyncing(false); setSyncError("연결 끊김"); });
       },
-      function (err) { console.warn("[widget] onSnapshot error:", err); }
+      function (err) { console.warn("[widget] onSnapshot error:", err); setSyncing(false); setSyncError("연결 끊김"); }
     );
   }
 
@@ -417,8 +417,18 @@
     if (c && c[0] !== "#") c = "#" + c;
     var ok = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(c);
     var root = document.documentElement;
-    if (ok) root.style.setProperty("--w-accent", c);
-    else root.style.removeProperty("--w-accent");
+    if (ok) {
+      root.style.setProperty("--w-accent", c);
+      // Also expose the accent as "r, g, b" so rgba(var(--w-accent-rgb), a)
+      // tints (timeline blocks, hover states) follow the chosen accent.
+      var hex = c.slice(1);
+      if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+      var r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+      if (!isNaN(r) && !isNaN(g) && !isNaN(b)) root.style.setProperty("--w-accent-rgb", r+", "+g+", "+b);
+    } else {
+      root.style.removeProperty("--w-accent");
+      root.style.removeProperty("--w-accent-rgb");
+    }
   }
 
   function applyData(keys) {
@@ -616,6 +626,23 @@
 
   function docIdForKey(k) { return encodeURIComponent(k).replace(/\./g, "%2E"); }
 
+  // Read the full JSON array for a Firestore data key, handling split-chunk docs
+  // (same strategy as main app's fbReadSplitData). Returns {arr, chunkDocIds}.
+  function readKeyArr(dataRef, key) {
+    return dataRef.collection("data").where("key", "==", key).get()
+      .then(function(qs) {
+        var whole = null, parts = [], chunkDocIds = [];
+        qs.forEach(function(doc) {
+          var d = doc.data() || {};
+          if (d.value != null && d.part == null) { whole = d.value; }
+          else if (d.part != null) { parts[Number(d.part)] = d.value || ""; chunkDocIds.push(doc.id); }
+        });
+        var raw = whole != null ? whole : (parts.length ? parts.join("") : "[]");
+        var arr = safeJson(raw, []);
+        return { arr: Array.isArray(arr) ? arr : [], chunkDocIds: chunkDocIds };
+      });
+  }
+
   function userRef() {
     var u = fbAuth.currentUser;
     return (u && fbDb) ? fbDb.collection("users").doc(u.uid) : null;
@@ -676,6 +703,7 @@
     }).catch(function (e) {
       dbg("habit write ERR · " + (e && e.message ? e.message : String(e)));
       setSyncing(false);
+      setSyncError("저장 실패");
     }).then(function () { _habitWriteBusy = false; });
   }
 
@@ -863,27 +891,43 @@
 
   // ── Sync indicator ─────────────────────────────────────────────────────────
   function setSyncing(active) {
-    var dotId = VIEW_MODE === "timeline"    ? "tbl-sync-dot"
-              : VIEW_MODE === "calendar"    ? "cal-sync-dot"
-              : VIEW_MODE === "quickinput"  ? "qi-sync-dot"
-              : VIEW_MODE === "workstation" ? null
-              : "sync-dot";
+    var dotId = _syncDotId();
     if (!dotId) return;
     var dot = $id(dotId);
     if (dot) dot.className = "w-sync-dot" + (active ? " syncing" : "");
   }
 
+  function _syncDotId() {
+    return VIEW_MODE === "timeline"    ? "tbl-sync-dot"
+         : VIEW_MODE === "calendar"    ? "cal-sync-dot"
+         : VIEW_MODE === "quickinput"  ? "qi-sync-dot"
+         : VIEW_MODE === "workstation" ? null
+         : "sync-dot";
+  }
+  function _syncTimeId() {
+    return VIEW_MODE === "timeline"    ? "tbl-sync-time"
+         : VIEW_MODE === "calendar"    ? "cal-sync-time"
+         : VIEW_MODE === "quickinput"  ? "qi-sync-time"
+         : VIEW_MODE === "workstation" ? "ws-sync-time"
+         : "sync-time";
+  }
   function updateSyncTime() {
-    var timeId = VIEW_MODE === "timeline"    ? "tbl-sync-time"
-               : VIEW_MODE === "calendar"    ? "cal-sync-time"
-               : VIEW_MODE === "quickinput"  ? "qi-sync-time"
-               : VIEW_MODE === "workstation" ? "ws-sync-time"
-               : "sync-time";
-    var el = $id(timeId);
+    var el = $id(_syncTimeId());
     if (!el) return;
+    el.classList.remove("error");
     var d = new Date();
     el.textContent = String(d.getHours()).padStart(2, "0") + ":" +
                      String(d.getMinutes()).padStart(2, "0") + " 동기화됨";
+    var dotId = _syncDotId();
+    if (dotId) { var dot = $id(dotId); if (dot) dot.classList.remove("error"); }
+  }
+
+  // Surface a write/sync failure to the user instead of swallowing it silently.
+  function setSyncError(msg) {
+    var dotId = _syncDotId();
+    if (dotId) { var dot = $id(dotId); if (dot) dot.className = "w-sync-dot error"; }
+    var el = $id(_syncTimeId());
+    if (el) { el.classList.add("error"); el.textContent = msg || "동기화 실패"; }
   }
 
   // ── Workstation window (task goal + timer + notes) ──────────────────────────
@@ -921,6 +965,7 @@
     targetMs: 0, tick: null
   };
   var wsTimerFootMsg = "";
+  var _lastWidgetTimerSyncAt = 0;  // timestamp of our last wsTimerSync() write (self-echo guard)
   // Linked task (from widget_workstation_v1, set by main app when user clicks 📌)
   var wsTaskId    = "";
   var wsTaskTitle = "";
@@ -950,12 +995,16 @@
   // Apply timer state received from Firestore (written by main app or by us)
   function wsApplyTimerState(ts) {
     if (!ts || typeof ts !== "object") return;
+    // Skip our own echo: if updatedAt matches or precedes our last write, ignore it.
+    if (ts.updatedAt && ts.updatedAt <= _lastWidgetTimerSyncAt) return;
     var newMode = ts.mode || "pomodoro";
     wsCfg.mode = newMode;
     wsTimer.mode  = newMode;
     wsTimer.phase = ts.phase || "work";
     wsTimer.pomCount = ts.pomCount || 0;
     wsTimer.targetMs = ts.targetMs || 0;
+    // ts.elapsed is the ACCUMULATED elapsed only (not including current running
+    // segment). Combined with startedAt the reader can compute the current total.
     wsTimer.elapsed  = ts.elapsed  || 0;
     wsTimer.running  = !!ts.running;
     wsTimer.startedAt = wsTimer.running ? (ts.startedAt || Date.now()) : 0;
@@ -992,11 +1041,9 @@
 
   function wsUpdateTaskSessions(session) {
     var ref = userRef(); if (!ref || !fbDb) return;
-    var docRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
-    docRef.get().then(function(doc) {
-      var arr = [];
-      if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch(_) {} }
-      if (!Array.isArray(arr)) arr = [];
+    readKeyArr(ref, "task_items_v1").then(function(result) {
+      var arr = result.arr;
+      var chunkDocIds = result.chunkDocIds;
       var task = arr.find(function(t) { return String(t.id) === wsTaskId; });
       if (!task) return;
       if (!Array.isArray(task.sessions)) task.sessions = [];
@@ -1005,7 +1052,9 @@
       task.updatedAt = Date.now();
       var now = Date.now();
       var batch = fbDb.batch();
-      batch.set(docRef, { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+      batch.set(ref.collection("data").doc(docIdForKey("task_items_v1")),
+                { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+      chunkDocIds.forEach(function(cid) { batch.delete(ref.collection("data").doc(cid)); });
       batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
       return batch.commit();
     }).catch(function(e) { console.warn("[widget/ws] update task sessions ERR:", e && e.message || e); });
@@ -1055,6 +1104,7 @@
   // Write current timer state to Firestore (notify main app)
   function wsTimerSync() {
     var ref = userRef(); if (!ref) return;
+    _lastWidgetTimerSyncAt = Date.now();
     var val = JSON.stringify({
       active:    wsTimer.running || wsTimerElapsedMs() > 0,
       running:   wsTimer.running,
@@ -1062,11 +1112,15 @@
       phase:     wsTimer.phase,
       pomCount:  wsTimer.pomCount,
       targetMs:  wsTimer.targetMs,
-      elapsed:   wsTimerElapsedMs(),
+      // Write ACCUMULATED elapsed only (not including the current running segment).
+      // Reader computes real-time total as: elapsed + (now - startedAt).
+      // Writing wsTimerElapsedMs() here would cause the reader's startedAt-based
+      // calculation to double-count the current segment's duration.
+      elapsed:   wsTimer.elapsed,
       startedAt: wsTimer.running ? wsTimer.startedAt : 0,
       taskId:    wsTaskId || null,
       taskTitle: wsTaskTitle || null,
-      updatedAt: Date.now()
+      updatedAt: _lastWidgetTimerSyncAt
     });
     var now = Date.now();
     ref.collection("data").doc(docIdForKey(WS_TIMER_KEY))
@@ -1074,7 +1128,7 @@
       .then(function() {
         return ref.set({ updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
       })
-      .catch(function(e) { console.warn("[widget/ws] timer sync ERR:", e && e.message || e); });
+      .catch(function(e) { console.warn("[widget/ws] timer sync ERR:", e && e.message || e); setSyncError("타이머 동기화 실패"); });
   }
 
   function wsTimerStart() {
@@ -1218,27 +1272,32 @@
 
   function wsLinkTask(taskId, taskTitle, create) {
     if (create) {
-      // Create new task and link it
+      // Create new task and link it; use chunked read so we get the full existing
+      // array even when main app split it across multiple Firestore docs.
+      var ref = userRef(); if (!ref) return;
+      var _d = new Date();
+      var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
+      var _today = _d.getFullYear() + "-" + _pad(_d.getMonth()+1) + "-" + _pad(_d.getDate());
       var newTask = {
         id: Date.now(),
         text: taskTitle,
         done: false,
-        cat: "task",
+        date:  _today,    // required — visibleTasks() filters by t.date
+        catId: "etc",     // standard "기타" category; visible under 'all' filter
         createdAt: Date.now(),
         updatedAt: Date.now(),
         source: "widget"
       };
-      var ref = userRef(); if (!ref) return;
-      ref.collection("data").doc(docIdForKey("task_items_v1")).get().then(function(doc) {
-        var arr = [];
-        if (doc.exists) { try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {} }
-        if (!Array.isArray(arr)) arr = [];
+      readKeyArr(ref, "task_items_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         arr.unshift(newTask);
-        var val = JSON.stringify(arr);
         var now = Date.now();
         var batch = fbDb.batch();
         batch.set(ref.collection("data").doc(docIdForKey("task_items_v1")),
-                  { key: "task_items_v1", value: val, updatedAtMs: now });
+                  { key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now });
+        // Delete stale chunk docs so they don't shadow the single base doc
+        chunkDocIds.forEach(function(cid) { batch.delete(ref.collection("data").doc(cid)); });
         batch.set(ref, { updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true }, { merge: true });
         return batch.commit();
       }).then(function() {
@@ -1315,7 +1374,11 @@
                                 String(d.getMinutes()).padStart(2,"0") + " 저장됨";
         }
       })
-      .catch(function(e) { console.warn("[widget/ws] notes save ERR:", e && e.message || e); });
+      .catch(function(e) {
+        console.warn("[widget/ws] notes save ERR:", e && e.message || e);
+        var savedEl = $id("ws-notes-saved");
+        if (savedEl) savedEl.textContent = "저장 실패";
+      });
   }
   function wsNotesScheduleSave() {
     if (_wsNotesSaveTimer) clearTimeout(_wsNotesSaveTimer);
@@ -1338,28 +1401,42 @@
   }
 
   function wsNotesInsertImage(blob) {
+    // Resize to max 800px and convert to JPEG 0.80 to keep base64 under ~200KB.
+    // Notes are stored as HTML in task_notes_v1 (Firestore 1MB doc limit).
     var reader = new FileReader();
     reader.onload = function(ev) {
-      var img = document.createElement("img");
-      img.src = ev.target.result;
-      img.style.maxWidth = "100%";
-      img.style.borderRadius = "4px";
-      var el = $id("ws-notes-area");
-      if (!el) return;
-      el.focus();
-      var sel = window.getSelection();
-      if (sel && sel.rangeCount) {
-        var range = sel.getRangeAt(0);
-        range.deleteContents();
-        range.insertNode(img);
-        range.setStartAfter(img);
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } else {
-        el.appendChild(img);
-      }
-      wsNotesScheduleSave();
+      var rawSrc = ev.target.result;
+      var tempImg = new Image();
+      tempImg.onload = function() {
+        var MAX = 800;
+        var scale = Math.min(1, MAX / Math.max(tempImg.width, tempImg.height));
+        var canvas = document.createElement("canvas");
+        canvas.width  = Math.round(tempImg.width  * scale);
+        canvas.height = Math.round(tempImg.height * scale);
+        canvas.getContext("2d").drawImage(tempImg, 0, 0, canvas.width, canvas.height);
+        var dataUrl = canvas.toDataURL("image/jpeg", 0.80);
+        var img = document.createElement("img");
+        img.src = dataUrl;
+        img.style.maxWidth = "100%";
+        img.style.borderRadius = "4px";
+        var el = $id("ws-notes-area");
+        if (!el) return;
+        el.focus();
+        var sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          var range = sel.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(img);
+          range.setStartAfter(img);
+          range.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        } else {
+          el.appendChild(img);
+        }
+        wsNotesScheduleSave();
+      };
+      tempImg.src = rawSrc;
     };
     reader.readAsDataURL(blob);
   }
@@ -1458,7 +1535,7 @@
               var d = new Date(s.completedAt);
               var timeStr = (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
                             String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-              var modeLabel = (s.phase === "break" || s.phase === "longBreak") ? "휴식" : "집중";
+              var modeLabel = (s.phase === "short_break" || s.phase === "long_break") ? "휴식" : "집중";
               html += '<div class="ws-sess-row">' +
                 '<span class="ws-sess-time">' + timeStr + '</span>' +
                 '<span class="ws-sess-label">' + modeLabel + '</span>' +
@@ -1487,9 +1564,9 @@
       root.innerHTML = html;
     }
 
-    // ── Task search (timer active, no task linked) ───────────────────────────
+    // ── Task search (shown whenever no task is linked, regardless of timer state)
     var searchEl = $id("ws-task-search");
-    if (searchEl) searchEl.style.display = (active && !wsTaskId) ? "" : "none";
+    if (searchEl) searchEl.style.display = (!wsTaskId) ? "" : "none";
 
     // ── Notes (task linked) ──────────────────────────────────────────────────
     var notesEl = $id("ws-notes-section");
@@ -2051,42 +2128,48 @@
     function onError(e) {
       console.warn("[widget/qi] send ERR:", e && e.message || e);
       setSyncing(false);
+      setSyncError("전송 실패 — 다시 시도");
     }
 
+    // Today's date key "YYYY-MM-DD" (same format as main app's TK / dk())
+    var _d = new Date();
+    var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
+    var todayKey = _d.getFullYear() + "-" + _pad(_d.getMonth() + 1) + "-" + _pad(_d.getDate());
+
     if (qiType === "task") {
-      // Write to task_items_v1 as a proper task (appears in main app task list)
-      var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
-      taskDocRef.get().then(function (doc) {
-        var arr = [];
-        if (doc.exists) {
-          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
-          if (!Array.isArray(arr)) arr = [];
-        }
+      // Write to task_items_v1 with proper schema: date + catId so visibleTasks()
+      // can show it and the category filter works correctly.
+      readKeyArr(ref, "task_items_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         var newTask = {
           id:        now,
           text:      text,
           done:      false,
-          cat:       "task",
+          date:      todayKey,  // required — visibleTasks() filters by t.date
+          catId:     "etc",     // default "기타" category; visible under 'all' filter
           createdAt: now,
           updatedAt: now,
           source:    "widget"
         };
         if (qiAttachedImage) newTask.imgs = [qiAttachedImage];
         arr.unshift(newTask);
+        var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
         var batch = fbDb.batch();
+        // Write full array to the single base doc
         batch.set(taskDocRef, {key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        // Delete any old split-chunk docs so they don't shadow the new base doc
+        chunkDocIds.forEach(function(cid) {
+          batch.delete(ref.collection("data").doc(cid));
+        });
         batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
         return batch.commit();
       }).then(onSuccess).catch(onError);
     } else {
       // Write to inbox_v1 (idea / memo / buy etc.)
-      var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
-      inboxDocRef.get().then(function (doc) {
-        var arr = [];
-        if (doc.exists) {
-          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
-          if (!Array.isArray(arr)) arr = [];
-        }
+      readKeyArr(ref, "inbox_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         var item = {
           id:        now,
           text:      text,
@@ -2094,12 +2177,16 @@
           ts:        now,
           updatedAt: now,
           done:      false,
-          unread:    true   // 인박스 항목도 unread=true 로 홈 화면에 표시
+          unread:    true
         };
         if (qiAttachedImage) item.imgs = [qiAttachedImage];
         arr.unshift(item);
+        var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
         var batch = fbDb.batch();
         batch.set(inboxDocRef, {key: "inbox_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        chunkDocIds.forEach(function(cid) {
+          batch.delete(ref.collection("data").doc(cid));
+        });
         batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
         return batch.commit();
       }).then(onSuccess).catch(onError);
