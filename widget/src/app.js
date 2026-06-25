@@ -2136,61 +2136,30 @@
     var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
     var todayKey = _d.getFullYear() + "-" + _pad(_d.getMonth() + 1) + "-" + _pad(_d.getDate());
 
-    if (qiType === "task") {
-      // Write to task_items_v1 with proper schema: date + catId so visibleTasks()
-      // can show it and the category filter works correctly.
-      readKeyArr(ref, "task_items_v1").then(function(result) {
-        var arr = result.arr;
-        var chunkDocIds = result.chunkDocIds;
-        var newTask = {
-          id:        now,
-          text:      text,
-          done:      false,
-          date:      todayKey,  // required — visibleTasks() filters by t.date
-          catId:     "etc",     // default "기타" category; visible under 'all' filter
-          createdAt: now,
-          updatedAt: now,
-          source:    "widget"
-        };
-        if (qiAttachedImage) newTask.imgs = [qiAttachedImage];
-        arr.unshift(newTask);
-        var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
-        var batch = fbDb.batch();
-        // Write full array to the single base doc
-        batch.set(taskDocRef, {key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now});
-        // Delete any old split-chunk docs so they don't shadow the new base doc
-        chunkDocIds.forEach(function(cid) {
-          batch.delete(ref.collection("data").doc(cid));
-        });
-        batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
-        return batch.commit();
-      }).then(onSuccess).catch(onError);
-    } else {
-      // Write to inbox_v1 (idea / memo / buy etc.)
-      readKeyArr(ref, "inbox_v1").then(function(result) {
-        var arr = result.arr;
-        var chunkDocIds = result.chunkDocIds;
-        var item = {
-          id:        now,
-          text:      text,
-          cat:       qiCat,
-          ts:        now,
-          updatedAt: now,
-          done:      false,
-          unread:    true
-        };
-        if (qiAttachedImage) item.imgs = [qiAttachedImage];
-        arr.unshift(item);
-        var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
-        var batch = fbDb.batch();
-        batch.set(inboxDocRef, {key: "inbox_v1", value: JSON.stringify(arr), updatedAtMs: now});
-        chunkDocIds.forEach(function(cid) {
-          batch.delete(ref.collection("data").doc(cid));
-        });
-        batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
-        return batch.commit();
-      }).then(onSuccess).catch(onError);
-    }
+    // Append-only capture queue — the SAME proven pattern as widget_focus_sessions.
+    // Instead of read-modify-writing the whole task_items_v1 / inbox_v1 blob (which
+    // races with the main app's concurrent saves and can blow Firestore's 1 MB
+    // single-doc limit once the blob grows), write ONE immutable doc per captured
+    // item to users/{uid}/widget_capture_queue/{id}. The main app drains the queue,
+    // applies AI categorization to tasks (the feature that the blob path skipped),
+    // folds items into its arrays, dedups by a device-local consumed-id set, and
+    // prunes the docs by age. No array merge, no chunking, no overwrite hazard.
+    var docId = "wc_" + now + "_" + Math.floor(Math.random() * 1e6);
+    var item = {
+      id:        docId,
+      kind:      qiType === "task" ? "task" : "inbox",
+      text:      text,
+      cat:       qiType === "task" ? "" : qiCat,
+      date:      todayKey,
+      createdAt: now,
+      source:    "widget"
+    };
+    if (qiAttachedImage) item.imgs = [qiAttachedImage];
+    var batch = fbDb.batch();
+    batch.set(ref.collection("widget_capture_queue").doc(docId), item);
+    // Bump the user-doc header so the main app's onSnapshot fires and drains now.
+    batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
+    batch.commit().then(onSuccess).catch(onError);
   }
 
   // Wire quick input window
