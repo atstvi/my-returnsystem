@@ -926,8 +926,9 @@
   var wsTaskTitle = "";
   var wsTaskDue   = "";
   // Notes (task_notes_v1)
-  var wsTaskNotes = {};        // full map { taskId: { text, updatedAt } }
+  var wsTaskNotes = {};        // full map { taskId: { html, color, updatedAt } }
   var _wsNotesSaveTimer = null;
+  var WS_NOTE_COLORS = ["#23252b","#2b2012","#1a2030","#f5f0e0","#e8f5e8","#f5e8e8"];
   // Focus sessions for the currently linked task (loaded from task.sessions)
   var wsTaskSessions = [];
 
@@ -977,7 +978,8 @@
     if (changed) {
       wsLoadTaskSessions(newId);
       var el = $id("ws-notes-area");
-      if (el) { el.value = wsTaskNotes[wsTaskId] ? wsTaskNotes[wsTaskId].text || "" : ""; el._wsPopulated = true; el._wsWired = false; }
+      if (el) { el.innerHTML = ""; el.style.background = ""; el.style.color = ""; el._wsPopulated = false; el._wsWired = false; }
+      var sw = $id("ws-note-colors"); if (sw) { sw.innerHTML = ""; sw._wsWired = false; }
     }
   }
 
@@ -1282,7 +1284,8 @@
     wsTaskId = ""; wsTaskTitle = ""; wsTaskDue = ""; wsTimerFootMsg = "";
     wsTaskSessions = [];
     var ta = $id("ws-notes-area");
-    if (ta) { ta.value = ""; ta._wsPopulated = false; ta._wsWired = false; }
+    if (ta) { ta.innerHTML = ""; ta.style.background = ""; ta.style.color = ""; ta._wsPopulated = false; ta._wsWired = false; }
+    var sw = $id("ws-note-colors"); if (sw) { sw.innerHTML = ""; sw._wsWired = false; }
     wsWriteWorkstationKey();
     wsTimerSync();
     renderWorkstation();
@@ -1294,8 +1297,9 @@
     if (!wsTaskId) return;
     var ref = userRef(); if (!ref) return;
     var el = $id("ws-notes-area");
-    var text = el ? el.value : "";
-    wsTaskNotes[wsTaskId] = { text: text, updatedAt: Date.now() };
+    var html = el ? el.innerHTML : "";
+    var color = (wsTaskNotes[wsTaskId] && wsTaskNotes[wsTaskId].color) || WS_NOTE_COLORS[0];
+    wsTaskNotes[wsTaskId] = { html: html, color: color, updatedAt: Date.now() };
     var val = JSON.stringify(wsTaskNotes);
     var now = Date.now();
     var batch = fbDb.batch();
@@ -1316,6 +1320,54 @@
   function wsNotesScheduleSave() {
     if (_wsNotesSaveTimer) clearTimeout(_wsNotesSaveTimer);
     _wsNotesSaveTimer = setTimeout(wsNotesSaveNow, 1200);
+  }
+
+  function wsNotesSetColor(color) {
+    if (!wsTaskId) return;
+    var el = $id("ws-notes-area");
+    if (!wsTaskNotes[wsTaskId]) wsTaskNotes[wsTaskId] = { html: "", color: color, updatedAt: Date.now() };
+    wsTaskNotes[wsTaskId].color = color;
+    if (el) {
+      el.style.background = color;
+      // Auto-set text color based on luminance
+      var r = parseInt(color.slice(1,3),16), g = parseInt(color.slice(3,5),16), b2 = parseInt(color.slice(5,7),16);
+      var lum = 0.2126*(r/255) + 0.7152*(g/255) + 0.0722*(b2/255);
+      el.style.color = lum >= 0.45 ? "#1a1c22" : "";
+    }
+    wsNotesScheduleSave();
+  }
+
+  function wsNotesInsertImage(blob) {
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      var img = document.createElement("img");
+      img.src = ev.target.result;
+      img.style.maxWidth = "100%";
+      img.style.borderRadius = "4px";
+      var el = $id("ws-notes-area");
+      if (!el) return;
+      el.focus();
+      var sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        var range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(img);
+        range.setStartAfter(img);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } else {
+        el.appendChild(img);
+      }
+      wsNotesScheduleSave();
+    };
+    reader.readAsDataURL(blob);
+  }
+
+  function wsNotesFmt(cmd) {
+    document.execCommand(cmd, false, null);
+    var el = $id("ws-notes-area"); if (el) el.focus();
+    wsNotesScheduleSave();
   }
 
   // ── Workstation rendering ─────────────────────────────────────────────────────
@@ -1449,11 +1501,50 @@
         if (ta && !ta._wsWired) {
           ta._wsWired = true;
           ta.addEventListener("input", wsNotesScheduleSave);
+          // Ctrl+B/I/U shortcuts
+          ta.addEventListener("keydown", function(e) {
+            if (e.ctrlKey || e.metaKey) {
+              if (e.key === "b") { e.preventDefault(); wsNotesFmt("bold"); }
+              else if (e.key === "i") { e.preventDefault(); wsNotesFmt("italic"); }
+              else if (e.key === "u") { e.preventDefault(); wsNotesFmt("underline"); }
+            }
+          });
+          // Image paste (Ctrl+V)
+          ta.addEventListener("paste", function(e) {
+            var items = e.clipboardData && e.clipboardData.items;
+            if (!items) return;
+            for (var pi = 0; pi < items.length; pi++) {
+              if (items[pi].type.indexOf("image") !== -1) {
+                e.preventDefault();
+                var blob = items[pi].getAsFile();
+                if (blob) wsNotesInsertImage(blob);
+                break;
+              }
+            }
+          });
         }
-        // Populate if empty and we have data
+        // Populate HTML and color once per task link
         if (ta && !ta._wsPopulated) {
           ta._wsPopulated = true;
-          ta.value = (wsTaskNotes[wsTaskId] && wsTaskNotes[wsTaskId].text) || "";
+          var noteData = wsTaskNotes[wsTaskId];
+          // Migrate old plain-text notes
+          var noteHtml = noteData ? (noteData.html || (noteData.text ? esc(noteData.text) : "")) : "";
+          var noteColor = (noteData && noteData.color) || WS_NOTE_COLORS[0];
+          ta.innerHTML = noteHtml;
+          ta.style.background = noteColor;
+          var nr = parseInt(noteColor.slice(1,3)||"0",16), ng = parseInt(noteColor.slice(3,5)||"0",16), nb2 = parseInt(noteColor.slice(5,7)||"0",16);
+          var nlum = 0.2126*(nr/255) + 0.7152*(ng/255) + 0.0722*(nb2/255);
+          ta.style.color = nlum >= 0.45 ? "#1a1c22" : "";
+        }
+        // Render color swatches
+        var swatchEl = $id("ws-note-colors");
+        if (swatchEl && !swatchEl._wsWired) {
+          swatchEl._wsWired = true;
+          var curColor = (wsTaskNotes[wsTaskId] && wsTaskNotes[wsTaskId].color) || WS_NOTE_COLORS[0];
+          swatchEl.innerHTML = WS_NOTE_COLORS.map(function(c) {
+            return '<span class="ws-note-swatch' + (c === curColor ? " active" : "") +
+                   '" data-color="' + c + '" style="background:' + c + '" title="종이 색"></span>';
+          }).join("");
         }
       }
     }
@@ -2073,6 +2164,41 @@
         });
         searchInp.addEventListener("focus", function() {
           wsSearchTasks(this.value);
+        });
+      }
+
+      // Notes toolbar: bold/italic/underline/img
+      wsView.addEventListener("click", function(e) {
+        var nb = e.target.closest && e.target.closest("[data-nact]");
+        if (nb) {
+          var nact = nb.getAttribute("data-nact");
+          if (nact === "bold")      wsNotesFmt("bold");
+          else if (nact === "italic")    wsNotesFmt("italic");
+          else if (nact === "underline") wsNotesFmt("underline");
+          else if (nact === "img") { var fi = $id("ws-note-img-file"); if (fi) fi.click(); }
+          return;
+        }
+        // Color swatch click
+        var sw = e.target.closest && e.target.closest(".ws-note-swatch");
+        if (sw) {
+          var color = sw.getAttribute("data-color");
+          if (color) {
+            wsNotesSetColor(color);
+            // Update active swatch
+            var swParent = $id("ws-note-colors");
+            if (swParent) swParent.querySelectorAll(".ws-note-swatch").forEach(function(s) {
+              s.classList.toggle("active", s.getAttribute("data-color") === color);
+            });
+          }
+        }
+      });
+
+      // Image file picker
+      var noteImgFile = $id("ws-note-img-file");
+      if (noteImgFile) {
+        noteImgFile.addEventListener("change", function() {
+          var file = this.files && this.files[0];
+          if (file) { wsNotesInsertImage(file); this.value = ""; }
         });
       }
     }
