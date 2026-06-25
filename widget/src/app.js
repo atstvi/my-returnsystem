@@ -2053,40 +2053,62 @@
       setSyncing(false);
     }
 
+    // Read the full array for a key, handling split-chunk docs the same way the
+    // main app's fbReadSplitData does (uses where() to get ALL docs for the key).
+    function qiReadArr(dataRef, key) {
+      return dataRef.collection("data").where("key", "==", key).get()
+        .then(function(qs) {
+          var whole = null, parts = [], chunkDocIds = [];
+          qs.forEach(function(doc) {
+            var d = doc.data() || {};
+            if (d.value != null && d.part == null) { whole = d.value; }
+            else if (d.part != null) { parts[Number(d.part)] = d.value || ""; chunkDocIds.push(doc.id); }
+          });
+          var raw = whole != null ? whole : (parts.length ? parts.join("") : "[]");
+          var arr = safeJson(raw, []);
+          return { arr: Array.isArray(arr) ? arr : [], chunkDocIds: chunkDocIds };
+        });
+    }
+
+    // Today's date key "YYYY-MM-DD" (same format as main app's TK / dk())
+    var _d = new Date();
+    var _pad = function(n) { return n < 10 ? "0" + n : "" + n; };
+    var todayKey = _d.getFullYear() + "-" + _pad(_d.getMonth() + 1) + "-" + _pad(_d.getDate());
+
     if (qiType === "task") {
-      // Write to task_items_v1 as a proper task (appears in main app task list)
-      var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
-      taskDocRef.get().then(function (doc) {
-        var arr = [];
-        if (doc.exists) {
-          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
-          if (!Array.isArray(arr)) arr = [];
-        }
+      // Write to task_items_v1 with proper schema: date + catId so visibleTasks()
+      // can show it and the category filter works correctly.
+      qiReadArr(ref, "task_items_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         var newTask = {
           id:        now,
           text:      text,
           done:      false,
-          cat:       "task",
+          date:      todayKey,  // required — visibleTasks() filters by t.date
+          catId:     "etc",     // default "기타" category; visible under 'all' filter
           createdAt: now,
           updatedAt: now,
           source:    "widget"
         };
         if (qiAttachedImage) newTask.imgs = [qiAttachedImage];
         arr.unshift(newTask);
+        var taskDocRef = ref.collection("data").doc(docIdForKey("task_items_v1"));
         var batch = fbDb.batch();
+        // Write full array to the single base doc
         batch.set(taskDocRef, {key: "task_items_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        // Delete any old split-chunk docs so they don't shadow the new base doc
+        chunkDocIds.forEach(function(cid) {
+          batch.delete(ref.collection("data").doc(cid));
+        });
         batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
         return batch.commit();
       }).then(onSuccess).catch(onError);
     } else {
       // Write to inbox_v1 (idea / memo / buy etc.)
-      var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
-      inboxDocRef.get().then(function (doc) {
-        var arr = [];
-        if (doc.exists) {
-          try { arr = JSON.parse(doc.data().value || "[]"); } catch (_) {}
-          if (!Array.isArray(arr)) arr = [];
-        }
+      qiReadArr(ref, "inbox_v1").then(function(result) {
+        var arr = result.arr;
+        var chunkDocIds = result.chunkDocIds;
         var item = {
           id:        now,
           text:      text,
@@ -2094,12 +2116,16 @@
           ts:        now,
           updatedAt: now,
           done:      false,
-          unread:    true   // 인박스 항목도 unread=true 로 홈 화면에 표시
+          unread:    true
         };
         if (qiAttachedImage) item.imgs = [qiAttachedImage];
         arr.unshift(item);
+        var inboxDocRef = ref.collection("data").doc(docIdForKey("inbox_v1"));
         var batch = fbDb.batch();
         batch.set(inboxDocRef, {key: "inbox_v1", value: JSON.stringify(arr), updatedAtMs: now});
+        chunkDocIds.forEach(function(cid) {
+          batch.delete(ref.collection("data").doc(cid));
+        });
         batch.set(ref, {updatedAtMs: now, clientId: WIDGET_CLIENT_ID, split: true}, {merge: true});
         return batch.commit();
       }).then(onSuccess).catch(onError);
