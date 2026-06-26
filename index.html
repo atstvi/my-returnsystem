@@ -13112,6 +13112,63 @@ function _commitCaptureTask(parsed){
   homeToast('할일 추가됨: '+String(parsed.text||'').slice(0,20));
 }
 
+/* Core AI natural-language → task-fields parser. Returns the parsed object (with
+   a guaranteed `text`) on success, or null when there's no API key / the call
+   fails / times out — callers decide how to fall back. Extracted so BOTH the
+   interactive capture-bar preview (homeCaptureAI) and the non-interactive
+   widget-capture-queue drain (pullWidgetCaptureQueue) share one prompt + schema
+   instead of duplicating the Groq request. */
+async function _captureAIParse(text){
+  text = String(text||'').trim();
+  if(!text) return null;
+  var groqKey = localStorage.getItem('groq_api_key')||'';
+  if(!groqKey) return null;
+
+  /* Build cat list for the prompt */
+  var catList = CATS.map(function(c){return c.id+'('+c.label+')';}).join(', ');
+  var today = TK;
+
+  var systemPrompt = '당신은 한국어 자연어를 할일 데이터로 파싱하는 도우미입니다.\n'
+    +'오늘 날짜: '+today+'\n'
+    +'카테고리 목록(id(이름)): '+catList+'\n'
+    +'우선순위: high/mid/low/""(없음)\n'
+    +'반드시 JSON만 반환하세요. 다른 텍스트 없이.\n'
+    +'스키마:\n'
+    +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|"}\n'
+    +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
+
+  /* 20s abort: a hung capture-AI call should fall back rather than hang. */
+  var _captureAbort=typeof AbortController!=='undefined'?new AbortController():null;
+  var _captureAbortTimer=_captureAbort?setTimeout(function(){_captureAbort.abort();},20000):null;
+  try {
+    var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
+      body:JSON.stringify({
+        model:'llama-3.3-70b-versatile',
+        max_tokens:300,
+        temperature:0.1,
+        messages:[
+          {role:'system',content:systemPrompt},
+          {role:'user',content:'파싱: '+text}
+        ]
+      }),
+      signal:_captureAbort?_captureAbort.signal:undefined
+    });
+    clearTimeout(_captureAbortTimer);
+    var data = await resp.json();
+    var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
+    /* Strip markdown code fences if any */
+    content = content.replace(/```json|```/g,'').trim();
+    var parsed = JSON.parse(content);
+    if(!parsed.text) parsed.text = text;
+    return parsed;
+  } catch(e) {
+    clearTimeout(_captureAbortTimer);
+    return null;
+  }
+}
+
 async function homeCaptureAI(raw){
   var text = String(raw||'').trim();
   if(!text) return;
@@ -13122,8 +13179,7 @@ async function homeCaptureAI(raw){
     return;
   }
 
-  var groqKey = localStorage.getItem('groq_api_key')||'';
-  if(!groqKey){
+  if(!localStorage.getItem('groq_api_key')){
     /* No API key: fall through to plain add */
     homeCapture(text);
     return;
@@ -13147,48 +13203,11 @@ async function homeCaptureAI(raw){
     _capturePreviewEl = loading;
   }
 
-  /* Build cat list for the prompt */
-  var catList = CATS.map(function(c){return c.id+'('+c.label+')';}).join(', ');
-  var today = TK;
-
-  var systemPrompt = '당신은 한국어 자연어를 할일 데이터로 파싱하는 도우미입니다.\n'
-    +'오늘 날짜: '+today+'\n'
-    +'카테고리 목록(id(이름)): '+catList+'\n'
-    +'우선순위: high/mid/low/""(없음)\n'
-    +'반드시 JSON만 반환하세요. 다른 텍스트 없이.\n'
-    +'스키마:\n'
-    +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|"}\n'
-    +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
-
-  try {
-    /* 20s abort: a hung capture-AI call should fall back to plain add rather
-       than leaving the UI spinner running indefinitely. */
-    var _captureAbort=typeof AbortController!=='undefined'?new AbortController():null;
-    var _captureAbortTimer=_captureAbort?setTimeout(function(){_captureAbort.abort();},20000):null;
-    var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
-      body:JSON.stringify({
-        model:'llama-3.3-70b-versatile',
-        max_tokens:300,
-        temperature:0.1,
-        messages:[
-          {role:'system',content:systemPrompt},
-          {role:'user',content:'파싱: '+text}
-        ]
-      }),
-      signal:_captureAbort?_captureAbort.signal:undefined
-    });
-    clearTimeout(_captureAbortTimer);
-    var data = await resp.json();
-    var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
-    /* Strip markdown code fences if any */
-    content = content.replace(/```json|```/g,'').trim();
-    var parsed = JSON.parse(content);
-    if(!parsed.text) parsed.text = text;
+  var parsed = await _captureAIParse(text);
+  if(parsed){
     _showCapturePreview(parsed);
-  } catch(e) {
-    /* AI failed — remove loading and fall back to plain add */
+  } else {
+    /* AI unavailable / failed — remove loading and fall back to plain add */
     _closeCapturePreview();
     homeCapture(text);
     homeToast('AI 파싱 실패, 그냥 추가했어요');
@@ -27708,6 +27727,9 @@ async function fbLoadAll(){
     /* W4b: fold any PC-widget focus sessions into the local timer log. Isolated
        fire-and-forget — never blocks or fails hydration. */
     try{ pullWidgetFocusSessions(ref); }catch(_e){}
+    /* Drain any desktop-widget quick-capture items (inbox/tasks) written while
+       this device was away — AI-parses tasks during the fold. Fire-and-forget. */
+    try{ pullWidgetCaptureQueue(ref); }catch(_e){}
     if(_fbUnsubscribe)_fbUnsubscribe();
     _fbUnsubscribe=ref.onSnapshot(async function(s){
       try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotEvents++; window.__SYNC_DEBUG.state.timestamps.lastSnapshotAt=Date.now(); window.__SYNC_DEBUG.log('fb','onSnapshot fired',{exists:s.exists}); } }catch(_e){}
@@ -27738,6 +27760,10 @@ async function fbLoadAll(){
               var _wts=split.keys&&split.keys['widget_timer_state_v1'];
               if(_wts){var _wtsObj=JSON.parse(_wts);if(_wtsObj&&typeof focusTimerApplyWidgetState==='function')focusTimerApplyWidgetState(_wtsObj);}
             }catch(_we){}
+            /* A widget root-doc bump may signal a fresh quick-capture queue item
+               (capture writes don't touch any data/* doc, so the split read above
+               won't surface them). Drain the queue now. */
+            try{ if(typeof pullWidgetCaptureQueue==='function')pullWidgetCaptureQueue(ref); }catch(_wc){}
           }
           try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.state.counters.onSnapshotApplied++; window.__SYNC_DEBUG.log('fb','onSnapshot applied',{splitKeys:Object.keys(split.keys).length}); } }catch(_e){}
         }
@@ -36613,6 +36639,126 @@ function pullWidgetFocusSessions(ref){
     res.deleteIds.slice(0,400).forEach(function(id){ var r=byId[id]; if(r&&r.delete)r.delete().catch(function(){}); });
   }).catch(function(e){ try{console.warn('[widget-focus] pull failed:',e&&e.message);}catch(_){} })
    .then(function(){ _widgetFocusPulling=false; });
+}
+
+/* ── Widget quick-capture queue drain ───────────────────────────────────────
+   The desktop widget's quick-input writes each captured item as its own
+   immutable doc to users/{uid}/widget_capture_queue/{id} (append-only, same
+   safe pattern as widget_focus_sessions — no array-merge / 1 MB-doc / overwrite
+   hazard from read-modify-writing the whole task_items_v1 / inbox_v1 blob).
+   This drains them: inbox items are folded straight into inboxItems; task items
+   are run through the SAME AI parser as the in-app capture bar (the feature the
+   old blob path skipped) and added to tasks.
+
+   Dedup model (differs from widget_focus_sessions on purpose): tasks/inboxItems
+   are Firebase-SYNCED, so a device-local consumed-set would make every device's
+   main app fold the same queue doc independently → cross-device DUPLICATES. So
+   instead each folded item is tagged with `_wcid` = the source queue-doc id, and
+   the dedup authority is the SYNCED data itself: a queue doc whose _wcid already
+   exists in tasks/inboxItems is never re-folded. Folded docs are deleted from
+   the queue (consume) so they don't pile up; a doc that's already represented in
+   synced data is also deleted (retry/cleanup). No data is lost: a doc is only
+   deleted after its item exists (locally added, or already present in synced
+   data) — a fold that throws before the add leaves the doc for the next pull. */
+var _widgetCapturePulling=false;
+/* Pure fold: given the cloud queue docs + the set of _wcid values already present
+   in synced data, decide which docs become new items and which to delete (already
+   represented). No I/O — unit-tested. */
+function widgetCaptureFold(docs,presentWcids){
+  var present={}; (presentWcids||[]).forEach(function(id){if(id!=null)present[String(id)]=true;});
+  var items=[],deleteIds=[];
+  (docs||[]).forEach(function(d){
+    if(!d||!d.id)return;
+    if(present[String(d.id)]){ deleteIds.push(d.id); return; } /* already folded → clean up */
+    items.push({
+      id:d.id,
+      kind:d.kind==='task'?'task':'inbox',
+      text:String(d.text||''),
+      cat:d.cat||'',
+      date:d.date||'',
+      imgs:Array.isArray(d.imgs)?d.imgs:null,
+      createdAt:Number(d.createdAt)||0
+    });
+    deleteIds.push(d.id); /* consumed once added below */
+  });
+  return {items:items,deleteIds:deleteIds};
+}
+/* Build a task object from a drained queue item + optional AI-parsed fields.
+   Mirrors _commitCaptureTask's field shape so widget tasks are indistinguishable
+   from in-app captures (only `source` and the note differ). */
+function _buildWidgetCaptureTask(it,parsed){
+  var catId=(parsed&&parsed.catId)||'etc';
+  var defPrio=(parsed&&parsed.priority)||(typeof getCatDefaultPriority==='function'?getCatDefaultPriority(catId):'');
+  var t={
+    id:Date.now()+Math.floor(Math.random()*1000),
+    text:(parsed&&parsed.text)||it.text||'새 할일',
+    catId:catId,
+    date:(parsed&&parsed.date)||it.date||TK,
+    priority:defPrio, done:false,
+    deadlineDate:(parsed&&parsed.deadlineDate)||'', deadlineId:'',
+    timeStart:(parsed&&parsed.timeStart)||'', timeEnd:(parsed&&parsed.timeEnd)||'',
+    note:(parsed?'위젯 빠른 입력 (AI)':'위젯 빠른 입력'),
+    subs:[], _ruleId:'', _repeat:false,
+    createdAt:it.createdAt||Date.now(), updatedAt:Date.now(),
+    source:'widget', _wcid:it.id
+  };
+  if(it.imgs)t.imgs=it.imgs;
+  return t;
+}
+/* Collect the _wcid values already represented in synced data so the fold never
+   re-adds a queue doc another device already folded (cross-device dedup). */
+function _widgetCapturePresentWcids(){
+  var out=[];
+  try{ if(typeof tasks!=='undefined'&&Array.isArray(tasks))tasks.forEach(function(t){if(t&&t._wcid!=null)out.push(t._wcid);}); }catch(_e){}
+  try{ if(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))inboxItems.forEach(function(it){if(it&&it._wcid!=null)out.push(it._wcid);}); }catch(_e){}
+  return out;
+}
+async function pullWidgetCaptureQueue(ref){
+  if(_widgetCapturePulling)return;
+  if(typeof fbDb==='undefined'||!fbDb||typeof fbUser==='undefined'||!fbUser)return;
+  try{ ref=ref||fbDb.collection('users').doc(fbUser.uid); }catch(e){return;}
+  _widgetCapturePulling=true;
+  try{
+    var qs=await ref.collection('widget_capture_queue').get();
+    var docs=[],byId={};
+    qs.forEach(function(doc){ var d=doc.data()||{}; if(!d.id)d.id=doc.id; docs.push(d); byId[d.id]=doc.ref; });
+    var res=widgetCaptureFold(docs,_widgetCapturePresentWcids());
+    if(res.items.length){
+      var inboxAdded=0,taskAdded=0;
+      for(var i=0;i<res.items.length;i++){
+        var it=res.items[i];
+        if(it.kind==='inbox'){
+          if(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems)){
+            var ib={id:Date.now()+i, text:it.text, cat:it.cat||'memo', ts:it.createdAt||Date.now(), done:false, unread:true, _wcid:it.id};
+            if(it.imgs)ib.imgs=it.imgs;
+            inboxItems.unshift(ib);
+            inboxAdded++;
+          }
+        }else{
+          /* task — apply the same AI parse as the in-app capture bar, then add. */
+          var parsed=null;
+          try{ parsed=await _captureAIParse(it.text); }catch(_e){ parsed=null; }
+          if(typeof tasks!=='undefined'&&Array.isArray(tasks)){
+            tasks.unshift(_buildWidgetCaptureTask(it,parsed));
+            taskAdded++;
+          }
+        }
+      }
+      if(inboxAdded&&typeof saveInboxItems==='function')saveInboxItems();
+      if(taskAdded){
+        if(typeof saveTaskData==='function')saveTaskData();
+        try{ if(typeof renderList==='function')renderList(); }catch(_e){}
+        try{ if(typeof renderCal==='function')renderCal(); }catch(_e){}
+        try{ if(typeof renderHomeTasks==='function')renderHomeTasks(); }catch(_e){}
+      }
+      if(inboxAdded){ try{ if(typeof renderFeed==='function')renderFeed(); }catch(_e){} }
+      try{ console.log('[widget-capture] folded '+res.items.length+' item(s): '+taskAdded+' task / '+inboxAdded+' inbox'); }catch(e){}
+    }
+    /* Delete consumed/already-present docs (idempotent; safe — item now exists in
+       synced data). Bound the per-run delete count so a backlog can't stall. */
+    res.deleteIds.slice(0,400).forEach(function(id){ var r=byId[id]; if(r&&r.delete)r.delete().catch(function(){}); });
+  }catch(e){ try{console.warn('[widget-capture] pull failed:',e&&e.message);}catch(_){} }
+  finally{ _widgetCapturePulling=false; }
 }
 
 
