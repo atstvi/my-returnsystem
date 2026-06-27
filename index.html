@@ -2951,6 +2951,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ftl-block:hover{filter:brightness(1.08);box-shadow:0 0 0 1px var(--accent)}
 .ftl-block-dur{font-weight:var(--fw-bold);font-variant-numeric:tabular-nums}
 .ftl-block-task{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.ftl-block-task-solo{font-weight:var(--fw-semibold);opacity:1}
 .ftl-empty{padding:var(--sp-8) var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-sm)}
 .ftl-field{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);color:var(--fg-3);font-size:var(--text-sm)}
 .ftl-field input,.ftl-field select{height:38px;border-radius:var(--r-md);border:.5px solid var(--border-subtle);background:var(--bg-raised);color:var(--fg);padding:0 var(--sp-3);font-size:var(--text-sm);min-width:150px}
@@ -37698,12 +37699,25 @@ function focusLogHtml(){
     for(var hr=rs;hr<re;hr++){lines+='<div class="ftl-hour-line" style="top:'+((hr-rs)*SLOT_H)+'px"></div>';}
     var blocks=d.sessions.map(function(s){
       var top=Math.max(0,(s.startMin-rs*60)*pxPerMin);
-      var height=Math.max(14,(s.endMin-s.startMin)*pxPerMin);
+      /* Blocks linked to a task get a slightly taller floor so the task name
+         stays legible (like a home time block label) even for short sessions. */
+      var height=Math.max(s.taskText?20:14,(s.endMin-s.startMin)*pxPerMin);
       var col=_ftModeColor(s.mode);
       var bg=twvHexAlpha(col,0.18);
       var icon=s.mode==='pomodoro'?'🍅':s.mode==='countdown'?'⏱':s.mode==='stopwatch'?'⏲':'•';
       var label=focusFmtDur(s.durationMs);
-      var inner='<div class="ftl-block-dur">'+icon+' '+_fte(label)+'</div>'+(height>=30&&s.taskText?'<div class="ftl-block-task">'+_fte(s.taskText)+'</div>':'');
+      var durLine='<div class="ftl-block-dur">'+icon+' '+_fte(label)+'</div>';
+      /* Show the task name like a time block: the name is the primary label
+         (always shown when present); the duration line joins it only when the
+         block is tall enough for two lines. */
+      var inner;
+      if(s.taskText){
+        inner=(height>=34)
+          ? durLine+'<div class="ftl-block-task">'+_fte(s.taskText)+'</div>'
+          : '<div class="ftl-block-task ftl-block-task-solo">'+_fte(s.taskText)+'</div>';
+      }else{
+        inner=durLine;
+      }
       return '<div class="ftl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(label+(s.taskText?' · '+s.taskText:'')+(s.source==='manual'?' · 수동':s.source==='widget'?' · 위젯':''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
     }).join('');
     return '<div class="ftl-col" style="height:'+totalPx+'px">'+lines+blocks+'</div>';
