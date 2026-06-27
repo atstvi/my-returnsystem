@@ -26940,6 +26940,21 @@ function fbSanitizeGcalCfg(cfg){
   cfg=cfg||{};
   return {clientId:cfg.clientId||'',calendarId:cfg.calendarId||'primary',taskCalendarId:cfg.taskCalendarId||'',autoSync:!!cfg.autoSync,reminderMin:cfg.reminderMin||0,eventMeta:cfg.eventMeta||{}};
 }
+/* Merge an incoming (cloud, sanitized) gcal cfg over the local one, PRESERVING
+   the device-local fields that fbSanitizeGcalCfg strips before upload — client
+   secret, OAuth tokens, and the local event-id map. The cloud settings doc never
+   carries these, so applying the incoming cfg blindly would wipe a locally-saved
+   client secret on the very next sync (reported: "구글 시크릿 키가 저장 안됨").
+   Cloud wins only when it actually has a value for the field; otherwise local. */
+function gcalMergeCloudCfg(cloudCfg, localCfg){
+  var gIn=Object.assign({}, cloudCfg||{});
+  var gLocal=localCfg||{};
+  if(!gIn.taskCalendarId && gLocal.taskCalendarId) gIn.taskCalendarId=gLocal.taskCalendarId;
+  ['clientSecret','_savedToken','_savedTokenExp','_savedRefreshToken','eventIds','deletedEvents'].forEach(function(f){
+    if(gIn[f]==null && gLocal[f]!=null) gIn[f]=gLocal[f];
+  });
+  return gIn;
+}
 function fbCollectCloudSettings(){
   var out={updatedAtMs:Date.now(),settings:{}};
   CLOUD_SETTING_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)out.settings[k]=v;});
@@ -26974,11 +26989,9 @@ function fbApplyCloudSettings(doc){
         incoming.autoSync=true;
         wv=JSON.stringify(incoming);
       }else if(k==='gcal_cfg_v1'){
-        var gIn=JSON.parse(v||'{}'), gLocal={};
+        var gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
-        if(!gIn.taskCalendarId && gLocal.taskCalendarId)gIn.taskCalendarId=gLocal.taskCalendarId;
-        if(gLocal._savedToken){gIn._savedToken=gLocal._savedToken;gIn._savedTokenExp=gLocal._savedTokenExp;}
-        wv=JSON.stringify(gIn);
+        wv=JSON.stringify(gcalMergeCloudCfg(JSON.parse(v||'{}'), gLocal));
       }else{
         wv=String(v);
       }
