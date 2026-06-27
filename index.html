@@ -31305,6 +31305,7 @@ var _gcalToken=_gcalCfg._savedToken||null;
 var _gcalTokenExp=_gcalCfg._savedTokenExp||0;
 var _gcalTokenClient=null;
 var _gcalEnsureTokenPromise=null;
+var _gcalRefreshRevoked=false;
 function gcalStatus(text, cls){
   var row=document.getElementById('gcal-status');
   var detail=document.getElementById('gcal-sync-status');
@@ -31403,9 +31404,13 @@ async function gcalEnsureToken(showUi){
       if(_gcalCfg._savedRefreshToken&&_gcalCfg.clientSecret){
         var refreshed=await gcalRefreshAccessToken();
         if(refreshed)return true;
-        /* If refresh_token is revoked/expired, clear it so we fall through to re-auth */
-        _gcalCfg._savedRefreshToken='';
-        setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+        /* Only clear the refresh_token when Google actually revoked it
+           (invalid_grant). A transient failure keeps it so the next attempt can
+           silently recover instead of forcing a manual re-login. */
+        if(_gcalRefreshRevoked){
+          _gcalCfg._savedRefreshToken='';
+          setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+        }
       }
       /* 2. GIS silent refresh — works when Google session is active in the browser */
       await loadScript('https://accounts.google.com/gsi/client');
@@ -31476,8 +31481,17 @@ async function gcalExchangeCode(code, codeVerifier, redirectUri){
   return await resp.json();
 }
 
+/* A failed refresh response only means the refresh_token is PERMANENTLY dead when
+   Google returns invalid_grant (revoked/expired/consent withdrawn). Transient
+   failures — network errors, 5xx, rate-limit — must NOT drop the stored token, or
+   a brief blip would force a full manual re-login (the recurring "토큰 만료" nag). */
+function gcalIsRefreshRevoked(status, body){
+  body=String(body||'');
+  return /invalid_grant/i.test(body);
+}
 /* Use stored refresh_token to get a new access_token without user interaction. */
 async function gcalRefreshAccessToken(){
+  _gcalRefreshRevoked=false;
   if(!_gcalCfg.clientId||!_gcalCfg.clientSecret||!_gcalCfg._savedRefreshToken)return false;
   try{
     var resp=await fetch('https://oauth2.googleapis.com/token',{
@@ -31490,7 +31504,11 @@ async function gcalRefreshAccessToken(){
         grant_type:'refresh_token'
       }).toString()
     });
-    if(!resp.ok)return false;
+    if(!resp.ok){
+      var _eb=''; try{_eb=await resp.text();}catch(_){}
+      _gcalRefreshRevoked=gcalIsRefreshRevoked(resp.status,_eb);
+      return false;
+    }
     var data=await resp.json();
     if(!data.access_token)return false;
     _gcalToken=data.access_token;
