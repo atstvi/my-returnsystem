@@ -8462,10 +8462,22 @@ to{opacity:1;transform:translateY(0)}}
           <div class="set-detail" id="gcal-detail">
             <div class="field-group">
               <div class="field-label">Google Calendar OAuth Client ID</div>
-              <div class="field-help">Google Cloud Console → API 및 서비스 → 사용자 인증 정보에서 OAuth 클라이언트 ID를 만들고, 승인된 JavaScript 원본에 현재 도메인을 추가해야 해요. <strong>자동 갱신</strong>을 원하면 클라이언트 유형을 <strong>데스크톱 앱</strong>으로 만드세요.</div>
-              <input class="set-inp mono" id="gcal-client-id" placeholder="xxxxx.apps.googleusercontent.com">
+              <div class="field-help">Google Cloud Console → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID 만들기. 애플리케이션 유형은 <strong>웹 애플리케이션</strong>을 고르세요. (이 앱은 https 웹 주소에서 돌아오므로 데스크톱 앱·iOS·Android 타입은 리디렉션을 막아 <code>redirect_uri_mismatch</code>가 납니다.) 아래 두 값을 그대로 등록해야 해요:</div>
+              <div style="background:var(--bg-raised);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-top:var(--sp-3);font-size:var(--text-xs);line-height:1.7">
+                <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap">
+                  <span style="color:var(--fg-4);min-width:96px">JavaScript 원본</span>
+                  <code id="gcal-origin-val" class="mono" style="flex:1;word-break:break-all">—</code>
+                  <button class="set-btn btn-ghost" style="padding:2px 10px" onclick="gcalCopyHint('gcal-origin-val')">복사</button>
+                </div>
+                <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-2)">
+                  <span style="color:var(--fg-4);min-width:96px">리디렉션 URI</span>
+                  <code id="gcal-redirect-val" class="mono" style="flex:1;word-break:break-all">—</code>
+                  <button class="set-btn btn-ghost" style="padding:2px 10px" onclick="gcalCopyHint('gcal-redirect-val')">복사</button>
+                </div>
+              </div>
+              <input class="set-inp mono" id="gcal-client-id" placeholder="xxxxx.apps.googleusercontent.com" style="margin-top:var(--sp-3)">
               <div class="field-label" style="margin-top:var(--sp-4)">Client Secret <span style="font-weight:400;color:var(--fg-4)">(자동 갱신용 · 선택)</span></div>
-              <div class="field-help">데스크톱 앱 타입 OAuth 클라이언트의 비밀키. 입력하면 60분마다 재로그인 없이 자동으로 토큰이 갱신됩니다. 개인 앱이므로 로컬에만 저장되며 Firebase에 동기화되지 않습니다.</div>
+              <div class="field-help">웹 애플리케이션 OAuth 클라이언트의 비밀키. 입력하면 재로그인 없이 토큰이 자동 갱신됩니다(refresh token). 개인 앱이므로 이 기기 로컬에만 저장되며 Firebase에 동기화되지 않습니다 — <strong>기기마다 한 번씩</strong> 입력하고 로그인해야 해요.</div>
               <input class="set-inp mono" id="gcal-client-secret" type="password" placeholder="GOCSPX-...">
               <div class="field-label" style="margin-top:var(--sp-4)">일정 캘린더 ID</div>
               <input class="set-inp mono" id="gcal-calendar-id" placeholder="primary 또는 xxx@group.calendar.google.com">
@@ -31358,6 +31370,12 @@ function gcalLoadConfig(){
   if(tcal)tcal.value=_gcalCfg.taskCalendarId||'';
   if(auto)auto.checked=!!_gcalCfg.autoSync;
   if(rem)rem.value=String(_gcalCfg.reminderMin||0);
+  /* Show the EXACT values to register on the Google "웹 애플리케이션" client —
+     a one-character redirect_uri mismatch is the #1 cause of login failure. */
+  try{
+    var _ov=document.getElementById('gcal-origin-val'); if(_ov)_ov.textContent=location.origin;
+    var _rv=document.getElementById('gcal-redirect-val'); if(_rv)_rv.textContent=location.origin+location.pathname;
+  }catch(_e){}
   var hasRefresh=!!_gcalCfg._savedRefreshToken;
   if(_gcalToken && _gcalTokenExp > Date.now()){
     var minsLeft=Math.round((_gcalTokenExp-Date.now())/60000);
@@ -31398,6 +31416,21 @@ function gcalSaveConfig(silent){
 }
 saveGcalKey=gcalSaveConfig;
 function gcalClearConfig(){localStorage.removeItem('gcal_cfg_v1');_gcalCfg={};_gcalToken=null;_gcalTokenExp=0;gcalLoadConfig();showToast('Google Calendar 연동을 해제했어요');}
+/* Copy a Google OAuth setup hint value (JS origin / redirect URI) to clipboard. */
+function gcalCopyHint(id){
+  var el=document.getElementById(id);
+  var text=el?(el.textContent||'').trim():'';
+  if(!text||text==='—'){ showToast('복사할 값이 없어요'); return; }
+  function ok(){ if(typeof showToast==='function')showToast('복사됨: '+text); }
+  function fail(){ if(typeof showToast==='function')showToast('복사 실패 — 길게 눌러 직접 복사해주세요'); }
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(text).then(ok).catch(fail); }
+    else{
+      var ta=document.createElement('textarea'); ta.value=text; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); ok(); }catch(e){ fail(); } document.body.removeChild(ta);
+    }
+  }catch(e){ fail(); }
+}
 /* Proactively refresh token when the app regains visibility so it's ready for
    the next sync without any user-visible delay or error. */
 document.addEventListener('visibilitychange',function(){
