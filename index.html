@@ -22811,6 +22811,19 @@ var diaryTrackers = [], diaryTrackerValues = {};
 
 function loadAll() {
   try { memos = JSON.parse(localStorage.getItem('memos_v5') || '[]'); } catch(e) { memos = []; }
+  /* Heal memos that accumulated duplicates under the old tombstone-less sync:
+     give legacy items stable ids, then collapse copies. Persist the cleanup
+     (which also seeds the entity shadow + tombstones) unless we're mid cloud-apply. */
+  try{
+    if(Array.isArray(memos)&&memos.length){
+      memosEnsureIds(memos);
+      var _md=returnDedupById(memos);
+      if(_md.removed>0){
+        memos=_md.arr;
+        if(!window._applyingFbData){ try{ memosCommit(); }catch(_e){} }
+      }
+    }
+  }catch(_e){}
   try { metrics = JSON.parse(localStorage.getItem('metrics_v1') || '[]'); } catch(e) { metrics = []; }
   try { philCards = JSON.parse(localStorage.getItem('phil_cards') || '[]'); } catch(e) { philCards = []; }
   try { checkLogs = JSON.parse(localStorage.getItem('return_check_logs') || '[]'); } catch(e) { checkLogs = []; }
@@ -22854,20 +22867,60 @@ function switchPanel(id, btn) {
 }
 
 /* ── MEMOS (깨달음) ── */
+/* Give every memo a stable identity so dedup / entity-sync / tombstones work.
+   New memos already carry `id`. Legacy memos ({text,ts,type}) get a DETERMINISTIC
+   id from their content hash — identical across devices AND identical to the _eid
+   the entity sync already derives (memo_h<hash> in fbEntityBuildDocs), so no
+   cross-device divergence and no resurrection-as-duplicate. Items already
+   carrying _eid are left untouched (their _eid is authoritative). */
+function memosEnsureIds(arr){
+  if(!Array.isArray(arr))return 0;
+  var n=0;
+  for(var i=0;i<arr.length;i++){
+    var m=arr[i];
+    if(!m||typeof m!=='object')continue;
+    if(m.id!=null&&String(m.id)!=='')continue;        /* already keyed by id */
+    /* Derive id from an existing _eid (memo_<id>) so a stamped copy and an
+       id-less copy of the SAME memo dedup to one key; else hash the content. */
+    if(m._eid&&String(m._eid).indexOf('memo_')===0){ m.id=String(m._eid).slice(5); }
+    else if(m._eid){ m.id=String(m._eid); }
+    else { m.id='h'+_entityPayloadHash(m); }
+    n++;
+  }
+  return n;
+}
+function memosKey(m){ return m?(m.id!=null&&String(m.id)!==''?'id:'+String(m.id):(m._eid!=null?'eid:'+String(m._eid):null)):null; }
+/* Single funnel for persisting memos (mirrors saveProjects/saveRoutineData):
+   ensure stable ids → collapse accumulated duplicates → stamp _eid/updatedAt +
+   auto-tombstone vanished memos (so a delete doesn't resurrect from the entity
+   mirror) → write. memos was the only entity collection missing this, which is
+   why deletes kept coming back and copies piled up. */
+function memosCommit(){
+  memosEnsureIds(memos);
+  var d=returnDedupById(memos);
+  if(d.removed>0)memos=d.arr;
+  try{ returnEntityPrepareForSave('memos', memos, 'memo_', {autoTombstone:true}); }catch(_e){}
+  return setReturnStorageItem('memos_v5',JSON.stringify(memos));
+}
 function saveMemo() {
   var ta = document.getElementById('capture-ta');
   var text = ta.value.trim();
   if (!text) return;
   memos.unshift({ id: 'm_'+Date.now()+'_'+Math.floor(Math.random()*9999), text: text, ts: Date.now(), type: 'memo' });
-  var ok=setReturnStorageItem('memos_v5',JSON.stringify(memos));
+  var ok=memosCommit();
   if(!ok)console.error('[memo] memos_v5 save failed — memo may be lost on reload');
   ta.value = '';
   renderMemos();
 }
 
 function deleteMemo(idx) {
-  memos.splice(idx, 1);
-  setReturnStorageItem('memos_v5',JSON.stringify(memos));
+  var target=memos[idx];
+  var key=memosKey(target);
+  /* Remove ALL copies sharing this memo's identity — if it had already been
+     duplicated by the old (tombstone-less) sync, one click clears them all. */
+  if(key){ memos=memos.filter(function(m){ return memosKey(m)!==key; }); }
+  else if(idx>=0&&idx<memos.length){ memos.splice(idx, 1); }
+  memosCommit();
   renderMemos();
 }
 
@@ -23861,7 +23914,7 @@ function deleteProjectSafely(project){
     }
     var memosArr=projectReadArray('memos_v5'), changed=false;
     memosArr.forEach(function(m){if(String(m.projectId||'')===pid){delete m.projectId;changed=true;}});
-    if(changed){setReturnStorageItem('memos_v5',JSON.stringify(memosArr));if(typeof memos!=='undefined')memos=memosArr;}
+    if(changed){memosEnsureIds(memosArr);try{returnEntityPrepareForSave('memos',memosArr,'memo_',{autoTombstone:false});}catch(_e){}setReturnStorageItem('memos_v5',JSON.stringify(memosArr));if(typeof memos!=='undefined')memos=memosArr;}
     var checksArr=projectReadArray('return_check_logs'); changed=false;
     checksArr.forEach(function(c){if(String(c.projectId||'')===pid){delete c.projectId;changed=true;}});
     if(changed){setReturnStorageItem('return_check_logs',JSON.stringify(checksArr));if(typeof checkLogs!=='undefined')checkLogs=checksArr;}
@@ -24231,7 +24284,7 @@ function openProjectRecordLinker(project){
     if(e.target===ov){close();return;}
     var btn=e.target.closest('[data-type]'); if(!btn)return;
     var type=btn.dataset.type, key=btn.dataset.key;
-    if(type==='memo'){var m=memosArr[parseInt(key,10)]; if(m){ if(String(m.projectId||'')===String(project.id)) delete m.projectId; else m.projectId=project.id; setReturnStorageItem('memos_v5',JSON.stringify(memosArr)); if(typeof memos!=='undefined')memos=memosArr; }}
+    if(type==='memo'){var m=memosArr[parseInt(key,10)]; if(m){ if(String(m.projectId||'')===String(project.id)) delete m.projectId; else m.projectId=project.id; memosEnsureIds(memosArr); try{returnEntityPrepareForSave('memos',memosArr,'memo_',{autoTombstone:false});}catch(_e){} setReturnStorageItem('memos_v5',JSON.stringify(memosArr)); if(typeof memos!=='undefined')memos=memosArr; }}
     if(type==='check'){var c=checksArr[parseInt(key,10)]; if(c){ if(String(c.projectId||'')===String(project.id)) delete c.projectId; else c.projectId=project.id; setReturnStorageItem('return_check_logs',JSON.stringify(checksArr)); if(typeof checkLogs!=='undefined')checkLogs=checksArr; }}
     if(type==='diary'){var d=diaryObj[key]||(diaryObj[key]={}); if(String(d.projectId||'')===String(project.id)) delete d.projectId; else d.projectId=project.id; setReturnStorageItem('diary_entries_v1',JSON.stringify(diaryObj)); if(typeof entries!=='undefined')entries=diaryObj; }
     close(); renderProjects();
