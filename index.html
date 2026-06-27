@@ -46,6 +46,16 @@
       var code=qp.get('code');
       var state=qp.get('state')||'';
       if(code){
+        /* Same-window redirect flow (mobile/PWA): there is no opener to message.
+           Stash the code, clean the URL, and let the app boot normally —
+           gcalResumeRedirectAuth() exchanges it. Do NOT replace the document. */
+        var _rf=false; try{ _rf=sessionStorage.getItem('gcal_redirect_flow')==='1'; }catch(_){}
+        if(_rf){
+          try{ sessionStorage.setItem('gcal_pending_code',JSON.stringify({code:code,state:state})); }catch(e){}
+          try{ sessionStorage.removeItem('gcal_redirect_flow'); }catch(e){}
+          try{ history.replaceState(null,'',location.origin+location.pathname); }catch(e){}
+          return;
+        }
         var payload={type:'gcal_code', code:code, state:state};
         try{ if(window.opener&&!window.opener.closed){ window.opener.postMessage(payload,location.origin); } }catch(e){}
         try{ if('BroadcastChannel' in window){ var bc2=new BroadcastChannel('return-gcal-oauth'); bc2.postMessage(payload); setTimeout(function(){try{bc2.close();}catch(e){}},80); } }catch(e){}
@@ -68,6 +78,14 @@
     if(!token) return;
     var expiresIn=Number(params.get('expires_in')||3600);
     var state=params.get('state')||'';
+    /* Same-window redirect flow (mobile/PWA): stash + clean URL, let app boot. */
+    var _rf2=false; try{ _rf2=sessionStorage.getItem('gcal_redirect_flow')==='1'; }catch(_){}
+    if(_rf2){
+      try{ sessionStorage.setItem('gcal_pending_token',JSON.stringify({token:token,expiresIn:expiresIn,state:state})); }catch(e){}
+      try{ sessionStorage.removeItem('gcal_redirect_flow'); }catch(e){}
+      try{ history.replaceState(null,'',location.origin+location.pathname); }catch(e){}
+      return;
+    }
     var payload={type:'gcal_token', token:token, expiresIn:expiresIn, state:state};
 
     /* Try every channel — first that succeeds is enough.
@@ -31524,6 +31542,90 @@ async function gcalRefreshAccessToken(){
   }
 }
 
+/* Build the Google OAuth authorize URL. mode 'code' = PKCE Authorization Code
+   (Desktop-app client + secret → issues refresh_token for silent auto-refresh);
+   mode 'token' = implicit grant (no secret, ~1h, no refresh). Shared by the
+   desktop popup flow and the mobile/PWA same-window redirect flow. */
+function gcalBuildAuthUrl(o){
+  o=o||{};
+  var p=['client_id='+encodeURIComponent(o.clientId||''),
+         'redirect_uri='+encodeURIComponent(o.redirect||''),
+         'scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events'),
+         'state='+encodeURIComponent(o.state||'')];
+  if(o.mode==='code'){
+    p.unshift('response_type=code');
+    p.push('code_challenge='+encodeURIComponent(o.codeChallenge||''));
+    p.push('code_challenge_method=S256');
+    p.push('access_type=offline');
+    p.push('prompt=consent');
+  }else{
+    p.unshift('response_type=token');
+    p.push('include_granted_scopes=true');
+  }
+  return 'https://accounts.google.com/o/oauth2/v2/auth?'+p.join('&');
+}
+/* Popups + cross-window messaging are unreliable inside installed PWAs (esp.
+   iOS standalone, where the popup opens in a separate Safari context that can't
+   message back). On mobile / standalone we instead navigate the SAME window to
+   Google and process the auth code/token on return (handled in the HEAD callback
+   + gcalResumeRedirectAuth at boot). Desktop keeps the popup. */
+function _gcalUseRedirectAuthFlow(){
+  try{
+    if(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+    if(window.navigator && window.navigator.standalone===true) return true; /* iOS home-screen PWA */
+    if(/Android|iPhone|iPad|iPod|Mobile/i.test((navigator&&navigator.userAgent)||'')) return true;
+  }catch(e){}
+  return false;
+}
+function _gcalLaunchRedirectAuth(clientId, redirect, state){
+  function go(url){ try{ sessionStorage.setItem('gcal_redirect_flow','1'); }catch(e){} location.assign(url); }
+  if(_gcalCfg.clientSecret){
+    var codeVerifier=gcalPkceVerifier();
+    try{ sessionStorage.setItem('gcal_pkce_verifier',codeVerifier); }catch(e){}
+    gcalPkceChallenge(codeVerifier).then(function(codeChallenge){
+      go(gcalBuildAuthUrl({clientId:clientId,redirect:redirect,state:state,mode:'code',codeChallenge:codeChallenge}));
+    });
+  }else{
+    go(gcalBuildAuthUrl({clientId:clientId,redirect:redirect,state:state,mode:'token'}));
+  }
+}
+/* Apply a token obtained via the redirect flow (no popup opener/closure). Mirrors
+   gcalAuth's inner finishToken but stands alone since that one is a closure. */
+function _gcalFinishRedirectToken(accessToken, expiresIn, refreshToken){
+  if(!accessToken){ showToast('Google 로그인 실패 — 토큰을 받지 못했어요'); return; }
+  _gcalToken=accessToken;
+  _gcalTokenExp=Date.now()+Number(expiresIn||3600)*1000;
+  _gcalCfg._savedToken=_gcalToken; _gcalCfg._savedTokenExp=_gcalTokenExp;
+  if(refreshToken) _gcalCfg._savedRefreshToken=refreshToken;
+  setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
+  gcalLoadConfig();
+  showToast('Google Calendar 인증 완료 — 동기화를 시작해요');
+  setTimeout(function(){ if(typeof gcalSync==='function') gcalSync({silent:true,auto:true}).catch(function(e){ console.warn('gcal post-auth sync',e); }); }, 400);
+}
+/* Boot-time: finish a same-window redirect login. The HEAD callback stashed the
+   returned code/token in sessionStorage and cleaned the URL; here we exchange the
+   code (PKCE) or apply the implicit token, validating state + PKCE verifier. */
+function gcalResumeRedirectAuth(){
+  var pendingCode=null, pendingToken=null;
+  try{ pendingCode=JSON.parse(sessionStorage.getItem('gcal_pending_code')||'null'); }catch(e){}
+  try{ pendingToken=JSON.parse(sessionStorage.getItem('gcal_pending_token')||'null'); }catch(e){}
+  if(!pendingCode && !pendingToken) return;
+  var expState=''; try{ expState=sessionStorage.getItem('gcal_oauth_state')||''; }catch(e){}
+  var redirect=location.origin+location.pathname;
+  if(pendingCode){
+    try{ sessionStorage.removeItem('gcal_pending_code'); }catch(e){}
+    if(expState && pendingCode.state && pendingCode.state!==expState){ showToast('Google 로그인 상태가 일치하지 않아요 — 다시 시도해주세요'); return; }
+    var verifier=''; try{ verifier=sessionStorage.getItem('gcal_pkce_verifier')||''; }catch(e){}
+    if(!verifier){ showToast('Google 로그인 정보가 만료됐어요 — 다시 시도해주세요'); return; }
+    gcalExchangeCode(pendingCode.code, verifier, redirect).then(function(data){
+      _gcalFinishRedirectToken(data.access_token, data.expires_in, data.refresh_token);
+    }).catch(function(e){ if(typeof gcalStatus==='function')gcalStatus('코드 교환 실패: '+e.message,'err'); showToast('Google 로그인 실패: '+(e&&e.message||e)); });
+  }else if(pendingToken){
+    try{ sessionStorage.removeItem('gcal_pending_token'); }catch(e){}
+    if(expState && pendingToken.state && pendingToken.state!==expState){ showToast('Google 로그인 상태가 일치하지 않아요 — 다시 시도해주세요'); return; }
+    _gcalFinishRedirectToken(pendingToken.token, pendingToken.expiresIn, null);
+  }
+}
 function gcalAuth(){
   gcalSaveConfig();
   var clientId=_gcalCfg.clientId;
@@ -31535,6 +31637,14 @@ function gcalAuth(){
   var redirect=location.origin+location.pathname;
   var state='gcal_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
   try{ sessionStorage.setItem('gcal_oauth_state',state); }catch(e){}
+
+  /* Mobile / installed PWA: same-window redirect (popup messaging is unreliable
+     there). Desktop falls through to the popup flow below. */
+  if(_gcalUseRedirectAuthFlow()){
+    showToast('Google 로그인 화면으로 이동합니다…');
+    _gcalLaunchRedirectAuth(clientId, redirect, state);
+    return;
+  }
 
   var done=false;
   function finishToken(accessToken, expiresIn, refreshToken){
@@ -31562,16 +31672,7 @@ function gcalAuth(){
     var codeVerifier=gcalPkceVerifier();
     try{ sessionStorage.setItem('gcal_pkce_verifier',codeVerifier); }catch(e){}
     gcalPkceChallenge(codeVerifier).then(function(codeChallenge){
-      var url='https://accounts.google.com/o/oauth2/v2/auth'
-        +'?response_type=code'
-        +'&client_id='+encodeURIComponent(clientId)
-        +'&redirect_uri='+encodeURIComponent(redirect)
-        +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
-        +'&code_challenge='+encodeURIComponent(codeChallenge)
-        +'&code_challenge_method=S256'
-        +'&access_type=offline'
-        +'&prompt=consent'
-        +'&state='+encodeURIComponent(state);
+      var url=gcalBuildAuthUrl({clientId:clientId,redirect:redirect,state:state,mode:'code',codeChallenge:codeChallenge});
       window.open(url,'gcal_auth','width=520,height=640');
     });
 
@@ -31612,12 +31713,7 @@ function gcalAuth(){
     });
   } else {
     /* Implicit grant — no clientSecret configured */
-    var url='https://accounts.google.com/o/oauth2/v2/auth?response_type=token'
-      +'&client_id='+encodeURIComponent(clientId)
-      +'&redirect_uri='+encodeURIComponent(redirect)
-      +'&scope='+encodeURIComponent('https://www.googleapis.com/auth/calendar.events')
-      +'&include_granted_scopes=true'
-      +'&state='+encodeURIComponent(state);
+    var url=gcalBuildAuthUrl({clientId:clientId,redirect:redirect,state:state,mode:'token'});
     window.open(url,'gcal_auth','width=520,height=640');
 
     function onBC(ev){
@@ -34777,6 +34873,7 @@ try {
   if (typeof _healNotionAutoSyncOnce === 'function') _healNotionAutoSyncOnce();
   if (typeof loadDiaryNotionConfig === 'function') { loadDiaryNotionConfig(); scheduleDiaryAutoSync(); }
   if (typeof gcalLoadConfig === 'function') gcalLoadConfig();
+  if (typeof gcalResumeRedirectAuth === 'function') { try{ gcalResumeRedirectAuth(); }catch(e){ console.warn('gcal redirect resume',e); } }
   if (window.SyncManager && typeof SyncManager.renderPanel === 'function') SyncManager.renderPanel();
   if (typeof themeStudioApply === 'function') themeStudioApply(themeStudioGet());
   /* Run the media-fallback repair immediately at boot so icons backed by the
