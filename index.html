@@ -8417,6 +8417,12 @@ to{opacity:1;transform:translateY(0)}}
                 <span class="field-help">왼쪽 속성명</span><input class="set-inp" id="habit-notion-left-prop" placeholder="왼쪽">
                 <span class="field-help">오른쪽 속성명</span><input class="set-inp" id="habit-notion-right-prop" placeholder="오른쪽">
               </div>
+              <div class="field-label" style="margin-top:var(--sp-4)">대상 페이지 (제목으로 선택)</div>
+              <div class="field-help">해빗 상태를 넣을 페이지를 고르세요. DB ID를 입력한 뒤 "페이지 불러오기"를 누르면 DB 안의 페이지 제목 목록이 나오고, 선택한 페이지에만 전송합니다.</div>
+              <div style="display:flex;gap:var(--sp-3);align-items:center;margin-top:var(--sp-3)">
+                <select class="set-inp" id="habit-notion-page" style="flex:1"><option value="">— 페이지를 불러와 선택 —</option></select>
+                <button class="set-btn btn-ghost" onclick="habitNotionLoadPages()">페이지 불러오기</button>
+              </div>
               <div style="display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;margin-top:var(--sp-4)">
                 <label class="field-help"><input type="checkbox" id="habit-notion-auto" checked> 해빗 변경 시 자동 전송</label>
               </div>
@@ -29454,12 +29460,18 @@ saveHabitNotionConfig=function(silent){
     return el.type==='checkbox'?el.checked:el.value.trim();
   }
   var newDbId=valOr('habit-notion-db',prev.dbId);
+  /* 드롭다운에서 고른 대상 페이지(value=page id, 표시 텍스트=제목). 미선택이면 이전 값 유지. */
+  var pageSel=document.getElementById('habit-notion-page');
+  var pickedId='', pickedTitle='';
+  if(pageSel && pageSel.value){ pickedId=pageSel.value; pickedTitle=(pageSel.options[pageSel.selectedIndex]||{}).text||''; }
+  var dbChanged=(newDbId!==prev.dbId);
   var c={
     dbId:newDbId,
     leftProp:valOr('habit-notion-left-prop',prev.leftProp||'왼쪽')||'왼쪽',
     rightProp:valOr('habit-notion-right-prop',prev.rightProp||'오른쪽')||'오른쪽',
-    /* DB가 바뀌면 기억해둔 page id를 버려 새 DB의 페이지를 다시 찾게 한다. */
-    pageId:(newDbId!==prev.dbId)?'':(prev.pageId||'')
+    /* DB가 바뀌면 기억해둔 페이지 선택을 버린다(이전 DB의 페이지이므로). */
+    pageId: dbChanged ? '' : (pickedId || prev.pageId || ''),
+    pageTitle: dbChanged ? '' : (pickedId ? pickedTitle : (prev.pageTitle || ''))
   };
   _saveHabitNotionCfgObj(c);
   /* 자동 전송 on/off는 기기-로컬 플래그로만 저장(클라우드 왕복 오염 방지). 체크박스
@@ -29478,14 +29490,58 @@ function loadHabitNotionConfig(){
   setV('habit-notion-left-prop',_habitNotionCfg.leftProp||'왼쪽');
   setV('habit-notion-right-prop',_habitNotionCfg.rightProp||'오른쪽');
   setV('habit-notion-auto', localStorage.getItem('habit_notion_autosend_off')!=='1');
+  /* 저장된 대상 페이지를 드롭다운에 표시(전체 목록을 불러오기 전에도 선택 상태가 보이게). */
+  var pageSel=document.getElementById('habit-notion-page');
+  if(pageSel){
+    if(_habitNotionCfg.pageId){
+      pageSel.innerHTML='<option value="'+_habitNotionCfg.pageId+'">'+routineEsc(_habitNotionCfg.pageTitle||'(선택된 페이지)')+'</option>';
+      pageSel.value=_habitNotionCfg.pageId;
+    }else{
+      pageSel.innerHTML='<option value="">— 페이지를 불러와 선택 —</option>';
+    }
+  }
   var st=document.getElementById('habit-notion-status');
   if(st){
     var shared=getNotionCfg();
-    var ready=!!(shared.workerUrl&&_habitNotionCfg.dbId);
-    st.textContent=ready?'연결됨 — 해빗 변경 시 자동 전송':(shared.workerUrl?'DB ID를 입력해주세요':'먼저 위 일기 Notion의 Worker URL을 설정해주세요');
+    if(!shared.workerUrl) st.textContent='먼저 위 일기 Notion의 Worker URL을 설정해주세요';
+    else if(!_habitNotionCfg.dbId) st.textContent='DB ID를 입력해주세요';
+    else if(!_habitNotionCfg.pageId) st.textContent='"페이지 불러오기"로 대상 페이지를 선택해주세요';
+    else st.textContent='연결됨 — "'+(_habitNotionCfg.pageTitle||'선택된 페이지')+'"에 해빗 변경 시 자동 전송';
   }
   var row=document.getElementById('habit-notion-row');
-  if(row)row.setAttribute('data-state', (getNotionCfg().workerUrl&&_habitNotionCfg.dbId)?'ok':'');
+  if(row)row.setAttribute('data-state', (getNotionCfg().workerUrl&&_habitNotionCfg.dbId&&_habitNotionCfg.pageId)?'ok':'');
+}
+/* DB의 페이지 목록을 불러와 제목 드롭다운을 채운다(대상 페이지 선택용). */
+async function habitNotionLoadPages(){
+  if(!getNotionCfg().workerUrl){ showToast('먼저 일기 Notion의 Worker URL을 설정해주세요'); return; }
+  var dbId=((document.getElementById('habit-notion-db')||{}).value||'').trim()||getHabitNotionCfg().dbId;
+  if(!dbId){ showToast('해빗 Notion DB ID를 먼저 입력해주세요'); return; }
+  var sel=document.getElementById('habit-notion-page');
+  try{
+    var meta=await _diaryNotionApi('GET','/databases/'+dbId);
+    var titleKey=Object.keys(meta.properties||{}).find(function(k){return meta.properties[k].type==='title';});
+    var res=await _diaryNotionApi('POST','/databases/'+dbId+'/query',{page_size:100});
+    var pages=res.results||[];
+    var saved=getHabitNotionCfg().pageId||'';
+    if(sel){
+      sel.innerHTML='<option value="">— 페이지 선택 —</option>';
+      pages.forEach(function(pg){
+        var title='(제목 없음)';
+        try{
+          var tp=titleKey&&pg.properties&&pg.properties[titleKey];
+          if(tp&&tp.title&&tp.title.length){ title=tp.title.map(function(t){return t.plain_text||(t.text&&t.text.content)||'';}).join('')||title; }
+        }catch(_e){}
+        var opt=document.createElement('option');
+        opt.value=pg.id; opt.textContent=title;
+        if(pg.id===saved)opt.selected=true;
+        sel.appendChild(opt);
+      });
+    }
+    showToast('페이지 '+pages.length+'개를 불러왔어요'+(pages.length?' — 대상을 고르고 저장하세요':''));
+  }catch(e){
+    console.warn('[habit-notion] load pages failed:', e&&e.message||e);
+    showToast('페이지 불러오기 실패: '+(e&&e.message||e));
+  }
 }
 /* 현재 해빗을 캔버스 순서(번들 순→비번들 순)로 모아 done 여부에 따라 ■/□ 라인 생성,
    개수 기준 절반으로 좌/우 분할. */
@@ -29504,22 +29560,10 @@ function queueHabitNotionSave(){
   if(window._applyingFbData) return;
   if(localStorage.getItem('habit_notion_autosend_off')==='1') return;
   var cfg=getHabitNotionCfg();
-  if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp) return;
+  if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp||!cfg.pageId) return; /* 대상 페이지 미선택이면 보내지 않음 */
   if(!getNotionCfg().workerUrl) return;
   clearTimeout(_habitNotionSaveTimer);
   _habitNotionSaveTimer=setTimeout(function(){ syncHabitStatusToNotion({silent:true}); },900);
-}
-/* 단일 페이지 id 확보: cfg.pageId 우선 → DB 첫 행 → 없으면 생성. */
-async function _habitNotionResolvePageId(cfg){
-  if(cfg.pageId) return cfg.pageId;
-  var q=await _diaryNotionApi('POST','/databases/'+cfg.dbId+'/query',{page_size:1});
-  if(q && q.results && q.results[0]) return q.results[0].id;
-  var meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);
-  var titleKey=Object.keys(meta.properties||{}).find(function(k){return meta.properties[k].type==='title';});
-  var props={};
-  if(titleKey) props[titleKey]={title:[{text:{content:'해빗 상태'}}]};
-  var page=await _diaryNotionApi('POST','/pages',{parent:{database_id:cfg.dbId},properties:props});
-  return page && page.id;
 }
 async function syncHabitStatusToNotion(opts){
   opts=opts||{};
@@ -29532,6 +29576,7 @@ async function syncHabitStatusToNotion(opts){
   var cfg=getHabitNotionCfg();
   if(!getNotionCfg().workerUrl){ if(!opts.silent)showToast('먼저 일기 Notion의 Worker URL을 설정해주세요'); return; }
   if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp){ if(!opts.silent)showToast('해빗 Notion DB ID와 두 속성명을 입력해주세요'); return; }
+  if(!cfg.pageId){ if(!opts.silent)showToast('대상 페이지를 선택해주세요 ("페이지 불러오기" 후 선택·저장)'); return; }
   _habitNotionSyncActive=true;
   try{
     var texts=habitNotionBuildTexts();
@@ -29539,22 +29584,19 @@ async function syncHabitStatusToNotion(opts){
     var props={};
     props[cfg.leftProp]={rich_text:rt(texts.left)};
     props[cfg.rightProp]={rich_text:rt(texts.right)};
-    var pid=await _habitNotionResolvePageId(cfg);
-    if(!pid) throw new Error('페이지를 찾거나 만들지 못했어요');
-    if(pid!==cfg.pageId){ cfg.pageId=pid; _saveHabitNotionCfgObj(cfg); }
     try{
-      await _diaryNotionApi('PATCH','/pages/'+pid,{properties:props});
+      /* 사용자가 제목으로 고른 그 페이지에만 쓴다(임의 페이지 생성/선택 없음). */
+      await _diaryNotionApi('PATCH','/pages/'+cfg.pageId,{properties:props});
     }catch(e){
-      /* 기억해둔 페이지가 지워졌으면(404/archived) page id 비우고 재확보 후 재시도. */
+      /* 고른 페이지가 지워졌으면(404/archived) 선택을 비우고 재선택을 안내(임의 생성 금지). */
       if(e&&(e.status===404||/not found|archived|could not find/i.test(e.message||''))){
-        cfg.pageId=''; _saveHabitNotionCfgObj(cfg);
-        var pid2=await _habitNotionResolvePageId(cfg);
-        if(!pid2) throw e;
-        cfg.pageId=pid2; _saveHabitNotionCfgObj(cfg);
-        await _diaryNotionApi('PATCH','/pages/'+pid2,{properties:props});
-      } else throw e;
+        cfg.pageId=''; cfg.pageTitle=''; _saveHabitNotionCfgObj(cfg);
+        if(document.getElementById('habit-notion-page')&&typeof loadHabitNotionConfig==='function')loadHabitNotionConfig();
+        throw new Error('선택한 페이지를 찾을 수 없어요. "페이지 불러오기"로 다시 선택해주세요.');
+      }
+      throw e;
     }
-    if(!opts.silent)showToast('해빗 상태를 Notion에 보냈어요 ('+texts.count+'개)');
+    if(!opts.silent)showToast('해빗 상태를 "'+(cfg.pageTitle||'선택한 페이지')+'"에 보냈어요 ('+texts.count+'개)');
   }catch(e){
     console.warn('[habit-notion] sync failed:', e&&e.message||e);
     if(!opts.silent)showToast('해빗 Notion 전송 실패: '+(e&&e.message||e));
