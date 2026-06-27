@@ -29308,12 +29308,19 @@ localStorage.setItem = function(k,v){
 
 var DIARY_DEFAULT_PROMPT='아래 오늘의 할일과 일정을 Notion 타임라인에 넣기 좋게 시간순으로 간결하게 정리해줘. 원문 제목과 이모지는 바꾸지 말고, 새 이모지를 추가하지 마. 빠진 준비나 마감 위험이 보이면 함께 적어줘.\n\n{tasks}';
 var _diaryNotionCfg={};
-/* ════════ NOTION 동기화 일시 전면 차단 (일기 동기화 오류로 임시 비활성화) ════════
-   일기↔Notion 양방향 동기화(자동 push/pull + 수동 ⇅동기화/AI 타임라인 전송)를 모두
-   막는 마스터 스위치. 되돌리려면 이 값만 false로 바꾸면 됨. 일기 페이지/데이터/Firebase
-   동기화는 그대로 두고 Notion 전송 경로만 차단한다(autoSync를 강제로 false로 만들어
-   queueDiaryNotionSave/queueDiaryNotionPull/scheduleDiaryAutoSync가 모두 bail). */
-var NOTION_SYNC_DISABLED = true;
+/* ════════ NOTION: 전송(push)은 유지, 동기화(pull)·편집시 자동 push만 차단 ════════
+   일기↔Notion 자동 양방향 동기화가 데이터를 되돌리는(롤백) 문제가 심해, 방향별로
+   나눠서 차단한다. "전송(일기→Notion)"은 살리고 "가져오기(Notion→일기)"는 막는다.
+
+   살아있는 것(SEND): 설정의 ⇅ 수동 동기화, AI 타임라인 정리→Notion, 매일 자동
+     타임라인 전송(예약 시간), 아카이브 직전 보존용 push(_ensureDiaryInNotion).
+   차단되는 것:
+     - NOTION_PULL_DISABLED        : Notion→일기 가져오기(pull/sweep) 전면 차단(롤백 원인).
+                                     자동 pull + 수동 "⬇ 가져오기" 버튼 모두 막힘.
+     - NOTION_AUTOPUSH_EDIT_DISABLED: 일기 편집 시 자동 push(queueDiaryNotionSave) 차단.
+   전부 되돌리려면 두 플래그를 false로. (일기 탭 숨김은 별개 — 위 탭 버튼 display:none.) */
+var NOTION_PULL_DISABLED = true;
+var NOTION_AUTOPUSH_EDIT_DISABLED = true;
 function getNotionCfg(){
   var c={};
   try{ c=JSON.parse(localStorage.getItem('diary_notion_cfg')||'{}'); }catch(e){ c={}; }
@@ -29328,8 +29335,8 @@ function getNotionCfg(){
      toggle (notion_autosync_off) is the only way to disable, and it never syncs
      so it can't be clobbered. */
   c.autoSync = (localStorage.getItem('notion_autosync_off') !== '1');
-  /* 마스터 차단: 켜져 있으면 자동 push/pull·예약 동기화를 전부 끈다. */
-  if(typeof NOTION_SYNC_DISABLED!=='undefined' && NOTION_SYNC_DISABLED) c.autoSync=false;
+  /* autoSync는 예약 전송(scheduleDiaryAutoSync의 매일 타임라인 push)을 살리기 위해
+     유지한다. 위험한 방향(pull)·편집시 자동 push는 각 함수에서 방향별 플래그로 차단. */
   return c;
 }
 function notionVal(id){var el=document.getElementById(id);return el?(el.type==='checkbox'?el.checked:el.value.trim()):'';}
@@ -29434,6 +29441,8 @@ function _apTrace(stage, detail){
 }
 window._apTrace=_apTrace;
 function queueDiaryNotionSave(dateKey){
+  /* 편집 시 자동 push 차단(방향별 정책). 전송은 수동/예약/아카이브 경로로만. */
+  if(typeof NOTION_AUTOPUSH_EDIT_DISABLED!=='undefined' && NOTION_AUTOPUSH_EDIT_DISABLED){ _apTrace('queue:skip','autopush-edit disabled'); return; }
   var cfg=getNotionCfg();
   if(!cfg.autoSync){ _apTrace('queue:skip','autoSync=false'); return; }
   if(!cfg.workerUrl||!cfg.dbId){ _apTrace('queue:skip','no workerUrl/dbId'); return; }
@@ -29457,6 +29466,8 @@ function queueDiaryNotionSave(dateKey){
   },900);
 }
 function queueDiaryNotionPull(dateKey, reason, delay){
+  /* Notion→일기 가져오기(pull) 차단(롤백 원인). 전송 방향만 유지. */
+  if(typeof NOTION_PULL_DISABLED!=='undefined' && NOTION_PULL_DISABLED){ _apTrace('pull:skip','pull disabled ('+reason+')'); return; }
   var cfg=getNotionCfg();
   if(!cfg.autoSync||!cfg.workerUrl||!cfg.dbId){ _apTrace('pull:skip','cfg/off ('+reason+')'); return; }
   if(window.__staleQuotaKeys && window.__staleQuotaKeys['diary_entries_v1']){ _apTrace('pull:skip','diary stale ('+reason+')'); return; }
@@ -30561,11 +30572,8 @@ function _pullDiaryPageProperties(page, dateKey, cfg){
 
 async function syncDiaryToNotion(dateKey, opts){
   opts=opts||{};
-  /* 마스터 차단: Notion 전송 일시 비활성화. 수동 ⇅동기화 버튼도 여기서 막힌다. */
-  if(typeof NOTION_SYNC_DISABLED!=='undefined' && NOTION_SYNC_DISABLED){
-    if(!opts.silent && typeof showToast==='function') showToast('Notion 동기화가 꺼져 있어요');
-    return;
-  }
+  /* SEND(일기→Notion)는 유지되는 경로 — 수동 ⇅, AI 타임라인, 매일 예약, 아카이브 보존.
+     위험한 PULL/편집시 자동 push만 방향별 플래그로 별도 차단한다. */
   /* Re-entrancy guard: if a previous instance is still mid-flight, bail.
      Concurrent instances each write diary_entries_v1 at the end, which triggers
      _afterWriteSideEffects → queueDiaryNotionSave → a new syncDiaryToNotion
@@ -30773,8 +30781,11 @@ async function previewDiaryTimeline(){saveNotionConfig();var el=document.getElem
    directly in Notion and wants to see it in the app. */
 async function pullDiaryFromNotion(dateKey, opts){
   opts=opts||{};
-  /* 마스터 차단: Notion→일기 pull 일시 비활성화. */
-  if(typeof NOTION_SYNC_DISABLED!=='undefined' && NOTION_SYNC_DISABLED) return;
+  /* Notion→일기 가져오기(pull) 차단(롤백 원인). 자동은 조용히, 수동 버튼은 안내. */
+  if(typeof NOTION_PULL_DISABLED!=='undefined' && NOTION_PULL_DISABLED){
+    if(!opts.auto && !opts.silent && typeof showToast==='function') showToast('Notion 가져오기(pull)는 꺼져 있어요 — 전송만 사용 중');
+    return;
+  }
   /* Skip auto-pulls if the user is currently typing (saveTimer or blockSaveTimer
      is pending) or if a push sync is already running. Overwriting an in-progress
      edit with Notion content causes the "diary scrolls back" symptom. Manual
@@ -30865,6 +30876,8 @@ async function pullDiaryFromNotion(dateKey, opts){
 var _notionSweepBusy=false;
 async function diaryNotionSweepRecent(opts){
   opts=opts||{};
+  /* Notion→일기 가져오기(pull/sweep) 차단(롤백 원인). */
+  if(typeof NOTION_PULL_DISABLED!=='undefined' && NOTION_PULL_DISABLED) return;
   if(window._notionSyncActive||window._notionPullActive||_notionSweepBusy) return;
   var cfg=(_diaryNotionCfg&&_diaryNotionCfg.workerUrl)?_diaryNotionCfg:getNotionCfg();
   if(!cfg.workerUrl||!cfg.dbId) return;
@@ -30982,11 +30995,7 @@ var _diaryAutoTimer=null;
 var _diaryAutoInitTimer=null;
 var _diaryAutoBusy=false;
 async function runDiaryAiTimeline(dateKey, silent){
-  /* 마스터 차단: AI 타임라인 정리는 Notion 전송과 묶여 있어 함께 비활성화. */
-  if(typeof NOTION_SYNC_DISABLED!=='undefined' && NOTION_SYNC_DISABLED){
-    if(!silent && typeof showToast==='function') showToast('Notion 동기화가 꺼져 있어요');
-    return false;
-  }
+  /* 타임라인 정리→Notion 전송은 유지(수동/예약). pull/편집시 자동 push만 별도 차단. */
   dateKey=dateKey||currentDate||TK;
   if(typeof entries==='undefined') return false;
   if(!entries[dateKey]) entries[dateKey]={};
