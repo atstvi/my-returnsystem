@@ -27041,6 +27041,18 @@ function gcalMergeCloudCfg(cloudCfg, localCfg){
   });
   return gIn;
 }
+/* Merge an incoming (cloud) habit-Notion cfg over the local one. Cloud wins per
+   field only when it carries a non-empty value; otherwise the local value is kept
+   — so a stale/empty cloud doc can't wipe the locally-chosen target page
+   (pageId/pageTitle) on refresh (reported: '선택한 페이지' not remembered). */
+function habitNotionMergeCloudCfg(cloudCfg, localCfg){
+  var hIn=Object.assign({}, cloudCfg||{});
+  var hLocal=localCfg||{};
+  ['dbId','leftProp','rightProp','pageId','pageTitle'].forEach(function(f){
+    if((hIn[f]==null||hIn[f]==='') && hLocal[f]!=null && hLocal[f]!=='') hIn[f]=hLocal[f];
+  });
+  return hIn;
+}
 function fbCollectCloudSettings(){
   var out={updatedAtMs:Date.now(),settings:{}};
   CLOUD_SETTING_KEYS.forEach(function(k){var v=localStorage.getItem(k);if(v!=null)out.settings[k]=v;});
@@ -27078,6 +27090,13 @@ function fbApplyCloudSettings(doc){
         var gLocal={};
         try{gLocal=JSON.parse(localStorage.getItem(k)||'{}');}catch(e){}
         wv=JSON.stringify(gcalMergeCloudCfg(JSON.parse(v||'{}'), gLocal));
+      }else if(k==='habit_notion_cfg'){
+        /* Don't let a stale/empty cloud cfg wipe the locally-selected target page. */
+        var hcLocal={};
+        try{ hcLocal=JSON.parse(localStorage.getItem(k)||'{}')||{}; }catch(_e){ hcLocal={}; }
+        var hcIn={};
+        try{ hcIn=JSON.parse(v||'{}')||{}; }catch(_e){ hcIn={}; }
+        wv=JSON.stringify(habitNotionMergeCloudCfg(hcIn, hcLocal));
       }else{
         wv=String(v);
       }
@@ -29433,7 +29452,7 @@ localStorage.setItem = function(k,v){
   }
   if(prev === String(v)) return; // no-op write, skip side effects
   if(_applyingFbData) return;    // remote sync in progress, do not echo back
-  if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function') fbSaveAll();
+  if((shouldFbSyncKey(k) || k==='diary_notion_cfg' || k==='habit_notion_cfg' || k==='gcal_cfg_v1' || k==='groq_api_key') && typeof fbSaveAll==='function') fbSaveAll();
   if(k==='diary_entries_v1' && typeof queueDiaryNotionSave==='function') queueDiaryNotionSave(currentDate||TK);
   if(k==='task_items_v1' && typeof gcalQueueAutoSync==='function') gcalQueueAutoSync();
 };
