@@ -29701,14 +29701,23 @@ function habitNotionBuildTexts(){
   return { left:lines.slice(0,half).join('\n'), right:lines.slice(half).join('\n'), count:lines.length };
 }
 /* 해빗 변경 시 호출(saveRoutineData에서). 미설정/적용중이면 조용히 bail, 900ms 디바운스. */
+/* Diagnosis ring buffer — habitNotionTrace() in the console shows the last 20
+   auto-send events so "왜 안 보내지는지" is observable instead of silent. */
+var _habitNotionTrace=[];
+var _habitNotionLastErrToastMs=0;
+function _hnTrace(stage, detail){
+  try{ _habitNotionTrace.push({t:Date.now(),stage:stage,detail:(detail==null?'':String(detail)).slice(0,160)}); while(_habitNotionTrace.length>20)_habitNotionTrace.shift(); }catch(_e){}
+}
+window.habitNotionTrace=function(){ try{ console.table(_habitNotionTrace.map(function(x){return {time:new Date(x.t).toLocaleTimeString(),stage:x.stage,detail:x.detail};})); }catch(_e){ console.log(_habitNotionTrace); } return _habitNotionTrace; };
 function queueHabitNotionSave(){
-  if(window._applyingFbData) return;
-  if(localStorage.getItem('habit_notion_autosend_off')==='1') return;
+  if(window._applyingFbData){ _hnTrace('skip','applyingFbData'); return; }
+  if(localStorage.getItem('habit_notion_autosend_off')==='1'){ _hnTrace('skip','자동 전송 꺼짐'); return; }
   var cfg=getHabitNotionCfg();
-  if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp||!cfg.pageId) return; /* 대상 페이지 미선택이면 보내지 않음 */
-  if(!getNotionCfg().workerUrl) return;
+  if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp||!cfg.pageId){ _hnTrace('skip','설정 미완료(DB/속성/페이지)'); return; }
+  if(!getNotionCfg().workerUrl){ _hnTrace('skip','Worker URL 없음'); return; }
+  _hnTrace('armed', cfg.pageTitle||cfg.pageId);
   clearTimeout(_habitNotionSaveTimer);
-  _habitNotionSaveTimer=setTimeout(function(){ syncHabitStatusToNotion({silent:true}); },900);
+  _habitNotionSaveTimer=setTimeout(function(){ syncHabitStatusToNotion({silent:true}); },600);
 }
 async function syncHabitStatusToNotion(opts){
   opts=opts||{};
@@ -29723,6 +29732,7 @@ async function syncHabitStatusToNotion(opts){
   if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp){ if(!opts.silent)showToast('해빗 Notion DB ID와 두 속성명을 입력해주세요'); return; }
   if(!cfg.pageId){ if(!opts.silent)showToast('대상 페이지를 선택해주세요 ("페이지 불러오기" 후 선택·저장)'); return; }
   _habitNotionSyncActive=true;
+  _hnTrace('fire', cfg.pageTitle||cfg.pageId);
   try{
     var texts=habitNotionBuildTexts();
     function rt(s){ s=String(s||''); return s?[{text:{content:s.slice(0,2000)}}]:[]; }
@@ -29741,10 +29751,18 @@ async function syncHabitStatusToNotion(opts){
       }
       throw e;
     }
+    _hnTrace('ok', texts.count+'개 · '+(cfg.leftProp)+'/'+(cfg.rightProp));
     if(!opts.silent)showToast('해빗 상태를 "'+(cfg.pageTitle||'선택한 페이지')+'"에 보냈어요 ('+texts.count+'개)');
   }catch(e){
-    console.warn('[habit-notion] sync failed:', e&&e.message||e);
-    if(!opts.silent)showToast('해빗 Notion 전송 실패: '+(e&&e.message||e));
+    var msg=(e&&e.message)||String(e);
+    _hnTrace('fail', msg);
+    console.warn('[habit-notion] sync failed:', msg);
+    /* 자동(silent) 전송 실패도 "왜 안 보내지는지" 알 수 있게 표시하되, 토글마다
+       토스트가 도배되지 않도록 60초에 한 번만. 수동은 항상 표시. */
+    if(opts.silent){
+      var now=Date.now();
+      if(now-_habitNotionLastErrToastMs>60000){ _habitNotionLastErrToastMs=now; if(typeof showToast==='function')showToast('해빗 Notion 전송 실패: '+msg+' (속성 타입/페이지 확인)'); }
+    }else if(typeof showToast==='function'){ showToast('해빗 Notion 전송 실패: '+msg); }
   }finally{
     _habitNotionSyncActive=false;
   }
