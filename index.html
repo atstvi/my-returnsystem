@@ -2794,6 +2794,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .routine-bundle-head{display:grid;grid-template-columns:1fr auto;gap:var(--sp-3);align-items:start;margin:0;padding:var(--sp-4) var(--sp-5);background:linear-gradient(90deg,var(--accent-light),transparent 78%);border-bottom:.5px solid var(--border-subtle)}
 .routine-bundle-title{font-weight:var(--fw-bold);color:var(--fg)}
 .routine-bundle-tools{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;justify-content:flex-end}
+.routine-move-btn{padding:0 var(--sp-3)!important;min-width:32px;font-size:15px;line-height:1}
+.routine-move-btn:disabled{opacity:.35;cursor:default}
 .routine-pill{height:28px;border-radius:var(--r-full);padding:0 var(--sp-3);display:inline-flex;align-items:center;background:var(--bg-card);border:.5px solid var(--border);font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-3)}
 .routine-bundle-play{height:42px;min-width:54px;border-radius:var(--r-lg);background:var(--fg);color:var(--bg-card);border:0;display:inline-flex;flex-direction:column;align-items:center;justify-content:center;font-weight:var(--fw-bold);box-shadow:var(--elev-1);line-height:1.05}
 .routine-bundle-play span{font-size:var(--text-2xs);opacity:.82;margin-top:2px}
@@ -25143,10 +25145,33 @@ function routineHabitById(id){return routineHabits.find(function(h){return Strin
 function routineBundleHabits(bundle){return (bundle&&bundle.habitIds||[]).map(routineHabitById).filter(Boolean);}
 function routineHabitPlan(h){return h[routineCondition]||h.plus||h.mini||h.max||'';}
 function routineStatsForBundle(bundle){var log=routineTodayLog(), habits=routineBundleHabits(bundle), total=habits.length, done=0, rest=0;habits.forEach(function(h){var st=(log[h.id]||{}).state||'';if(st==='done'||st==='skip')done++;if(st==='rest')rest++;});return {total:total,done:done,rest:rest};}
+/* Routine 묶음(루틴) 순서: 선택적 `order` 필드로 정렬한다. order는 엔티티 payload에
+   포함돼 기기 간에도 동기화된다(LWW). order 없는 묶음은 현재 위치 기준으로 뒤에. */
+function routineSortedBundles(){
+  return (routineBundles||[]).map(function(b,i){return {b:b,i:i};}).sort(function(x,y){
+    var ox=(x.b&&x.b.order!=null)?Number(x.b.order):(x.i+100000);
+    var oy=(y.b&&y.b.order!=null)?Number(y.b.order):(y.i+100000);
+    if(ox!==oy)return ox-oy;
+    return x.i-y.i;
+  }).map(function(o){return o.b;});
+}
+/* 루틴 통째로 위/아래 한 칸 이동(dir<0 위, dir>0 아래). */
+function routineMoveBundle(id, dir){
+  var sorted=routineSortedBundles();
+  var i=-1; for(var k=0;k<sorted.length;k++){ if(String(sorted[k].id)===String(id)){ i=k; break; } }
+  if(i<0)return;
+  var j=i+(dir<0?-1:1);
+  if(j<0||j>=sorted.length)return;
+  /* 현재 표시 순서대로 order를 정규화(아직 order 없던 묶음 포함) → 인접 두 개만 swap. */
+  for(var p=0;p<sorted.length;p++){ if(sorted[p].order!==p) sorted[p].order=p; }
+  var t=sorted[i].order; sorted[i].order=sorted[j].order; sorted[j].order=t;
+  saveRoutineData();
+  renderRoutine();
+}
 function homeRoutineQuickHabits(){
   if(!routineHabits.length&&!routineBundles.length)loadRoutineData();
   var ids=[];
-  (routineBundles||[]).forEach(function(b){(b.habitIds||[]).forEach(function(id){if(ids.indexOf(String(id))<0)ids.push(String(id));});});
+  routineSortedBundles().forEach(function(b){(b.habitIds||[]).forEach(function(id){if(ids.indexOf(String(id))<0)ids.push(String(id));});});
   (routineHabits||[]).forEach(function(h){if(h&&ids.indexOf(String(h.id))<0)ids.push(String(h.id));});
   return ids.map(routineHabitById).filter(Boolean);
 }
@@ -26062,7 +26087,7 @@ renderRoutineBundles=function(){
   var root=document.getElementById('routine-bundles');if(!root)return;
   if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}
   var log=routineTodayLog();
-  root.innerHTML=routineBundles.map(function(bundle){
+  root.innerHTML=routineSortedBundles().map(function(bundle,idx,arr){
     var habits=routineBundleHabits(bundle), stat=routineStatsForBundle(bundle);
     var active=routineTimerState.bundleId&&String(routineTimerState.bundleId)===String(bundle.id);
     var rows=habits.map(function(h){
@@ -26071,8 +26096,10 @@ renderRoutineBundles=function(){
       var running=active&&String(routineTimerState.habitId)===String(h.id);
       return '<div class="routine-habit '+(running?'running':'')+'" data-routine-habit="'+routineEsc(h.id)+'"><div class="routine-habit-main"><div class="routine-habit-title"><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span></div>'+(plan?'<div class="routine-habit-plan">'+routineEsc(plan)+'</div>':'')+'</div><div class="routine-state-actions">'+picker+routineStateButtonsHtml(state,h)+'</div></div>';
     }).join('')||'<div class="routine-empty">묶음에 습관이 없습니다.</div>';
-    return '<article class="routine-bundle '+(active?'running':'')+'" data-routine-bundle="'+routineEsc(bundle.id)+'"><div class="routine-bundle-head"><div><div class="routine-bundle-title">'+routineEsc(bundle.icon||'☀️')+' '+routineEsc(bundle.title)+'</div><div class="routine-muted">'+routineEsc(bundle.slot||'루틴')+' · '+stat.done+'/'+stat.total+' 완료</div></div><div class="routine-bundle-tools">'+routineBundleTimerButtonHtml(bundle,stat)+'<button class="btn btn-ghost" type="button" data-routine-add-habit="'+routineEsc(bundle.id)+'">+ 습관</button><button class="btn btn-ghost" type="button" data-routine-edit-bundle="'+routineEsc(bundle.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">삭제</button></div></div><div class="routine-habit-list">'+rows+'</div></article>';
+    var reorder=arr.length>1?('<button class="btn btn-ghost routine-move-btn" type="button" data-routine-move-bundle="'+routineEsc(bundle.id)+'" data-dir="up" title="위로 이동"'+(idx===0?' disabled':'')+'>↑</button><button class="btn btn-ghost routine-move-btn" type="button" data-routine-move-bundle="'+routineEsc(bundle.id)+'" data-dir="down" title="아래로 이동"'+(idx===arr.length-1?' disabled':'')+'>↓</button>'):'';
+    return '<article class="routine-bundle '+(active?'running':'')+'" data-routine-bundle="'+routineEsc(bundle.id)+'"><div class="routine-bundle-head"><div><div class="routine-bundle-title">'+routineEsc(bundle.icon||'☀️')+' '+routineEsc(bundle.title)+'</div><div class="routine-muted">'+routineEsc(bundle.slot||'루틴')+' · '+stat.done+'/'+stat.total+' 완료</div></div><div class="routine-bundle-tools">'+reorder+routineBundleTimerButtonHtml(bundle,stat)+'<button class="btn btn-ghost" type="button" data-routine-add-habit="'+routineEsc(bundle.id)+'">+ 습관</button><button class="btn btn-ghost" type="button" data-routine-edit-bundle="'+routineEsc(bundle.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">삭제</button></div></div><div class="routine-habit-list">'+rows+'</div></article>';
   }).join('');
+  root.querySelectorAll('[data-routine-move-bundle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();routineMoveBundle(btn.getAttribute('data-routine-move-bundle'), btn.getAttribute('data-dir')==='up'?-1:1);});});
   root.querySelectorAll('[data-routine-bundle-timer]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var id=btn.getAttribute('data-routine-bundle-timer');if(routineTimerState.bundleId&&String(routineTimerState.bundleId)===String(id))renderRoutineTimerToast();else routineStartBundleTimer(id);});});
   root.querySelectorAll('[data-routine-difficulty-pick]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var wrap=btn.closest('.routine-difficulty-wrap');root.querySelectorAll('.routine-difficulty-wrap.open').forEach(function(w){if(w!==wrap)w.classList.remove('open');});if(wrap)wrap.classList.toggle('open');});});
   root.querySelectorAll('[data-routine-difficulty]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};log[id].difficulty=btn.getAttribute('data-routine-difficulty')||'';log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
