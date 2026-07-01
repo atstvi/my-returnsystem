@@ -6,11 +6,8 @@ name: Build Widget (Windows)
 # proves the widget actually compiles + bundles on Windows.
 
 on:
-  workflow_dispatch: {}        # lets you re-run it manually from the Actions tab
-  push:
-    paths:
-      - 'widget/**'
-      - '.github/workflows/widget-build.yml'
+  workflow_dispatch: {}        # 수동 컴파일 체크용(Actions 탭에서 실행). updater 도입 후
+                               # push 자동 트리거는 제거 — 서명 아티팩트 설정과 얽히지 않게.
 
 jobs:
   build-msi:
@@ -39,9 +36,14 @@ jobs:
         working-directory: widget
         run: npm install
 
-      - name: Build .msi
+      # 컴파일/번들 검증용. createUpdaterArtifacts 를 꺼서 서명키(시크릿) 없이도 통과.
+      # (서명된 .msi + latest.json 은 widget-release.yml 에서만 만든다.)
+      - name: Build .msi (compile check, updater artifacts off)
         working-directory: widget
-        run: npm run build
+        shell: pwsh
+        run: |
+          Set-Content -Path check.conf.json -Value '{"bundle":{"createUpdaterArtifacts":false}}' -Encoding ascii
+          npx tauri build --config "$((Get-Location).Path)\check.conf.json"
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
