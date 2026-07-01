@@ -8342,7 +8342,29 @@ to{opacity:1;transform:translateY(0)}}
                 <button type="button" class="interval-chip" data-lead="30" onclick="setNotifTaskLead(30,this)">30분 전</button>
                 <button type="button" class="interval-chip" data-lead="60" onclick="setNotifTaskLead(60,this)">1시간 전</button>
               </div>
-              <div class="field-help" style="margin-top:var(--sp-2)">앱이 열려 있을 때 동작해요. 앱을 닫아도 받으려면 푸시 알림(준비 중)이 필요해요.</div>
+              <div class="field-help" style="margin-top:var(--sp-2)">앱이 열려 있을 때 동작해요. 앱을 닫아도 받으려면 아래 "푸시 알림"을 켜세요.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Web Push (앱 닫아도) -->
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--w-50)">🔔</div>
+            <div class="set-row-body">
+              <div class="set-row-label">푸시 알림 (앱을 닫아도)</div>
+              <div class="set-row-desc" id="push-status">워커 URL과 VAPID 공개키를 입력한 뒤 켜주세요</div>
+            </div>
+            <div class="set-row-ctrl"><button class="set-btn btn-success" id="push-enable-btn" onclick="pushToggle()">푸시 켜기</button></div>
+          </div>
+          <div class="set-detail open">
+            <div class="field-group">
+              <div class="field-label">푸시 워커 URL</div>
+              <div class="field-help">worker/README.md 가이드대로 Cloudflare에 배포한 주소</div>
+              <input class="set-inp mono" id="push-endpoint" placeholder="https://push.xxx.workers.dev" onchange="savePushEndpoint(this.value)">
+              <div class="field-label" style="margin-top:var(--sp-4)">VAPID 공개키</div>
+              <input class="set-inp mono" id="push-vapid" placeholder="B..." onchange="savePushVapid(this.value)">
+              <div class="field-help" style="margin-top:var(--sp-2)">기기마다 한 번씩 "푸시 켜기"로 구독해야 해요. iOS는 먼저 <strong>홈화면에 설치 + 알림 허용</strong>. "할일 시간 알림" 토글도 켜져 있어야 리마인더가 등록됩니다.</div>
             </div>
           </div>
         </div>
@@ -16578,6 +16600,7 @@ function saveTaskData(){
   returnEntityPrepareForSave('tasks', tasks, 't_'); /* Stage 6a: _eid + updatedAt (additive) */
   var saved=setReturnStorageItem('task_items_v1', JSON.stringify(tasks));
   if(!saved)return false;
+  if (typeof pushQueueSync === 'function') pushQueueSync(); /* 시간 변경 시 푸시 리마인더 갱신 */
   if (typeof homeRefreshCards === 'function') homeRefreshCards();
   else {
     if (typeof renderHomeTimeBlocks === 'function') renderHomeTimeBlocks();
@@ -24995,6 +25018,7 @@ function loadNotifPrefs() {
 function saveNotifPrefs() {
   setReturnStorageItem('notif_prefs_v1', JSON.stringify(_notifPrefs));
   notifInterval = _notifPrefs.inbox.interval;
+  if (typeof pushQueueSync === 'function') pushQueueSync(); /* 리마인더 목록 갱신(푸시) */
 }
 
 function _renderNotifUI() {
@@ -25027,6 +25051,7 @@ function _renderNotifUI() {
 function loadNotifSettings() {
   loadNotifPrefs();
   _renderNotifUI();
+  if (typeof renderPushUI === 'function') renderPushUI();
 }
 
 function toggleNotifType(type) {
@@ -25163,6 +25188,113 @@ function startNotifScheduler() {
   _notifSchedulerTimer = setInterval(_notifSchedulerTick, 60 * 1000);
   _notifSchedulerTick();
 }
+
+/* ══════════ WEB PUSH (Phase 2) — 앱을 닫아도 오는 할일 시간 알림 ══════════
+   흐름: 이 기기가 VAPID 공개키로 푸시 구독 → 구독 정보 + 다가오는 리마인더 목록을
+   푸시 워커(Cloudflare)로 전송 → 워커 Cron이 마감된 리마인더를 찾아 Web Push 발송 →
+   서비스워커 push 핸들러가 알림 표시. 설정에 워커 URL + VAPID 공개키를 넣어야 동작.
+   worker/push-worker.js + worker/README.md 참고. */
+var _pushSub = null;
+function getPushCfg(){ try{ return JSON.parse(localStorage.getItem('push_cfg_v1')||'{}')||{}; }catch(e){ return {}; } }
+function savePushCfg(c){ try{ setReturnStorageItem('push_cfg_v1', JSON.stringify(c)); }catch(e){} }
+function _urlBase64ToUint8Array(base64String){
+  var padding='='.repeat((4-base64String.length%4)%4);
+  var base64=(base64String+padding).replace(/-/g,'+').replace(/_/g,'/');
+  var raw=atob(base64), arr=new Uint8Array(raw.length);
+  for(var i=0;i<raw.length;i++)arr[i]=raw.charCodeAt(i);
+  return arr;
+}
+/* 순수: 다가오는 시간 지정 할일들의 리마인더 목록(에폭 ms) 생성. 시작 시각/오늘 이후
+   마감 시각 − lead(분). now..now+horizon 범위만. 워커가 이 목록만 보고 발송한다. */
+function buildTaskReminderList(taskList, nowMs, leadMin, horizonHours){
+  taskList=Array.isArray(taskList)?taskList:[];
+  leadMin=Number(leadMin)||0;
+  var horizonMs=(Number(horizonHours)||48)*3600000;
+  var out=[];
+  taskList.forEach(function(t){
+    if(!t||t.done)return;
+    var date,time;
+    if(t.date&&t.timeStart){ date=t.date; time=t.timeStart; }
+    else if(t.deadlineDate&&(t.deadlineTime||t.timeStart)){ date=t.deadlineDate; time=t.deadlineTime||t.timeStart; }
+    else return;
+    var evMs=Date.parse(String(date)+'T'+String(time)+':00');
+    if(isNaN(evMs))return;
+    var atMs=evMs-leadMin*60000;
+    if(atMs<nowMs-60000||atMs>nowMs+horizonMs)return;
+    out.push({ id:String(t.id), title:String(t.text||'할일'), evTime:String(time), atMs:atMs });
+  });
+  out.sort(function(a,b){return a.atMs-b.atMs;});
+  return out;
+}
+async function pushEnable(){
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)){ showToast('이 브라우저는 푸시를 지원하지 않아요'); return; }
+  var cfg=getPushCfg();
+  if(!cfg.endpoint||!cfg.vapid){ showToast('푸시 서버 주소와 VAPID 공개키를 먼저 입력해주세요'); return; }
+  try{
+    var perm=await Notification.requestPermission();
+    if(perm!=='granted'){ showToast('알림 권한이 필요해요'); return; }
+    var reg=await navigator.serviceWorker.ready;
+    var sub=await reg.pushManager.getSubscription();
+    if(!sub) sub=await reg.pushManager.subscribe({ userVisibleOnly:true, applicationServerKey:_urlBase64ToUint8Array(cfg.vapid) });
+    _pushSub=sub;
+    cfg.enabled=true; savePushCfg(cfg);
+    try{ localStorage.setItem('push_sub_v1', JSON.stringify(sub)); }catch(e){}
+    await pushSyncReminders();
+    showToast('푸시 알림이 켜졌어요 — 앱을 닫아도 알림이 와요');
+    if(typeof renderPushUI==='function')renderPushUI();
+  }catch(e){ console.warn('[push] enable failed:',e&&e.message||e); showToast('푸시 켜기 실패: '+(e&&e.message||e)); }
+}
+async function pushDisable(){
+  try{
+    var reg=await navigator.serviceWorker.ready;
+    var sub=await reg.pushManager.getSubscription();
+    var cfg=getPushCfg();
+    if(sub){ try{ await fetch(cfg.endpoint.replace(/\/+$/,'')+'/unsync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({endpoint:sub.endpoint})}); }catch(_e){} await sub.unsubscribe(); }
+    cfg.enabled=false; savePushCfg(cfg);
+    try{ localStorage.removeItem('push_sub_v1'); }catch(e){}
+    _pushSub=null;
+    showToast('푸시 알림을 껐어요');
+    if(typeof renderPushUI==='function')renderPushUI();
+  }catch(e){ console.warn('[push] disable failed:',e&&e.message||e); }
+}
+var _pushSyncTimer=null;
+function pushQueueSync(){
+  var cfg=getPushCfg();
+  if(!cfg.enabled||!cfg.endpoint) return;
+  clearTimeout(_pushSyncTimer);
+  _pushSyncTimer=setTimeout(function(){ pushSyncReminders(); }, 3000);
+}
+async function pushSyncReminders(){
+  var cfg=getPushCfg();
+  if(!cfg.enabled||!cfg.endpoint) return;
+  var sub=_pushSub; if(!sub){ try{ sub=JSON.parse(localStorage.getItem('push_sub_v1')||'null'); }catch(e){} }
+  if(!sub) return;
+  var lead=(_notifPrefs.task&&Number(_notifPrefs.task.lead))||0;
+  var enabled=!!(_notifPrefs.task&&_notifPrefs.task.enabled);
+  var list=enabled?buildTaskReminderList((typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks:[], Date.now(), lead, 48):[];
+  try{
+    await fetch(cfg.endpoint.replace(/\/+$/,'')+'/sync',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({ subscription:sub, reminders:list })
+    });
+  }catch(e){ console.warn('[push] sync failed:',e&&e.message||e); }
+}
+function renderPushUI(){
+  var cfg=getPushCfg();
+  var ep=document.getElementById('push-endpoint'); if(ep&&document.activeElement!==ep)ep.value=cfg.endpoint||'';
+  var vp=document.getElementById('push-vapid'); if(vp&&document.activeElement!==vp)vp.value=cfg.vapid||'';
+  var supported=('serviceWorker' in navigator)&&('PushManager' in window)&&(typeof Notification!=='undefined');
+  var btn=document.getElementById('push-enable-btn'); if(btn){ btn.textContent=cfg.enabled?'끄기':'푸시 켜기'; btn.disabled=!supported; }
+  var st=document.getElementById('push-status');
+  if(st){
+    if(!supported) st.textContent='이 환경은 웹 푸시를 지원하지 않아요 (iOS는 홈화면에 설치해야 가능)';
+    else if(!cfg.endpoint||!cfg.vapid) st.textContent='워커 URL과 VAPID 공개키를 입력한 뒤 켜주세요';
+    else st.textContent=cfg.enabled?'켜짐 — 앱을 닫아도 알림이 와요':'꺼짐';
+  }
+}
+function savePushEndpoint(v){ var c=getPushCfg(); c.endpoint=(v||'').trim(); savePushCfg(c); renderPushUI(); }
+function savePushVapid(v){ var c=getPushCfg(); c.vapid=(v||'').trim(); savePushCfg(c); renderPushUI(); }
+function pushToggle(){ if(getPushCfg().enabled)pushDisable(); else pushEnable(); }
 
 /* ── SYNC / NOTION ──
    The real implementations of saveFbConfig / clearFbConfig / saveNotionConfig
@@ -38191,6 +38323,11 @@ window.addEventListener('load', function() {
   try {
     if (typeof loadNotifPrefs === 'function') loadNotifPrefs();
     if (typeof startNotifScheduler === 'function') startNotifScheduler();
+    /* Refresh the push worker's reminder list on open (tasks may have changed
+       while the app was closed). No-op unless push is enabled + configured. */
+    if (typeof getPushCfg === 'function' && getPushCfg().enabled && typeof pushSyncReminders === 'function') {
+      setTimeout(function(){ pushSyncReminders(); }, 4000);
+    }
   } catch(e) { console.warn('[notif] scheduler start failed:', e && e.message); }
 });
 </script>
