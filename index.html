@@ -10192,6 +10192,28 @@ function renderHomeDdayCard(){
     });
   });
 }
+/* 일정(schedule) 대상이 "연결됨"인지 — 링크가 어느 방향으로 저장됐든 인식한다.
+   정방향: 준비 할일이 이 일정을 가리킴(deadlineId/sourceTaskId/_ruleSourceId===target.id).
+   역방향: 일정 쪽 모달에서 연결해 일정 자신이 살아있는 할일을 가리킴(target.deadlineId→task.id).
+   링크 피커(openTaskLinkPicker)는 열려 있는 모달 task의 deadlineId를 쓰므로, 사용자가
+   일정 쪽에서 연결하면 역방향으로 저장된다 — 한 방향만 검사하면 인식이 누락됐다. */
+function scheduleTargetHasLinkedTask(target, taskList){
+  if(!target)return false;
+  taskList=Array.isArray(taskList)?taskList:[];
+  var tid=String(target.id), i;
+  for(i=0;i<taskList.length;i++){
+    var t=taskList[i];
+    if(!t||t._travelOnly||t.done)continue;
+    if(String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid)return true;
+  }
+  if(target.deadlineId){
+    for(i=0;i<taskList.length;i++){
+      var u=taskList[i];
+      if(u&&!u._travelOnly&&!u.done&&String(u.id)===String(target.deadlineId))return true;
+    }
+  }
+  return false;
+}
 function renderHomeSituation(){
   var card = document.querySelector('.sit-card');
   if (!card || typeof tasks === 'undefined') return;
@@ -10217,7 +10239,7 @@ function renderHomeSituation(){
     return {task:t, days:Math.round((new Date(t.date+'T00:00') - now) / 86400000)};
   }).sort(function(a,b){return a.days-b.days;});
   function hasLinkedTask(target){
-    return tasks.some(function(t){return !t._travelOnly && !t.done && String(t.deadlineId||'')===String(target.id);});
+    return scheduleTargetHasLinkedTask(target, tasks);
   }
   var unlinked = scheduleLinks.filter(function(x){ return !skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task); });
   var skippedUnlinked = scheduleLinks.filter(function(x){ return !!skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task); });
