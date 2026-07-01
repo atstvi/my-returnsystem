@@ -8316,6 +8316,36 @@ to{opacity:1;transform:translateY(0)}}
             </div>
           </div>
         </div>
+
+        <!-- Task time reminder -->
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--w-50)">⏰</div>
+            <div class="set-row-body">
+              <div class="set-row-label">할일 시간 알림</div>
+              <div class="set-row-desc">시간이 지정된 할일을 시작 시각(또는 그 전)에 알려줘요</div>
+            </div>
+            <div class="set-row-ctrl">
+              <div class="toggle-wrap" onclick="toggleNotifType('task',this)">
+                <div class="toggle-track" id="notif-toggle-task"><div class="toggle-thumb"></div></div>
+              </div>
+            </div>
+          </div>
+          <div class="set-detail" id="notif-detail-task">
+            <div class="field-group">
+              <div class="field-label">얼마나 미리 알릴까요</div>
+              <div class="interval-row" id="notif-task-lead-row">
+                <button type="button" class="interval-chip" data-lead="0" onclick="setNotifTaskLead(0,this)">정시</button>
+                <button type="button" class="interval-chip" data-lead="5" onclick="setNotifTaskLead(5,this)">5분 전</button>
+                <button type="button" class="interval-chip" data-lead="10" onclick="setNotifTaskLead(10,this)">10분 전</button>
+                <button type="button" class="interval-chip" data-lead="15" onclick="setNotifTaskLead(15,this)">15분 전</button>
+                <button type="button" class="interval-chip" data-lead="30" onclick="setNotifTaskLead(30,this)">30분 전</button>
+                <button type="button" class="interval-chip" data-lead="60" onclick="setNotifTaskLead(60,this)">1시간 전</button>
+              </div>
+              <div class="field-help" style="margin-top:var(--sp-2)">앱이 열려 있을 때 동작해요. 앱을 닫아도 받으려면 푸시 알림(준비 중)이 필요해요.</div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- ── WIDGET ── -->
@@ -24893,8 +24923,24 @@ var _notifPrefs = {
   routine:  { enabled: false, time: '08:00' },
   deadline: { enabled: false, time: '09:00' },
   diary:    { enabled: false, time: '21:00' },
-  checkin:  { enabled: false, time: '09:00' }
+  checkin:  { enabled: false, time: '09:00' },
+  task:     { enabled: false, lead: 0 }   /* 할일 시간 알림 — lead=분 전(0=정시) */
 };
+/* ── 할일 시간 알림 헬퍼 (순수, 테스트 가능) ──
+   시간이 지정된 오늘 할일의 "리마인더 시각"을 계산한다. 시작 시각(timeStart) 또는
+   오늘 마감 할일의 마감 시각(deadlineTime)에서 lead(분)만큼 앞당긴 HH:MM. */
+function _notifHHMMToMin(s){ var p=String(s||'').split(':'); return (parseInt(p[0],10)||0)*60+(parseInt(p[1],10)||0); }
+function _notifMinToHHMM(m){ m=((m%1440)+1440)%1440; return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0'); }
+function taskNotifEventTime(t, today){
+  if(!t||t.done)return '';
+  if(t.date===today && t.timeStart) return t.timeStart;
+  if(t.deadlineDate===today && (t.deadlineTime||t.timeStart)) return t.deadlineTime||t.timeStart;
+  return '';
+}
+function taskNotifReminderHHMM(t, today, lead){
+  var ev=taskNotifEventTime(t,today); if(!ev)return '';
+  return _notifMinToHHMM(_notifHHMMToMin(ev)-(Number(lead)||0));
+}
 var _notifShown = {};
 var _notifInboxLastMs = 0;
 var _notifSchedulerTimer = null;
@@ -24916,11 +24962,12 @@ function _saveNotifShown() {
 function loadNotifPrefs() {
   try {
     var p = JSON.parse(localStorage.getItem('notif_prefs_v1') || '{}');
-    ['inbox','routine','deadline','diary','checkin'].forEach(function(t) {
-      if (p[t]) {
+    ['inbox','routine','deadline','diary','checkin','task'].forEach(function(t) {
+      if (p[t] && _notifPrefs[t]) {
         if (typeof p[t].enabled !== 'undefined') _notifPrefs[t].enabled = !!p[t].enabled;
         if (p[t].interval) _notifPrefs[t].interval = Number(p[t].interval) || 30;
         if (p[t].time) _notifPrefs[t].time = p[t].time;
+        if (p[t].lead != null) _notifPrefs[t].lead = Number(p[t].lead) || 0;
       }
     });
   } catch(e) {}
@@ -24934,9 +24981,13 @@ function loadNotifPrefs() {
     /* prune entries older than today */
     var today = _notifTodayKey();
     Object.keys(sh).forEach(function(k) {
+      if (k === '_inboxLastMs') return;
+      /* Drop any dedup key whose trailing date segment is older than today
+         (covers both "type:date" and per-task "task:id:date"). */
       var parts = k.split(':');
-      if (parts.length === 2 && parts[1] < today) return;
-      if (k !== '_inboxLastMs') _notifShown[k] = sh[k];
+      var dateSeg = parts[parts.length - 1];
+      if (/^\d{4}-\d{2}-\d{2}$/.test(dateSeg) && dateSeg < today) return;
+      _notifShown[k] = sh[k];
     });
   } catch(e) {}
 }
@@ -24956,7 +25007,8 @@ function _renderNotifUI() {
     btn.className = 'set-btn btn-success';
     btn.disabled = hasPerm;
   }
-  ['inbox','routine','deadline','diary','checkin'].forEach(function(type) {
+  ['inbox','routine','deadline','diary','checkin','task'].forEach(function(type) {
+    if (!_notifPrefs[type]) return;
     var track = document.getElementById('notif-toggle-' + type);
     if (track) track.classList.toggle('on', !!_notifPrefs[type].enabled);
     var detail = document.getElementById('notif-detail-' + type);
@@ -24964,8 +25016,11 @@ function _renderNotifUI() {
     var timeInp = document.getElementById('notif-time-' + type);
     if (timeInp && _notifPrefs[type].time) timeInp.value = _notifPrefs[type].time;
   });
-  document.querySelectorAll('.interval-chip').forEach(function(c) {
+  document.querySelectorAll('.interval-chip[data-min]').forEach(function(c) {
     c.classList.toggle('active', parseInt(c.dataset.min) === _notifPrefs.inbox.interval);
+  });
+  document.querySelectorAll('#notif-task-lead-row .interval-chip').forEach(function(c) {
+    c.classList.toggle('active', parseInt(c.dataset.lead) === ((_notifPrefs.task && _notifPrefs.task.lead) || 0));
   });
 }
 
@@ -24993,6 +25048,13 @@ function setInterval_(min, btn) { setNotifInterval(min, btn); }
 
 function setNotifTime(type, val) {
   if (_notifPrefs[type]) { _notifPrefs[type].time = val; saveNotifPrefs(); }
+}
+function setNotifTaskLead(min, btn) {
+  if (!_notifPrefs.task) _notifPrefs.task = { enabled: false, lead: 0 };
+  _notifPrefs.task.lead = Number(min) || 0;
+  saveNotifPrefs();
+  document.querySelectorAll('#notif-task-lead-row .interval-chip').forEach(function(c) { c.classList.remove('active'); });
+  if (btn) btn.classList.add('active');
 }
 
 function requestNotif() {
@@ -25037,6 +25099,25 @@ function _notifSchedulerTick() {
         _saveNotifShown();
       }
     }
+  }
+
+  /* 할일 시간 알림: 시간이 지정된 오늘 할일을 시작 시각(또는 lead분 전)에 알림.
+     앱이 열려 있을 때 동작(1분 tick). 닫힌 상태 전달은 푸시(Phase 2)가 필요. */
+  if (_notifPrefs.task && _notifPrefs.task.enabled) {
+    var _taskLead = Number(_notifPrefs.task.lead) || 0;
+    var _taskList = [];
+    try { _taskList = (typeof tasks !== 'undefined' && Array.isArray(tasks)) ? tasks : []; } catch(e) { _taskList = []; }
+    _taskList.forEach(function(t) {
+      if (!t || t.done) return;
+      var rem = taskNotifReminderHHMM(t, today, _taskLead);
+      if (!rem || rem !== hhmm) return;
+      var key = 'task:' + String(t.id) + ':' + today;
+      if (_notifShown[key]) return;
+      _notifShown[key] = true;
+      _saveNotifShown();
+      var ev = taskNotifEventTime(t, today);
+      _showNotif('⏰ ' + (t.text || '할일'), (_taskLead > 0 ? (_taskLead + '분 후 · ') : '') + ev + ' 시작', 'return-task-' + String(t.id));
+    });
   }
 
   ['routine','deadline','diary','checkin'].forEach(function(type) {
