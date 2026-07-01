@@ -2856,6 +2856,17 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .routine-timer-chip{height:36px;border-radius:var(--r-full);padding:0 var(--sp-4);border:.5px solid var(--border-subtle);background:var(--bg-card);box-shadow:var(--elev-1);color:var(--fg-3);font-weight:var(--fw-semibold)}
 .routine-timer-chip.active{border-color:var(--accent);background:var(--accent-light);color:var(--accent)}
 .routine-timer-state-chip{min-width:44px;padding:0 var(--sp-3);font-size:var(--text-md)}
+.rt-diff-chip{height:40px;font-size:var(--text-md);font-weight:var(--fw-bold)}
+.routine-timer-state-row{display:flex;gap:var(--sp-3);width:100%}
+.routine-timer-state-big{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:62px;border-radius:var(--r-lg);border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--fg-2);cursor:pointer;transition:transform var(--t-snap),background var(--t-snap),color var(--t-snap)}
+.routine-timer-state-big .rts-icon{font-size:22px;line-height:1}
+.routine-timer-state-big .rts-label{font-size:var(--text-sm);font-weight:var(--fw-bold)}
+.routine-timer-state-big:active{transform:scale(.96)}
+.routine-timer-state-big.done.active{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 8px 20px color-mix(in srgb,var(--accent) 26%,transparent)}
+.routine-timer-state-big.skip.active{background:color-mix(in srgb,var(--accent) 52%,#7a7a7a);color:#fff;border-color:transparent}
+.routine-timer-state-big.rest.active{background:var(--fg-3);color:#fff;border-color:transparent}
+.routine-timer-toast.compact .routine-timer-state-big{min-height:48px}
+.routine-timer-toast.compact .routine-timer-state-big .rts-icon{font-size:18px}
 .routine-timer-toast.compact{inset:auto var(--sp-6) calc(76px + env(safe-area-inset-bottom)) auto;width:min(360px,calc(100vw - 32px));background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-xl);box-shadow:var(--elev-3);padding:var(--sp-4);align-items:stretch;justify-content:flex-start}
 .routine-timer-toast.compact .routine-timer-top{position:static;margin-bottom:var(--sp-3)}
 .routine-timer-toast.compact .routine-timer-stage{width:100%;gap:var(--sp-4)}
@@ -26054,7 +26065,9 @@ function routineTimerSetState(state){
   if(!habit)return;
   var log=routineTodayLog();
   log[habit.id]=log[habit.id]||{};
-  log[habit.id].state=(state==='clear')?'':state;
+  var cur=log[habit.id].state||'';
+  /* 같은 상태를 다시 누르면 해제(토글). */
+  log[habit.id].state=(state==='clear'||cur===state)?'':state;
   log[habit.id].updatedAt=Date.now();
   saveRoutineData();
   renderRoutineTimerToast();
@@ -26065,15 +26078,18 @@ function routineTimerDifficultyControls(habit){
   var opts=routinePlanOptions(habit);
   if(!opts.length)return '';
   var current=routineSelectedDifficulty(habit,log);
-  return '<div class="routine-timer-control-row"><div class="routine-timer-control-label">단계</div><div class="routine-timer-chip-row">'+opts.map(function(o){
-    return '<button type="button" class="routine-timer-chip '+(current===o.key?'active':'')+'" data-routine-timer-difficulty="'+routineEsc(o.key)+'">'+routineEsc(o.label)+'</button>';
+  return '<div class="routine-timer-control-row"><div class="routine-timer-control-label">난이도</div><div class="routine-timer-chip-row">'+opts.map(function(o){
+    return '<button type="button" class="routine-timer-chip rt-diff-chip '+(current===o.key?'active':'')+'" data-routine-timer-difficulty="'+routineEsc(o.key)+'">'+routineEsc(o.label)+'</button>';
   }).join('')+'</div></div>';
 }
 function routineTimerStateControls(habit){
   var log=habit?(routineTodayLog()[habit.id]||{}):{}, state=log.state||'';
-  return '<div class="routine-timer-control-row"><div class="routine-timer-control-label">상태</div><div class="routine-timer-chip-row">'+['done','rest','skip','clear'].map(function(key){
-    var meta=routineStateMeta(key,habit), active=(key==='clear'?!state:state===key);
-    return '<button type="button" class="routine-timer-chip routine-timer-state-chip '+routineEsc(meta.key)+' '+(active?'active':'')+'" data-routine-timer-state="'+routineEsc(key)+'" title="'+routineEsc(meta.label)+'">'+routineEsc(meta.icon)+' <span>'+routineEsc(meta.label.split(' · ')[0])+'</span></button>';
+  /* 큰 상태 버튼 3개 — 완료는 명확한 체크(✓)로(습관 아이콘과 헷갈리지 않게). 활성 상태를
+     다시 누르면 해제(토글). "선택 안 함"은 제거 — 토글로 대체해 혼란 줄임. */
+  var items=[{k:'done',icon:'✓',label:'완료'},{k:'skip',icon:'→',label:'건너뜀'},{k:'rest',icon:'💬',label:'쉼'}];
+  return '<div class="routine-timer-control-row"><div class="routine-timer-control-label">상태</div><div class="routine-timer-state-row">'+items.map(function(o){
+    var active=state===o.k;
+    return '<button type="button" class="routine-timer-state-big '+o.k+(active?' active':'')+'" data-routine-timer-state="'+o.k+'" aria-pressed="'+(active?'true':'false')+'"><span class="rts-icon">'+o.icon+'</span><span class="rts-label">'+o.label+'</span></button>';
   }).join('')+'</div></div>';
 }
 renderRoutineTimerToast=function(){
@@ -26105,6 +26121,19 @@ renderRoutineTimerToast=function(){
   el.querySelectorAll('[data-routine-timer-state]').forEach(function(btn){btn.addEventListener('click',function(){routineTimerSetState(btn.getAttribute('data-routine-timer-state')||'clear');});});
   routineTimerTick();
 };
+/* Cross-device: routine_timer_state_v1 is now synced (DATA_KEYS). After the cloud
+   state is applied to localStorage, reload the in-memory timer, restart its tick
+   interval if running, and refresh the on-screen toast — so starting/pausing a
+   routine timer on one device shows up on the others. Read-only (no save) so it
+   can't echo back into a sync loop. */
+function routineTimerRehydrate(){
+  try{
+    var wasHabit=routineTimerState&&routineTimerState.habitId;
+    routineTimerLoad();
+    if(routineTimerState.startedAt&&!routineTimerState.timer){ routineTimerState.timer=setInterval(routineTimerTick,1000); }
+    if(routineTimerState.habitId||wasHabit){ renderRoutineTimerToast(); }
+  }catch(e){}
+}
 renderRoutineBundles=function(){
   var root=document.getElementById('routine-bundles');if(!root)return;
   if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}
@@ -26140,7 +26169,7 @@ if(routineTimerState.habitId&&routineTimerState.startedAt&&!routineTimerState.ti
 
 var DATA_KEYS = [
   'task_items_v1','task_cats_v1','task_rules_v1','repeat_items_v1','repeat_suppressions_v1','generated_task_suppressions_v1','projects_v1',
-  'routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1',
+  'routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1','routine_timer_state_v1',
   'inbox_v1','memos_v5','timetables_v1','timetable_palette_v1',
   'diary_entries_v1','diary_trackers_v1','diary_tracker_values_v1',
   'hobby_cats_v2','hobby_items_v2',
@@ -27709,6 +27738,7 @@ function fbApplyData(data){
     try { if(typeof loadProjects==='function') loadProjects(); } catch(e){ console.warn('[fbApply] loadProjects failed:',e&&e.message); }
     /* routine */
     try { if(typeof loadRoutineData==='function') loadRoutineData(); } catch(e){ console.warn('[fbApply] loadRoutineData failed:',e&&e.message); }
+    try { if(typeof routineTimerRehydrate==='function') routineTimerRehydrate(); } catch(e){ console.warn('[fbApply] routineTimerRehydrate failed:',e&&e.message); }
     /* inbox */
     try { if(typeof loadInboxItems==='function') loadInboxItems(); } catch(e){ console.warn('[fbApply] loadInboxItems failed:',e&&e.message); }
     /* diary entries (inline; _initDiary also reloads trackers + currentDate) */
