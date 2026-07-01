@@ -1,18 +1,14 @@
 name: Release Widget (.msi)
 
-# Builds the Tauri PC desktop widget and publishes the Windows .msi as a GitHub
-# Release asset, so downloading is a one-click affair (Releases page) instead of
-# digging a zip out of an Actions run's artifacts.
+# Tauri PC 위젯을 Windows .msi 로 빌드 + 서명하고, GitHub Release 에 .msi / .msi.sig /
+# latest.json 을 올린다. latest.json 은 위젯 자동 업데이트(updater)의 매니페스트다.
 #
-# Trigger: push a tag like `widget-v0.2.0`. Kept as a SEPARATE workflow from
-# widget-build.yml so the tag trigger never collides with that file's path
-# filter (path filters can suppress tag-triggered runs).
+# ⚠️ 먼저 한 번만: widget/UPDATER-SETUP.md 대로 서명키를 만들고
+#   - tauri.conf.json 의 pubkey 를 공개키로 교체(커밋)
+#   - 저장소 Secrets 에 TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD 등록
+# 이 안 되어 있으면 서명 단계에서 빌드가 실패한다.
 #
-#   git tag widget-v0.2.0
-#   git push origin widget-v0.2.0
-#
-# The tag can also be created from the GitHub UI (Releases → Draft a new release
-# → choose a tag → Publish): a tag push fires this workflow either way.
+# Trigger: `widget-v*` 태그 push, 또는 Actions 탭에서 수동 실행(tag 입력).
 
 on:
   push:
@@ -21,21 +17,17 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Version tag to create + release (e.g. widget-v0.2.0)'
+        description: 'Version tag to create + release (e.g. widget-v0.9.7)'
         required: true
 
 permissions:
-  contents: write   # needed to create the tag/Release and upload the .msi
+  contents: write
 
 jobs:
   release-msi:
-    name: build + publish windows installer
+    name: build + sign + publish windows installer
     runs-on: windows-latest
     steps:
-      # Default checkout: on a tag push this lands on the tag commit; on a
-      # workflow_dispatch it lands on the selected branch (main). For dispatch
-      # the input tag need not exist yet — action-gh-release creates it at the
-      # checked-out commit below.
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -54,27 +46,36 @@ jobs:
             widget/src-tauri/target
           key: ${{ runner.os }}-cargo-${{ hashFiles('widget/src-tauri/Cargo.toml') }}
 
-      - name: Install widget deps (Tauri CLI)
+      # 태그(widget-v0.9.7)에서 버전(0.9.7)을 뽑아 tauri.conf.json 에 써넣는다.
+      # 그래야 빌드된 앱 버전 + latest.json 버전이 태그와 일치해 업데이트 비교가 맞다.
+      - name: Resolve tag + write version into tauri.conf.json
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $ver = $tag -replace '^widget-v',''
+          "tag=$tag"        | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$ver"    | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          $conf = "widget/src-tauri/tauri.conf.json"
+          $json = Get-Content $conf -Raw | ConvertFrom-Json
+          $json.version = $ver
+          $json | ConvertTo-Json -Depth 100 | Set-Content $conf -Encoding utf8
+          Write-Host "built version = $ver"
+
+      - name: Install widget deps
         working-directory: widget
         run: npm install
 
-      - name: Clean stale MSI artifacts from cache
-        shell: pwsh
-        run: |
-          $dir = "widget/src-tauri/target/release/bundle/msi"
-          if (Test-Path $dir) { Remove-Item "$dir\*.msi" -Force -ErrorAction SilentlyContinue }
-
-      - name: Build .msi
-        working-directory: widget
-        run: npm run build
-
-      - name: Publish Release with .msi
-        uses: softprops/action-gh-release@v2
+      # tauri-action 이 빌드 + 서명 + Release 생성 + .msi/.msi.sig/latest.json 업로드까지 처리.
+      - name: Build, sign, and publish release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          name: Return Widget ${{ github.event.inputs.tag || github.ref_name }}
-          draft: false
+          projectPath: widget
+          tagName: ${{ steps.ver.outputs.tag }}
+          releaseName: Return Widget ${{ steps.ver.outputs.tag }}
+          releaseDraft: false
           prerelease: false
-          fail_on_unmatched_files: true
-          generate_release_notes: true
-          files: widget/src-tauri/target/release/bundle/msi/*.msi

@@ -26,6 +26,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::Manager;
 use tauri_plugin_autostart::ManagerExt;
+use tauri_plugin_updater::UpdaterExt;
 use tauri_plugin_window_state::StateFlags;
 
 // Frontend assets are embedded into the binary and served over http://localhost
@@ -219,9 +220,29 @@ pub fn run() {
             None,
         ))
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![set_window_visible, set_autostart_enabled])
         .setup(|app| {
             let handle = app.handle();
+
+            // ── 자동 업데이트 ──────────────────────────────────────────────
+            // 앱 시작 시 최신 버전을 확인해서, 새 버전이 있으면 내려받아 설치한 뒤
+            // 새 버전으로 재시작한다. updater 설정/서명키가 없거나 네트워크가 안 되면
+            // 조용히 넘어간다(크래시 없음). 방금 시작한 직후라 재시작 부담이 작다.
+            let update_handle = handle.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Ok(updater) = update_handle.updater() {
+                    if let Ok(Some(update)) = updater.check().await {
+                        if update
+                            .download_and_install(|_chunk, _total| {}, || {})
+                            .await
+                            .is_ok()
+                        {
+                            update_handle.restart();
+                        }
+                    }
+                }
+            });
 
             let autostart = handle.autolaunch();
             let first_run = match app.path().app_config_dir() {
