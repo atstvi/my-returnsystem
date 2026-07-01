@@ -542,7 +542,16 @@
     var limit = WIDGET_HABIT_LIMIT > 0 ? WIDGET_HABIT_LIMIT : Infinity;
     var shown = 0;
 
-    bundles.forEach(function (b) {
+    // 웹앱의 루틴 정렬 순서(order 필드)를 그대로 반영. order 없는 묶음은 현재 위치
+    // 기준으로 뒤에(안정 정렬). 웹앱 routineSortedBundles()와 동일한 규칙.
+    var sortedBundles = bundles.map(function (b, i) { return { b: b, i: i }; }).sort(function (x, y) {
+      var ox = (x.b && x.b.order != null) ? Number(x.b.order) : (x.i + 100000);
+      var oy = (y.b && y.b.order != null) ? Number(y.b.order) : (y.i + 100000);
+      if (ox !== oy) return ox - oy;
+      return x.i - y.i;
+    }).map(function (o) { return o.b; });
+
+    sortedBundles.forEach(function (b) {
       if (shown >= limit) return;
       if (!b || !Array.isArray(b.habitIds) || !b.habitIds.length) return;
       var bHabits = b.habitIds.map(function (id) { return byId[String(id)]; }).filter(Boolean);
