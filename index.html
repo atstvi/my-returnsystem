@@ -2189,6 +2189,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .twv-allday-chip:hover{opacity:.85}
 .twv-allday-more{font-size:9px;color:var(--fg-4);padding:0 4px}
 .twv-allday-row.twv-drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
+.twv-day-col.twv-drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
+.twv-allday-chip.twv-drag-ghost{box-shadow:0 4px 12px rgba(0,0,0,.35);max-width:160px}
+.twv-allday-chip.twv-dragging-src{opacity:.4}
 .twv-axis{width:var(--twv-axisW,46px);flex-shrink:0;position:sticky;left:0;z-index:5;background:var(--bg-card);border-right:.5px solid var(--border-subtle)}
 .twv-hour-tick{font-size:9px;color:var(--fg-4);text-align:right;padding:var(--sp-1) var(--sp-2) 0 0;box-sizing:border-box;border-top:.5px solid var(--border-subtle);line-height:1}
 .twv-hour-tick:first-child{border-top:none}
@@ -17810,14 +17813,12 @@ function renderTaskWeekView(){
     _twvAnchor=twvAnchorForToday();renderTaskWeekView();
   });
 
-  /* ── All-day chip clicks → modal ── */
+  /* ── All-day chips: press → modal, drag into grid → assign a time ── */
   container.querySelectorAll('.twv-allday-chip[data-tid]').forEach(function(el){
-    el.addEventListener('click',function(e){
-      e.stopPropagation();
-      var id=el.getAttribute('data-tid');if(!id)return;
-      var t=(tasks||[]).find(function(t){return String(t.id)===String(id);});
-      if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
-    });
+    var id=el.getAttribute('data-tid');if(!id)return;
+    var t=(tasks||[]).find(function(t){return String(t.id)===String(id);});
+    if(!t)return;
+    twvAttachAlldayDrag(el,t,H,SLOT_H);
   });
 
   /* ── Block interactions: click → modal, drag → move(time+date), resize → duration ── */
@@ -17969,6 +17970,76 @@ function twvAttachBlockDrag(block,t,H,SLOT_H){
     resize.addEventListener('pointermove',mv);
     resize.addEventListener('pointerup',up);
     resize.addEventListener('pointercancel',up);
+  });
+}
+
+/* Drag an all-day (untimed) chip down into a day column to give it a time+date.
+   A non-moving press falls through to opening the task modal (like a click).
+   Pointer-events so it works with both mouse and touch. */
+function twvAttachAlldayDrag(chip,t,H,SLOT_H){
+  var container=document.getElementById('task-week-view');
+  chip.addEventListener('pointerdown',function(e){
+    if(e.button!=null&&e.button!==0)return;
+    var startX=e.clientX,startY=e.clientY;
+    var moved=false,pendingSm=null,pendingDate=t.date,ghost=null;
+    try{chip.setPointerCapture(e.pointerId);}catch(_e){}
+    function clearDrop(){container.querySelectorAll('.twv-day-col').forEach(function(c){c.classList.remove('twv-drop-active');});}
+    function mv(ev){
+      var dx=ev.clientX-startX,dy=ev.clientY-startY;
+      if(!moved){
+        if(Math.abs(dx)<5&&Math.abs(dy)<5)return;
+        moved=true;
+        if(ev.cancelable)ev.preventDefault();
+        ghost=document.createElement('div');
+        ghost.className='twv-allday-chip twv-drag-ghost';
+        ghost.textContent=chip.textContent;
+        ghost.style.position='fixed';
+        ghost.style.zIndex='99999';
+        ghost.style.pointerEvents='none';
+        ghost.style.background=chip.style.background||'var(--accent)';
+        document.body.appendChild(ghost);
+        chip.classList.add('twv-dragging-src');
+      }
+      if(ghost){ghost.style.left=(ev.clientX+10)+'px';ghost.style.top=(ev.clientY+10)+'px';}
+      var under=document.elementFromPoint(ev.clientX,ev.clientY);
+      var col=under&&under.closest&&under.closest('.twv-day-col');
+      container.querySelectorAll('.twv-day-col').forEach(function(c){c.classList.toggle('twv-drop-active',c===col);});
+      if(col){
+        pendingDate=col.getAttribute('data-date');
+        var rect=col.getBoundingClientRect();
+        var relY=ev.clientY-rect.top+col.scrollTop;
+        var mins=twvSnap5(H.start*60+relY/SLOT_H*60);
+        mins=Math.max(H.start*60,Math.min(mins,H.end*60-30));
+        pendingSm=mins;
+      }else{
+        pendingSm=null;
+      }
+    }
+    function up(ev){
+      try{chip.releasePointerCapture(e.pointerId);}catch(_e){}
+      chip.removeEventListener('pointermove',mv);
+      chip.removeEventListener('pointerup',up);
+      chip.removeEventListener('pointercancel',up);
+      chip.classList.remove('twv-dragging-src');
+      clearDrop();
+      if(ghost&&ghost.parentNode)ghost.parentNode.removeChild(ghost);
+      if(!moved){
+        /* treat as a click → open the task modal */
+        if(typeof tasksOpenModal==='function')tasksOpenModal(t);
+        return;
+      }
+      if(pendingSm==null)return; /* dropped outside the grid → keep it all-day */
+      t.timeStart=twvFmt(pendingSm);
+      t.timeEnd=twvFmt(pendingSm+60);
+      if(pendingDate)t.date=pendingDate;
+      t.updatedAt=Date.now();
+      if(typeof saveTaskData==='function')saveTaskData();
+      renderTaskWeekView();
+      try{renderCal();}catch(_e){}
+    }
+    chip.addEventListener('pointermove',mv);
+    chip.addEventListener('pointerup',up);
+    chip.addEventListener('pointercancel',up);
   });
 }
 
