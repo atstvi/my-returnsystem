@@ -12700,6 +12700,56 @@ function renderHomeTimeBlocks(){
       }
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
+    /* Touch move-drag for the whole block. Uses a LONG-PRESS (220ms) to start so
+       quick vertical swipes still scroll #htb-body (avoids the "trembling"/scroll
+       fight that a raw touch capture caused). Once held, it retimes the block live
+       exactly like the mouse drag. Real tasks only. */
+    if(!virtual && t.id && !String(t.id).startsWith('tt_')){
+      el.addEventListener('touchstart', function(e){
+        if(e.touches.length!==1) return;
+        if(e.target.closest('button') || resize.contains(e.target)) return;
+        var touch=e.touches[0], startY=touch.clientY, startX=touch.clientX;
+        var sm0=sm, dur=em-sm, dragging=false, moved=false, lastX=startX, lastY=startY;
+        var hold=setTimeout(function(){ dragging=true; el.classList.add('htb-dragging'); try{ if(navigator.vibrate) navigator.vibrate(10); }catch(_){} }, 220);
+        function cleanup(){
+          document.removeEventListener('touchmove',move,{passive:false});
+          document.removeEventListener('touchend',end);
+          document.removeEventListener('touchcancel',end);
+        }
+        function move(ev){
+          if(!ev.touches||ev.touches.length!==1) return;
+          var tt=ev.touches[0]; lastX=tt.clientX; lastY=tt.clientY;
+          if(!dragging){
+            /* Moved before the hold fired → treat as a scroll, not a drag. */
+            if(Math.abs(tt.clientY-startY)>8 || Math.abs(tt.clientX-startX)>8){ clearTimeout(hold); cleanup(); }
+            return;
+          }
+          ev.preventDefault();
+          var ns=Math.round((sm0+(tt.clientY-startY)/SLOT_H*60)/5)*5;
+          ns=Math.max(START*60,Math.min(ns,END*60-dur));
+          if(Math.abs(ns-sm0)>=5)moved=true;
+          sm=ns; em=ns+dur;
+          el.style.top=((sm/60-START)*SLOT_H)+'px';
+          time.textContent=fmt(sm)+'-'+fmt(em);
+          t.timeStart=fmt(sm); t.timeEnd=fmt(em);
+        }
+        function end(ev){
+          clearTimeout(hold);
+          el.classList.remove('htb-dragging');
+          el._dragMoved=moved;
+          if(dragging && moved){
+            var et=(ev.changedTouches&&ev.changedTouches[0])||null;
+            if(et && pointInAllDay(et.clientX,et.clientY)){ t.timeStart=''; t.timeEnd=''; }
+            if(typeof saveTaskData==='function')saveTaskData();
+            renderHomeTimeBlocks();
+          }
+          cleanup();
+        }
+        document.addEventListener('touchmove',move,{passive:false});
+        document.addEventListener('touchend',end);
+        document.addEventListener('touchcancel',end);
+      }, {passive:true});
+    }
     resize.addEventListener('mousedown', function(e){
       e.preventDefault(); e.stopPropagation();
       var y0=e.clientY, em0=em;
@@ -12713,12 +12763,11 @@ function renderHomeTimeBlocks(){
       function up(){document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);if(typeof saveTaskData==='function')saveTaskData();}
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
-    /* No whole-block touch-drag-to-move: capturing touch on the entire block
-       (which covers most of the visible scroll surface) fought the user's
-       vertical scroll gesture on #htb-body — the block would jump in 5-minute
-       increments under the finger ("trembling") instead of the list scrolling.
-       Touch users can still retime via the task-edit modal; the resize handle
-       below remains a small, dedicated touch-drag target for duration only. */
+    /* Whole-block touch-drag-to-move is enabled above via a LONG-PRESS gate: a
+       raw touch capture on the block (which covers most of the scroll surface)
+       used to fight vertical scroll on #htb-body ("trembling" in 5-min jumps).
+       The 220ms hold-to-start fixes that — quick swipes scroll, a deliberate hold
+       drags. The resize handle below stays a dedicated touch target for duration. */
     resize.addEventListener('pointerdown', function(e){
       if (e.pointerType !== 'touch') return;
       e.preventDefault(); e.stopPropagation();
