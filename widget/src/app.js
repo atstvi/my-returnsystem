@@ -2188,7 +2188,7 @@
       // Timer click delegation
       wsView.addEventListener("click", function(e) {
         var b = e.target.closest && e.target.closest("[data-act]");
-        if (!b) return;
+        if (b) {
         var act = b.getAttribute("data-act");
         if (act === "mode") {
           if (wsTimer.running || wsTimer.elapsed > 0) return;
@@ -2208,8 +2208,10 @@
           var f2 = b.getAttribute("data-field");
           wsAdjustCfg(f2, f2 === "cd" ? -5 : -1);
         }
+          return; // handled a timer action; search-item clicks fall through below
+        }
 
-        // Task search result click
+        // Task search result click (no [data-act]; must be reachable when !b)
         var item = e.target.closest && e.target.closest(".ws-search-item");
         if (item) {
           var taskId    = item.getAttribute("data-task-id");
