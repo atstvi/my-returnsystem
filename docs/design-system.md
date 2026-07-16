@@ -98,9 +98,25 @@ existing `--accent-light`/`--bg-active`). Named separately so component specs ca
 today they resolve to the same color — keeps the emphasis-surface *usage rule* (principle 3
 above) visible in the token name itself, independent of what hue backs it.
 
-*Open question for you: this is a deliberately small, low-risk shift. If you want the mauve
-mood to read more strongly than this, tell me and I'll push it further — but I'd rather
-under-shoot and adjust than repeat the "everything broke" pattern with a bigger palette swing.*
+**Status: applied.** Shipped in `index.html` (`:root`, `html[data-mode="light"]`, and
+`THEME_STUDIO_DEFAULT.colors.page`) — `npm test` passes unchanged (pure CSS value swap, no logic
+touched). Confirmed conservative-first via the token preview artifact before applying.
+
+### 2.1.1 Accent — under review (not yet applied)
+
+Feedback after seeing the token preview: the default accent (`--a-400:#D9524C`) reads as
+saturation-sharp against the calmer neutral ground — the "뾰족한 느낌" the palette otherwise
+avoids. Two muted candidates are in the preview artifact for comparison, not yet applied to
+`index.html`:
+
+| Candidate | Hex | Direction |
+|---|---|---|
+| Current default | `#D9524C` | baseline |
+| A | `#C57A70` | same hue, lower saturation — dustier terracotta |
+| B | `#B66860` | pulled slightly toward the neutral scale's mauve undertone — calmer, more unified |
+
+Still true regardless of which candidate wins: this only changes the **shipped default** —
+Theme Studio's user-customizable accent picker is untouched either way.
 
 ### 2.2 Typography — no change
 
