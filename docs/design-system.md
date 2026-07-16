@@ -76,9 +76,9 @@ below are deltas with reasoning, not a new palette.
 
 ### 2.1 Color — no structural change, one deliberate shift
 
-**Keep unchanged:** the accent scale (`--a-*`) and its Theme Studio binding, the semantic
-success/warning/danger scale, the full dark-mode override block (`index.html:266-276`), and the
-elevation shadow *values* (see §2.4 for usage guidance instead).
+**Keep unchanged:** the semantic success/warning/danger scale and the elevation shadow *values*
+(see §2.4 for usage guidance instead). _(The accent scale and dark-mode blocks were originally
+scoped as "unchanged" here, but the accent recolor in §2.1.1 supersedes that — see there.)_
 
 **Shift: neutral scale undertone**, `--n-50` through `--n-150` only:
 
@@ -102,21 +102,71 @@ above) visible in the token name itself, independent of what hue backs it.
 `THEME_STUDIO_DEFAULT.colors.page`) — `npm test` passes unchanged (pure CSS value swap, no logic
 touched). Confirmed conservative-first via the token preview artifact before applying.
 
-### 2.1.1 Accent — under review (not yet applied)
+### 2.1.1 Accent — dusty rose (applied)
 
-Feedback after seeing the token preview: the default accent (`--a-400:#D9524C`) reads as
-saturation-sharp against the calmer neutral ground — the "뾰족한 느낌" the palette otherwise
-avoids. Two muted candidates are in the preview artifact for comparison, not yet applied to
-`index.html`:
+The old red default (`--a-400:#D9524C`) read saturation-sharp against the calmer ground, and the
+user doesn't like red. Decision (Direction 나, "warm multi-pastel"): move the whole register to a
+**warm, muted rose** and drop true-black inks. Red candidates were discarded.
 
-| Candidate | Hex | Direction |
+**Contrast-first caveat (원칙: usability > aesthetics):** `--accent` is used as a *fill with white
+text* (`.btn-primary{color:var(--n-0)}`) in ~30+ places. The soft `#C8848A` rose from the mockup
+only hits ~3:1 against white (fails WCAG 4.5:1 for 13px). So the shipped `--a-400` is deepened to
+**`#A75F66`** (white-text contrast **4.70:1** ✓), while the *light tints* stay soft.
+
+Applied ramp (light `:root`):
+
+| Token | Value | Role |
 |---|---|---|
-| Current default | `#D9524C` | baseline |
-| A | `#C57A70` | same hue, lower saturation — dustier terracotta |
-| B | `#B66860` | pulled slightly toward the neutral scale's mauve undertone — calmer, more unified |
+| `--a-50` | `#F6E7E8` | accent-light / bg-active tint |
+| `--a-100` | `#EBD0D2` | |
+| `--a-200` | `#D8A6AB` | |
+| `--a-400` | `#A75F66` | **`--accent`** — fills with white text (4.70:1) |
+| `--a-500` | `#95545B` | `--accent-hover` (5.68:1) |
+| `--a-600` | `#7E464D` | `--accent-press` |
+| `--a-700` | `#5E333A` | deepest |
 
-Still true regardless of which candidate wins: this only changes the **shipped default** —
-Theme Studio's user-customizable accent picker is untouched either way.
+Dark mode (`--n-0` becomes dark, so accent fills carry *dark* text): `--a-400:#D89AA0`
+(dark-text contrast 7.14:1 ✓), tints as `rgba(200,132,138,·)`.
+
+### 2.1.2 Soft ink — "no true black" (applied)
+
+`--fg` (161 text uses; all headings+body route through it — `color:var(--n-700)` direct = 0 uses)
+retargeted from `var(--n-700)` to a new `--ink` token = **`#3E362F`** (warm, lifted; contrast on
+page **11.1:1**, still crisp for 13px Korean). `--n-700`'s 4 dark *fills* (toast, selected-day
+strip, dark badge) are intentionally left untouched — only the text path softened. Deliberately
+did **not** go as light as reference-1's grey inks (#74747f) — readability first.
+
+### 2.1.3 Where it was applied (all layers kept consistent)
+
+Both the base CSS layer and the runtime Theme Studio layer were updated together so the app shows
+the same result whichever is active:
+- `:root` accent ramp + `--ink`; `--a-700` override at line ~243.
+- Dark overrides in **both** `@media (prefers-color-scheme:dark)` **and** `html[data-mode="dark"]`
+  (there are two — missing one leaves OS-dark users on red).
+- `THEME_STUDIO_DEFAULT.colors` (`accent`→`#A75F66`, `text`→`#3E362F`, `sidebarActive` softened),
+  since `themeStudioApply()` injects a `:root{}` literal override on every boot deriving tints
+  from these via `color-mix`.
+- `<meta name="theme-color">`, the two OAuth-popup buttons, and 3 JS `--accent` read-fallbacks.
+
+**Verified:** `npm test` 31/31; headless render confirms rose logo/button + soft ink, no
+breakage; and a stale-`return_theme_color=#C2433D` boot still resolves `--accent` to `#A75F66`
+(Theme Studio's later override wins and self-heals the stored value) — so no manual reset needed.
+A user's *own* custom accent is still respected (not overridden).
+
+**Deferred (needs its own careful pass — touches stored user data):** the task-category /
+emotion / timetable color palettes (`taskCategoryColorInputValue` fallback, the category swatch
+array at ~line 19772) still contain the old reds; softening these to the warm-pastel family must
+be done per-system, not by blanket token swap.
+
+**Flagged, not touched (pre-existing, out of scope):** Theme Studio's boot override pins
+`--bg-page`/`--bg-card`/`--fg` to its (light) color state as literals, which largely supersedes
+the separate dark-mode blocks when active. This is existing architecture, not introduced here —
+noted for a future "does dark mode actually reach the user?" investigation.
+
+### 2.1.4 `--bg-tint` (deferred naming aid)
+
+Still intend to add `--bg-tint: var(--a-50)` as a named emphasis-surface token (see §3 principle
+3) when components are specced — not yet added.
 
 ### 2.2 Typography — no change
 
