@@ -148,10 +148,20 @@ the same result whichever is active:
   from these via `color-mix`.
 - `<meta name="theme-color">`, the two OAuth-popup buttons, and 3 JS `--accent` read-fallbacks.
 
-**Verified:** `npm test` 31/31; headless render confirms rose logo/button + soft ink, no
-breakage; and a stale-`return_theme_color=#C2433D` boot still resolves `--accent` to `#A75F66`
-(Theme Studio's later override wins and self-heals the stored value) — so no manual reset needed.
-A user's *own* custom accent is still respected (not overridden).
+**Saved-state migration (important):** the real app didn't visibly change at first — a
+**saved + Firebase-synced** Theme Studio state still carried the old red, and the merge is
+`default ← saved`, so the stale value shadowed the new default. Fix lives at the read chokepoint
+`themeStudioNormalizeState` → `themeStudioUpgradeLegacyColorDefaults`: any color still equal to an
+*exact retired default* (`accent #C2433D`, `page #FAF9F7`, `text #352B2B`, `sidebarActive
+#FBE5EC`) is upgraded to the new default on every read. Because it runs on read, it stays correct
+even after a Firebase cloud round-trip re-writes the old state (the poisoning pattern CLAUDE.md
+documents). A genuinely custom color is untouched. Those four exact hexes are consequently no
+longer selectable as custom values — acceptable, they're the retired brand defaults. Covered by
+`tests/theme-studio-legacy-color-upgrade.test.js`.
+
+**Verified:** `npm test` (now incl. the new suite); headless render confirms rose logo/button +
+soft ink, no breakage; and two seeded-state boots pass — an old-red saved state heals to
+`#A75F66`, a custom blue accent (`#5B9BD5`) is preserved. No manual reset needed.
 
 **Deferred (needs its own careful pass — touches stored user data):** the task-category /
 emotion / timetable color palettes (`taskCategoryColorInputValue` fallback, the category swatch

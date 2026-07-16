@@ -33500,6 +33500,22 @@ var THEME_STUDIO_DEFAULT={
   stickerPlacement:false,
   animations:{reduced:false}
 };
+/* Legacy color defaults retired in the "warm multi-pastel" redesign. A saved/cloud-synced Theme
+   Studio state that still carries one of these EXACT old-default hexes is a user who never picked
+   a custom color — upgrade it to the new default. Runs in themeStudioNormalizeState (the read
+   chokepoint) so it stays correct even after Firebase re-writes the old state on a cloud round-trip
+   (the classic poisoning issue). A genuinely custom color — anything other than these exact old
+   defaults — is left untouched. These four hexes are therefore no longer selectable as custom
+   values, which is acceptable: they are the retired brand defaults. */
+var THEME_STUDIO_LEGACY_COLOR_DEFAULTS={accent:'#C2433D',page:'#FAF9F7',text:'#352B2B',sidebarActive:'#FBE5EC'};
+function themeStudioUpgradeLegacyColorDefaults(colors){
+  if(!colors||typeof colors!=='object')return colors;
+  Object.keys(THEME_STUDIO_LEGACY_COLOR_DEFAULTS).forEach(function(k){
+    var legacy=THEME_STUDIO_LEGACY_COLOR_DEFAULTS[k], next=THEME_STUDIO_DEFAULT.colors[k];
+    if(next&&typeof colors[k]==='string'&&colors[k].toUpperCase()===legacy.toUpperCase())colors[k]=next;
+  });
+  return colors;
+}
 function themeStudioClone(v){return JSON.parse(JSON.stringify(v));}
 function themeStudioReadJSON(key,fallback){try{return JSON.parse(localStorage.getItem(key)||'')||fallback;}catch(e){return fallback;}}
 function themeStudioWriteJSON(key,value){
@@ -33521,7 +33537,7 @@ function themeStudioMerge(base,extra){
 }
 function themeStudioNormalizeState(state){
   state=themeStudioMerge(THEME_STUDIO_DEFAULT,state||{});
-  state.colors=themeStudioMerge(THEME_STUDIO_DEFAULT.colors,state.colors||{});
+  state.colors=themeStudioUpgradeLegacyColorDefaults(themeStudioMerge(THEME_STUDIO_DEFAULT.colors,state.colors||{}));
   state.typography=themeStudioMerge(THEME_STUDIO_DEFAULT.typography,state.typography||{});
   state.background=themeStudioMerge(THEME_STUDIO_DEFAULT.background,state.background||{});
   state.banner=themeStudioMerge(THEME_STUDIO_DEFAULT.banner,state.banner||{});
