@@ -163,10 +163,32 @@ longer selectable as custom values — acceptable, they're the retired brand def
 soft ink, no breakage; and two seeded-state boots pass — an old-red saved state heals to
 `#A75F66`, a custom blue accent (`#5B9BD5`) is preserved. No manual reset needed.
 
-**Deferred (needs its own careful pass — touches stored user data):** the task-category /
-emotion / timetable color palettes (`taskCategoryColorInputValue` fallback, the category swatch
-array at ~line 19772) still contain the old reds; softening these to the warm-pastel family must
-be done per-system, not by blanket token swap.
+### 2.1.5 Category colors — muted pastel (applied)
+
+The task and hobby categories were a saturated rainbow (task cats mapped to *semantic* tokens —
+`--danger` red, `--p-400` indigo, `--t-400` teal — which is also conceptually wrong: category ≠
+status; hobby cats were raw saturated hex). Remapped every *exact retired default* to a
+harmonized muted-pastel hex drawn from the same register as the app's already-pastel
+`TT_DEFAULT_PALETTE` (rose `#BE727A`, periwinkle `#7E7BC0`, mint `#4E9A84`, amber `#B0863F`, sage
+`#6E9463`, lilac `#9985C2`, warm-grey `#897E74`, + plum/caramel/clay/deep-sage for hobby's 12).
+
+Same read-chokepoint pattern as Theme Studio, so it reaches existing synced categories and
+survives cloud round-trips:
+- `upgradeCatColor(hex)` + `LEGACY_CAT_COLOR_MAP` — applied in `normalizeTaskCatColor` (the task
+  color chokepoint; all task color renders route through it) and `hobGetCat` (hobby, which uses
+  raw `cat.color`). Custom colors pass through untouched; the retired exact hexes are no longer
+  selectable.
+- `CATS` defaults and the hobby `CAT_COLORS` swatch options rewritten to the muted set;
+  `taskCategoryColorInputValue` fallback moved off the old red.
+- Left as-is (already soft): inbox `.cat-*` chips (token `-50` tints) and `TT_DEFAULT_PALETTE`.
+
+Contrast note: muted category labels land ~3–4:1 on white — the *same band as the original*
+colors (old teal `#38B2AC` was 2.8:1), and they render mostly as tint-bg + short colored label,
+so this matches the app's existing bar rather than lowering it. Covered by
+`tests/category-color-pastel-upgrade.test.js`.
+
+**Still deferred:** emotion/mood tag colors (if any carry saturated hex) — verify in the Records
+page pass.
 
 **Flagged, not touched (pre-existing, out of scope):** Theme Studio's boot override pins
 `--bg-page`/`--bg-card`/`--fg` to its (light) color state as literals, which largely supersedes
