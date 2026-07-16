@@ -1,7 +1,10 @@
 # Return — Design System
 
-> **Status: DRAFT — in progress.** Sections are filled in one at a time and reviewed before
-> the next one starts. Do not treat an unfinished section as final.
+> **Status: DRAFT — all sections drafted; §2 (tokens/color) shipped.** §3 (components) and §6
+> (application process) document existing reality + decided rules. §4 (patterns) and §5 (page
+> notes) are the intent layer and carry **open decisions** — most notably the app-shell change in
+> §4.1 — which get their own scoped approval before any code. Do not treat an open-decision item
+> as settled.
 >
 > **This document is a constraint, not a mood board.** Every component and pattern below must
 > name the exact page/control in `docs/UI_FUNCTION_INVENTORY.md` it replaces. If a redesign pass
@@ -226,14 +229,164 @@ motion.
 
 ---
 
-## 3. Components — _not started yet_
+## 3. Components
 
-## 4. Patterns — _not started yet_
+This documents the **component vocabulary that already exists** in `index.html` (usage counts from
+the codebase), and the rules that make it one coherent language. The goal of a redesign pass is to
+make every page use *these* components consistently — not to invent new ones. New components are
+added here only when a real need can't be met by an existing one.
 
-(This is where the sidebar-vs-bottom-nav shell question and the Matrix/Flow/Review idea land —
-deliberately deferred until tokens are settled, per constitution §"structure before decoration"
-applied to our own process: get the foundation agreed before the shell decision.)
+### 3.1 Buttons — one base, a clear hierarchy
 
-## 5. Page-by-page application notes — _not started yet_
+Canonical classes (do not create page-local button styles): `.btn` (base, ~450 uses) + one intent
+modifier.
 
-## 6. Application process (mandatory) — _not started yet_
+| Class | Role | When | Fill / text |
+|---|---|---|---|
+| `.btn-primary` | **Primary action** (one per view/section) | the single most-likely next action — Save, Add, Sync now | `--accent` bg, white text (contrast-safe, see §2.1.1) |
+| `.btn-ghost` | **Secondary / neutral** (the default, ~214 uses) | Cancel, secondary actions, toolbar buttons | transparent/subtle bg, `--fg-2`, `1px --border` |
+| `.btn-danger` | **Destructive** | Delete, Clear all | `--danger` |
+| `.btn-success` | Rare affirmative | reserve; don't use as a second primary | `--success` |
+
+Rules: **at most one `.btn-primary` per view** (원칙 5 hierarchy — two primaries = no primary).
+Settings uses a parallel `.set-btn` family; keep it visually identical to `.btn` (same radius,
+padding rhythm, states). Every button needs a visible `:focus-visible` ring and a hover state.
+
+### 3.2 Surfaces — cards & panels, flat by default
+
+`.card` / `.sit-card` / `.home-card` / `.panel-*` are the surface family. Rules:
+- Default elevation is **`--elev-1`** (§2.4). A card inside a card drops to `--elev-0` + a
+  `1px --border`/`--hair` hairline instead of stacking shadows.
+- Radius from `--r-lg`/`--r-xl`; padding from the `--sp-*` scale — never ad-hoc px.
+- **Colored/tinted card backgrounds are earned, not default** (§1 principle 3, 원칙 9): a plain
+  `--bg-card` surface + type/space hierarchy is the default; a `--bg-tint`/`--accent-light` surface
+  is only for a genuinely distinct emphasis (D-day, a quoted reflection, an active state).
+
+### 3.3 Chips & tags — the tint + ink pattern
+
+Category/status/emotion chips follow one pattern: **soft tint background + darker same-hue ink
+text** (as the inbox `.cat-*` classes and the new muted category colors do — §2.1.5). Never a
+saturated solid fill with white text for a *category* (that reads as a primary action / status,
+not a label — 원칙 7, separate concepts). Pills use `--r-full`.
+
+### 3.4 Inputs — `.set-inp` / `.field-inp` / `.set-select`
+
+One input look across the app: `1px --border`, `--r-md`, `--bg-card`/`--bg-raised` fill,
+`--focus-ring` on focus. Labels sit above or inline-left at `--text-xs`/`--fg-3`. Placeholder text
+is `--fg-4`. A field that's editable must *look* editable (원칙 1 "is this editable?").
+
+### 3.5 Modal / overlay
+
+`.overlay` (scrim) + `.modal` with `.modal-head` / `.modal-body` / `.modal-foot`. This is the only
+floating-panel pattern — `--elev-3`, `--r-xl`. Footer holds actions right-aligned: `.btn-ghost`
+Cancel then `.btn-primary` confirm (consistent order = predictability, 원칙 2). Esc + scrim-click
+close; focus moves into the modal.
+
+### 3.6 Toggle
+
+`.toggle-wrap` / `.toggle-track` / `.toggle-thumb` — the single switch component. On = `--accent`
+track. Don't substitute a checkbox where a toggle is the established control, or vice-versa
+(consistency).
+
+---
+
+## 4. Patterns
+
+### 4.1 App shell & navigation — **the one big open decision**
+
+Return currently navigates via a **bottom tab bar** (`data-page` items, `goPage()`); reference 1
+uses a **left sidebar + top bar** (search + profile + `+`/notifications/settings icon cluster),
+which the user liked ("전문적으로 서비스되는 프로그램 같다"). Moving to that shell is the single
+largest structural change on the table, so it is **not decided here** — it gets its own scoped
+proposal + approval before any code, because it touches the layout skeleton every page mounts into.
+
+When we take it on, the binding-contract rule (§6) is non-negotiable: `goPage()` and every
+`data-page`/nav hook in `docs/UI_FUNCTION_INVENTORY.md` must survive the shell swap 1:1. The shell
+is markup/CSS; the navigation *functions* don't change.
+
+Borrowed shell details already logged from references (apply only when the shell decision is made):
+two-zone top bar (view controls | document actions — 나기메모), long-press-to-edit stickers,
+icon-economy toolbars with small text labels per group.
+
+### 4.2 List ↔ board / view-switcher
+
+Tasks and Inbox already switch views (list / priority / deadline / timeblock; feed / board). Keep
+the switch control in one consistent place and style across pages; the *content* structure of each
+view is kept (the user rated it above the references) — only spacing/alignment/secondary-action
+placement gets cleaned up.
+
+### 4.3 Compose → capture flow
+
+The nagi-memo compose pattern (icon row above the input: image/emoji/attach + a clear primary
+Send; attachment thumbnails with per-item remove; inline reply expanding under the source) is the
+reference for Inbox capture and Quick Notes — **UI/interaction only**. Whether Inbox adopts an
+SNS/timeline framing is still open (it's a fast idea/task capture, not a feed) and any image
+attachment MUST reuse the existing media-store path (localStorage→IndexedDB→Firebase), never a new
+one (recurring quota/sync hazard — see CLAUDE.md).
+
+### 4.4 Daily-flow / end-of-day review (candidate)
+
+DayFlow's Matrix → Flow → Review IA is a strong fit for Return's core loop (check-in → reflect →
+act → recharge), which currently lacks a task-side end-of-day review (Done / Left / Hold). Candidate
+for the Tasks page or a bridge into Recharge/Diary. Structure only — DayFlow's visuals are rejected.
+Not started; needs its own proposal.
+
+---
+
+## 5. Page-by-page application notes
+
+Per page: **keep** (structure the user validated — don't touch) / **fix** (surface cleanup) /
+**refs** (which reference informs it). Detailed control lists live in
+`docs/UI_FUNCTION_INVENTORY.md`; this is the intent layer. Nothing here is built yet.
+
+- **나/Home** — *keep* the dashboard composition (banner, stickers, quick routine, signals). *fix*
+  spacing rhythm, one clear primary per card, empty states. *refs* ref-1 calm dashboard.
+- **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
+  category chip consistency. *open* SNS framing (§4.3).
+- **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
+  editability affordance, image block controls. *refs* nagi-memo toolbar grouping if rich text grows.
+- **루틴/Routine** — *keep* habits/bundles + weekly view. *fix* the dot-tracker rhythm & density.
+- **할일/Tasks** — *keep* category sidebar, view-switcher, recurring rules (rated above refs).
+  *fix* messy secondary-action placement accreted over time; consider §4.4 review step.
+- **프로젝트/Projects** — *fix* toward ref-4 folder-card + progress-bar + favorite grid.
+- **시간표/Schedule** — *keep* timetable grid. palette already pastel. *fix* slot edit affordances.
+- **취미/Hobby** — *keep* tracker + banner. category colors now muted (§2.1.5).
+- **음악/Music** — *keep* recommender + playlists. *fix* card/grid consistency with §3.2.
+- **충전과 체크/Recharge** — *keep* check-in → AI read → recharge loop (the heart). *fix* calm
+  palette already exists (`--calm-*`); align to the muted register.
+- **기록/Records** — *fix* memo/insight cards, emotion-tag colors (verify saturation), trend charts
+  (apply dataviz care). *refs* nagi-memo rich-text toolbar.
+- **설정/Settings** — *keep* tabbed structure. *fix* nothing urgent; it's the most orderly page.
+
+---
+
+## 6. Application process (mandatory)
+
+This section exists because past redesigns of this app **silently dropped features and broke rules
+when a page was rewritten wholesale**. These steps are not optional.
+
+1. **One page/component at a time — strangler-fig, never big-bang.** Redesign the markup/CSS of a
+   single page while its JS functions and `id`/`data-*` hooks stay in place. Do not "pour in" a
+   finished mockup.
+2. **The binding contract is `id` + `data-*` + `onclick`.** A redesigned element keeps the same
+   `id`, `data-*` attribute, or `onclick` target as its old counterpart. As long as that holds, the
+   JS behind it needs no change — only the surrounding HTML/CSS does. Every entry in
+   `docs/UI_FUNCTION_INVENTORY.md` for that page is a checklist item: it must still exist and be
+   reachable afterward.
+3. **Prefer read-chokepoint migrations over data rewrites** for anything that touches saved/synced
+   state (colors, prefs). See the two shipped examples: `themeStudioUpgradeLegacyColorDefaults`
+   (§2.1.3) and `upgradeCatColor` (§2.1.5) — they upgrade *on read* so they reach existing users
+   and survive Firebase cloud round-trips, without mutating stored data or fighting a re-sync.
+4. **Re-run the inventory + diff.** After the pass: `node scripts/generate-ui-inventory.js`, then
+   `git diff docs/ui-inventory.json`. A hook or function that vanished from a page's section (and
+   wasn't intentionally moved) is a **regression — block the merge and fix it.**
+5. **Run `npm test` — never skip it.** Several suites load real functions out of `index.html` via
+   `tests/lib.js`'s `sliceBlock`, anchored on literal text; moving/renaming a covered function
+   breaks its test loudly. That is the safety net working, not a test to silence (CLAUDE.md). Add a
+   test whenever you fix a sync/merge/storage/migration bug.
+6. **Verify in the real app before merging** what the change actually renders (headless screenshot
+   or the running PWA), and confirm contrast for any new color-on-color pairing (원칙: usability >
+   aesthetics). Deploy = merge to `main` (GitHub Pages serves `main`; the service worker is
+   network-first, so a merged change reaches the installed PWA on next online open).
+7. **Every component/pattern in this doc must trace to a real inventory entry.** If a proposed
+   component can't point to what it replaces, it isn't ready.
