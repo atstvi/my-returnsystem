@@ -116,5 +116,17 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
   renders on the Tasks page (empty state + working 규칙 추가/반복 추가); id-bound listeners follow;
   zero page errors; npm test green; 0 functions lost. (A relocation, not a removal — the feature
   stays fully accessible, so it's within the ADD/relayout freedom.)
-- **5d:** global top bar (capture in search slot + settings icon; remove sidebar settings tab).
-  Structural — wrap the 14 `height:100vh` page-containers + reconcile heights; done last & alone.
+- **5d (done):** **global top bar**. Wrapped all 14 page-containers in a new content column
+  `.app-main` = `.app-topbar` (fixed 60px / 52px mobile) + `.page-stack` (flex:1), so the top bar
+  is persistent across every page. The top bar holds the **quick-capture in the search slot**
+  (the Home `.capture-bar` markup moved here verbatim — same `capture-inbox-btn`/`capture-task-btn`/
+  `capture-inp`/`.capture-send` ids/classes, so the load-time listeners + `homeCapture` work
+  app-wide) and a **settings gear** (`topbar-settings-btn` → `goPage('settings')`). Removed the
+  sidebar **설정** tab; settings stays reachable via the gear *and* the sidebar profile button
+  (`openProfileSettings`). Height model: `.page-container` `height:100vh`→`100%` (desktop and the
+  `100dvh` mobile rule → `100%`) so pages fit under the bar with no overflow; focus-mode hides the
+  bar like the sidebar. Home grid renumbered (capture row removed). Verified: **all 14 pages** at
+  1440 & 390 render with the bar, correct heights (0 overflow), 0 page errors; capturing from a
+  non-Home page adds an inbox item; the gear navigates to settings; the sidebar 설정 tab is gone;
+  npm test green; 0 functions lost. (Relocations only — capture and settings both stay fully
+  accessible — so within the ADD/relayout freedom.)
