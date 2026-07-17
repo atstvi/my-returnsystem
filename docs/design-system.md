@@ -1,5 +1,11 @@
 # Return — Design System
 
+> **This is the authoritative "DESIGN.md"** referenced by `docs/REDESIGN_WORKFLOW.md` — the
+> highest-priority source of truth for all UI/UX decisions. Source hierarchy for any redesign:
+> **(1) this document → (2) `docs/UI_FUNCTION_INVENTORY.md` (functional truth) → (3) reference
+> materials (§0, inspire don't copy).** The workflow governs *how* a redesign is carried out; this
+> governs *what* the design is.
+>
 > **Status: DRAFT — all sections drafted; §2 (tokens/color) shipped.** §3 (components) and §6
 > (application process) document existing reality + decided rules. §4 (patterns) and §5 (page
 > notes) are the intent layer and carry **open decisions** — most notably the app-shell change in
