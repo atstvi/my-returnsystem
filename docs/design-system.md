@@ -61,10 +61,15 @@ not a re-print of the source document.
 4. **Discoverability, not minimalism, fixes clutter.** (원칙 6) The user's own diagnosis — "as
    features got added, paths got messy" — is a hierarchy problem, not a hiding problem. Advanced/
    rare actions may be tucked away; core workflows never get harder to find than they are today.
-5. **Theme Studio is a constraint, not a target.** Users already customize accent color, density,
-   radius, skin, and intensity at runtime. The design system defines the *default* state Theme
-   Studio starts from and the token names it hooks into — it must never require changing how
-   Theme Studio itself works.
+5. **Theme Studio is in scope for improvement (updated).** Users customize accent/density/radius/
+   skin/intensity at runtime, and the design system still defines the *default* state Theme Studio
+   starts from and the token names it hooks into. But Theme Studio itself needs work — its
+   mechanism (apply pipeline, defaults, generated-CSS override, icon system, presets) **may be
+   changed or refactored** when the redesign calls for it; it is no longer a frozen constraint.
+   The remaining duty is to **preserve user-customization intent** — don't silently discard
+   someone's saved settings; reconcile stale/retired values via read-chokepoint migrations (as
+   done for accent/category/icon defaults). Removing a customization *capability* falls under the
+   feature-removal rule (§6).
 6. **Real content only.** (원칙 12) Any mockup or spec produced from this document uses actual
    Return data shapes (real task/diary/playlist examples), never Lorem Ipsum or "Feature One"
    placeholders — this project already has sample-seed-gate/demo-cleanup tests precisely because
@@ -392,6 +397,12 @@ Per page: **keep** (structure the user validated — don't touch) / **fix** (sur
 
 This section exists because past redesigns of this app **silently dropped features and broke rules
 when a page was rewritten wholesale**. These steps are not optional.
+
+**0. Adding vs. removing features (owner's rule).** The redesign scope is large — re-layouts and
+new logic are expected. **New features may be added freely** (including reworking Theme Studio's
+mechanism, §1.5). But **removing or disabling any existing feature — even partially — requires
+asking the owner first.** The inventory-diff in step 4 is how you *detect* an unintended removal;
+this rule is what you do about an intended one: surface it and wait for a yes before shipping.
 
 1. **One page/component at a time — strangler-fig, never big-bang.** Redesign the markup/CSS of a
    single page while its JS functions and `id`/`data-*` hooks stay in place. Do not "pour in" a
