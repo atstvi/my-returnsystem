@@ -208,11 +208,19 @@ Still intend to add `--bg-tint: var(--a-50)` as a named emphasis-surface token (
 `Pretendard Variable` already reads clean/neutral in the way reference 1's system sans does, and
 it's the correct choice for Korean text density. The `text-2xs…2xl` scale is untouched.
 
-### 2.3 Spacing & radius — no new tokens, usage guidance only
+### 2.3 Spacing & radius
 
-`--sp-*` and `--r-*` already cover reference 1's proportions (generous padding, `r-lg`/`r-xl`
-cards, `r-full` pills). The gap isn't the scale, it's *which* value gets used where after
-features accreted — that's a per-component/per-page fix (§3/§5), not a token change.
+`--sp-*` already covers reference 1's proportions (generous padding, `r-full` pills). Its gap is
+*which* value gets used where after features accreted — a per-component/per-page fix (§3/§5).
+
+**Radius — rounded the default up (applied).** The `:root` radius scale (the Theme Studio "soft"
+default; `sharp`/`bubble` presets override it) was bumped a step: `--r-sm` 4→6, `--r-md` 8→10,
+`--r-lg` 12→14, `--r-xl` 16→20. Softer, calmer corners everywhere on the default preset. Users on
+`sharp`/`bubble` keep their choice, and the `sharp < soft < bubble` ordering is preserved.
+
+**Small profile tweaks (applied):** sidebar profile enlarged (avatar 56→72px, name `text-lg`,
+handle/status `text-sm`); Settings status-field placeholder → `Location` to match its
+location-pin display.
 
 ### 2.4 Elevation — usage rule, not a value change
 
