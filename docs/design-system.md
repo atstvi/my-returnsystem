@@ -297,9 +297,14 @@ track. Don't substitute a checkbox where a toggle is the established control, or
 Return's shell was a **narrow 68px icon rail** (icon + tiny label), no top bar. Approved
 direction (reference 1): a **labeled sidebar** on desktop, mobile kept usable.
 
-**Sidebar — DONE.** Widened to a 216px labeled sidebar: orbit logo (§ logo) + "Return" wordmark,
-line-icon nav (icon + full label), generous spacing, calm active state (`--bg-card` card + rose
-text + `--elev-1`). Responsive, reconciled with the app's existing breakpoints:
+**Sidebar — DONE.** Widened to a 216px labeled sidebar. The app-logo slot became a **centered
+Twitter-style profile header** (`.sb-profile`): circular avatar, display name, `@handle`, and a
+status line shown with a location-pin icon (📍) — click opens Settings › Profile
+(`openProfileSettings()`). Backed by `profile_data` extended with `handle`/`status`/`photo`
+(custom avatar upload, compressed square, synced); new fields + photo picker live in Settings ›
+Profile; logout stays in Settings. The orbit logo is retained only as the favicon/app-icon.
+Then line-icon nav (icon + full label), generous spacing, calm active state (`--bg-card` card +
+rose text + `--elev-1`). Responsive, reconciled with the app's existing breakpoints:
 - **≥900px**: full labeled sidebar.
 - **640–899px**: collapses to a 64px icon rail (labels hidden).
 - **<639px**: the app's pre-existing fixed **bottom bar** takes over (kept; just taught it to
