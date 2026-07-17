@@ -87,7 +87,23 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
   banner|situation top row and correct single-column collapse; `.sit-msg`/`home-eisen-grid`/
   `tgCanvas` intact; only network (Firebase) console errors; npm test green; 0 functions lost.
   (Habit extraction deferred — kept inside the situation card to hold scope tight.)
-- **5b:** flexible widget slot (빠른 메모 default) filling the layout gap.
+- **5b (done):** **flexible widget slot** filling the desktop gap under 오늘 상황. New
+  `.home-widget-card` (id `home-widget-card`) with a 4-way segmented switch — **메모 (default) ·
+  가치관 · 사진 · 음악** — persisted in `home_widget_type`:
+  - *메모*: autosaved + synced textarea (`home_widget_memo`, debounced through
+    `setReturnStorageItem`).
+  - *가치관*: reads existing `philCards`, one card at a time with a `1 / N ›` pager; empty state
+    links to 기록(records).
+  - *사진 데코*: image slot storing a media ref (`home_widget_photo`) via
+    `returnMediaStoreDataUrl`/`returnMediaResolveUrlWithFallback` (same media stack as the
+    banner), with a remove control.
+  - *음악 추천*: reads `musicPlaylists` count and links to the 음악 page (no coupling to the
+    fragile music-page DOM).
+  Wired into `_initHome` (`renderHomeWidget`) and `normalizeHomeLayoutOrder` (placed right after
+  the situation card, so mobile order is date → situation → widget → …). Desktop grid: the banner
+  now spans rows 3–4 in col1 beside the situation(row3)+widget(row4) stack in col2. Verified: all
+  4 states render with content and zero page errors at 1440; mobile order correct at 390; npm
+  test green; 0 functions lost.
 - **5c:** relocate 활성 규칙·반복 할일 to the Tasks page (move the `rules-box` markup — ids intact
   so the id-bound listeners + desc updaters follow; add a Tasks entry point).
 - **5d:** global top bar (capture in search slot + settings icon; remove sidebar settings tab).
