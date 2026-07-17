@@ -292,21 +292,36 @@ track. Don't substitute a checkbox where a toggle is the established control, or
 
 ## 4. Patterns
 
-### 4.1 App shell & navigation — **the one big open decision**
+### 4.1 App shell & navigation
 
-Return currently navigates via a **bottom tab bar** (`data-page` items, `goPage()`); reference 1
-uses a **left sidebar + top bar** (search + profile + `+`/notifications/settings icon cluster),
-which the user liked ("전문적으로 서비스되는 프로그램 같다"). Moving to that shell is the single
-largest structural change on the table, so it is **not decided here** — it gets its own scoped
-proposal + approval before any code, because it touches the layout skeleton every page mounts into.
+Return's shell was a **narrow 68px icon rail** (icon + tiny label), no top bar. Approved
+direction (reference 1): a **labeled sidebar** on desktop, mobile kept usable.
 
-When we take it on, the binding-contract rule (§6) is non-negotiable: `goPage()` and every
-`data-page`/nav hook in `docs/UI_FUNCTION_INVENTORY.md` must survive the shell swap 1:1. The shell
-is markup/CSS; the navigation *functions* don't change.
+**Sidebar — DONE.** Widened to a 216px labeled sidebar: orbit logo (§ logo) + "Return" wordmark,
+line-icon nav (icon + full label), generous spacing, calm active state (`--bg-card` card + rose
+text + `--elev-1`). Responsive, reconciled with the app's existing breakpoints:
+- **≥900px**: full labeled sidebar.
+- **640–899px**: collapses to a 64px icon rail (labels hidden).
+- **<639px**: the app's pre-existing fixed **bottom bar** takes over (kept; just taught it to
+  hide `.sb-brand` and stack the new `.tab-btn` icon-over-label).
 
-Borrowed shell details already logged from references (apply only when the shell decision is made):
-two-zone top bar (view controls | document actions — 나기메모), long-press-to-edit stickers,
-icon-economy toolbars with small text labels per group.
+Binding contract held: every `.tab-btn` keeps its `id` + `data-page` + `aria-label`; `goPage()`
+untouched. Verified — 13 tabs present with `data-page` + icons, inventory diff **0 functions
+lost**, `npm test` green, headless render at all three widths.
+
+Icons: emoji → built-in **SVG line icons** (24px grid, 1.7 stroke, `currentColor`). Reconciled
+with Theme Studio's per-tab icon customization: `THEME_STUDIO_DEFAULT.icons` emptied and
+`themeStudioApplyIcons` skips the retired emoji defaults (`THEME_STUDIO_RETIRED_ICONS`) so SVGs
+show for everyone, while a genuinely custom tab icon still overrides.
+
+**Top bar — DEFERRED (next pass).** Pages are 14 `height:100vh` flex siblings of the sidebar; a
+top bar needs a structural wrapper + per-page height reconciliation, so it's its own step. Also:
+reference 1's **search has no backend** in Return yet — a real global search is a separate
+feature, and we will **not** ship a non-functional search box (원칙 13). The top bar's `+` can
+wire to the existing `openGlobalCapture()`.
+
+Logged for the top-bar pass: two-zone layout (view controls | doc actions — 나기메모), profile
+block + clock (reference 1), notifications, long-press-to-edit stickers.
 
 ### 4.2 List ↔ board / view-switcher
 
