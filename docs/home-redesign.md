@@ -130,3 +130,15 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
   non-Home page adds an inbox item; the gear navigates to settings; the sidebar 설정 tab is gone;
   npm test green; 0 functions lost. (Relocations only — capture and settings both stay fully
   accessible — so within the ADD/relayout freedom.)
+
+## Phase 6 — Design every state (in progress)
+
+- **Empty / first-use banner (done):** with no image the banner was a large blank gradient whose
+  only edit affordances were the hover-hidden icons in the date row — undiscoverable. Added a
+  centered inline **`＋ 배너 추가`** CTA (`home-banner-add`) shown only on `.home-banner:not(.has-image)`
+  and hidden in edit/position modes; it opens the existing banner file picker. Removed the banner's
+  `aria-hidden` (it now holds an interactive control). Verified: CTA visible when empty, `display:none`
+  once `.has-image`, 0 page errors.
+- **Widget a11y (done):** tabs get `aria-controls="hw-body"`; the body is `role="tabpanel"
+  aria-live="polite"` so type switches are announced. (Widget empty states — 가치관 none / 사진 none /
+  음악 no-playlists — were built in 5b.)
