@@ -57,9 +57,31 @@ tasks → timegrid → inbox → ops-panel.
    → Capture + situation lead; management (rules/repeat) demoted; type/space hierarchy, not more
    boxes (DESIGN §3.2, 원칙 9).
 
-## Phase 4 — Visual direction (to confirm before mockup)
+## Phase 4 — Visual direction (confirmed)
 
-Proposed: keep every feature (table above), but re-compose into a **calm two-column dashboard**
-on desktop that folds to the current single stack on mobile; dedupe the deadline/inbox repetition
-into one attention surface; swap emoji labels for line icons; lead with capture + situation.
-_Mockup to follow once direction is confirmed._
+Confirmed v2 mockup: top bar with the quick-capture in the search slot + settings icon; header as a
+big **banner card** with **오늘 상황 to its right** (reference structure); calm **two-column
+dashboard** folding to one column on mobile; dedupe deadline/inbox repetition; emoji labels → line
+icons; **활성 규칙·반복 할일 moved to the Tasks tab**; empty space filled by a **flexible, useful
+widget slot** (default 빠른 메모; pickable: 음악 추천 / 사진 데코 / 가치관) rather than pure
+decoration (per a masonry/bento-grid search).
+
+## Phase 5 — Implementation (in careful tested steps, §6)
+
+**Key discovery that de-risks this:** on wide desktop (`@media min-width:1180px`) Home is already a
+**CSS grid on flat section children** (`grid-column`/`grid-row` per section, lines ~1602-1635);
+`normalizeHomeLayoutOrder` keeps sections as flat children of `.home-content`. So most of the
+2-column composition is **CSS**, not a markup rewrite. The banner sits *outside* `.home-content`
+(cleared via `padding-top`), so the banner+situation row needs the banner moved into the grid.
+
+Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test; render):
+- **5a-1 (done):** emoji section labels ⏱/⬛ → line icons (`.sec-ico`). Verified render targets
+  (`.sit-msg`, `home-eisen-grid`, `tgCanvas`) intact, no console errors.
+- **5a-2 (next):** desktop grid → v2 composition (banner moved into grid for banner|situation top
+  row; habits extracted from the situation card into their own right-column card; grid positions
+  retuned; raise `max-width`). CSS + small safe markup moves.
+- **5b:** flexible widget slot (빠른 메모 default) filling the layout gap.
+- **5c:** relocate 활성 규칙·반복 할일 to the Tasks page (move the `rules-box` markup — ids intact
+  so the id-bound listeners + desc updaters follow; add a Tasks entry point).
+- **5d:** global top bar (capture in search slot + settings icon; remove sidebar settings tab).
+  Structural — wrap the 14 `height:100vh` page-containers + reconcile heights; done last & alone.
