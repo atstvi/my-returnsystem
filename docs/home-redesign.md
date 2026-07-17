@@ -77,9 +77,16 @@ decoration (per a masonry/bento-grid search).
 Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test; render):
 - **5a-1 (done):** emoji section labels ⏱/⬛ → line icons (`.sec-ico`). Verified render targets
   (`.sit-msg`, `home-eisen-grid`, `tgCanvas`) intact, no console errors.
-- **5a-2 (next):** desktop grid → v2 composition (banner moved into grid for banner|situation top
-  row; habits extracted from the situation card into their own right-column card; grid positions
-  retuned; raise `max-width`). CSS + small safe markup moves.
+- **5a-2 (done):** banner converted from an absolute top-strip to an **in-flow rounded card**
+  (`position:relative;border-radius:var(--r-xl)`, `.banner-fade` hidden) and moved *inside*
+  `.home-content` as its first child; all `padding-top` clearance hacks removed. Desktop grid
+  (≥1180px) now places **banner (col1) | 오늘 상황 (col2)** as the top content row, then
+  tasks|timegrid, then inbox|timeblock, ops full-width. Banner heights: 150px mobile / 200px
+  tablet / stretch≥220px desktop. Verified: all banner JS is class-based (`querySelector`) +
+  `getBoundingClientRect` so the DOM move is transparent; render at 1440/900/390 shows the
+  banner|situation top row and correct single-column collapse; `.sit-msg`/`home-eisen-grid`/
+  `tgCanvas` intact; only network (Firebase) console errors; npm test green; 0 functions lost.
+  (Habit extraction deferred — kept inside the situation card to hold scope tight.)
 - **5b:** flexible widget slot (빠른 메모 default) filling the layout gap.
 - **5c:** relocate 활성 규칙·반복 할일 to the Tasks page (move the `rules-box` markup — ids intact
   so the id-bound listeners + desc updaters follow; add a Tasks entry point).
