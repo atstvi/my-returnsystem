@@ -104,7 +104,17 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
   now spans rows 3–4 in col1 beside the situation(row3)+widget(row4) stack in col2. Verified: all
   4 states render with content and zero page errors at 1440; mobile order correct at 390; npm
   test green; 0 functions lost.
-- **5c:** relocate 활성 규칙·반복 할일 to the Tasks page (move the `rules-box` markup — ids intact
-  so the id-bound listeners + desc updaters follow; add a Tasks entry point).
+- **5c (done):** relocated **활성 규칙 · 반복 할일** to the Tasks page. Discovery: on Home this
+  card was the *dynamically-built* ops panel (`ensureHomeOpsPanel`) that moves the static
+  `.rules-box` seed into a `#home-ops-section` card and hides the seed — so the move = re-seed the
+  rules-box on the Tasks page and let the same code build the panel there. Done by (1) cutting the
+  `.rules-box` markup out of the Home tasks card and inserting it (ids intact:
+  `home-rule-btn`/`home-repeat-btn`/`home-rule-desc`/`home-repeat-desc`) into the Tasks list
+  column after `#task-sections`; (2) making `ensureHomeOpsPanel` mount robustly when there's no
+  `section.card` ancestor (inserts the panel right after the seed cards); (3) calling
+  `renderHomeOpsPanel()` from `_initTasks`. Verified: Home shows no ops/rules card; the panel
+  renders on the Tasks page (empty state + working 규칙 추가/반복 추가); id-bound listeners follow;
+  zero page errors; npm test green; 0 functions lost. (A relocation, not a removal — the feature
+  stays fully accessible, so it's within the ADD/relayout freedom.)
 - **5d:** global top bar (capture in search slot + settings icon; remove sidebar settings tab).
   Structural — wrap the 14 `height:100vh` page-containers + reconcile heights; done last & alone.
