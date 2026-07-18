@@ -142,3 +142,11 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
 - **Widget a11y (done):** tabs get `aria-controls="hw-body"`; the body is `role="tabpanel"
   aria-live="polite"` so type switches are announced. (Widget empty states — 가치관 none / 사진 none /
   음악 no-playlists — were built in 5b.)
+- **Removed the global quick-capture FAB (owner-approved):** the bottom-right `＋` FAB + its
+  `#global-capture` overlay were redundant once the global top bar hosts capture on every page.
+  Removed both markup blocks; the now-orphaned `openGlobalCapture`/`submitGlobalCapture`/
+  `updateGlobalCaptureVisibility` functions already null-guard their elements, so they no-op safely
+  (kept to avoid touching unrelated call sites). Verified: no `.global-capture-fab`/`#global-capture`
+  in the DOM, functions no-op without throwing, 0 page errors, 0 functions lost.
+- **Still open (owner reviewing):** focus-mode reveals the top bar on any content-area hover, which
+  softens focus-mode's "hide chrome" intent — left as-is pending the owner's decision.
