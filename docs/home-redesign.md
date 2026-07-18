@@ -195,3 +195,14 @@ the mockup's card system into the live Home:
 Still different by design (owner's earlier call): 오늘 습관 keeps the rich chip UI (완료/건너뜀/휴식)
 rather than the mockup's plain checklist. Verified: all 14 pages 0 overflow / 0 errors at 1440 & 390;
 npm test green; 0 functions lost.
+
+## Internal parity — round 2 (checkboxes, widget footer, timeblock polish)
+- **Eisenhower checkboxes:** each 오늘 할일 row now has a real done-checkbox (mockup `.qtask .ck`).
+  Clicking it toggles `t.done` + `saveTaskData()` and re-renders tasks/timeblock/situation; clicking
+  the rest of the row still opens the task. Functionally verified (false→done, persists).
+- **빠른 메모 picker → footer:** moved the widget type switch out of the header into a bottom
+  `이 자리:` footer styled as mockup bordered pills (`.hw-foot`/`.hw-tab`); the writer well fills
+  above it. Ids preserved so the switch listener is unchanged.
+- **타임블록·타임그리드:** visual-only polish (round legend dots, softer all-day divider, bolder
+  now-time) — all interactive functions (canvas render, drag-to-retime, range/now controls) kept.
+Verified: all 14 pages 0 overflow / 0 errors at 1440 & 390; npm test green; 0 functions lost.
