@@ -150,3 +150,26 @@ Steps (each: keep every `id`/`data-*`/`onclick`; inventory diff 0-lost; npm test
   in the DOM, functions no-op without throwing, 0 page errors, 0 functions lost.
 - **Still open (owner reviewing):** focus-mode reveals the top bar on any content-area hover, which
   softens focus-mode's "hide chrome" intent — left as-is pending the owner's decision.
+
+## Post-merge refinements (mockup ↔ real-app parity)
+
+After PR #200 merged, the owner compared the Phase-4 mockup vs. the live app and flagged three
+gaps. Addressed on a fresh branch off `main`:
+- **Search-box width:** the top-bar capture stretched nearly full-width. Capped
+  `.app-topbar .capture-inner` at 560px, left-aligned, gear on the right — reads as a search box,
+  matching the mockup.
+- **habits → own card (owner-approved, keep function):** the habit quick-check was crammed inside
+  오늘 상황, making it dense. Moved `#home-routine-quick` out into a dedicated **오늘 습관**
+  (`home-habits-card`) — keeping the full chip UI (완료/건너뜀/휴식 + menu), no function lost. The
+  card auto-hides when there are no habits (toggled in `renderHomeRoutineQuick`); added to
+  `normalizeHomeLayoutOrder` after 오늘 상황.
+- **얼마 남지 않은 일정 list (owner-approved):** 오늘 상황 now shows the nearest ≤3 upcoming
+  deadlines (`#sit-upcoming`, reuses the `deadlines` already computed in `renderHomeSituation`);
+  rows open the existing signal-list dialog. Hidden when none.
+- **Desktop grid rebalanced** to clean 2-cards-per-row: banner|상황, 습관|위젯, 할일|타임그리드,
+  인박스|타임블록 (banner stretches to the situation row height).
+- **Color/색감:** base tokens are the agreed warm dusty-rose palette; the extra sidebar pink in the
+  live app traces to the owner's saved Theme Studio state, not the base CSS — left for the owner to
+  confirm whether the *base* should shift airier.
+Verified: all 14 pages render at 1440 & 390 (0 overflow, 0 errors); new cards render with seeded
+data; npm test green; 0 functions lost.
