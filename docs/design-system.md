@@ -1,5 +1,11 @@
 # Return — Design System
 
+> **This is the authoritative "DESIGN.md"** referenced by `docs/REDESIGN_WORKFLOW.md` — the
+> highest-priority source of truth for all UI/UX decisions. Source hierarchy for any redesign:
+> **(1) this document → (2) `docs/UI_FUNCTION_INVENTORY.md` (functional truth) → (3) reference
+> materials (§0, inspire don't copy).** The workflow governs *how* a redesign is carried out; this
+> governs *what* the design is.
+>
 > **Status: DRAFT — all sections drafted; §2 (tokens/color) shipped.** §3 (components) and §6
 > (application process) document existing reality + decided rules. §4 (patterns) and §5 (page
 > notes) are the intent layer and carry **open decisions** — most notably the app-shell change in
@@ -332,14 +338,19 @@ with Theme Studio's per-tab icon customization: `THEME_STUDIO_DEFAULT.icons` emp
 `themeStudioApplyIcons` skips the retired emoji defaults (`THEME_STUDIO_RETIRED_ICONS`) so SVGs
 show for everyone, while a genuinely custom tab icon still overrides.
 
-**Top bar — DEFERRED (next pass).** Pages are 14 `height:100vh` flex siblings of the sidebar; a
-top bar needs a structural wrapper + per-page height reconciliation, so it's its own step. Also:
-reference 1's **search has no backend** in Return yet — a real global search is a separate
-feature, and we will **not** ship a non-functional search box (원칙 13). The top bar's `+` can
-wire to the existing `openGlobalCapture()`.
+**Top bar — DONE (Home redesign 5d).** The 14 `height:100vh` page-containers were wrapped in a
+content column `.app-main` = `.app-topbar` (persistent, 60px desktop / 52px mobile) + `.page-stack`
+(flex:1); `.page-container` height became `100%` so pages fit under the bar with no overflow, and
+the mobile `100dvh` rule was reconciled the same way. Instead of shipping a non-functional search
+box (원칙 13), the **search slot holds the quick-capture composer** (the Home `.capture-bar` moved
+here verbatim — ids/classes preserved, so `homeCapture` works app-wide). Right zone: a **settings
+gear** (`topbar-settings-btn` → `goPage('settings')`). The sidebar **설정** tab was removed;
+settings stays reachable via the gear and the sidebar profile button (`openProfileSettings`).
+Focus-mode hides the bar like the sidebar (reveal on hover/focus).
 
-Logged for the top-bar pass: two-zone layout (view controls | doc actions — 나기메모), profile
-block + clock (reference 1), notifications, long-press-to-edit stickers.
+Still logged for a later top-bar pass (not yet built): a real global search backend, a two-zone
+per-page action layout (view controls | doc actions — 나기메모), clock, notifications,
+long-press-to-edit stickers.
 
 ### 4.2 List ↔ board / view-switcher
 
