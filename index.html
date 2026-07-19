@@ -714,6 +714,11 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .home-routine-main{gap:var(--sp-2);padding:0 var(--sp-3);color:inherit}
 .home-routine-main:hover,.home-routine-state:hover{transform:translateY(-1px);background:var(--bg-card)}
 .home-routine-main small{font-size:var(--text-2xs);font-weight:var(--fw-medium);color:var(--fg-4);margin-left:2px}
+.home-routine-streak{display:inline-flex;gap:3px;align-items:center;margin-left:auto;padding-left:var(--sp-3);flex-shrink:0}
+.hrs-dot{width:6px;height:6px;border-radius:var(--r-full);background:transparent;border:1px solid var(--border);box-sizing:border-box}
+.hrs-dot.done{background:var(--accent);border-color:var(--accent)}
+.hrs-dot.skip{background:var(--a-200);border-color:var(--a-200)}
+.hrs-dot.rest{background:var(--border);border-color:var(--border)}
 .home-routine-state{width:28px;background:var(--bg-card);border:.5px solid var(--border-subtle)}
 .home-routine-state.clear{color:var(--fg-4);background:var(--bg-raised)}
 .home-routine-menu{display:none;position:absolute;left:0;top:calc(100% + 6px);z-index:30;min-width:220px;padding:var(--sp-2);border-radius:var(--r-lg);background:var(--bg-card);box-shadow:var(--elev-3);border:.5px solid var(--border-subtle);gap:var(--sp-2)}
@@ -26241,6 +26246,19 @@ function homeRoutineQuickHabits(){
   (routineHabits||[]).forEach(function(h){if(h&&ids.indexOf(String(h.id))<0)ids.push(String(h.id));});
   return ids.map(routineHabitById).filter(Boolean);
 }
+/* Last-7-days mini indicator for one habit (home 오늘 습관). done/skip = filled,
+   rest = muted, empty = outline — so the daily loop's continuity is visible on
+   Home without opening the 루틴 tab. */
+function homeHabitWeekDots(hid){
+  var out='',base=new Date();base.setHours(0,0,0,0);
+  for(var i=6;i>=0;i--){
+    var d=new Date(base);d.setDate(base.getDate()-i);
+    var st=(((routineLogs||{})[routineDateKey(d)]||{})[hid]||{}).state||'';
+    var cls=st==='done'?'done':(st==='skip'?'skip':(st==='rest'?'rest':''));
+    out+='<span class="hrs-dot'+(cls?' '+cls:'')+'"></span>';
+  }
+  return out;
+}
 function renderHomeRoutineQuick(){
   var root=document.getElementById('home-routine-quick');
   if(!root)return;
@@ -26256,7 +26274,7 @@ function renderHomeRoutineQuick(){
     if(diff){var found=opts.find(function(o){return o.key===diff;});diffLabel=found&&found.label||diff;}
     var stateBtns=['done','skip','rest','clear'].map(function(k){var m=(typeof routineStateMeta==='function'?routineStateMeta(k,h):{key:k,icon:k,label:k});return '<button class="home-routine-option '+(st===k?'active':'')+'" type="button" data-home-routine-state="'+routineEsc(k)+'">'+routineEsc(m.icon)+' '+routineEsc(m.label)+'</button>';}).join('');
     var diffBtns=opts.map(function(o){return '<button class="home-routine-option '+(diff===o.key?'active':'')+'" type="button" data-home-routine-diff="'+routineEsc(o.key)+'">'+routineEsc(o.label)+'</button>';}).join('');
-    return '<div class="home-routine-item '+routineEsc(st||'clear')+'" data-home-routine-item="'+routineEsc(h.id)+'"><button class="home-routine-main" type="button" data-home-routine-open><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span>'+(diffLabel?'<small>'+routineEsc(diffLabel)+'</small>':'')+'</button><button class="home-routine-state '+routineEsc(meta.key)+'" type="button" data-home-routine-state-pick title="'+routineEsc(meta.label)+'">'+routineEsc(meta.icon)+'</button><div class="home-routine-menu">'+(diffBtns?'<div class="home-routine-menu-row">'+diffBtns+'</div>':'')+'<div class="home-routine-menu-row">'+stateBtns+'</div></div></div>';
+    return '<div class="home-routine-item '+routineEsc(st||'clear')+'" data-home-routine-item="'+routineEsc(h.id)+'"><button class="home-routine-main" type="button" data-home-routine-open><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span>'+(diffLabel?'<small>'+routineEsc(diffLabel)+'</small>':'')+'<span class="home-routine-streak" title="지난 7일">'+homeHabitWeekDots(h.id)+'</span></button><button class="home-routine-state '+routineEsc(meta.key)+'" type="button" data-home-routine-state-pick title="'+routineEsc(meta.label)+'">'+routineEsc(meta.icon)+'</button><div class="home-routine-menu">'+(diffBtns?'<div class="home-routine-menu-row">'+diffBtns+'</div>':'')+'<div class="home-routine-menu-row">'+stateBtns+'</div></div></div>';
   }).join('');
   root.innerHTML+='</div>';
   /* Tick = direct 완료 toggle (clear<->done); tapping the name opens the menu
