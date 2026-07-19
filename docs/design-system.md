@@ -297,9 +297,25 @@ is `--fg-4`. A field that's editable must *look* editable (원칙 1 "is this edi
 ### 3.5 Modal / overlay
 
 `.overlay` (scrim) + `.modal` with `.modal-head` / `.modal-body` / `.modal-foot`. This is the only
-floating-panel pattern — `--elev-3`, `--r-xl`. Footer holds actions right-aligned: `.btn-ghost`
-Cancel then `.btn-primary` confirm (consistent order = predictability, 원칙 2). Esc + scrim-click
-close; focus moves into the modal.
+floating-panel pattern — `--elev-3`, `--r-xl`. **Centered on every viewport** (no bottom-sheet
+variant — owner decision: todomate's value was its *button placement / framing*, not the sheet
+form). Esc + scrim-click close; focus moves into the modal.
+
+**Footer action placement (unified, applied).** Mental model: **dismiss bottom-left, commit
+bottom-right.** The leading dismiss/secondary — a `.btn-ghost` that is not the only button — is
+pushed to the far left (`.modal-foot > .btn-ghost:first-child:not(:only-child){margin-right:auto}`);
+the `.btn-primary`/`.btn-danger` commit stays right. A lone button keeps its right alignment.
+Button *order in markup stays* `[ghost dismiss …, primary commit]` so a 3-button footer reads
+secondary-left / cancel+commit-right. One button system only: `.btn` + `.btn-ghost` /
+`.btn-primary` / `.btn-danger` (the stray unstyled `.modal-btn` was removed).
+
+**Confirm dialog is fit-to-purpose.** `openConfirmDialog(title, message, onConfirm, opts)` —
+destructive by default (`btn-danger` "삭제", since legacy callers are deletes); pass
+`{danger:false, confirmText:'…'}` for a neutral `btn-primary` confirm so the button language
+matches the action. Prefer it over native `confirm()` (which breaks the unified look/brand).
+
+**Icons inside dialogs use the app SVG line-icon set** (24-grid, ~1.8 stroke, `currentColor`) —
+not text glyphs (`✓ ✕ ↗ ◈`), so every window reads as one family.
 
 ### 3.6 Toggle
 
