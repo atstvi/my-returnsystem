@@ -17981,15 +17981,47 @@ function renderDlCanvas(){
     ctx.restore();
   });
 
-  /* ── Cross-row connections: badge in overlay, no spaghetti lines ─────
-     A small coloured D-N chip is painted next to the source task pill so
-     the user can see the deadline distance without any lines crossing rows.
-     The deadline chip on its own date already shows the urgency state. */
+  /* ── Cross-row connections: a subtle connector line + a D-N badge ─────
+     Owner asked for cross-row links to be drawn as lines too (not badge-only).
+     Kept clean: a thin, low-opacity dashed curve routed mostly vertically so it
+     doesn't slice through the middle of cells, an arrowhead at the target, and
+     the D-N badge still marks the source. */
   crossRowConns.forEach(function(c){
     var src=itemAnchor(c.task.id,c.task.date,'task','right');
     if(!src)return;
+    var dst=itemAnchor(c.target?c.target.id:c.task.deadlineId,c.targetDate,'deadline','left');
     var col=colorMap[c.state||'safe'];
     var label=c.days>0?'D-'+c.days:(c.days<0?'D+'+Math.abs(c.days):'D-0');
+
+    /* Connector curve to the target (only if the target anchor resolved) */
+    if(dst){
+      var down=dst.y>=src.y;
+      /* Control points lean vertical near each end so the curve leaves the
+         source row and enters the target row cleanly instead of cutting a
+         diagonal across every cell in between. */
+      var cp1x=src.x+22, cp1y=src.y+(down?26:-26);
+      var cp2x=dst.x-22, cp2y=dst.y+(down?-26:26);
+      ctx.save();
+      ctx.strokeStyle=col;
+      ctx.globalAlpha=.30;
+      ctx.lineWidth=1.25;
+      ctx.lineCap='round';
+      ctx.setLineDash([4,4]);
+      ctx.beginPath();
+      ctx.moveTo(src.x,src.y);
+      ctx.bezierCurveTo(cp1x,cp1y,cp2x,cp2y,dst.x,dst.y);
+      ctx.stroke();
+      /* Arrowhead at the target */
+      ctx.setLineDash([]);
+      ctx.globalAlpha=.5;
+      var ang=Math.atan2(dst.y-cp2y,dst.x-cp2x),hs=5;
+      ctx.beginPath();
+      ctx.moveTo(dst.x-hs*Math.cos(ang-0.45),dst.y-hs*Math.sin(ang-0.45));
+      ctx.lineTo(dst.x,dst.y);
+      ctx.lineTo(dst.x-hs*Math.cos(ang+0.45),dst.y-hs*Math.sin(ang+0.45));
+      ctx.stroke();
+      ctx.restore();
+    }
 
     /* Small source dot on canvas */
     ctx.save();
