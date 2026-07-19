@@ -471,6 +471,11 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 .modal-title{font-size:var(--text-md);font-weight:var(--fw-semibold);color:var(--fg)}
 .modal-body{padding:var(--sp-6) var(--sp-10);flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:var(--sp-5)}
 .modal-foot{padding:var(--sp-5) var(--sp-10) var(--sp-8);border-top:.5px solid var(--border-subtle);display:flex;align-items:center;justify-content:flex-end;gap:var(--sp-3);flex-shrink:0}
+/* Unified action placement (mental model: dismiss bottom-left, commit
+   bottom-right). The leading dismiss/secondary (a ghost button that is not the
+   only button) is pushed to the far left; the primary/confirm stays right. A
+   lone button keeps its right alignment. Applies to every .modal-foot. */
+.modal-foot > .btn-ghost:first-child:not(:only-child){margin-right:auto}
 /* ── SHARED FORM SYSTEM ── */
 .field{display:flex;flex-direction:column;gap:var(--sp-2)}
 .field-label{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-3);letter-spacing:.4px;text-transform:uppercase}
@@ -1134,6 +1139,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ops-actions{display:flex;gap:var(--sp-1)}
 .ops-actions .icon-btn{width:28px;height:28px;background:var(--bg-card)}
 .inbox-act-btn{width:32px;height:32px;border-radius:var(--r-full);display:flex;align-items:center;justify-content:center;font-size:15px;transition:background var(--t-snap),color var(--t-snap),transform var(--t-snap);flex-shrink:0}
+.inbox-act-btn svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .inbox-act-btn:active{transform:scale(.9)}
 .inbox-act-done{color:var(--t-600);background:var(--t-50)}
 .inbox-act-done:hover{background:var(--t-100)}
@@ -10917,9 +10923,9 @@ function openHomeSignalList(title, entries){
       return '<div class="ops-row home-inbox-dialog-row" data-idx="'+i+'">'
         +'<div><div class="ops-title">'+tEscHtml(item.text||e.label||'Inbox item')+'</div><div class="ops-meta">'+tEscHtml(item.cat||'inbox')+'</div></div>'
         +'<div class="ops-actions">'
-        +'<button class="inbox-act-btn inbox-act-done" data-inbox-done="'+i+'" title="완료">✓</button>'
-        +'<button class="inbox-act-btn inbox-act-clear" data-inbox-clear="'+i+'" title="해제">✕</button>'
-        +'<button class="inbox-act-btn inbox-act-open" data-open="'+i+'" title="열기">↗</button>'
+        +'<button class="inbox-act-btn inbox-act-done" data-inbox-done="'+i+'" title="완료" aria-label="완료"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>'
+        +'<button class="inbox-act-btn inbox-act-clear" data-inbox-clear="'+i+'" title="해제" aria-label="해제"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
+        +'<button class="inbox-act-btn inbox-act-open" data-open="'+i+'" title="열기" aria-label="열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg></button>'
         +'</div></div>';
     }).join('') || '<div class="ops-row"><div><div class="ops-title">처리 필요 인박스가 없어요.</div></div><div></div></div>';
     ov.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title)+'</div></div><div class="modal-body">'+inboxRows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="home-signal-close">닫기</button></div></div>';
@@ -11320,13 +11326,20 @@ function openFormDialog(title, fields, onSave){
   var first = ov.querySelector('[data-key]');
   if (first) setTimeout(function(){ first.focus(); }, 30);
 }
-function openConfirmDialog(title, message, onConfirm){
+function openConfirmDialog(title, message, onConfirm, opts){
+  opts=opts||{};
+  /* Fit-to-purpose: destructive by default (all legacy callers are deletes),
+     but a caller can pass {danger:false, confirmText:'확인'} for a neutral
+     confirm so the dialog language matches the action. */
+  var danger=(opts.danger!==false);
+  var confirmText=tEscHtml(opts.confirmText||(danger?'삭제':'확인'));
+  var cancelText=tEscHtml(opts.cancelText||'취소');
   var old=document.getElementById('simple-confirm-dialog');
   if(old)old.remove();
   var ov=document.createElement('div');
   ov.className='overlay open';
   ov.id='simple-confirm-dialog';
-  ov.innerHTML='<div class="modal" style="max-width:440px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title||'확인')+'</div></div><div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);line-height:var(--lh-normal)">'+tEscHtml(message||'계속할까요?')+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="scd-cancel">취소</button><button class="btn btn-danger" id="scd-ok">삭제</button></div></div>';
+  ov.innerHTML='<div class="modal" style="max-width:440px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title||'확인')+'</div></div><div class="modal-body"><div class="field-help" style="font-size:var(--text-sm);line-height:var(--lh-normal)">'+tEscHtml(message||'계속할까요?')+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="scd-cancel">'+cancelText+'</button><button class="btn '+(danger?'btn-danger':'btn-primary')+'" id="scd-ok">'+confirmText+'</button></div></div>';
   document.body.appendChild(ov);
   function close(){ov.remove();}
   ov.addEventListener('click',function(e){if(e.target===ov)close();});
@@ -15358,7 +15371,7 @@ function clearCurrentPageStickers(){
       var page=btn.getAttribute('data-clear-sticker-page');
       var count=(globalStickerState[page]||[]).length;
       if(!count){if(typeof showToast==='function')showToast('No stickers on this page.');return;}
-      if(!confirm('Remove all placed stickers from '+((labels[page]||page))+'?'))return;
+      if(!confirm('"'+((labels[page]||page))+'"에 붙인 스티커를 모두 제거할까요?'))return;
       globalStickerState[page]=[];
       saveGlobalStickers();
       renderGlobalStickers();
@@ -15371,7 +15384,7 @@ function clearAllGlobalStickers(){
   loadGlobalStickers();
   var count=Object.keys(globalStickerState||{}).reduce(function(sum,key){return sum+((globalStickerState[key]||[]).length||0);},0);
   if(!count){if(typeof showToast==='function')showToast('No placed stickers.');return;}
-  if(!confirm('Remove all placed stickers from every page? Sticker library assets will stay.'))return;
+  if(!confirm('모든 페이지에 붙인 스티커를 제거할까요? 스티커 보관함의 원본은 그대로 남아요.'))return;
   globalStickerState={};
   saveGlobalStickers();
   document.querySelectorAll('.gs-layer').forEach(function(x){x.remove();});
@@ -24325,7 +24338,7 @@ function ensureMetricConfigModal(){
   var ov = document.createElement('div');
   ov.className = 'overlay';
   ov.id = 'metric-config-modal';
-  ov.innerHTML = '<div class="modal" style="max-width:460px"><div class="modal-head"><div class="modal-title" id="metric-config-title">지표 편집</div><button class="modal-close" type="button" onclick="closeMetricConfigModal()">×</button></div><div class="modal-body"><div class="field-group"><div class="field-label">이름</div><input class="field-inp" id="metric-config-name"></div><div class="field-group"><div class="field-label">단위</div><input class="field-inp" id="metric-config-unit"></div><div class="field-group"><div class="field-label">목표값</div><input class="field-inp" id="metric-config-goal" type="number"></div><div class="field-group"><div class="field-label">그래프</div><select class="field-inp" id="metric-config-chart"><option value="line">선 그래프</option><option value="bar">막대</option><option value="dot">점</option><option value="none">없음</option></select></div><label class="field-group" style="display:flex;align-items:center;gap:var(--sp-3)"><input id="metric-config-diary" type="checkbox"> <span class="field-label" style="margin:0">일기장에서 기록</span></label></div><div class="modal-foot"><button class="modal-btn ghost" type="button" onclick="closeMetricConfigModal()">취소</button><button class="modal-btn primary" type="button" onclick="saveMetricConfig()">저장</button></div></div>';
+  ov.innerHTML = '<div class="modal" style="max-width:460px"><div class="modal-head"><div class="modal-title" id="metric-config-title">지표 편집</div><button class="modal-close" type="button" onclick="closeMetricConfigModal()">×</button></div><div class="modal-body"><div class="field-group"><div class="field-label">이름</div><input class="field-inp" id="metric-config-name"></div><div class="field-group"><div class="field-label">단위</div><input class="field-inp" id="metric-config-unit"></div><div class="field-group"><div class="field-label">목표값</div><input class="field-inp" id="metric-config-goal" type="number"></div><div class="field-group"><div class="field-label">그래프</div><select class="field-inp" id="metric-config-chart"><option value="line">선 그래프</option><option value="bar">막대</option><option value="dot">점</option><option value="none">없음</option></select></div><label class="field-group" style="display:flex;align-items:center;gap:var(--sp-3)"><input id="metric-config-diary" type="checkbox"> <span class="field-label" style="margin:0">일기장에서 기록</span></label></div><div class="modal-foot"><button class="btn btn-ghost" type="button" onclick="closeMetricConfigModal()">취소</button><button class="btn btn-primary" type="button" onclick="saveMetricConfig()">저장</button></div></div>';
   ov.addEventListener('click', function(e){ if(e.target === ov) closeMetricConfigModal(); });
   document.body.appendChild(ov);
   return ov;
@@ -24375,7 +24388,7 @@ ensureMetricConfigModal=function(){
   var ov = document.createElement('div');
   ov.className = 'overlay';
   ov.id = 'metric-config-modal';
-  ov.innerHTML = '<div class="modal" style="max-width:500px"><div class="modal-head"><div class="modal-title" id="metric-config-title">지표 편집</div><button class="modal-close" type="button" onclick="closeMetricConfigModal()">×</button></div><div class="modal-body"><div class="field-group"><div class="field-label">이름</div><input class="field-inp" id="metric-config-name"></div><div class="field-group"><div class="field-label">단위</div><input class="field-inp" id="metric-config-unit"></div><div class="field-group"><div class="field-label">목표값</div><input class="field-inp" id="metric-config-goal" type="number"></div><div class="field-group"><div class="field-label">그래프</div><select class="field-inp" id="metric-config-chart"><option value="line">선 그래프</option><option value="bar">막대</option><option value="dot">점</option><option value="none">없음</option></select></div><div class="field-group"><div class="field-label">가로축 범위</div><select class="field-inp" id="metric-config-range"><option value="week">이번 주</option><option value="month">최근 30일</option><option value="year">1년</option><option value="all">전체</option></select></div><div class="field-row"><div class="field-group" style="flex:1"><div class="field-label">세로축 최소</div><input class="field-inp" id="metric-config-ymin" type="number" placeholder="자동"></div><div class="field-group" style="flex:1"><div class="field-label">세로축 최대</div><input class="field-inp" id="metric-config-ymax" type="number" placeholder="자동"></div></div><label class="field-group" style="display:flex;align-items:center;gap:var(--sp-3)"><input id="metric-config-diary" type="checkbox"> <span class="field-label" style="margin:0">일기장에서 기록</span></label></div><div class="modal-foot"><button class="modal-btn ghost" type="button" onclick="closeMetricConfigModal()">취소</button><button class="modal-btn primary" type="button" onclick="saveMetricConfig()">저장</button></div></div>';
+  ov.innerHTML = '<div class="modal" style="max-width:500px"><div class="modal-head"><div class="modal-title" id="metric-config-title">지표 편집</div><button class="modal-close" type="button" onclick="closeMetricConfigModal()">×</button></div><div class="modal-body"><div class="field-group"><div class="field-label">이름</div><input class="field-inp" id="metric-config-name"></div><div class="field-group"><div class="field-label">단위</div><input class="field-inp" id="metric-config-unit"></div><div class="field-group"><div class="field-label">목표값</div><input class="field-inp" id="metric-config-goal" type="number"></div><div class="field-group"><div class="field-label">그래프</div><select class="field-inp" id="metric-config-chart"><option value="line">선 그래프</option><option value="bar">막대</option><option value="dot">점</option><option value="none">없음</option></select></div><div class="field-group"><div class="field-label">가로축 범위</div><select class="field-inp" id="metric-config-range"><option value="week">이번 주</option><option value="month">최근 30일</option><option value="year">1년</option><option value="all">전체</option></select></div><div class="field-row"><div class="field-group" style="flex:1"><div class="field-label">세로축 최소</div><input class="field-inp" id="metric-config-ymin" type="number" placeholder="자동"></div><div class="field-group" style="flex:1"><div class="field-label">세로축 최대</div><input class="field-inp" id="metric-config-ymax" type="number" placeholder="자동"></div></div><label class="field-group" style="display:flex;align-items:center;gap:var(--sp-3)"><input id="metric-config-diary" type="checkbox"> <span class="field-label" style="margin:0">일기장에서 기록</span></label></div><div class="modal-foot"><button class="btn btn-ghost" type="button" onclick="closeMetricConfigModal()">취소</button><button class="btn btn-primary" type="button" onclick="saveMetricConfig()">저장</button></div></div>';
   ov.addEventListener('click', function(e){ if(e.target === ov) closeMetricConfigModal(); });
   document.body.appendChild(ov);
   return ov;
