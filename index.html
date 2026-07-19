@@ -6575,6 +6575,12 @@ to{opacity:1;transform:translateY(0)}}
           <span class="mr-value empty" id="modal-link-val">연결 없음</span>
           <span class="mr-caret">›</span>
         </div>
+        <div class="modal-row" id="modal-backlink-row" style="display:none">
+          <div class="mr-icon ic-teal">↩︎</div>
+          <span class="mr-label">연결된 할일</span>
+          <span class="mr-value" id="modal-backlink-val"></span>
+          <span class="mr-caret">›</span>
+        </div>
       </section>
 
       <section class="task-modal-section" aria-label="분류">
@@ -19274,6 +19280,7 @@ function tasksOpenNewModal(seed){
   _syncSpecialToggle(taskModalDraft.deadlineDate,taskModalDraft.isSpecial);
   document.getElementById('modal-link-val').textContent='연결 없음';
   document.getElementById('modal-link-val').className='mr-value empty';
+  var _blRow=document.getElementById('modal-backlink-row');if(_blRow)_blRow.style.display='none';
   document.getElementById('modal-cat-sel').value=taskModalDraft.catId;
   fillTaskProjectSelect(taskModalDraft);
   document.getElementById('modal-repeat-val').textContent=taskModalDraft._repeat?'설정됨':'없음';
@@ -19312,6 +19319,7 @@ function tasksOpenModal(task){
   var linkedTarget=tasks.find(function(t){return String(t.id)===String(task.deadlineId||'');});
   document.getElementById('modal-link-val').textContent=linkedTarget?taskLinkTargetLabel(linkedTarget):(task.deadlineId?'연결됨 ('+task.deadlineId+')':'연결 없음');
   document.getElementById('modal-link-val').className='mr-value'+(task.deadlineId?'':' empty');
+  if(typeof updateTaskBacklinkRow==='function')updateTaskBacklinkRow(task);
   document.getElementById('modal-cat-sel').value=task.catId;
   fillTaskProjectSelect(task);
   document.getElementById('modal-repeat-val').textContent=task._ruleGen?'활성 규칙 생성':(task._repeat||task._ruleId)?'설정됨':'없음';
@@ -19765,8 +19773,49 @@ function openTaskLinkPicker(task){
   renderList();
   setTimeout(function(){ search.focus(); }, 50);
 }
+/* Reverse links: which OTHER tasks point at `task` (via deadlineId / rule
+   source). The forward link is stored one-way on the preparing task, so a
+   schedule/deadline itself never knew what pointed at it — this surfaces it. */
+function taskBacklinks(task){
+  if(!task||typeof tasks==='undefined')return [];
+  var tid=String(task.id);
+  return tasks.filter(function(t){
+    if(!t||t.id===task.id||t._travelOnly)return false;
+    return String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid;
+  });
+}
+function updateTaskBacklinkRow(task){
+  var row=document.getElementById('modal-backlink-row');
+  var val=document.getElementById('modal-backlink-val');
+  if(!row||!val)return;
+  var back=taskBacklinks(task);
+  if(!back.length){row.style.display='none';val.textContent='';return;}
+  row.style.display='';
+  var names=back.slice(0,2).map(function(t){return t.text||'할일';}).join(', ');
+  val.textContent=names+(back.length>2?(' 외 '+(back.length-2)+'개'):'')+' ('+back.length+')';
+}
+function openTaskBacklinkList(task){
+  var back=taskBacklinks(task);
+  if(!back.length)return;
+  if(back.length===1){ if(typeof tasksOpenModal==='function')tasksOpenModal(back[0]); return; }
+  var old=document.getElementById('task-backlink-list'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='task-backlink-list';
+  var rows=back.map(function(t,i){
+    return '<button type="button" class="project-linked-item" data-bi="'+i+'"><span>'+tEscHtml(t.text||'할일')+'</span><span class="chip">'+tEscHtml((t.date||'')||'열기')+'</span></button>';
+  }).join('');
+  ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">이 항목에 연결된 할일</div></div><div class="modal-body"><div class="project-linked-list">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-primary" id="tbl-close">닫기</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  ov.querySelector('#tbl-close').addEventListener('click',close);
+  ov.querySelectorAll('[data-bi]').forEach(function(btn){
+    btn.addEventListener('click',function(){ var t=back[parseInt(btn.getAttribute('data-bi'),10)]; close(); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });
+  });
+}
 function bindTaskModalRows(task){
   var linkRow=document.getElementById('modal-link-val').closest('.modal-row');
+  var backlinkRow=document.getElementById('modal-backlink-row');
+  if(backlinkRow)backlinkRow.onclick=function(){ openTaskBacklinkList(task); };
   var repeatRow=document.getElementById('modal-repeat-val').closest('.modal-row');
   var ruleRow=document.getElementById('modal-rule-val').closest('.modal-row');
   var prepRow=document.getElementById('modal-prep-val').closest('.modal-row');
