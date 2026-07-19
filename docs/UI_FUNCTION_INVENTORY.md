@@ -6,7 +6,7 @@ Maps every page/control in `index.html` to the JS function(s) that render or han
 visual redesign has a checklist to verify against instead of relying on memory. See
 "How to use this for a redesign" at the bottom for the verification workflow.
 
-Generated from a 39,284-line `index.html` containing
+Generated from a 39,290-line `index.html` containing
 1,159 top-level functions.
 
 **Known limitations of this scan** — treat "unbound in static scan" as "grep it," not "dead":
@@ -28,12 +28,12 @@ Markup landmark: `index.html:6907-7141`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<input id="home-banner-file" type="file">` |  | `closeModal`(10626), `fileToBannerDataUrl`(15034), `fileToBannerDataUrl`(15035) | 6911 |
-| `<input id="home-sticker-file" type="file">` |  | `fileToBannerDataUrl`(15070) | 6912 |
-| `<button id="home-banner-add" type="button">` | .home-banner-add | `closeModal`(10626) | 6921 |
-| `<button id="home-banner-btn">` | .icon-btn | `fileToBannerDataUrl`(15034) | 6928 |
-| `<button id="home-banner-pos-btn">` | .icon-btn | `fileToBannerDataUrl`(15057) | 6929 |
-| `<button id="home-sticker-btn">` | .icon-btn | `fileToBannerDataUrl`(15065) | 6930 |
+| `<input id="home-banner-file" type="file">` |  | `closeModal`(10632), `fileToBannerDataUrl`(15040), `fileToBannerDataUrl`(15041) | 6911 |
+| `<input id="home-sticker-file" type="file">` |  | `fileToBannerDataUrl`(15076) | 6912 |
+| `<button id="home-banner-add" type="button">` | .home-banner-add | `closeModal`(10632) | 6921 |
+| `<button id="home-banner-btn">` | .icon-btn | `fileToBannerDataUrl`(15040) | 6928 |
+| `<button id="home-banner-pos-btn">` | .icon-btn | `fileToBannerDataUrl`(15063) | 6929 |
+| `<button id="home-sticker-btn">` | .icon-btn | `fileToBannerDataUrl`(15071) | 6930 |
 | `<button>` | 📅 마감 D-2 · 연결 필요 | _unbound in static scan — search `signal sig-danger` in index.html_ | 6941 |
 | `<button>` | 📥 인박스 4개 처리 필요 | _unbound in static scan — search `signal sig-warn` in index.html_ | 6942 |
 | `<button>` | ✓ 어제 할일 완료 | _unbound in static scan — search `signal sig-ok` in index.html_ | 6943 |
@@ -41,16 +41,16 @@ Markup landmark: `index.html:6907-7141`
 | `<button type="button">` | 가치관 | data-hw (see data-hooks below) | 6967 |
 | `<button type="button">` | 사진 | data-hw (see data-hooks below) | 6968 |
 | `<button type="button">` | 음악 | data-hw (see data-hooks below) | 6969 |
-| `<input id="hw-photo-file" type="file">` |  | `renderHomeWidgetPhoto`(9230), `fileToBannerDataUrl`(15081) | 6972 |
-| `<button id="tg-prev">` | ‹ | `musicManagePlaylist`(10353) | 6984 |
-| `<button id="tg-next">` | › | `musicManagePlaylist`(10356) | 6986 |
-| `<button id="htb-range-btn">` | 범위 | `openHomeTimeBlockPrefs`(12923) | 7012 |
-| `<button id="htb-now-btn">` | 지금 › | `musicManagePlaylist`(10572), `scrollHomeTimeBlockToNow`(12852) | 7013 |
+| `<input id="hw-photo-file" type="file">` |  | `renderHomeWidgetPhoto`(9230), `fileToBannerDataUrl`(15087) | 6972 |
+| `<button id="tg-prev">` | ‹ | `musicManagePlaylist`(10359) | 6984 |
+| `<button id="tg-next">` | › | `musicManagePlaylist`(10362) | 6986 |
+| `<button id="htb-range-btn">` | 범위 | `openHomeTimeBlockPrefs`(12929) | 7012 |
+| `<button id="htb-now-btn">` | 지금 › | `musicManagePlaylist`(10578), `scrollHomeTimeBlockToNow`(12858) | 7013 |
 | `<button>` | 📌 기말 과제 마감일 | onclick=`openModal('기말 과제 마감일')` | 7021 |
 | `<button>` | 팀 프로젝트 기간 | _unbound in static scan — search `allday-chip chip-teal` in index.html_ | 7022 |
 | `<button>` | D-2 | _unbound in static scan — search `allday-chip chip-warn` in index.html_ | 7023 |
-| `<button id="home-eisen-btn">` | 아이젠하워 | `setHomeTaskView`(11177), `setHomeTaskView`(11181) | 7042 |
-| `<button id="home-list-btn">` | 목록 | `setHomeTaskView`(11178), `setHomeTaskView`(11182) | 7043 |
+| `<button id="home-eisen-btn">` | 아이젠하워 | `setHomeTaskView`(11183), `setHomeTaskView`(11187) | 7042 |
+| `<button id="home-list-btn">` | 목록 | `setHomeTaskView`(11184), `setHomeTaskView`(11188) | 7043 |
 | `<button>` | .task-check | _unbound in static scan — search `task-check` in index.html_ | 7052 |
 | `<button>` | ✏️ | onclick=`openModal('기말 보고서 최종 제출')` | 7058 |
 | `<button>` | .task-check | _unbound in static scan — search `task-check` in index.html_ | 7063 |
@@ -69,24 +69,24 @@ Markup landmark: `index.html:6907-7141`
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-eisen-box` | `renderHomeTasks` | 11114 |
-| `data-hour` | `renderHomeTimeBlocks` | 12965 |
-| `data-id` | `drawBoardLinks` | 16026 |
-| `data-idx` | `openHomeSignalList` | 10952 |
-| `data-inbox-clear` | `openHomeSignalList` | 10956 |
-| `data-inbox-done` | `openHomeSignalList` | 10955 |
-| `data-open` | `openHomeSignalList` | 10957 |
-| `data-pass` | `openHomeSignalList` | 11008 |
-| `data-return-media-src` | `renderHomeSituation` | 10832 |
-| `data-sit-state` | `renderHomeSituation` | 10825 |
-| `data-task-id` | `renderHomeDdayCard` | 10697 |
-| `data-unpass` | `openHomeSignalList` | 11008 |
+| `data-eisen-box` | `renderHomeTasks` | 11120 |
+| `data-hour` | `renderHomeTimeBlocks` | 12971 |
+| `data-id` | `drawBoardLinks` | 16032 |
+| `data-idx` | `openHomeSignalList` | 10958 |
+| `data-inbox-clear` | `openHomeSignalList` | 10962 |
+| `data-inbox-done` | `openHomeSignalList` | 10961 |
+| `data-open` | `openHomeSignalList` | 10963 |
+| `data-pass` | `openHomeSignalList` | 11014 |
+| `data-return-media-src` | `renderHomeSituation` | 10838 |
+| `data-sit-state` | `renderHomeSituation` | 10831 |
+| `data-task-id` | `renderHomeDdayCard` | 10703 |
+| `data-unpass` | `openHomeSignalList` | 11014 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _home_ (39): `_initHome`(9090), `normalizeHomeLayoutOrder`(9112), `getHomeWidgetType`(9152), `setHomeWidgetType`(9156), `renderHomeWidget`(9161), `renderHomeWidgetPhoto`(9213), `homeToast`(10628), `homeTodayKey`(10629), `homeTodayTasks`(10632), `homeRefreshCards`(10637), `homeTaskUrgent`(10649), `homeTaskImportant`(10653), `homeTaskLabel`(10654), `homeSkippedDeadlineLinks`(10658), `homeSkipDeadlineLink`(10661), `homeUnskipDeadlineLink`(10668), `renderHomeDdayCard`(10678), `renderHomeSituation`(10732), `openHomeSignalList`(10941), `renderHomeTasks`(11039), `setHomeTaskView`(11171), `openHomeRuleModal`(11551), `openHomeRepeatModal`(11577), `ensureHomeOpsPanel`(11613), `renderHomeOpsPanel`(11645), `editHomeRule`(11999), `deleteHomeRule`(12032), `editHomeRepeat`(12044), `deleteHomeRepeat`(12123), `openHomeRuleEditor`(12426), `setHomeCaptureType`(12820), `scrollHomeTimeBlockToNow`(12829), `getHomeTimeBlockPrefs`(12860), `saveHomeTimeBlockPrefs`(12868), `openHomeTimeBlockPrefs`(12898), `homePullOverdueToToday`(12928), `renderHomeTimeBlocks`(12944), `homeCapture`(13515), `homeHabitWeekDots`(26286)
-- _home widgets_ (16): `_boardApplyTransform`(15753), `_boardClampScale`(15757), `drawBoardLinks`(16020), `loadWidgetPrefs`(24954), `saveWidgetPrefs`(24976), `renderWidgetPanel`(24982), `widgetFocusConsumedSet`(38317), `widgetFocusSaveConsumed`(38320), `widgetFocusFold`(38326), `pullWidgetFocusSessions`(38349), `widgetCaptureFold`(38398), `_buildWidgetCaptureTask`(38420), `_widgetCapturePresentWcids`(38441), `syncWidgetTimerState`(38693), `_doSyncWidgetTimerState`(38697), `focusTimerApplyWidgetState`(38736)
+- _home_ (39): `_initHome`(9090), `normalizeHomeLayoutOrder`(9112), `getHomeWidgetType`(9152), `setHomeWidgetType`(9156), `renderHomeWidget`(9161), `renderHomeWidgetPhoto`(9213), `homeToast`(10634), `homeTodayKey`(10635), `homeTodayTasks`(10638), `homeRefreshCards`(10643), `homeTaskUrgent`(10655), `homeTaskImportant`(10659), `homeTaskLabel`(10660), `homeSkippedDeadlineLinks`(10664), `homeSkipDeadlineLink`(10667), `homeUnskipDeadlineLink`(10674), `renderHomeDdayCard`(10684), `renderHomeSituation`(10738), `openHomeSignalList`(10947), `renderHomeTasks`(11045), `setHomeTaskView`(11177), `openHomeRuleModal`(11557), `openHomeRepeatModal`(11583), `ensureHomeOpsPanel`(11619), `renderHomeOpsPanel`(11651), `editHomeRule`(12005), `deleteHomeRule`(12038), `editHomeRepeat`(12050), `deleteHomeRepeat`(12129), `openHomeRuleEditor`(12432), `setHomeCaptureType`(12826), `scrollHomeTimeBlockToNow`(12835), `getHomeTimeBlockPrefs`(12866), `saveHomeTimeBlockPrefs`(12874), `openHomeTimeBlockPrefs`(12904), `homePullOverdueToToday`(12934), `renderHomeTimeBlocks`(12950), `homeCapture`(13521), `homeHabitWeekDots`(26292)
+- _home widgets_ (16): `_boardApplyTransform`(15759), `_boardClampScale`(15763), `drawBoardLinks`(16026), `loadWidgetPrefs`(24960), `saveWidgetPrefs`(24982), `renderWidgetPanel`(24988), `widgetFocusConsumedSet`(38323), `widgetFocusSaveConsumed`(38326), `widgetFocusFold`(38332), `pullWidgetFocusSessions`(38355), `widgetCaptureFold`(38404), `_buildWidgetCaptureTask`(38426), `_widgetCapturePresentWcids`(38447), `syncWidgetTimerState`(38699), `_doSyncWidgetTimerState`(38703), `focusTimerApplyWidgetState`(38742)
 
 ### 인박스 / Inbox — `inbox`
 
@@ -96,39 +96,39 @@ Markup landmark: `index.html:7147-7230`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="btn-ai-sort">` | 🤖 | `inferInboxCat`(16551) | 7158 |
-| `<button id="btn-bulk-done">` | 🗑️ | `inferInboxCat`(16543) | 7159 |
+| `<button id="btn-ai-sort">` | 🤖 | `inferInboxCat`(16557) | 7158 |
+| `<button id="btn-bulk-done">` | 🗑️ | `inferInboxCat`(16549) | 7159 |
 | `<button>` | 전체 | data-filter (see data-hooks below) | 7165 |
 | `<button>` | 할일 | data-filter (see data-hooks below) | 7166 |
 | `<button>` | 아이디어 | data-filter (see data-hooks below) | 7167 |
 | `<button>` | 구매 | data-filter (see data-hooks below) | 7168 |
 | `<button>` | 메모 | data-filter (see data-hooks below) | 7169 |
 | `<button>` | 미처리 | data-filter (see data-hooks below) | 7171 |
-| `<button id="inbox-feed-view" type="button">` | 피드 | `setInboxView`(15729), `dragInboxNote`(16081) | 7173 |
-| `<button id="inbox-board-view" type="button">` | 보드 | `setInboxView`(15730), `dragInboxNote`(16082) | 7174 |
-| `<textarea id="composer-ta">` | .composer-ta | `editInboxItem`(16290), `_composerEls`(16302) | 7199 |
-| `<button id="composer-send">` | ↑ | `editInboxItem`(16291), `_composerEls`(16303) | 7206 |
+| `<button id="inbox-feed-view" type="button">` | 피드 | `setInboxView`(15735), `dragInboxNote`(16087) | 7173 |
+| `<button id="inbox-board-view" type="button">` | 보드 | `setInboxView`(15736), `dragInboxNote`(16088) | 7174 |
+| `<textarea id="composer-ta">` | .composer-ta | `editInboxItem`(16296), `_composerEls`(16308) | 7199 |
+| `<button id="composer-send">` | ↑ | `editInboxItem`(16297), `_composerEls`(16309) | 7206 |
 | `<button>` | 📋 할일 | data-cat (see data-hooks below) | 7214 |
 | `<button>` | 💡 아이디어 | data-cat (see data-hooks below) | 7215 |
 | `<button>` | 🛒 구매 | data-cat (see data-hooks below) | 7216 |
 | `<button>` | 📝 메모 | data-cat (see data-hooks below) | 7217 |
 | `<button>` | 🔥 긴급 | data-cat (see data-hooks below) | 7218 |
-| `<button id="attach-btn">` | 📎 | `sendItem`(16364) | 7222 |
-| `<input id="file-input" type="file">` |  | `sendItem`(16363) | 7223 |
-| `<button id="ai-cat-btn">` | ✨ | `renderFilterBar`(16515) | 7224 |
+| `<button id="attach-btn">` | 📎 | `sendItem`(16370) | 7222 |
+| `<input id="file-input" type="file">` |  | `sendItem`(16369) | 7223 |
+| `<button id="ai-cat-btn">` | ✨ | `renderFilterBar`(16521) | 7224 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-cat` | `_showCapturePreview` | 13805 |
-| `data-id` | `openInboxItemFromHome`, `renderInboxBoard` | 13507, 15973 |
+| `data-cat` | `_showCapturePreview` | 13811 |
+| `data-id` | `openInboxItemFromHome`, `renderInboxBoard` | 13513, 15979 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _inbox_ (11): `renderHomeInbox`(13447), `openInboxItemFromHome`(13500), `loadInboxItems`(15607), `saveInboxItems`(15613), `normalizeInboxItems`(15622), `setInboxView`(15726), `renderInboxBoard`(15759), `dragInboxNote`(16045), `editInboxItem`(16257), `inferInboxCat`(16528), `_initInbox`(16732)
-- _inbox capture_ (9): `setGlobalCaptureType`(13537), `openGlobalCapture`(13543), `closeGlobalCapture`(13551), `updateGlobalCaptureVisibility`(13573), `_closeCapturePreview`(13627), `_capturePreviewAnchor`(13633), `_capturePreviewStyleFor`(13704), `_repositionCapturePreview`(13744), `_showCapturePreview`(13763)
+- _inbox_ (11): `renderHomeInbox`(13453), `openInboxItemFromHome`(13506), `loadInboxItems`(15613), `saveInboxItems`(15619), `normalizeInboxItems`(15628), `setInboxView`(15732), `renderInboxBoard`(15765), `dragInboxNote`(16051), `editInboxItem`(16263), `inferInboxCat`(16534), `_initInbox`(16738)
+- _inbox capture_ (9): `setGlobalCaptureType`(13543), `openGlobalCapture`(13549), `closeGlobalCapture`(13557), `updateGlobalCaptureVisibility`(13579), `_closeCapturePreview`(13633), `_capturePreviewAnchor`(13639), `_capturePreviewStyleFor`(13710), `_repositionCapturePreview`(13750), `_showCapturePreview`(13769)
 
 ### 일기 / Diary — `diary`
 
@@ -138,32 +138,32 @@ Markup landmark: `index.html:7553-7752`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="strip-prev">` | ‹ | `goToday`(21731) | 7561 |
-| `<button id="strip-next">` | › | `goToday`(21734) | 7562 |
-| `<button id="btn-prev-day">` | ‹ | `goToday`(21728) | 7587 |
-| `<button id="btn-today">` | 오늘 | `goToday`(21730) | 7588 |
-| `<button id="btn-next-day">` | › | `goToday`(21729) | 7589 |
-| `<input id="diary-date-input" type="date">` | .diary-date-input | `loadDate`(21352), `goToday`(21737) | 7600 |
-| `<div id="ds-sleep">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7610 |
-| `<textarea id="diary_sleep">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7616 |
-| `<div id="ds-morning">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7621 |
-| `<textarea id="diary_morning">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7627 |
-| `<div id="ds-resolution">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7632 |
-| `<textarea id="diary_resolution">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7638 |
-| `<div id="ds-timeline">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7643 |
+| `<button id="strip-prev">` | ‹ | `goToday`(21737) | 7561 |
+| `<button id="strip-next">` | › | `goToday`(21740) | 7562 |
+| `<button id="btn-prev-day">` | ‹ | `goToday`(21734) | 7587 |
+| `<button id="btn-today">` | 오늘 | `goToday`(21736) | 7588 |
+| `<button id="btn-next-day">` | › | `goToday`(21735) | 7589 |
+| `<input id="diary-date-input" type="date">` | .diary-date-input | `loadDate`(21358), `goToday`(21743) | 7600 |
+| `<div id="ds-sleep">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7610 |
+| `<textarea id="diary_sleep">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7616 |
+| `<div id="ds-morning">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7621 |
+| `<textarea id="diary_morning">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7627 |
+| `<div id="ds-resolution">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7632 |
+| `<textarea id="diary_resolution">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7638 |
+| `<div id="ds-timeline">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7643 |
 | `<button type="button">` | + 추가 | onclick=`addDiaryTimelineManual()` | 7649 |
-| `<textarea id="diary_timeline">` | .ds-body | `_pullDiaryPageProperties`(32542) | 7651 |
-| `<div id="ds-accomplishment">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7656 |
-| `<textarea id="diary_accomplishment">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7662 |
-| `<div id="ds-night">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7667 |
-| `<textarea id="diary_night">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7673 |
-| `<div id="ds-recap">` | .diary-section | `loadDate`(21332, via `'ds-'+key`), `diaryAutoSave`(21485, via `'ds-'+key`), `diaryAutoSave`(21517, via `'ds-'+key`) | 7678 |
-| `<textarea id="diary_recap">` | .ds-body | `loadDate`(21328, via `'diary_'+key`), `commitCurrent`(21451, via `'diary_'+key`), `diaryAutoSave`(21550, via `'diary_'+key`) | 7684 |
+| `<textarea id="diary_timeline">` | .ds-body | `_pullDiaryPageProperties`(32548) | 7651 |
+| `<div id="ds-accomplishment">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7656 |
+| `<textarea id="diary_accomplishment">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7662 |
+| `<div id="ds-night">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7667 |
+| `<textarea id="diary_night">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7673 |
+| `<div id="ds-recap">` | .diary-section | `loadDate`(21338, via `'ds-'+key`), `diaryAutoSave`(21491, via `'ds-'+key`), `diaryAutoSave`(21523, via `'ds-'+key`) | 7678 |
+| `<textarea id="diary_recap">` | .ds-body | `loadDate`(21334, via `'diary_'+key`), `commitCurrent`(21457, via `'diary_'+key`), `diaryAutoSave`(21556, via `'diary_'+key`) | 7684 |
 | `<button>` | ＋ 텍스트 | onclick=`addBlock('text')` | 7698 |
 | `<button>` | 🖼 이미지 | onclick=`addBlock('image')` | 7699 |
-| `<input id="img-file-input" type="file">` |  | `pickImageForBlock`(22025) | 7704 |
+| `<input id="img-file-input" type="file">` |  | `pickImageForBlock`(22031) | 7704 |
 | `<button>` | 오늘 | onclick=`goToday()` | 7715 |
-| `<button id="sync-btn">` | ↻ 지금 동기화 | `goToday`(21742), `goToday`(21762) | 7738 |
+| `<button id="sync-btn">` | ↻ 지금 동기화 | `goToday`(21748), `goToday`(21768) | 7738 |
 | `<button>` | 관리 → | onclick=`openTrackerManager()` | 7744 |
 | `<button>` | ＋ 항목 추가 | onclick=`openTrackerManager()` | 7747 |
 
@@ -171,16 +171,16 @@ Markup landmark: `index.html:7553-7752`
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-key` | `_renderArchiveGeneric` | 30382 |
-| `data-loaded` | `_renderArchiveGeneric` | 30391 |
-| `data-state` | `loadDiaryNotionConfig`, `loadHabitNotionConfig`, `clearDiaryNotionConfig`, `_pullDiaryPageProperties` | 30687, 30822, 31116, 32163 |
+| `data-key` | `_renderArchiveGeneric` | 30388 |
+| `data-loaded` | `_renderArchiveGeneric` | 30397 |
+| `data-state` | `loadDiaryNotionConfig`, `loadHabitNotionConfig`, `clearDiaryNotionConfig`, `_pullDiaryPageProperties` | 30693, 30828, 31122, 32169 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _diary_ (18): `_getArchivedDiaryDates`(14394), `_filterArchivedDiaryDates`(14399), `addDiaryTimelineManual`(21419), `diaryAutoSave`(21483), `diaryStoreBlockImageFile`(21961), `diaryMigrateInlineImagesToMediaStore`(21991), `_initDiary`(22387), `projectReadDiary`(24801), `_renderArchiveDiary`(30338), `_diaryHeadingBlock`(31606), `_diaryParagraphBlock`(31609), `_diaryTextBlock`(31612), `_diaryTextParts`(31620), `_diaryImageBlock`(31627), `_diaryBodyBlocks`(31638), `_diaryBodySignature`(31711), `_applyPulledDiaryEntry`(32072), `_pullDiaryPageProperties`(32083)
-- _diary archive_ (10): `_archiveWrite`(14331), `_archiveRead`(14342), `_archiveCount`(14353), `_archiveListKeys`(14365), `_archiveDelete`(14376), `_getArchiveCfg`(14388), `_archiveCutoffDate`(30115), `_updateArchiveStatusUI`(30317), `_archiveLabelFor`(30332), `_renderArchiveGeneric`(30349)
-- _notion sync_ (20): `habitNotionMergeCloudCfg`(28239), `_notionConfigured`(30121), `getNotionCfg`(30667), `notionVal`(30685), `setNotionVal`(30686), `loadDiaryNotionConfig`(30687), `getHabitNotionCfg`(30756), `_saveHabitNotionCfgObj`(30761), `loadHabitNotionConfig`(30796), `habitNotionBuildTexts`(30858), `queueHabitNotionSave`(30877), `_healNotionAutoSyncOnce`(30944), `queueDiaryNotionSave`(30977), `queueDiaryNotionPull`(31002), `clearDiaryNotionConfig`(31060), `_notionBlocksHash`(31881), `_notionMergeSection`(31882), `_notionUpdateBaseline`(31910), `_readNotionRichTextProp`(32068), `_diaryNotionFocusPull`(32594)
+- _diary_ (18): `_getArchivedDiaryDates`(14400), `_filterArchivedDiaryDates`(14405), `addDiaryTimelineManual`(21425), `diaryAutoSave`(21489), `diaryStoreBlockImageFile`(21967), `diaryMigrateInlineImagesToMediaStore`(21997), `_initDiary`(22393), `projectReadDiary`(24807), `_renderArchiveDiary`(30344), `_diaryHeadingBlock`(31612), `_diaryParagraphBlock`(31615), `_diaryTextBlock`(31618), `_diaryTextParts`(31626), `_diaryImageBlock`(31633), `_diaryBodyBlocks`(31644), `_diaryBodySignature`(31717), `_applyPulledDiaryEntry`(32078), `_pullDiaryPageProperties`(32089)
+- _diary archive_ (10): `_archiveWrite`(14337), `_archiveRead`(14348), `_archiveCount`(14359), `_archiveListKeys`(14371), `_archiveDelete`(14382), `_getArchiveCfg`(14394), `_archiveCutoffDate`(30121), `_updateArchiveStatusUI`(30323), `_archiveLabelFor`(30338), `_renderArchiveGeneric`(30355)
+- _notion sync_ (20): `habitNotionMergeCloudCfg`(28245), `_notionConfigured`(30127), `getNotionCfg`(30673), `notionVal`(30691), `setNotionVal`(30692), `loadDiaryNotionConfig`(30693), `getHabitNotionCfg`(30762), `_saveHabitNotionCfgObj`(30767), `loadHabitNotionConfig`(30802), `habitNotionBuildTexts`(30864), `queueHabitNotionSave`(30883), `_healNotionAutoSyncOnce`(30950), `queueDiaryNotionSave`(30983), `queueDiaryNotionPull`(31008), `clearDiaryNotionConfig`(31066), `_notionBlocksHash`(31887), `_notionMergeSection`(31888), `_notionUpdateBaseline`(31916), `_readNotionRichTextProp`(32074), `_diaryNotionFocusPull`(32600)
 
 ### 루틴 / Routine — `routine`
 
@@ -190,45 +190,45 @@ Markup landmark: `index.html:8024-8075`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="routine-reset-today" type="button">` | 오늘 기록 초기화 | `_initRoutine`(26387) | 8033 |
-| `<button id="routine-new-bundle" type="button">` | + 묶음 | `_initRoutine`(26387) | 8034 |
-| `<button id="routine-new-habit" type="button">` | + 습관 | `_initRoutine`(26387) | 8035 |
+| `<button id="routine-reset-today" type="button">` | 오늘 기록 초기화 | `_initRoutine`(26393) | 8033 |
+| `<button id="routine-new-bundle" type="button">` | + 묶음 | `_initRoutine`(26393) | 8034 |
+| `<button id="routine-new-habit" type="button">` | + 습관 | `_initRoutine`(26393) | 8035 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-dir` | `routineTimerRehydrate` | 27263 |
-| `data-home-routine-diff` | `renderHomeRoutineQuick` | 26310 |
-| `data-home-routine-item` | `renderHomeRoutineQuick` | 26311 |
-| `data-home-routine-open` | `renderHomeRoutineQuick` | 26311 |
-| `data-home-routine-state` | `renderHomeRoutineQuick` | 26309 |
-| `data-home-routine-state-pick` | `renderHomeRoutineQuick` | 26311 |
-| `data-routine-add-existing` | `openRoutineBundleHabitPicker` | 26701 |
-| `data-routine-add-habit` | `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26732, 26824, 27264 |
-| `data-routine-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26380, 26499, 26530, 26642, 26732, 27264 |
-| `data-routine-bundle-timer` | `routineTimerNextIndex`, `routineBundleTimerButtonHtml`, `routineTimerRehydrate` | 27036, 27154, 27267 |
-| `data-routine-condition` | `renderRoutineConditions` | 26379 |
-| `data-routine-delete-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26380, 26499, 26530, 26642, 26732, 27264 |
-| `data-routine-delete-habit` | `renderRoutineLibrary`, `routineTimerButtonHtml`, `unlinkRoutineProject` | 26381, 26508, 26605 |
-| `data-routine-difficulty` | `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26496, 26517, 26645, 26735, 27269 |
-| `data-routine-difficulty-pick` | `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26517, 26644, 26734, 26826, 27268 |
-| `data-routine-edit-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26380, 26499, 26530, 26642, 26732, 27264 |
-| `data-routine-edit-habit` | `renderRoutineLibrary`, `routineTimerButtonHtml`, `unlinkRoutineProject` | 26381, 26508, 26605 |
-| `data-routine-habit` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26380, 26497, 26528, 26640, 26730, 27261 |
-| `data-routine-move-bundle` | `routineTimerRehydrate` | 27263 |
-| `data-routine-state` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml` | 26380, 26497, 26528, 26620 |
-| `data-routine-state-option` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26416, 26628, 26737, 26829, 27271 |
-| `data-routine-state-pick` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26414, 26626, 26736, 26828, 27270 |
-| `data-routine-state-wrap` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26414, 26626, 26736, 26828, 27270 |
-| `data-routine-timer` | `routineTimerButtonHtml`, `routineTimerTick` | 26471, 26862 |
-| `data-routine-timer-difficulty` | `routineTimerDifficultyControls`, `routineTimerStateControls` | 27195, 27233 |
-| `data-routine-timer-state` | `routineTimerStateControls` | 27205 |
+| `data-dir` | `routineTimerRehydrate` | 27269 |
+| `data-home-routine-diff` | `renderHomeRoutineQuick` | 26316 |
+| `data-home-routine-item` | `renderHomeRoutineQuick` | 26317 |
+| `data-home-routine-open` | `renderHomeRoutineQuick` | 26317 |
+| `data-home-routine-state` | `renderHomeRoutineQuick` | 26315 |
+| `data-home-routine-state-pick` | `renderHomeRoutineQuick` | 26317 |
+| `data-routine-add-existing` | `openRoutineBundleHabitPicker` | 26707 |
+| `data-routine-add-habit` | `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26738, 26830, 27270 |
+| `data-routine-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26386, 26505, 26536, 26648, 26738, 27270 |
+| `data-routine-bundle-timer` | `routineTimerNextIndex`, `routineBundleTimerButtonHtml`, `routineTimerRehydrate` | 27042, 27160, 27273 |
+| `data-routine-condition` | `renderRoutineConditions` | 26385 |
+| `data-routine-delete-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26386, 26505, 26536, 26648, 26738, 27270 |
+| `data-routine-delete-habit` | `renderRoutineLibrary`, `routineTimerButtonHtml`, `unlinkRoutineProject` | 26387, 26514, 26611 |
+| `data-routine-difficulty` | `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26502, 26523, 26651, 26741, 27275 |
+| `data-routine-difficulty-pick` | `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26523, 26650, 26740, 26832, 27274 |
+| `data-routine-edit-bundle` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26386, 26505, 26536, 26648, 26738, 27270 |
+| `data-routine-edit-habit` | `renderRoutineLibrary`, `routineTimerButtonHtml`, `unlinkRoutineProject` | 26387, 26514, 26611 |
+| `data-routine-habit` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerRehydrate` | 26386, 26503, 26534, 26646, 26736, 27267 |
+| `data-routine-move-bundle` | `routineTimerRehydrate` | 27269 |
+| `data-routine-state` | `renderRoutineBundles`, `routineTimerButtonHtml`, `routineDifficultyPickerHtml`, `routineStateButtonsHtml` | 26386, 26503, 26534, 26626 |
+| `data-routine-state-option` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26422, 26634, 26743, 26835, 27277 |
+| `data-routine-state-pick` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26420, 26632, 26742, 26834, 27276 |
+| `data-routine-state-wrap` | `routineStateMeta`, `routineStateButtonsHtml`, `openRoutineBundleHabitPicker`, `routineTimerButtonHtml`, `routineTimerRehydrate` | 26420, 26632, 26742, 26834, 27276 |
+| `data-routine-timer` | `routineTimerButtonHtml`, `routineTimerTick` | 26477, 26868 |
+| `data-routine-timer-difficulty` | `routineTimerDifficultyControls`, `routineTimerStateControls` | 27201, 27239 |
+| `data-routine-timer-state` | `routineTimerStateControls` | 27211 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _routine_ (83): `routineEsc`(26201), `routineDateKey`(26202), `routineToast`(26203), `routineReadJson`(26204), `loadRoutineData`(26205), `pruneRoutineLogs`(26238), `saveRoutineData`(26246), `seedRoutineData`(26247), `routineTodayLog`(26248), `routineHabitById`(26249), `routineBundleHabits`(26250), `routineHabitPlan`(26251), `routineStatsForBundle`(26252), `routineSortedBundles`(26255), `routineMoveBundle`(26264), `homeRoutineQuickHabits`(26276), `renderHomeRoutineQuick`(26296), `renderRoutine`(26378), `renderRoutineConditions`(26379), `renderRoutineBundles`(26380), `renderRoutineLibrary`(26381), `renderRoutineStats`(26382), `openRoutineHabitEditor`(26383), `openRoutineBundleEditor`(26384), `deleteRoutineHabit`(26385), `deleteRoutineBundle`(26386), `_initRoutine`(26387), `routinePlanOptions`(26390), `routineSelectedDifficulty`(26393), `routineSelectedPlanText`(26397), `routineStateMeta`(26402), `routineStateMeta`(26421), `routineTimerLabel`(26432), `renderRoutineTimerToast`(26437), `routineStartTimer`(26445), `routineStopTimer`(26457), `routineTimerButtonHtml`(26469), `routineDifficultyPickerHtml`(26514), `routineProjectOptions`(26564), `routineProjectLabel`(26570), `unlinkRoutineProject`(26575), `routineStateButtonsHtml`(26611), `routineStateMeta`(26655), `openRoutineBundleHabitPicker`(26673), `routineStateMeta`(26746), `routineTimerLabel`(26757), `renderRoutineTimerToast`(26762), `routineStopTimer`(26770), `routineStartTimer`(26782), `routineTimerButtonHtml`(26794), `routineTimerLoad`(26840), `routineTimerSave`(26846), `routineTimerMs`(26849), `routineTimerLabel`(26852), `routineTimerHabit`(26858), `routineTimerTick`(26859), `renderRoutineTimerToast`(26869), `routineStartTimer`(26887), `routinePauseTimer`(26896), `routineResumeTimer`(26906), `routineFinishTimer`(26916), `routineResetTimer`(26934), `routineStopTimer`(26942), `routineTimerButtonHtml`(26943), `routineTimerFindBundleByHabit`(26955), `routineTimerBundle`(26958), `routineTimerHabits`(26963), `routineTimerCurrentIndex`(26967), `routineTimerFirstPendingIndex`(26977), `routineTimerNextIndex`(26985), `routineTimerSetCurrent`(27045), `routineStartBundleTimer`(27055), `routineTimerMarkCurrent`(27096), `routineTimerHM`(27110), `routineAdvanceTimer`(27117), `routineSkipTimer`(27140), `routineBundleTimerButtonHtml`(27150), `routineTimerSetView`(27157), `routineTimerSetDifficulty`(27163), `routineTimerSetState`(27176), `routineTimerDifficultyControls`(27189), `routineTimerStateControls`(27198), `routineTimerRehydrate`(27242)
+- _routine_ (83): `routineEsc`(26207), `routineDateKey`(26208), `routineToast`(26209), `routineReadJson`(26210), `loadRoutineData`(26211), `pruneRoutineLogs`(26244), `saveRoutineData`(26252), `seedRoutineData`(26253), `routineTodayLog`(26254), `routineHabitById`(26255), `routineBundleHabits`(26256), `routineHabitPlan`(26257), `routineStatsForBundle`(26258), `routineSortedBundles`(26261), `routineMoveBundle`(26270), `homeRoutineQuickHabits`(26282), `renderHomeRoutineQuick`(26302), `renderRoutine`(26384), `renderRoutineConditions`(26385), `renderRoutineBundles`(26386), `renderRoutineLibrary`(26387), `renderRoutineStats`(26388), `openRoutineHabitEditor`(26389), `openRoutineBundleEditor`(26390), `deleteRoutineHabit`(26391), `deleteRoutineBundle`(26392), `_initRoutine`(26393), `routinePlanOptions`(26396), `routineSelectedDifficulty`(26399), `routineSelectedPlanText`(26403), `routineStateMeta`(26408), `routineStateMeta`(26427), `routineTimerLabel`(26438), `renderRoutineTimerToast`(26443), `routineStartTimer`(26451), `routineStopTimer`(26463), `routineTimerButtonHtml`(26475), `routineDifficultyPickerHtml`(26520), `routineProjectOptions`(26570), `routineProjectLabel`(26576), `unlinkRoutineProject`(26581), `routineStateButtonsHtml`(26617), `routineStateMeta`(26661), `openRoutineBundleHabitPicker`(26679), `routineStateMeta`(26752), `routineTimerLabel`(26763), `renderRoutineTimerToast`(26768), `routineStopTimer`(26776), `routineStartTimer`(26788), `routineTimerButtonHtml`(26800), `routineTimerLoad`(26846), `routineTimerSave`(26852), `routineTimerMs`(26855), `routineTimerLabel`(26858), `routineTimerHabit`(26864), `routineTimerTick`(26865), `renderRoutineTimerToast`(26875), `routineStartTimer`(26893), `routinePauseTimer`(26902), `routineResumeTimer`(26912), `routineFinishTimer`(26922), `routineResetTimer`(26940), `routineStopTimer`(26948), `routineTimerButtonHtml`(26949), `routineTimerFindBundleByHabit`(26961), `routineTimerBundle`(26964), `routineTimerHabits`(26969), `routineTimerCurrentIndex`(26973), `routineTimerFirstPendingIndex`(26983), `routineTimerNextIndex`(26991), `routineTimerSetCurrent`(27051), `routineStartBundleTimer`(27061), `routineTimerMarkCurrent`(27102), `routineTimerHM`(27116), `routineAdvanceTimer`(27123), `routineSkipTimer`(27146), `routineBundleTimerButtonHtml`(27156), `routineTimerSetView`(27163), `routineTimerSetDifficulty`(27169), `routineTimerSetState`(27182), `routineTimerDifficultyControls`(27195), `routineTimerStateControls`(27204), `routineTimerRehydrate`(27248)
 
 ### 할일 / Tasks — `tasks`
 
@@ -238,13 +238,13 @@ Markup landmark: `index.html:7233-7372`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="cal-prev">` | ‹ | `renderDlCanvas`(18092) | 7239 |
-| `<button id="cal-next">` | › | `renderDlCanvas`(18093) | 7241 |
-| `<button id="cal-today">` | 오늘 | `renderDlCanvas`(18094) | 7242 |
-| `<button id="btn-cal-view">` | 📅 콤팩트 | `renderCal`(17816), `renderCal`(17817), `renderDlCanvas`(18095) | 7246 |
-| `<button id="btn-dl-view">` | 🔗 마감 뷰 | `renderCal`(17818), `renderDlCanvas`(18100) | 7247 |
-| `<button id="btn-tt-hide">` | 🎓 시간표 | `renderCal`(17819), `renderDlCanvas`(18101) | 7248 |
-| `<button id="btn-done-hide">` | 완료 숨김 | `renderCal`(17820), `renderDlCanvas`(18102) | 7249 |
+| `<button id="cal-prev">` | ‹ | `renderDlCanvas`(18098) | 7239 |
+| `<button id="cal-next">` | › | `renderDlCanvas`(18099) | 7241 |
+| `<button id="cal-today">` | 오늘 | `renderDlCanvas`(18100) | 7242 |
+| `<button id="btn-cal-view">` | 📅 콤팩트 | `renderCal`(17822), `renderCal`(17823), `renderDlCanvas`(18101) | 7246 |
+| `<button id="btn-dl-view">` | 🔗 마감 뷰 | `renderCal`(17824), `renderDlCanvas`(18106) | 7247 |
+| `<button id="btn-tt-hide">` | 🎓 시간표 | `renderCal`(17825), `renderDlCanvas`(18107) | 7248 |
+| `<button id="btn-done-hide">` | 완료 숨김 | `renderCal`(17826), `renderDlCanvas`(18108) | 7249 |
 | `<button>` | 전체 | data-cat (see data-hooks below) | 7253 |
 | `<button>` | 📅 | data-cat (see data-hooks below) | 7254 |
 | `<button>` | 🎓 | data-cat (see data-hooks below) | 7255 |
@@ -255,49 +255,49 @@ Markup landmark: `index.html:7233-7372`
 | `<button>` | 우선순위 | data-view (see data-hooks below) | 7288 |
 | `<button>` | 마감 | data-view (see data-hooks below) | 7289 |
 | `<button>` | 타임블록 | data-view (see data-hooks below) | 7290 |
-| `<button id="btn-sel-mode">` | ☑ | `exitSelMode`(18981) | 7292 |
-| `<button id="btn-task-search">` | ⌕ | `renderDlCanvas`(18103) | 7293 |
-| `<button id="btn-add">` | ＋ | `updateAddChips`(19149) | 7294 |
-| `<button id="btn-more">` | ⋯ | `openNameDelete`(19072), `openNameDelete`(19075) | 7295 |
-| `<input id="task-search-input" type="search">` | .task-search-input | `bindTaskSearchControls`(17576) | 7302 |
-| `<select id="task-search-scope">` | .task-filter-select | `bindTaskSearchControls`(17577) | 7303 |
-| `<select id="task-search-kind">` | .task-filter-select | `bindTaskSearchControls`(17578) | 7309 |
-| `<input id="task-search-from" type="date">` | .task-filter-select | `bindTaskSearchControls`(17579) | 7317 |
-| `<input id="task-search-to" type="date">` | .task-filter-select | `bindTaskSearchControls`(17580) | 7318 |
-| `<button id="task-select-filtered" type="button">` | 결과 선택 | `updateTaskSearchUi`(17571), `bindTaskSearchControls`(17581) | 7319 |
+| `<button id="btn-sel-mode">` | ☑ | `exitSelMode`(18987) | 7292 |
+| `<button id="btn-task-search">` | ⌕ | `renderDlCanvas`(18109) | 7293 |
+| `<button id="btn-add">` | ＋ | `updateAddChips`(19155) | 7294 |
+| `<button id="btn-more">` | ⋯ | `openNameDelete`(19078), `openNameDelete`(19081) | 7295 |
+| `<input id="task-search-input" type="search">` | .task-search-input | `bindTaskSearchControls`(17582) | 7302 |
+| `<select id="task-search-scope">` | .task-filter-select | `bindTaskSearchControls`(17583) | 7303 |
+| `<select id="task-search-kind">` | .task-filter-select | `bindTaskSearchControls`(17584) | 7309 |
+| `<input id="task-search-from" type="date">` | .task-filter-select | `bindTaskSearchControls`(17585) | 7317 |
+| `<input id="task-search-to" type="date">` | .task-filter-select | `bindTaskSearchControls`(17586) | 7318 |
+| `<button id="task-select-filtered" type="button">` | 결과 선택 | `updateTaskSearchUi`(17577), `bindTaskSearchControls`(17587) | 7319 |
 | `<button>` | ✓ 완료 | onclick=`bulkDone()` | 7327 |
 | `<button>` | ↩ 미완료 | onclick=`bulkUndone()` | 7328 |
 | `<button>` | 📅 날짜 이동 | onclick=`bulkMoveDate()` | 7329 |
 | `<button>` | 🗑 삭제 | onclick=`bulkDelete()` | 7330 |
 | `<button>` | 취소 | onclick=`exitSelMode()` | 7331 |
-| `<input id="add-input" type="text">` | .task-add-input | `closeMoreMenu`(19087) | 7342 |
-| `<button id="add-prio-chip">` | 🔥 우선순위 | `updateAddChips`(19101), `updateAddChips`(19115) | 7345 |
-| `<button id="add-cat-chip">` | 🏷️ 카테고리 | `updateAddChips`(19102), `updateAddChips`(19119) | 7346 |
-| `<button id="add-dl-chip">` | 📅 마감일 | `updateAddChips`(19103), `updateAddChips`(19130) | 7347 |
+| `<input id="add-input" type="text">` | .task-add-input | `closeMoreMenu`(19093) | 7342 |
+| `<button id="add-prio-chip">` | 🔥 우선순위 | `updateAddChips`(19107), `updateAddChips`(19121) | 7345 |
+| `<button id="add-cat-chip">` | 🏷️ 카테고리 | `updateAddChips`(19108), `updateAddChips`(19125) | 7346 |
+| `<button id="add-dl-chip">` | 📅 마감일 | `updateAddChips`(19109), `updateAddChips`(19136) | 7347 |
 | `<button>` | 취소 | onclick=`closeAdd()` | 7348 |
 | `<button>` | 추가 | onclick=`confirmAdd()` | 7349 |
-| `<button id="home-rule-btn">` | 규칙 관리 | `openHomeRepeatModal`(11610) | 7361 |
-| `<button id="home-repeat-btn">` | 반복 관리 | `openHomeRepeatModal`(11611) | 7366 |
+| `<button id="home-rule-btn">` | 규칙 관리 | `openHomeRepeatModal`(11616) | 7361 |
+| `<button id="home-repeat-btn">` | 반복 관리 | `openHomeRepeatModal`(11617) | 7366 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-bi` | `openTaskBacklinkList` | 19879 |
-| `data-color` | `openTaskCatManager` | 17434 |
-| `data-date` | `renderTaskWeekView` | 18364 |
-| `data-id` | `openTaskCatManager`, `buildTaskEl`, `openTaskLinkPicker` | 17443, 18829, 19787 |
-| `data-state` | `gcalStatus` | 32639 |
-| `data-tid` | `renderTaskWeekView` | 18361 |
-| `data-twv-check` | `renderTaskWeekView` | 18411 |
-| `data-twv-days` | `renderTaskWeekView` | 18336 |
+| `data-bi` | `openTaskBacklinkList` | 19885 |
+| `data-color` | `openTaskCatManager` | 17440 |
+| `data-date` | `renderTaskWeekView` | 18370 |
+| `data-id` | `openTaskCatManager`, `buildTaskEl`, `openTaskLinkPicker` | 17449, 18835, 19793 |
+| `data-state` | `gcalStatus` | 32645 |
+| `data-tid` | `renderTaskWeekView` | 18367 |
+| `data-twv-check` | `renderTaskWeekView` | 18417 |
+| `data-twv-days` | `renderTaskWeekView` | 18342 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _tasks_ (52): `taskDateFromKey`(11187), `taskDateKeyLocal`(11192), `taskAddDaysKey`(11197), `taskDaysBetweenKeys`(11203), `taskTodayKeyLocal`(11208), `generatedCanonicalSourceTaskId`(12556), `generatedSourceTasks`(12659), `_commitCaptureTask`(13867), `convertToTask`(16230), `saveTaskCatsData`(16767), `tasksAddDays`(16779), `_isDemoTask`(16810), `taskPrepList`(16974), `normalizeTaskOrder`(17208), `orderTaskSubset`(17216), `taskEffectiveDone`(17229), `saveTaskData`(17236), `renderTaskCatFilter`(17315), `refreshTaskCatSelect`(17338), `taskCategoryPaletteSnapshot`(17357), `applyTaskCategoryPalette`(17362), `normalizeTaskCatColor`(17409), `taskCatSoftBg`(17416), `openTaskCatManager`(17425), `visibleTasks`(17515), `taskMatchesSearch`(17528), `taskDateInRange`(17537), `taskMatchesKind`(17545), `filteredTaskList`(17555), `updateTaskSearchUi`(17569), `bindTaskSearchControls`(17575), `renderTaskWeekView`(18304), `buildTaskEl`(18826), `taskPrepSummary`(19182), `setTaskPrepSummary`(19188), `taskTravelSummary`(19195), `setTaskTravelSummary`(19199), `markTaskDateManualChange`(19206), `taskLinkTargetLabel`(19720), `getTaskLinkTargets`(19730), `openTaskLinkPicker`(19752), `taskBacklinks`(19854), `updateTaskBacklinkRow`(19862), `openTaskBacklinkList`(19872), `_initTasks`(20000), `generateTasks`(23573), `taskNotifEventTime`(25816), `taskNotifReminderHHMM`(25822), `setNotifTaskLead`(25936), `buildTaskReminderList`(26068), `_buildTodayTasksText`(31497), `openTaskWorkstation`(38765)
-- _tasks (recurring rules)_ (51): `loadTaskRules`(11183), `saveTaskRules`(11184), `loadRepeatItems`(11185), `saveRepeatItems`(11186), `repeatWeekdays`(11217), `repeatGenerationKey`(11220), `activeRuleGenerationKey`(11221), `loadRepeatSuppressions`(11222), `pruneRepeatSuppressionsOld`(11223), `saveRepeatSuppressions`(11237), `suppressRepeatOccurrence`(11243), `loadGeneratedTaskSuppressions`(11252), `pruneGeneratedTaskSuppressionsOld`(11253), `saveGeneratedTaskSuppressions`(11267), `generatedTaskKey`(11273), `suppressGeneratedTask`(11281), `noteGeneratedTaskDeleted`(11289), `isRepeatSuppressed`(11296), `repeatDebugLog`(11300), `openRepeatEditScopeDialog`(11396), `propagateRepeatEdit`(11453), `propagateActiveRuleEdit`(11478), `_updateRepeatScopeDefaultDesc`(11526), `clearRepeatScopeDefault`(11541), `hasRepeatToday`(11715), `repeatMatchesDate`(11719), `generateRepeatTasks`(11733), `refreshRepeatTasks`(11745), `cleanupInvalidRepeatGeneratedTasks`(11801), `generatedTaskKeyFromTask`(11835), `expectedActiveRuleDate`(11843), `inferActiveRuleSourceId`(11856), `mergeGeneratedTaskInto`(11883), `repairGeneratedTasks`(11898), `pruneStaleRepeatSuppressions`(12092), `pruneRepeatSuppressions`(12109), `applyActiveTaskRules`(12141), `ruleWeekdayLabel`(12165), `ruleDateInRange`(12420), `isRepeatSourceTask`(12538), `isGeneratedTask`(12576), `normalizeGeneratedTaskMeta`(12578), `buildRepeatExpected`(12601), `buildRuleExpected`(12628), `createGeneratedTaskFromExpected`(12755), `reconcileGeneratedTasks`(12760), `_applyRepeatScopeEdit`(19631), `selRepeat`(20948), `updateRepeatUI`(20951), `expandRepeat`(21015), `applyRepeatUI`(37912)
-- _google-calendar sync_ (28): `migrateGcalEventMetaKey`(16981), `gcalMergeCloudCfg`(28226), `gcalStatus`(32624), `gcalLoadConfig`(32642), `gcalSaveConfig`(32682), `gcalClearConfig`(32703), `gcalCopyHint`(32705), `gcalPkceVerifier`(32785), `gcalIsRefreshRevoked`(32824), `gcalBuildAuthUrl`(32867), `_gcalUseRedirectAuthFlow`(32890), `_gcalLaunchRedirectAuth`(32898), `_gcalFinishRedirectToken`(32912), `gcalResumeRedirectAuth`(32926), `gcalAuth`(32947), `gcalTaskStableKey`(33072), `gcalTaskTargetCalId`(33081), `gcalFindLocalTaskByKey`(33085), `gcalPreferredCalendarForKey`(33093), `gcalEventStartValue`(33099), `gcalEventEndValue`(33100), `gcalIsReturnOwnedEvent`(33101), `gcalConfiguredCalendarIds`(33155), `gcalEventEquivalent`(33351), `gcalPlanTitleTimeDedup`(33372), `gcalQueueTaskEventDeletion`(33497), `gcalEventFromTask`(33514), `gcalQueueAutoSync`(33577)
+- _tasks_ (52): `taskDateFromKey`(11193), `taskDateKeyLocal`(11198), `taskAddDaysKey`(11203), `taskDaysBetweenKeys`(11209), `taskTodayKeyLocal`(11214), `generatedCanonicalSourceTaskId`(12562), `generatedSourceTasks`(12665), `_commitCaptureTask`(13873), `convertToTask`(16236), `saveTaskCatsData`(16773), `tasksAddDays`(16785), `_isDemoTask`(16816), `taskPrepList`(16980), `normalizeTaskOrder`(17214), `orderTaskSubset`(17222), `taskEffectiveDone`(17235), `saveTaskData`(17242), `renderTaskCatFilter`(17321), `refreshTaskCatSelect`(17344), `taskCategoryPaletteSnapshot`(17363), `applyTaskCategoryPalette`(17368), `normalizeTaskCatColor`(17415), `taskCatSoftBg`(17422), `openTaskCatManager`(17431), `visibleTasks`(17521), `taskMatchesSearch`(17534), `taskDateInRange`(17543), `taskMatchesKind`(17551), `filteredTaskList`(17561), `updateTaskSearchUi`(17575), `bindTaskSearchControls`(17581), `renderTaskWeekView`(18310), `buildTaskEl`(18832), `taskPrepSummary`(19188), `setTaskPrepSummary`(19194), `taskTravelSummary`(19201), `setTaskTravelSummary`(19205), `markTaskDateManualChange`(19212), `taskLinkTargetLabel`(19726), `getTaskLinkTargets`(19736), `openTaskLinkPicker`(19758), `taskBacklinks`(19860), `updateTaskBacklinkRow`(19868), `openTaskBacklinkList`(19878), `_initTasks`(20006), `generateTasks`(23579), `taskNotifEventTime`(25822), `taskNotifReminderHHMM`(25828), `setNotifTaskLead`(25942), `buildTaskReminderList`(26074), `_buildTodayTasksText`(31503), `openTaskWorkstation`(38771)
+- _tasks (recurring rules)_ (51): `loadTaskRules`(11189), `saveTaskRules`(11190), `loadRepeatItems`(11191), `saveRepeatItems`(11192), `repeatWeekdays`(11223), `repeatGenerationKey`(11226), `activeRuleGenerationKey`(11227), `loadRepeatSuppressions`(11228), `pruneRepeatSuppressionsOld`(11229), `saveRepeatSuppressions`(11243), `suppressRepeatOccurrence`(11249), `loadGeneratedTaskSuppressions`(11258), `pruneGeneratedTaskSuppressionsOld`(11259), `saveGeneratedTaskSuppressions`(11273), `generatedTaskKey`(11279), `suppressGeneratedTask`(11287), `noteGeneratedTaskDeleted`(11295), `isRepeatSuppressed`(11302), `repeatDebugLog`(11306), `openRepeatEditScopeDialog`(11402), `propagateRepeatEdit`(11459), `propagateActiveRuleEdit`(11484), `_updateRepeatScopeDefaultDesc`(11532), `clearRepeatScopeDefault`(11547), `hasRepeatToday`(11721), `repeatMatchesDate`(11725), `generateRepeatTasks`(11739), `refreshRepeatTasks`(11751), `cleanupInvalidRepeatGeneratedTasks`(11807), `generatedTaskKeyFromTask`(11841), `expectedActiveRuleDate`(11849), `inferActiveRuleSourceId`(11862), `mergeGeneratedTaskInto`(11889), `repairGeneratedTasks`(11904), `pruneStaleRepeatSuppressions`(12098), `pruneRepeatSuppressions`(12115), `applyActiveTaskRules`(12147), `ruleWeekdayLabel`(12171), `ruleDateInRange`(12426), `isRepeatSourceTask`(12544), `isGeneratedTask`(12582), `normalizeGeneratedTaskMeta`(12584), `buildRepeatExpected`(12607), `buildRuleExpected`(12634), `createGeneratedTaskFromExpected`(12761), `reconcileGeneratedTasks`(12766), `_applyRepeatScopeEdit`(19637), `selRepeat`(20954), `updateRepeatUI`(20957), `expandRepeat`(21021), `applyRepeatUI`(37918)
+- _google-calendar sync_ (28): `migrateGcalEventMetaKey`(16987), `gcalMergeCloudCfg`(28232), `gcalStatus`(32630), `gcalLoadConfig`(32648), `gcalSaveConfig`(32688), `gcalClearConfig`(32709), `gcalCopyHint`(32711), `gcalPkceVerifier`(32791), `gcalIsRefreshRevoked`(32830), `gcalBuildAuthUrl`(32873), `_gcalUseRedirectAuthFlow`(32896), `_gcalLaunchRedirectAuth`(32904), `_gcalFinishRedirectToken`(32918), `gcalResumeRedirectAuth`(32932), `gcalAuth`(32953), `gcalTaskStableKey`(33078), `gcalTaskTargetCalId`(33087), `gcalFindLocalTaskByKey`(33091), `gcalPreferredCalendarForKey`(33099), `gcalEventStartValue`(33105), `gcalEventEndValue`(33106), `gcalIsReturnOwnedEvent`(33107), `gcalConfiguredCalendarIds`(33161), `gcalEventEquivalent`(33357), `gcalPlanTitleTimeDedup`(33378), `gcalQueueTaskEventDeletion`(33503), `gcalEventFromTask`(33520), `gcalQueueAutoSync`(33583)
 
 ### 프로젝트 / Projects — `projects`
 
@@ -307,30 +307,30 @@ Markup landmark: `index.html:8009-8022`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="project-new-btn">` | ＋ 새 프로젝트 | `_initProjects`(24902) | 8014 |
+| `<button id="project-new-btn">` | ＋ 새 프로젝트 | `_initProjects`(24908) | 8014 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-id` | `openProjectTaskLinker`, `renderProjects`, `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24850, 24881, 25152, 25248, 25286, 25364 |
-| `data-key` | `openProjectRecordLinker` | 25173 |
-| `data-panel` | `bindProjectRecordRows` | 25232 |
-| `data-project-log` | `projectLogsHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25106, 25263, 25329, 25349 |
-| `data-project-unlink-task` | `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25133, 25264, 25330, 25406 |
-| `data-record-key` | `projectRecordAccessRows`, `bindProjectRecordRows` | 25212, 25224 |
-| `data-record-type` | `projectRecordAccessRows`, `bindProjectRecordRows` | 25212, 25219 |
-| `data-res` | `renderProjects`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24889, 25254, 25298, 25380 |
-| `data-res-del` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25254, 25298, 25380 |
-| `data-res-edit` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25254, 25298, 25380 |
-| `data-res-open` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25254, 25298, 25380 |
-| `data-task` | `renderProjects`, `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24896, 25133, 25265, 25331, 25407 |
-| `data-type` | `openProjectRecordLinker` | 25173 |
+| `data-id` | `openProjectTaskLinker`, `renderProjects`, `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24856, 24887, 25158, 25254, 25292, 25370 |
+| `data-key` | `openProjectRecordLinker` | 25179 |
+| `data-panel` | `bindProjectRecordRows` | 25238 |
+| `data-project-log` | `projectLogsHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25112, 25269, 25335, 25355 |
+| `data-project-unlink-task` | `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25139, 25270, 25336, 25412 |
+| `data-record-key` | `projectRecordAccessRows`, `bindProjectRecordRows` | 25218, 25230 |
+| `data-record-type` | `projectRecordAccessRows`, `bindProjectRecordRows` | 25218, 25225 |
+| `data-res` | `renderProjects`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24895, 25260, 25304, 25386 |
+| `data-res-del` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25260, 25304, 25386 |
+| `data-res-edit` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25260, 25304, 25386 |
+| `data-res-open` | `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 25260, 25304, 25386 |
+| `data-task` | `renderProjects`, `projectTaskTimelineHtml`, `bindProjectRecordRows`, `projectIntentionalEmpty`, `projectLogsStudioHtml` | 24902, 25139, 25271, 25337, 25413 |
+| `data-type` | `openProjectRecordLinker` | 25179 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _projects_ (27): `fillTaskProjectSelect`(19164), `loadProjects`(24782), `saveProjects`(24797), `projectEsc`(24798), `projectTaskItems`(24799), `projectReadArray`(24800), `projectStatusLabel`(24802), `projectProgress`(24803), `deleteProjectSafely`(24804), `openProjectEditor`(24830), `openProjectTaskLinker`(24845), `openProjectResourceEditor`(24863), `renderProjects`(24877), `_initProjects`(24900), `projectResourcePreview`(25061), `openProjectLogEditor`(25069), `deleteProjectLog`(25091), `projectLogsHtml`(25101), `deleteProjectResource`(25110), `projectGroupTasksByDate`(25120), `projectTaskTimelineHtml`(25127), `openProjectRecordLinker`(25169), `projectRecordAccessRows`(25205), `bindProjectRecordRows`(25218), `projectIntentionalEmpty`(25273), `projectStudioEmpty`(25339), `projectLogsStudioHtml`(25343)
+- _projects_ (27): `fillTaskProjectSelect`(19170), `loadProjects`(24788), `saveProjects`(24803), `projectEsc`(24804), `projectTaskItems`(24805), `projectReadArray`(24806), `projectStatusLabel`(24808), `projectProgress`(24809), `deleteProjectSafely`(24810), `openProjectEditor`(24836), `openProjectTaskLinker`(24851), `openProjectResourceEditor`(24869), `renderProjects`(24883), `_initProjects`(24906), `projectResourcePreview`(25067), `openProjectLogEditor`(25075), `deleteProjectLog`(25097), `projectLogsHtml`(25107), `deleteProjectResource`(25116), `projectGroupTasksByDate`(25126), `projectTaskTimelineHtml`(25133), `openProjectRecordLinker`(25175), `projectRecordAccessRows`(25211), `bindProjectRecordRows`(25224), `projectIntentionalEmpty`(25279), `projectStudioEmpty`(25345), `projectLogsStudioHtml`(25349)
 
 ### 시간표 / Schedule — `schedule`
 
@@ -341,31 +341,31 @@ Markup landmark: `index.html:7844-7915`
 | Element | Label | Handler | Line |
 |---|---|---|---|
 | `<button>` | ＋ 새 학기 | onclick=`newTimetable()` | 7851 |
-| `<input id="tt-name-inp" type="text">` | .tt-name-inp | `selectTt`(23135), `saveTt`(23530), `newTimetable`(23553) | 7860 |
-| `<input id="tt-start-inp" type="date">` | .tt-date-inp | `selectTt`(23136), `saveTt`(23531) | 7861 |
-| `<input id="tt-end-inp" type="date">` | .tt-date-inp | `selectTt`(23137), `saveTt`(23532) | 7863 |
+| `<input id="tt-name-inp" type="text">` | .tt-name-inp | `selectTt`(23141), `saveTt`(23536), `newTimetable`(23559) | 7860 |
+| `<input id="tt-start-inp" type="date">` | .tt-date-inp | `selectTt`(23142), `saveTt`(23537) | 7861 |
+| `<input id="tt-end-inp" type="date">` | .tt-date-inp | `selectTt`(23143), `saveTt`(23538) | 7863 |
 | `<button>` | 💾 저장 | onclick=`saveTt()` | 7865 |
 | `<button>` | ⚡ 할일 생성 | onclick=`generateTasks()` | 7866 |
 | `<button>` | 삭제 | onclick=`deleteTimetable()` | 7867 |
-| `<input id="qa-title" type="text">` | .qa-inp | `renderGrid`(23264), `quickAddSlot`(23421), `quickAddSlot`(23422) | 7893 |
-| `<select id="qa-day">` | .qa-select | `renderGrid`(23258), `quickAddSlot`(23423) | 7895 |
-| `<input id="qa-start" type="time">` | .qa-inp | `renderGrid`(23259), `quickAddSlot`(23424) | 7903 |
-| `<input id="qa-end" type="time">` | .qa-inp | `renderGrid`(23263), `quickAddSlot`(23425) | 7905 |
+| `<input id="qa-title" type="text">` | .qa-inp | `renderGrid`(23270), `quickAddSlot`(23427), `quickAddSlot`(23428) | 7893 |
+| `<select id="qa-day">` | .qa-select | `renderGrid`(23264), `quickAddSlot`(23429) | 7895 |
+| `<input id="qa-start" type="time">` | .qa-inp | `renderGrid`(23265), `quickAddSlot`(23430) | 7903 |
+| `<input id="qa-end" type="time">` | .qa-inp | `renderGrid`(23269), `quickAddSlot`(23431) | 7905 |
 | `<button>` | + 추가 | onclick=`quickAddSlot()` | 7907 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-date` | `twvAttachBlockDrag`, `twvAttachAlldayDrag` | 18552, 18651 |
-| `data-palette-save` | `themeStudioRenderTimetablePalette` | 22948 |
-| `data-theme-tt-palette` | `themeStudioRenderTimetablePalette` | 22947 |
+| `data-date` | `twvAttachBlockDrag`, `twvAttachAlldayDrag` | 18558, 18657 |
+| `data-palette-save` | `themeStudioRenderTimetablePalette` | 22954 |
+| `data-theme-tt-palette` | `themeStudioRenderTimetablePalette` | 22953 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _schedule (timetable)_ (30): `scheduleTargetHasLinkedTask`(10715), `generatedScheduleKey`(12560), `ttPrepGetStore`(12876), `ttPrepApplyChecks`(12877), `ttPrepPersistChecks`(12883), `normalizeTimetableTaskCategories`(16904), `timetableTaskHash`(16914), `timetableTaskDateKey`(16920), `timetableSlotId`(16927), `timetableLegacySlotKey`(16930), `ensureTimetableSlotIds`(16933), `findTimetableExpectedKeyForTask`(16993), `timetableTaskKey`(17006), `buildTimetableExpectedTasks`(17009), `reconcileTimetableTasks`(17064), `cleanupLegacyTimetableTaskConflicts`(17175), `scheduleBlockSave`(22044), `ttReadPalette`(22802), `ttReadThemePalette`(22809), `ttColorToHex`(22817), `ttResolveThemePaletteColor`(22824), `ttFallbackPalette`(22835), `themeStudioRenderTimetablePalette`(22941), `loadTimetables`(23027), `saveTimetables`(23046), `newTimetable`(23539), `deleteTimetable`(23557), `_initSchedule`(23687), `startNotifScheduler`(26045), `scheduleDiaryAutoSync`(32551)
-- _schedule (timetable weekly view)_ (15): `twvDateKey`(18216), `twvAnchorForToday`(18217), `twvEnsureAnchor`(18225), `twvMins`(18226), `twvFmt`(18227), `twvCatColor`(18228), `twvHexAlpha`(18238), `twvColDates`(18246), `twvTasksByDate`(18253), `twvTtByDate`(18265), `twvLayoutBlocks`(18287), `twvSnap5`(18303), `twvEsc`(18522), `twvAttachBlockDrag`(18526), `twvAttachAlldayDrag`(18622)
+- _schedule (timetable)_ (30): `scheduleTargetHasLinkedTask`(10721), `generatedScheduleKey`(12566), `ttPrepGetStore`(12882), `ttPrepApplyChecks`(12883), `ttPrepPersistChecks`(12889), `normalizeTimetableTaskCategories`(16910), `timetableTaskHash`(16920), `timetableTaskDateKey`(16926), `timetableSlotId`(16933), `timetableLegacySlotKey`(16936), `ensureTimetableSlotIds`(16939), `findTimetableExpectedKeyForTask`(16999), `timetableTaskKey`(17012), `buildTimetableExpectedTasks`(17015), `reconcileTimetableTasks`(17070), `cleanupLegacyTimetableTaskConflicts`(17181), `scheduleBlockSave`(22050), `ttReadPalette`(22808), `ttReadThemePalette`(22815), `ttColorToHex`(22823), `ttResolveThemePaletteColor`(22830), `ttFallbackPalette`(22841), `themeStudioRenderTimetablePalette`(22947), `loadTimetables`(23033), `saveTimetables`(23052), `newTimetable`(23545), `deleteTimetable`(23563), `_initSchedule`(23693), `startNotifScheduler`(26051), `scheduleDiaryAutoSync`(32557)
+- _schedule (timetable weekly view)_ (15): `twvDateKey`(18222), `twvAnchorForToday`(18223), `twvEnsureAnchor`(18231), `twvMins`(18232), `twvFmt`(18233), `twvCatColor`(18234), `twvHexAlpha`(18244), `twvColDates`(18252), `twvTasksByDate`(18259), `twvTtByDate`(18271), `twvLayoutBlocks`(18293), `twvSnap5`(18309), `twvEsc`(18528), `twvAttachBlockDrag`(18532), `twvAttachAlldayDrag`(18628)
 
 ### 취미 / Hobby — `hobby`
 
@@ -375,12 +375,12 @@ Markup landmark: `index.html:7392-7476`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="btn-banner">` | 🖼 | `initHobbyBanner`(21191) | 7404 |
-| `<button id="btn-banner-pos">` | ↔ | `initHobbyBanner`(21223) | 7405 |
-| `<button id="hob-prev">` | ‹ | `deleteCat`(21112) | 7420 |
-| `<button id="hob-next">` | › | `deleteCat`(21113) | 7421 |
-| `<button id="hob-today">` | 오늘 | `deleteCat`(21114) | 7422 |
-| `<button id="hob-full-toggle">` | 풀뷰 | `hobRenderCal`(20580), `deleteCat`(21115) | 7423 |
+| `<button id="btn-banner">` | 🖼 | `initHobbyBanner`(21197) | 7404 |
+| `<button id="btn-banner-pos">` | ↔ | `initHobbyBanner`(21229) | 7405 |
+| `<button id="hob-prev">` | ‹ | `deleteCat`(21118) | 7420 |
+| `<button id="hob-next">` | › | `deleteCat`(21119) | 7421 |
+| `<button id="hob-today">` | 오늘 | `deleteCat`(21120) | 7422 |
+| `<button id="hob-full-toggle">` | 풀뷰 | `hobRenderCal`(20586), `deleteCat`(21121) | 7423 |
 | `<button id="hob-add-item-btn">` | ＋ 추가 | onclick=`openItemModal()` | 7446 |
 | `<button>` | .cat-add-btn | onclick=`hobOpenCatModal()` | 7461 |
 
@@ -388,13 +388,13 @@ Markup landmark: `index.html:7392-7476`
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-dk` | `hobRenderCal` | 20640 |
-| `data-id` | `hobBuildItemEl` | 20716 |
+| `data-dk` | `hobRenderCal` | 20646 |
+| `data-id` | `hobBuildItemEl` | 20722 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _hobby_ (13): `hobLoadCats`(20461), `hobReloadFromStorage`(20510), `hobPad`(20541), `hobEscHtml`(20542), `hobGetCat`(20543), `hobEnsureItemCats`(20544), `hobRenderCal`(20561), `hobBuildItemEl`(20709), `hobRenderCats`(20798), `hobDeleteItem`(21035), `hobOpenCatModal`(21054), `hobCloseCatModal`(21080), `_initHobby`(21136)
+- _hobby_ (13): `hobLoadCats`(20467), `hobReloadFromStorage`(20516), `hobPad`(20547), `hobEscHtml`(20548), `hobGetCat`(20549), `hobEnsureItemCats`(20550), `hobRenderCal`(20567), `hobBuildItemEl`(20715), `hobRenderCats`(20804), `hobDeleteItem`(21041), `hobOpenCatModal`(21060), `hobCloseCatModal`(21086), `_initHobby`(21142)
 
 ### 음악 / Music — `music`
 
@@ -404,66 +404,66 @@ Markup landmark: `index.html:7479-7543`
 
 | Element | Label | Handler | Line |
 |---|---|---|---|
-| `<button id="music-add-toggle" type="button">` | 플레이리스트 추가 | `_initMusic`(9371), `musicEnsureLibrarySections`(9430), `musicPlaySong`(9793), `musicV8InjectLayout`(37257) | 7488 |
-| `<input id="music-title-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508) | 7511 |
-| `<input id="music-url-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508) | 7512 |
-| `<input id="music-mood-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508), `musicUiEnsure`(9868) | 7513 |
-| `<input id="music-usecase-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508), `musicUiEnsure`(9869) | 7514 |
-| `<input id="music-tags-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508), `musicUiEnsure`(9867) | 7515 |
-| `<input id="music-start-input" type="number">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508) | 7516 |
-| `<input id="music-end-input" type="number">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508) | 7517 |
-| `<input id="music-volume-input" type="number">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508) | 7518 |
-| `<textarea id="music-notes-input">` | .set-inp | `musicReadForm`(9277), `musicBindLibraryActions`(9508), `musicEnhanceSongForm`(36282) | 7519 |
-| `<input id="music-cover-input" type="file">` |  | `musicClearForm`(9278), `_initMusic`(9371), `musicPlaySong`(9793) | 7521 |
-| `<button id="music-add-cancel" type="button">` | 취소 | `_initMusic`(9371), `musicPlaySong`(9793) | 7524 |
-| `<button id="music-save-btn" type="button">` | 저장 | `_initMusic`(9371), `musicPlaySong`(9793) | 7525 |
-| `<button id="music-song-import-btn" type="button">` | CSV로 가져오기 | `musicPlaySong`(9793) | 7526 |
-| `<input id="music-song-import-input" type="file">` |  | `musicImportSongsCSV`(9690), `musicPlaySong`(9793) | 7527 |
+| `<button id="music-add-toggle" type="button">` | 플레이리스트 추가 | `_initMusic`(9377), `musicEnsureLibrarySections`(9436), `musicPlaySong`(9799), `musicV8InjectLayout`(37263) | 7488 |
+| `<input id="music-title-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514) | 7511 |
+| `<input id="music-url-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514) | 7512 |
+| `<input id="music-mood-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514), `musicUiEnsure`(9874) | 7513 |
+| `<input id="music-usecase-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514), `musicUiEnsure`(9875) | 7514 |
+| `<input id="music-tags-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514), `musicUiEnsure`(9873) | 7515 |
+| `<input id="music-start-input" type="number">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514) | 7516 |
+| `<input id="music-end-input" type="number">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514) | 7517 |
+| `<input id="music-volume-input" type="number">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514) | 7518 |
+| `<textarea id="music-notes-input">` | .set-inp | `musicReadForm`(9283), `musicBindLibraryActions`(9514), `musicEnhanceSongForm`(36288) | 7519 |
+| `<input id="music-cover-input" type="file">` |  | `musicClearForm`(9284), `_initMusic`(9377), `musicPlaySong`(9799) | 7521 |
+| `<button id="music-add-cancel" type="button">` | 취소 | `_initMusic`(9377), `musicPlaySong`(9799) | 7524 |
+| `<button id="music-save-btn" type="button">` | 저장 | `_initMusic`(9377), `musicPlaySong`(9799) | 7525 |
+| `<button id="music-song-import-btn" type="button">` | CSV로 가져오기 | `musicPlaySong`(9799) | 7526 |
+| `<input id="music-song-import-input" type="file">` |  | `musicImportSongsCSV`(9696), `musicPlaySong`(9799) | 7527 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-cover-pl` | `musicApplyV5Panels` | 37064 |
-| `data-cover-song` | `musicApplyV5Panels` | 37074 |
-| `data-del-sid` | `musicShowEditPanel` | 36332 |
-| `data-hour` | `musicManagePlaylist` | 10394 |
-| `data-mpl-dn` | `musicShowManagePanel` | 36464 |
-| `data-mpl-rm` | `musicShowManagePanel` | 36465 |
-| `data-mpl-up` | `musicShowManagePanel` | 36463 |
-| `data-music-chip` | `musicPresetChipsHtml` | 9801 |
-| `data-music-chip-group` | `musicPresetChipsHtml`, `musicReadPresetChips` | 9799, 9805 |
-| `data-music-delete` | `musicRenderGrid` | 9274 |
-| `data-music-mode` | `musicRenderModes`, `musicV9RenderReco` | 9272, 37480 |
-| `data-music-pl-down` | `musicPlaylistCard`, `musicBindLibraryActions` | 9422, 9503 |
-| `data-music-pl-remove` | `musicPlaylistCard`, `musicBindLibraryActions` | 9422, 9502 |
-| `data-music-pl-up` | `musicPlaylistCard`, `musicBindLibraryActions` | 9422, 9503 |
-| `data-music-play` | `musicRenderRecommended`, `musicRenderGrid`, `musicV8MarkPlaying` | 9273, 9274, 37159 |
-| `data-music-playlist-add` | `musicPlaylistCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicShowManagePanel`, `musicApplyHierarchy` | 9424, 9498, 9901, 36547, 36747 |
-| `data-music-playlist-delete` | `musicPlaylistCard`, `musicBindLibraryActions` | 9424, 9501 |
-| `data-music-playlist-edit` | `musicUiEnsure`, `musicManagePlaylist`, `musicShowManagePanel`, `musicApplyHierarchy` | 9901, 9917, 36548, 36748 |
-| `data-music-playlist-export` | `musicPlaylistCard`, `musicBindLibraryActions` | 9424, 9499 |
-| `data-music-playlist-import` | `musicPlaylistCard`, `musicBindLibraryActions` | 9424, 9500 |
-| `data-music-playlist-play` | `musicPlaylistCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicShowManagePanel`, `musicApplyHierarchy`, `musicV8MarkPlaying` | 9424, 9497, 9901, 36546, 36740, 37159 |
-| `data-music-song-add` | `musicSongCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9416, 9495, 9895, 36766 |
-| `data-music-song-edit` | `musicSongCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9416, 9496, 9895, 36767 |
-| `data-music-song-play` | `musicSongCard`, `musicEnsureLibrarySections`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9416, 9468, 9494, 9895, 36765 |
-| `data-music-song-select` | `musicBindLibraryActions`, `musicApplyHierarchy` | 9504, 36758 |
-| `data-page` | `musicManagePlaylist` | 9949 |
-| `data-pick-pl` | `musicShowAddSongFlow` | 36403 |
-| `data-pick-song` | `musicShowAddSongFlow` | 36426 |
-| `data-save-sid` | `musicShowEditPanel` | 36334 |
-| `data-si` | `musicShowManagePanel` | 36463 |
-| `data-sid` | `musicShowManagePanel` | 36465 |
-| `data-song-id` | `musicPlaylistCard` | 9422 |
-| `data-song-index` | `musicPlaylistCard` | 9422 |
-| `data-v9mode` | `musicV9RenderReco` | 37450 |
-| `data-view` | `musicApplyViewMode`, `musicV14InjectToggle` | 38063, 38085 |
+| `data-cover-pl` | `musicApplyV5Panels` | 37070 |
+| `data-cover-song` | `musicApplyV5Panels` | 37080 |
+| `data-del-sid` | `musicShowEditPanel` | 36338 |
+| `data-hour` | `musicManagePlaylist` | 10400 |
+| `data-mpl-dn` | `musicShowManagePanel` | 36470 |
+| `data-mpl-rm` | `musicShowManagePanel` | 36471 |
+| `data-mpl-up` | `musicShowManagePanel` | 36469 |
+| `data-music-chip` | `musicPresetChipsHtml` | 9807 |
+| `data-music-chip-group` | `musicPresetChipsHtml`, `musicReadPresetChips` | 9805, 9811 |
+| `data-music-delete` | `musicRenderGrid` | 9280 |
+| `data-music-mode` | `musicRenderModes`, `musicV9RenderReco` | 9278, 37486 |
+| `data-music-pl-down` | `musicPlaylistCard`, `musicBindLibraryActions` | 9428, 9509 |
+| `data-music-pl-remove` | `musicPlaylistCard`, `musicBindLibraryActions` | 9428, 9508 |
+| `data-music-pl-up` | `musicPlaylistCard`, `musicBindLibraryActions` | 9428, 9509 |
+| `data-music-play` | `musicRenderRecommended`, `musicRenderGrid`, `musicV8MarkPlaying` | 9279, 9280, 37165 |
+| `data-music-playlist-add` | `musicPlaylistCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicShowManagePanel`, `musicApplyHierarchy` | 9430, 9504, 9907, 36553, 36753 |
+| `data-music-playlist-delete` | `musicPlaylistCard`, `musicBindLibraryActions` | 9430, 9507 |
+| `data-music-playlist-edit` | `musicUiEnsure`, `musicManagePlaylist`, `musicShowManagePanel`, `musicApplyHierarchy` | 9907, 9923, 36554, 36754 |
+| `data-music-playlist-export` | `musicPlaylistCard`, `musicBindLibraryActions` | 9430, 9505 |
+| `data-music-playlist-import` | `musicPlaylistCard`, `musicBindLibraryActions` | 9430, 9506 |
+| `data-music-playlist-play` | `musicPlaylistCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicShowManagePanel`, `musicApplyHierarchy`, `musicV8MarkPlaying` | 9430, 9503, 9907, 36552, 36746, 37165 |
+| `data-music-song-add` | `musicSongCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9422, 9501, 9901, 36772 |
+| `data-music-song-edit` | `musicSongCard`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9422, 9502, 9901, 36773 |
+| `data-music-song-play` | `musicSongCard`, `musicEnsureLibrarySections`, `musicBindLibraryActions`, `musicUiEnsure`, `musicApplyHierarchy` | 9422, 9474, 9500, 9901, 36771 |
+| `data-music-song-select` | `musicBindLibraryActions`, `musicApplyHierarchy` | 9510, 36764 |
+| `data-page` | `musicManagePlaylist` | 9955 |
+| `data-pick-pl` | `musicShowAddSongFlow` | 36409 |
+| `data-pick-song` | `musicShowAddSongFlow` | 36432 |
+| `data-save-sid` | `musicShowEditPanel` | 36340 |
+| `data-si` | `musicShowManagePanel` | 36469 |
+| `data-sid` | `musicShowManagePanel` | 36471 |
+| `data-song-id` | `musicPlaylistCard` | 9428 |
+| `data-song-index` | `musicPlaylistCard` | 9428 |
+| `data-v9mode` | `musicV9RenderReco` | 37456 |
+| `data-view` | `musicApplyViewMode`, `musicV14InjectToggle` | 38069, 38091 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _music_ (105): `renderHomeWidgetMusic`(9233), `musicEsc`(9259), `musicId`(9260), `musicLoad`(9261), `musicSave`(9262), `musicUrlObj`(9263), `musicVideoId`(9264), `musicListId`(9265), `musicThumb`(9266), `musicSplitTags`(9267), `musicCurrentPlaylist`(9268), `musicCurrentItem`(9269), `musicTagsHtml`(9270), `musicRecommend`(9271), `musicRenderModes`(9272), `musicRenderRecommended`(9273), `musicRenderGrid`(9274), `musicRender`(9275), `musicDeletePlaylist`(9276), `musicReadForm`(9277), `musicClearForm`(9278), `musicSaveFromForm`(9279), `musicReadCover`(9280), `_saveMusicDurationCache`(9291), `musicAdDiag`(9293), `musicShowAdDiag`(9297), `musicCheckAdState`(9319), `musicAdWatchdog`(9355), `musicEnsurePlayer`(9363), `musicPlayPlaylist`(9364), `musicLoadCurrent`(9365), `musicPlayPause`(9366), `musicNext`(9367), `musicPrev`(9368), `musicUpdateMini`(9369), `musicBindMini`(9370), `_initMusic`(9371), `musicNormalizeLibrary`(9377), `musicSongById`(9413), `musicPlaylistById`(9414), `musicSongCard`(9415), `musicPlaylistCard`(9418), `musicEnsureLibrarySections`(9426), `musicBindLibraryActions`(9493), `musicCreatePlaylist`(9518), `musicAddSongToPlaylistPrompt`(9527), `musicRemoveSongFromPlaylist`(9549), `musicMovePlaylistSong`(9550), `musicEditSong`(9551), `musicCsvEscape`(9571), `musicSongsToCSV`(9576), `musicParseCSV`(9588), `musicCSVToSongs`(9608), `musicExportPlaylistCSV`(9629), `musicImportPlaylistCSV`(9645), `musicHandlePlaylistImport`(9650), `musicImportSongsCSV`(9689), `musicHandleSongsImport`(9693), `musicBulkSelectedIds`(9728), `musicBulkToggleSong`(9731), `musicUpdateBulkToolbar`(9735), `musicBulkClearSelection`(9742), `musicBulkDeleteSelected`(9746), `musicBulkAddToPlaylist`(9762), `musicPlaySong`(9783), `musicPresetChipsHtml`(9797), `musicReadPresetChips`(9804), `musicBindPresetChips`(9807), `musicSelectedTags`(9814), `musicFormatTime`(9820), `musicUpdateProgress`(9825), `musicStartProgressTimer`(9845), `musicBindProgressSeek`(9849), `musicUiEnsure`(9862), `musicManagePlaylist`(9903), `musicCloseEditPanel`(36272), `musicClosePickerPanel`(36273), `musicEnhanceSongForm`(36276), `musicShowEditPanel`(36304), `musicShowAddSongFlow`(36377), `musicShowManagePanel`(36448), `musicSetPlCreateOpen`(36582), `musicIsPlCreateOpen`(36594), `musicApplyHierarchy`(36633), `musicApplyV5Panels`(36773), `musicV8SaveCurrent`(37102), `musicV8RestoreCurrent`(37105), `musicV8RenderResume`(37118), `musicV8MarkPlaying`(37157), `musicV8InjectLayout`(37180), `musicV8UpdateCounts`(37266), `musicV8UpdateOnboard`(37274), `musicV8Bootstrap`(37315), `musicV9ReorderTab`(37338), `musicV9UpdateCDFace`(37351), `musicV9InjectCD`(37362), `musicV9RenderReco`(37431), `musicV9InjectColumns`(37489), `musicV9Bootstrap`(37541), `musicV10EnsurePlBtn`(37609), `musicGetViewMode`(38056), `musicApplyViewMode`(38059), `musicSetViewMode`(38068), `musicV14InjectToggle`(38076), `musicV14Bootstrap`(38101)
+- _music_ (105): `renderHomeWidgetMusic`(9233), `musicEsc`(9265), `musicId`(9266), `musicLoad`(9267), `musicSave`(9268), `musicUrlObj`(9269), `musicVideoId`(9270), `musicListId`(9271), `musicThumb`(9272), `musicSplitTags`(9273), `musicCurrentPlaylist`(9274), `musicCurrentItem`(9275), `musicTagsHtml`(9276), `musicRecommend`(9277), `musicRenderModes`(9278), `musicRenderRecommended`(9279), `musicRenderGrid`(9280), `musicRender`(9281), `musicDeletePlaylist`(9282), `musicReadForm`(9283), `musicClearForm`(9284), `musicSaveFromForm`(9285), `musicReadCover`(9286), `_saveMusicDurationCache`(9297), `musicAdDiag`(9299), `musicShowAdDiag`(9303), `musicCheckAdState`(9325), `musicAdWatchdog`(9361), `musicEnsurePlayer`(9369), `musicPlayPlaylist`(9370), `musicLoadCurrent`(9371), `musicPlayPause`(9372), `musicNext`(9373), `musicPrev`(9374), `musicUpdateMini`(9375), `musicBindMini`(9376), `_initMusic`(9377), `musicNormalizeLibrary`(9383), `musicSongById`(9419), `musicPlaylistById`(9420), `musicSongCard`(9421), `musicPlaylistCard`(9424), `musicEnsureLibrarySections`(9432), `musicBindLibraryActions`(9499), `musicCreatePlaylist`(9524), `musicAddSongToPlaylistPrompt`(9533), `musicRemoveSongFromPlaylist`(9555), `musicMovePlaylistSong`(9556), `musicEditSong`(9557), `musicCsvEscape`(9577), `musicSongsToCSV`(9582), `musicParseCSV`(9594), `musicCSVToSongs`(9614), `musicExportPlaylistCSV`(9635), `musicImportPlaylistCSV`(9651), `musicHandlePlaylistImport`(9656), `musicImportSongsCSV`(9695), `musicHandleSongsImport`(9699), `musicBulkSelectedIds`(9734), `musicBulkToggleSong`(9737), `musicUpdateBulkToolbar`(9741), `musicBulkClearSelection`(9748), `musicBulkDeleteSelected`(9752), `musicBulkAddToPlaylist`(9768), `musicPlaySong`(9789), `musicPresetChipsHtml`(9803), `musicReadPresetChips`(9810), `musicBindPresetChips`(9813), `musicSelectedTags`(9820), `musicFormatTime`(9826), `musicUpdateProgress`(9831), `musicStartProgressTimer`(9851), `musicBindProgressSeek`(9855), `musicUiEnsure`(9868), `musicManagePlaylist`(9909), `musicCloseEditPanel`(36278), `musicClosePickerPanel`(36279), `musicEnhanceSongForm`(36282), `musicShowEditPanel`(36310), `musicShowAddSongFlow`(36383), `musicShowManagePanel`(36454), `musicSetPlCreateOpen`(36588), `musicIsPlCreateOpen`(36600), `musicApplyHierarchy`(36639), `musicApplyV5Panels`(36779), `musicV8SaveCurrent`(37108), `musicV8RestoreCurrent`(37111), `musicV8RenderResume`(37124), `musicV8MarkPlaying`(37163), `musicV8InjectLayout`(37186), `musicV8UpdateCounts`(37272), `musicV8UpdateOnboard`(37280), `musicV8Bootstrap`(37321), `musicV9ReorderTab`(37344), `musicV9UpdateCDFace`(37357), `musicV9InjectCD`(37368), `musicV9RenderReco`(37437), `musicV9InjectColumns`(37495), `musicV9Bootstrap`(37547), `musicV10EnsurePlBtn`(37615), `musicGetViewMode`(38062), `musicApplyViewMode`(38065), `musicSetViewMode`(38074), `musicV14InjectToggle`(38082), `musicV14Bootstrap`(38107)
 
 ### 충전과 체크 / Recharge & Check — `recharge`
 
@@ -481,14 +481,14 @@ Markup landmark: `index.html:7755-7841`
 | `<div>` | .energy-level | onclick=`selectEnergy(5)` | 7796 |
 | `<button>` | + 추가 | onclick=`openActModal('charge')` | 7811 |
 | `<button>` | + 추가 | onclick=`openActModal('drain')` | 7820 |
-| `<textarea id="reflect-ta">` | .reflect-ta | `saveReflect`(22714), `saveReflect`(22719) | 7833 |
+| `<textarea id="reflect-ta">` | .reflect-ta | `saveReflect`(22720), `saveReflect`(22725) | 7833 |
 | `<button>` | 저장 | onclick=`saveReflect()` | 7834 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _recharge_ (6): `openRechargeCheck`(20233), `rcPad`(22454), `rcTodayStr`(22455), `rcEscHtml`(22459), `rcRenderList`(22519), `_initRecharge`(22762)
-- _recharge (check-in)_ (10): `mergeGeneratedChecklist`(16955), `openPrepChecklistEditor`(19215), `checkRender`(20085), `startCheck`(20121), `chkEscHtml`(20427), `chkEscAttr`(20428), `chkPad`(20429), `_initCheck`(20434), `updateSectionChecklist`(21593), `deleteCheckLog`(23927)
+- _recharge_ (6): `openRechargeCheck`(20239), `rcPad`(22460), `rcTodayStr`(22461), `rcEscHtml`(22465), `rcRenderList`(22525), `_initRecharge`(22768)
+- _recharge (check-in)_ (10): `mergeGeneratedChecklist`(16961), `openPrepChecklistEditor`(19221), `checkRender`(20091), `startCheck`(20127), `chkEscHtml`(20433), `chkEscAttr`(20434), `chkPad`(20435), `_initCheck`(20440), `updateSectionChecklist`(21599), `deleteCheckLog`(23933)
 
 ### 기록 / Records — `records`
 
@@ -503,7 +503,7 @@ Markup landmark: `index.html:7918-8006`
 | `<button>` | .rec-tab | onclick=`switchPanel('trends',this)` | 7933 |
 | `<button>` | .rec-tab | onclick=`switchPanel('moods',this)` | 7936 |
 | `<button>` | .rec-tab | onclick=`switchPanel('values',this)` | 7941 |
-| `<textarea id="capture-ta">` | .rec-capture-ta | `saveMemo`(23804) | 7947 |
+| `<textarea id="capture-ta">` | .rec-capture-ta | `saveMemo`(23810) | 7947 |
 | `<button>` | 저장 | onclick=`saveMemo()` | 7948 |
 | `<button id="trend-add-btn-el">` | ＋ 새 지표 추가 | onclick=`addMetric()` | 7980 |
 | `<button>` | ＋ 가치관 추가 | onclick=`addValue()` | 8000 |
@@ -511,7 +511,7 @@ Markup landmark: `index.html:7918-8006`
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _records_ (32): `renderHomeWidgetMemo`(9177), `renderHomeWidgetValues`(9191), `loadCaptureCatMemory`(13645), `saveCaptureCatMemory`(13646), `_captureCatMemoryTokens`(13651), `_captureCatMemoryGuess`(13659), `_captureCatMemoryLearn`(13674), `taskOrderValue`(17204), `taskCategoryColorInputValue`(17379), `buildFallbackInsight`(20379), `buildMemoryHint`(20396), `pruneTrackerValues`(22091), `recPad`(23734), `recEscHtml`(23735), `recTodayStr`(23736), `memosEnsureIds`(23774), `memosKey`(23790), `memosCommit`(23796), `saveMemo`(23803), `deleteMemo`(23814), `renderMemos`(23825), `buildMemoCard`(23864), `renderInsights`(23910), `buildInsightCard`(23936), `metricFilterHistory`(24160), `metricMergedHistory`(24170), `saveMetricLog`(24464), `saveMetricConfig`(24515), `addMetric`(24617), `renderValues`(24720), `addValue`(24740), `_initRecords`(24770)
+- _records_ (32): `renderHomeWidgetMemo`(9177), `renderHomeWidgetValues`(9191), `loadCaptureCatMemory`(13651), `saveCaptureCatMemory`(13652), `_captureCatMemoryTokens`(13657), `_captureCatMemoryGuess`(13665), `_captureCatMemoryLearn`(13680), `taskOrderValue`(17210), `taskCategoryColorInputValue`(17385), `buildFallbackInsight`(20385), `buildMemoryHint`(20402), `pruneTrackerValues`(22097), `recPad`(23740), `recEscHtml`(23741), `recTodayStr`(23742), `memosEnsureIds`(23780), `memosKey`(23796), `memosCommit`(23802), `saveMemo`(23809), `deleteMemo`(23820), `renderMemos`(23831), `buildMemoCard`(23870), `renderInsights`(23916), `buildInsightCard`(23942), `metricFilterHistory`(24166), `metricMergedHistory`(24176), `saveMetricLog`(24470), `saveMetricConfig`(24521), `addMetric`(24623), `renderValues`(24726), `addValue`(24746), `_initRecords`(24776)
 
 ### 집중 타이머 / Focus timer overlay — `timer`
 
@@ -521,16 +521,16 @@ Markup landmark: `index.html:7546-7550`
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-focus-mode` | `renderFocusTimer` | 39093 |
-| `data-focus-sound` | `renderFocusTimer` | 39108 |
-| `data-ft-view` | `renderFocusTimer` | 39070 |
-| `data-ftl-id` | `focusLogHtml`, `wireFocusLog` | 38998, 39056 |
-| `data-task-pick` | `focusTimerShowTaskPicker` | 38800 |
+| `data-focus-mode` | `renderFocusTimer` | 39099 |
+| `data-focus-sound` | `renderFocusTimer` | 39114 |
+| `data-ft-view` | `renderFocusTimer` | 39076 |
+| `data-ftl-id` | `focusLogHtml`, `wireFocusLog` | 39004, 39062 |
+| `data-task-pick` | `focusTimerShowTaskPicker` | 38806 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _focus-timer widget_ (48): `focusNavigate`(13592), `toggleFocusMode`(26170), `loadFocusMode`(26177), `focusTimerNewId`(38271), `focusTimerEnsureIds`(38272), `focusTimerLoadCfg`(38278), `focusTimerSaveCfg`(38291), `focusTimerLoadLog`(38294), `focusTimerSaveLog`(38298), `_focusAudioCtxGet`(38497), `focusAudioStop`(38507), `focusAudioPlay`(38515), `focusTimerElapsedMs`(38555), `focusTimerRemainingMs`(38558), `focusTimerFormatMs`(38562), `focusTimerPhaseLabel`(38567), `focusTimerSetTarget`(38573), `focusTimerNextPhase`(38582), `focusTimerLinkedTask`(38593), `focusTimerLogSession`(38598), `focusTimerStop`(38605), `focusTimerStartForTask`(38617), `focusTimerStart`(38631), `focusTimerPause`(38645), `focusTimerResume`(38653), `focusTimerReset`(38663), `focusTimerFinish`(38670), `focusTimerTick`(38779), `focusTimerShowTaskPicker`(38790), `_ftMiniClampPos`(38813), `_ftMiniLoadPos`(38818), `_ftMiniSavePos`(38819), `_ftMiniApplyPos`(38820), `_ftMiniSetupDrag`(38825), `renderFocusTimerMini`(38853), `_fte`(38870), `_ftDateKeyFromMs`(38873), `focusWeekStart`(38875), `focusFmtDur`(38883), `focusWeekAggregate`(38892), `buildManualFocusRecord`(38924), `_ftModeColor`(38936), `focusLogHtml`(38939), `focusTimerDeleteRecord`(39011), `focusTimerManualAdd`(39017), `wireFocusLog`(39051), `renderFocusTimer`(39066), `_initTimer`(39248)
+- _focus-timer widget_ (48): `focusNavigate`(13598), `toggleFocusMode`(26176), `loadFocusMode`(26183), `focusTimerNewId`(38277), `focusTimerEnsureIds`(38278), `focusTimerLoadCfg`(38284), `focusTimerSaveCfg`(38297), `focusTimerLoadLog`(38300), `focusTimerSaveLog`(38304), `_focusAudioCtxGet`(38503), `focusAudioStop`(38513), `focusAudioPlay`(38521), `focusTimerElapsedMs`(38561), `focusTimerRemainingMs`(38564), `focusTimerFormatMs`(38568), `focusTimerPhaseLabel`(38573), `focusTimerSetTarget`(38579), `focusTimerNextPhase`(38588), `focusTimerLinkedTask`(38599), `focusTimerLogSession`(38604), `focusTimerStop`(38611), `focusTimerStartForTask`(38623), `focusTimerStart`(38637), `focusTimerPause`(38651), `focusTimerResume`(38659), `focusTimerReset`(38669), `focusTimerFinish`(38676), `focusTimerTick`(38785), `focusTimerShowTaskPicker`(38796), `_ftMiniClampPos`(38819), `_ftMiniLoadPos`(38824), `_ftMiniSavePos`(38825), `_ftMiniApplyPos`(38826), `_ftMiniSetupDrag`(38831), `renderFocusTimerMini`(38859), `_fte`(38876), `_ftDateKeyFromMs`(38879), `focusWeekStart`(38881), `focusFmtDur`(38889), `focusWeekAggregate`(38898), `buildManualFocusRecord`(38930), `_ftModeColor`(38942), `focusLogHtml`(38945), `focusTimerDeleteRecord`(39017), `focusTimerManualAdd`(39023), `wireFocusLog`(39057), `renderFocusTimer`(39072), `_initTimer`(39254)
 
 ### 설정 / Settings — `settings`
 
@@ -550,11 +550,11 @@ Markup landmark: `index.html:8077-9000`
 | `<button>` | .set-tab | onclick=`switchTab('about',this)` | 8122 |
 | `<div id="set-nav-overlay">` | .set-nav-overlay | onclick=`closeSetNav()` | 8128 |
 | `<button>` | ☰ | onclick=`toggleSetNav()` | 8135 |
-| `<input id="theme-custom-picker" type="color">` |  | `renderThemeSwatches`(25459), `applyThemeColor`(25508), `resetTheme`(25520) | 8160 |
-| `<input id="theme-custom-hex">` | .set-inp | `renderThemeSwatches`(25460), `applyThemeColor`(25509), `resetTheme`(25523) | 8161 |
+| `<input id="theme-custom-picker" type="color">` |  | `renderThemeSwatches`(25465), `applyThemeColor`(25514), `resetTheme`(25526) | 8160 |
+| `<input id="theme-custom-hex">` | .set-inp | `renderThemeSwatches`(25466), `applyThemeColor`(25515), `resetTheme`(25529) | 8161 |
 | `<button>` | 기본값 | onclick=`resetTheme()` | 8162 |
-| `<select id="theme-mode-sel">` | .set-select | `applyThemeMode`(25535) | 8177 |
-| `<select id="week-start-sel">` | .set-select | `renderWeekStartControl`(17290) | 8195 |
+| `<select id="theme-mode-sel">` | .set-select | `applyThemeMode`(25541) | 8177 |
+| `<select id="week-start-sel">` | .set-select | `renderWeekStartControl`(17296) | 8195 |
 | `<div>` | .set-row | onclick=`toggleDetail('focus-detail')` | 8205 |
 | `<div>` | .toggle-wrap | onclick=`event.stopPropagation();toggleFocusMode(this)` | 8212 |
 | `<button type="button">` | Appearance | data-theme-panel (see data-hooks below) | 8244 |
@@ -564,15 +564,15 @@ Markup landmark: `index.html:8077-9000`
 | `<button type="button">` | Icons | data-theme-panel (see data-hooks below) | 8248 |
 | `<button type="button">` | Save current state | onclick=`themeStudioSavePresetDialog()` | 8265 |
 | `<button type="button">` | Return default | onclick=`themeStudioReset()` | 8265 |
-| `<input id="theme-import-file" type="file">` |  | `themeStudioOpenImport`(35663), `themeStudioRender`(36172) | 8288 |
+| `<input id="theme-import-file" type="file">` |  | `themeStudioOpenImport`(35669), `themeStudioRender`(36178) | 8288 |
 | `<button type="button">` | Import assets | onclick=`themeStudioOpenImport()` | 8288 |
 | `<div>` | .toggle-wrap | onclick=`toggleStickerHandle(this)` | 8309 |
 | `<button type="button">` | Remove page stickers | onclick=`clearCurrentPageStickers()` | 8312 |
 | `<button type="button">` | Remove all stickers | onclick=`clearAllGlobalStickers()` | 8313 |
 | `<div>` | .toggle-wrap | onclick=`toggleStickerShadow(this)` | 8323 |
-| `<input id="profile-name" type="text">` | .set-inp | `loadProfile`(25547) | 8348 |
-| `<input id="profile-handle" type="text">` | .set-inp | `loadProfile`(25549) | 8349 |
-| `<input id="profile-status" type="text">` | .set-inp | `loadProfile`(25551) | 8350 |
+| `<input id="profile-name" type="text">` | .set-inp | `loadProfile`(25553) | 8348 |
+| `<input id="profile-handle" type="text">` | .set-inp | `loadProfile`(25555) | 8349 |
+| `<input id="profile-status" type="text">` | .set-inp | `loadProfile`(25557) | 8350 |
 | `<button type="button">` | 사진 변경 | onclick=`document.getElementById('profile-photo-file').click()` | 8351 |
 | `<input id="profile-photo-file" type="file">` |  | _unbound in static scan — search `profile-photo-file` in index.html_ | 8352 |
 | `<button>` | 저장 | onclick=`saveProfileName()` | 8353 |
@@ -582,9 +582,9 @@ Markup landmark: `index.html:8077-9000`
 | `<button>` | + 추가 | onclick=`addPhilCard()` | 8379 |
 | `<button>` | 저장 | onclick=`savePhilCards()` | 8380 |
 | `<div>` | .set-row | onclick=`toggleDetail('pw-detail')` | 8387 |
-| `<input id="pw-inp" type="password">` | .set-inp | `savePw`(25783) | 8398 |
+| `<input id="pw-inp" type="password">` | .set-inp | `savePw`(25789) | 8398 |
 | `<button>` | 👁 | onclick=`togglePwVis('pw-inp',this)` | 8399 |
-| `<input id="pw-inp2" type="password">` | .set-inp | `savePw`(25784) | 8403 |
+| `<input id="pw-inp2" type="password">` | .set-inp | `savePw`(25790) | 8403 |
 | `<button>` | 👁 | onclick=`togglePwVis('pw-inp2',this)` | 8404 |
 | `<button>` | 비밀번호 저장 | onclick=`savePw()` | 8407 |
 | `<div>` | .set-row | onclick=`toggleDetail('groq-detail')` | 8423 |
@@ -613,13 +613,13 @@ Markup landmark: `index.html:8077-9000`
 | `<button>` | 1시간 | onclick=`setNotifInterval(60,this)` | 8543 |
 | `<button>` | 2시간 | onclick=`setNotifInterval(120,this)` | 8544 |
 | `<div>` | .toggle-wrap | onclick=`toggleNotifType('routine',this)` | 8559 |
-| `<input id="notif-time-routine" type="time">` | .modal-time-inp | `_renderNotifUI`(25899, via `'notif-time-'+key`) | 8567 |
+| `<input id="notif-time-routine" type="time">` | .modal-time-inp | `_renderNotifUI`(25905, via `'notif-time-'+key`) | 8567 |
 | `<div>` | .toggle-wrap | onclick=`toggleNotifType('deadline',this)` | 8581 |
-| `<input id="notif-time-deadline" type="time">` | .modal-time-inp | `_renderNotifUI`(25899, via `'notif-time-'+key`) | 8589 |
+| `<input id="notif-time-deadline" type="time">` | .modal-time-inp | `_renderNotifUI`(25905, via `'notif-time-'+key`) | 8589 |
 | `<div>` | .toggle-wrap | onclick=`toggleNotifType('diary',this)` | 8603 |
-| `<input id="notif-time-diary" type="time">` | .modal-time-inp | `_renderNotifUI`(25899, via `'notif-time-'+key`) | 8611 |
+| `<input id="notif-time-diary" type="time">` | .modal-time-inp | `_renderNotifUI`(25905, via `'notif-time-'+key`) | 8611 |
 | `<div>` | .toggle-wrap | onclick=`toggleNotifType('checkin',this)` | 8625 |
-| `<input id="notif-time-checkin" type="time">` | .modal-time-inp | `_renderNotifUI`(25899, via `'notif-time-'+key`) | 8633 |
+| `<input id="notif-time-checkin" type="time">` | .modal-time-inp | `_renderNotifUI`(25905, via `'notif-time-'+key`) | 8633 |
 | `<div>` | .toggle-wrap | onclick=`toggleNotifType('task',this)` | 8647 |
 | `<button type="button">` | 정시 | onclick=`setNotifTaskLead(0,this)` | 8656 |
 | `<button type="button">` | 5분 전 | onclick=`setNotifTaskLead(5,this)` | 8657 |
@@ -628,13 +628,13 @@ Markup landmark: `index.html:8077-9000`
 | `<button type="button">` | 30분 전 | onclick=`setNotifTaskLead(30,this)` | 8660 |
 | `<button type="button">` | 1시간 전 | onclick=`setNotifTaskLead(60,this)` | 8661 |
 | `<button id="push-enable-btn">` | 푸시 켜기 | onclick=`pushToggle()` | 8676 |
-| `<input id="push-endpoint">` | .set-inp | `renderPushUI`(26143) | 8682 |
-| `<input id="push-vapid">` | .set-inp | `renderPushUI`(26144) | 8684 |
-| `<div id="fb-row">` | .service-row | `setFbStatus`(27583) | 8708 |
+| `<input id="push-endpoint">` | .set-inp | `renderPushUI`(26149) | 8682 |
+| `<input id="push-vapid">` | .set-inp | `renderPushUI`(26150) | 8684 |
+| `<div id="fb-row">` | .service-row | `setFbStatus`(27589) | 8708 |
 | `<button>` | 설정 | onclick=`toggleDetail('fb-detail')` | 8714 |
-| `<input id="fb-api-key">` | .set-inp | `readFbInputs`(27534), `fillFbInputs`(27536) | 8723 |
-| `<input id="fb-auth-domain">` | .set-inp | `readFbInputs`(27534), `fillFbInputs`(27536) | 8724 |
-| `<input id="fb-project-id">` | .set-inp | `readFbInputs`(27534), `fillFbInputs`(27536) | 8725 |
+| `<input id="fb-api-key">` | .set-inp | `readFbInputs`(27540), `fillFbInputs`(27542) | 8723 |
+| `<input id="fb-auth-domain">` | .set-inp | `readFbInputs`(27540), `fillFbInputs`(27542) | 8724 |
+| `<input id="fb-project-id">` | .set-inp | `readFbInputs`(27540), `fillFbInputs`(27542) | 8725 |
 | `<button>` | 저장 및 연결 | onclick=`saveFbConfig()` | 8727 |
 | `<button>` | Google 로그인 | onclick=`fbGoogleLogin()` | 8728 |
 | `<button>` | 📤 기기 공유 링크 | onclick=`fbShareConfigLink()` | 8729 |
@@ -644,9 +644,9 @@ Markup landmark: `index.html:8077-9000`
 | `<button>` | 🖼 이미지 진단 | onclick=`runImageDiagnostics()` | 8733 |
 | `<button>` | 연결 해제 | onclick=`clearFbConfig()` | 8734 |
 | `<button>` | 규칙 보기 | onclick=`showFirebaseRulesHelp()` | 8735 |
-| `<div id="notion-row">` | .service-row | `loadDiaryNotionConfig`(30687), `clearDiaryNotionConfig`(31116), `_pullDiaryPageProperties`(32160), `_pullDiaryPageProperties`(32352) | 8740 |
+| `<div id="notion-row">` | .service-row | `loadDiaryNotionConfig`(30693), `clearDiaryNotionConfig`(31122), `_pullDiaryPageProperties`(32166), `_pullDiaryPageProperties`(32358) | 8740 |
 | `<button>` | 설정 | onclick=`toggleDetail('notion-detail')` | 8746 |
-| `<input id="notion-worker-url">` | .set-inp | `loadDiaryNotionConfig`(30740) | 8753 |
+| `<input id="notion-worker-url">` | .set-inp | `loadDiaryNotionConfig`(30746) | 8753 |
 | `<button>` | 연결 테스트 | onclick=`testNotion()` | 8754 |
 | `<input id="notion-token" type="password">` | .set-inp | _unbound in static scan — search `notion-token` in index.html_ | 8758 |
 | `<button>` | 보기 | onclick=`togglePwVis('notion-token',this)` | 8759 |
@@ -663,33 +663,33 @@ Markup landmark: `index.html:8077-9000`
 | `<textarea id="notion-ai-prompt">` | .set-inp | _unbound in static scan — search `notion-ai-prompt` in index.html_ | 8782 |
 | `<button>` | 미리보기 | onclick=`previewDiaryTimeline()` | 8784 |
 | `<button>` | 일기에 추가 | onclick=`runDiaryAiTimeline(currentDate\|\|TK,false)` | 8785 |
-| `<input id="notion-auto-sync" type="checkbox">` | 자동 동기화 | `loadDiaryNotionConfig`(30734), `simplifySyncSettingsUI`(31052) | 8791 |
-| `<input id="notion-auto-time">` | .set-inp | `simplifySyncSettingsUI`(31054) | 8792 |
+| `<input id="notion-auto-sync" type="checkbox">` | 자동 동기화 | `loadDiaryNotionConfig`(30740), `simplifySyncSettingsUI`(31058) | 8791 |
+| `<input id="notion-auto-time">` | .set-inp | `simplifySyncSettingsUI`(31060) | 8792 |
 | `<button>` | 설정 저장 | onclick=`saveNotionConfig()` | 8796 |
 | `<button>` | ⇅ 동기화 | onclick=`syncDiaryToNotion()` | 8797 |
 | `<button>` | ⬇ Notion에서 가져오기 | onclick=`pullDiaryFromNotion()` | 8798 |
 | `<button>` | 🔬 진단 실행 | onclick=`runNotionDiagnostics()` | 8799 |
 | `<button>` | 연동 해제 | onclick=`clearDiaryNotionConfig()` | 8800 |
-| `<div id="habit-notion-row">` | .service-row | `loadHabitNotionConfig`(30821) | 8806 |
+| `<div id="habit-notion-row">` | .service-row | `loadHabitNotionConfig`(30827) | 8806 |
 | `<button>` | 설정 | onclick=`toggleDetail('habit-notion-detail')` | 8812 |
-| `<input id="habit-notion-db">` | .set-inp | `_saveHabitNotionCfgObj`(30793), `loadHabitNotionConfig`(30827) | 8818 |
+| `<input id="habit-notion-db">` | .set-inp | `_saveHabitNotionCfgObj`(30799), `loadHabitNotionConfig`(30833) | 8818 |
 | `<input id="habit-notion-left-prop">` | .set-inp | _unbound in static scan — search `habit-notion-left-prop` in index.html_ | 8820 |
 | `<input id="habit-notion-right-prop">` | .set-inp | _unbound in static scan — search `habit-notion-right-prop` in index.html_ | 8821 |
-| `<select id="habit-notion-page">` | .set-inp | `_saveHabitNotionCfgObj`(30774), `loadHabitNotionConfig`(30804), `loadHabitNotionConfig`(30829), `queueHabitNotionSave`(30914) | 8826 |
+| `<select id="habit-notion-page">` | .set-inp | `_saveHabitNotionCfgObj`(30780), `loadHabitNotionConfig`(30810), `loadHabitNotionConfig`(30835), `queueHabitNotionSave`(30920) | 8826 |
 | `<button>` | 페이지 불러오기 | onclick=`habitNotionLoadPages()` | 8827 |
-| `<input id="habit-notion-auto" type="checkbox">` | 해빗 변경 시 자동 전송 | `_saveHabitNotionCfgObj`(30790) | 8830 |
+| `<input id="habit-notion-auto" type="checkbox">` | 해빗 변경 시 자동 전송 | `_saveHabitNotionCfgObj`(30796) | 8830 |
 | `<button>` | 설정 저장 | onclick=`saveHabitNotionConfig()` | 8833 |
 | `<button>` | ⇅ 지금 전송 | onclick=`syncHabitStatusToNotion()` | 8834 |
-| `<div id="gcal-row">` | .service-row | `gcalStatus`(32629) | 8839 |
+| `<div id="gcal-row">` | .service-row | `gcalStatus`(32635) | 8839 |
 | `<button>` | 설정 | onclick=`toggleDetail('gcal-detail')` | 8845 |
 | `<button>` | 복사 | onclick=`gcalCopyHint('gcal-origin-val')` | 8855 |
 | `<button>` | 복사 | onclick=`gcalCopyHint('gcal-redirect-val')` | 8860 |
-| `<input id="gcal-client-id">` | .set-inp | `gcalLoadConfig`(32646) | 8864 |
-| `<input id="gcal-client-secret" type="password">` | .set-inp | `gcalLoadConfig`(32647) | 8867 |
-| `<input id="gcal-calendar-id">` | .set-inp | `gcalLoadConfig`(32648) | 8869 |
-| `<input id="gcal-task-calendar-id">` | .set-inp | `gcalLoadConfig`(32649) | 8871 |
-| `<input id="gcal-auto-sync" type="checkbox">` | 자동 동기화 | `gcalLoadConfig`(32650) | 8873 |
-| `<select id="gcal-reminder-min">` | .set-inp | `gcalLoadConfig`(32651), `gcalSaveConfig`(32691) | 8874 |
+| `<input id="gcal-client-id">` | .set-inp | `gcalLoadConfig`(32652) | 8864 |
+| `<input id="gcal-client-secret" type="password">` | .set-inp | `gcalLoadConfig`(32653) | 8867 |
+| `<input id="gcal-calendar-id">` | .set-inp | `gcalLoadConfig`(32654) | 8869 |
+| `<input id="gcal-task-calendar-id">` | .set-inp | `gcalLoadConfig`(32655) | 8871 |
+| `<input id="gcal-auto-sync" type="checkbox">` | 자동 동기화 | `gcalLoadConfig`(32656) | 8873 |
+| `<select id="gcal-reminder-min">` | .set-inp | `gcalLoadConfig`(32657), `gcalSaveConfig`(32697) | 8874 |
 | `<button>` | 설정 저장 | onclick=`gcalSaveConfig()` | 8883 |
 | `<button>` | Google 로그인 | onclick=`gcalAuth()` | 8884 |
 | `<button>` | 지금 동기화 | onclick=`gcalSync()` | 8885 |
@@ -703,106 +703,106 @@ Markup landmark: `index.html:8077-9000`
 | `<button>` | .data-action | onclick=`importData()` | 8950 |
 | `<button>` | .data-action | onclick=`clearDone()` | 8955 |
 | `<button>` | .data-action | onclick=`clearAllData()` | 8960 |
-| `<input id="import-file" type="file">` |  | `importData`(33728) | 8967 |
+| `<input id="import-file" type="file">` |  | `importData`(33734) | 8967 |
 
 **Dynamic controls** (rendered from JS template strings via `data-*` hook attributes):
 
 | `data-*` hook | Touched by | Lines |
 |---|---|---|
-| `data-apply-preset-cat` | `themeStudioApplyPreset` | 34535 |
-| `data-apply-preset-close` | `themeStudioApplyPreset` | 34535 |
-| `data-apply-preset-confirm` | `themeStudioApplyPreset` | 34535 |
-| `data-asset` | `themeStudioSelectedAsset`, `themeStudioRenderAssets` | 35400, 35656 |
-| `data-asset-card` | `themeStudioRenderAssets` | 35656 |
-| `data-asset-filter` | `themeStudioRenderAssets` | 35654 |
-| `data-asset-select` | `themeStudioRenderAssets` | 35656 |
-| `data-clear-asset-selection` | `themeStudioRenderAssets` | 35654 |
-| `data-clear-skin-slot` | `themeStudioRenderSkinResources` | 35933 |
-| `data-clear-sticker-page` | `clearCurrentPageStickers` | 15434 |
-| `data-close-clear-sticker` | `clearCurrentPageStickers` | 15440 |
-| `data-corner-close` | `themeStudioOpenCornerSlotDialog` | 35528 |
-| `data-corner-slot` | `themeStudioOpenCornerSlotDialog` | 35529 |
-| `data-delete-selected-assets` | `themeStudioRenderAssets` | 35654 |
-| `data-icon-asset` | `themeStudioOpenIconPicker` | 35635 |
-| `data-icon-clear` | `themeStudioRender` | 36171 |
-| `data-icon-file` | `themeStudioRender` | 36171 |
-| `data-icon-pick` | `themeStudioRender` | 36171 |
-| `data-icon-picker-close` | `themeStudioOpenIconPicker` | 35634 |
-| `data-icon-picker-upload` | `themeStudioOpenIconPicker` | 35634 |
-| `data-id` | `renderHomeBanner` | 15003 |
-| `data-import-preset-cat` | `themeStudioOpenImportedPresetDialog` | 35881 |
-| `data-import-preset-close` | `themeStudioOpenImportedPresetDialog` | 35878 |
-| `data-import-preset-save` | `themeStudioOpenImportedPresetDialog` | 35882 |
-| `data-import-preset-skip` | `themeStudioOpenImportedPresetDialog` | 35882 |
-| `data-kind` | `themeStudioRender` | 36156 |
-| `data-map-asset` | `themeStudioOpenMappingAssetPicker` | 36001 |
-| `data-map-clear` | `themeStudioOpenMappingAssetPicker` | 36019 |
-| `data-map-pick` | `themeStudioOpenMappingAssetPicker` | 36019 |
-| `data-map-picker-close` | `themeStudioOpenMappingAssetPicker` | 36000 |
-| `data-map-slot` | `themeStudioOpenMappingAssetPicker` | 36019 |
-| `data-min` | `_renderNotifUI` | 25902 |
-| `data-mode` | `applyThemeMode`, `themeStudioApply` | 25534, 34685 |
-| `data-pack` | `themeStudioRenderAssets` | 35651 |
-| `data-palette-apply` | `themePalettePresetButtons`, `bindThemePalettePresetButtons` | 22915, 22920 |
-| `data-palette-delete` | `themePalettePresetButtons`, `bindThemePalettePresetButtons` | 22915, 22921 |
-| `data-palette-id` | `themePalettePresetButtons` | 22915 |
-| `data-palette-save` | `bindThemePalettePresetButtons`, `themeStudioRenderTaskPalette` | 22922, 22980 |
-| `data-panel` | `openProfileSettings` | 25603 |
-| `data-preset-apply` | `themeStudioRender` | 36169 |
-| `data-preset-cat` | `themeStudioSavePresetDialog` | 34554 |
-| `data-preset-close` | `themeStudioSavePresetDialog` | 34554 |
-| `data-preset-delete` | `themeStudioRender` | 36169 |
-| `data-preset-duplicate` | `themeStudioRender` | 36169 |
-| `data-preset-preview` | `themeStudioRender` | 36169 |
-| `data-preset-preview-apply` | `themeStudioPreviewPreset` | 34501 |
-| `data-preset-preview-close` | `themeStudioPreviewPreset` | 34498 |
-| `data-preset-rename` | `themeStudioRender` | 36169 |
-| `data-preset-save` | `themeStudioSavePresetDialog` | 34554 |
-| `data-preset-update` | `themeStudioRender` | 36169 |
-| `data-return-media-bg` | `themeStudioResolveMediaPreviews`, `themeStudioBgAttr` | 35281, 35396 |
-| `data-return-media-fallback` | `themeStudioIconMarkup`, `themeStudioResolveMediaPreviews`, `themeStudioImgTag`, `themeStudioBgAttr` | 34796, 35275, 35390, 35396 |
-| `data-return-media-src` | `_fbSeedMediaFromSyncedAssets`, `fbApplyData`, `themeStudioIconMarkup`, `themeStudioApplyIcons`, `themeStudioResolveMediaPreviews`, `themeStudioImgTag` | 28457, 29001, 34796, 34971, 35273, 35390 |
-| `data-role` | `themeStudioRenderAssetActions` | 35626 |
-| `data-select-unused` | `themeStudioRenderAssets` | 35654 |
-| `data-skin` | `themeStudioRenderComponentGuide`, `themeStudioRender` | 36030, 36164 |
-| `data-state` | `loadDiaryNotionConfig`, `loadHabitNotionConfig`, `clearDiaryNotionConfig`, `gcalStatus` | 30687, 30822, 31116, 32639 |
-| `data-sticker-asset` | `openGlobalStickerBoard` | 15418 |
-| `data-sticker-close` | `openGlobalStickerBoard` | 15418 |
-| `data-sticker-upload` | `openGlobalStickerBoard` | 15418 |
-| `data-theme-color` | `themeStudioRender` | 36159 |
-| `data-theme-icon` | `themeStudioRender` | 36171 |
-| `data-theme-intensity` | `themeStudioRenderIntensityControls` | 36037 |
-| `data-theme-media-clear` | `themeStudioRenderMediaControls` | 36146 |
-| `data-theme-media-file` | `themeStudioRenderMediaControls` | 36146 |
-| `data-theme-media-preview` | `themeStudioRenderMediaControls` | 36146 |
-| `data-theme-panel` | `themeStudioRender` | 36153 |
-| `data-theme-task-palette` | `themeStudioRenderTaskPalette` | 22979 |
-| `data-typo-key` | `themeStudioRenderTypographyControls` | 36070 |
-| `data-typo-value` | `themeStudioRenderTypographyControls` | 36070 |
-| `data-url` | `themeStudioBuildThemedIcon` | 34871 |
-| `data-value` | `themeStudioRender` | 36156 |
+| `data-apply-preset-cat` | `themeStudioApplyPreset` | 34541 |
+| `data-apply-preset-close` | `themeStudioApplyPreset` | 34541 |
+| `data-apply-preset-confirm` | `themeStudioApplyPreset` | 34541 |
+| `data-asset` | `themeStudioSelectedAsset`, `themeStudioRenderAssets` | 35406, 35662 |
+| `data-asset-card` | `themeStudioRenderAssets` | 35662 |
+| `data-asset-filter` | `themeStudioRenderAssets` | 35660 |
+| `data-asset-select` | `themeStudioRenderAssets` | 35662 |
+| `data-clear-asset-selection` | `themeStudioRenderAssets` | 35660 |
+| `data-clear-skin-slot` | `themeStudioRenderSkinResources` | 35939 |
+| `data-clear-sticker-page` | `clearCurrentPageStickers` | 15440 |
+| `data-close-clear-sticker` | `clearCurrentPageStickers` | 15446 |
+| `data-corner-close` | `themeStudioOpenCornerSlotDialog` | 35534 |
+| `data-corner-slot` | `themeStudioOpenCornerSlotDialog` | 35535 |
+| `data-delete-selected-assets` | `themeStudioRenderAssets` | 35660 |
+| `data-icon-asset` | `themeStudioOpenIconPicker` | 35641 |
+| `data-icon-clear` | `themeStudioRender` | 36177 |
+| `data-icon-file` | `themeStudioRender` | 36177 |
+| `data-icon-pick` | `themeStudioRender` | 36177 |
+| `data-icon-picker-close` | `themeStudioOpenIconPicker` | 35640 |
+| `data-icon-picker-upload` | `themeStudioOpenIconPicker` | 35640 |
+| `data-id` | `renderHomeBanner` | 15009 |
+| `data-import-preset-cat` | `themeStudioOpenImportedPresetDialog` | 35887 |
+| `data-import-preset-close` | `themeStudioOpenImportedPresetDialog` | 35884 |
+| `data-import-preset-save` | `themeStudioOpenImportedPresetDialog` | 35888 |
+| `data-import-preset-skip` | `themeStudioOpenImportedPresetDialog` | 35888 |
+| `data-kind` | `themeStudioRender` | 36162 |
+| `data-map-asset` | `themeStudioOpenMappingAssetPicker` | 36007 |
+| `data-map-clear` | `themeStudioOpenMappingAssetPicker` | 36025 |
+| `data-map-pick` | `themeStudioOpenMappingAssetPicker` | 36025 |
+| `data-map-picker-close` | `themeStudioOpenMappingAssetPicker` | 36006 |
+| `data-map-slot` | `themeStudioOpenMappingAssetPicker` | 36025 |
+| `data-min` | `_renderNotifUI` | 25908 |
+| `data-mode` | `applyThemeMode`, `themeStudioApply` | 25540, 34691 |
+| `data-pack` | `themeStudioRenderAssets` | 35657 |
+| `data-palette-apply` | `themePalettePresetButtons`, `bindThemePalettePresetButtons` | 22921, 22926 |
+| `data-palette-delete` | `themePalettePresetButtons`, `bindThemePalettePresetButtons` | 22921, 22927 |
+| `data-palette-id` | `themePalettePresetButtons` | 22921 |
+| `data-palette-save` | `bindThemePalettePresetButtons`, `themeStudioRenderTaskPalette` | 22928, 22986 |
+| `data-panel` | `openProfileSettings` | 25609 |
+| `data-preset-apply` | `themeStudioRender` | 36175 |
+| `data-preset-cat` | `themeStudioSavePresetDialog` | 34560 |
+| `data-preset-close` | `themeStudioSavePresetDialog` | 34560 |
+| `data-preset-delete` | `themeStudioRender` | 36175 |
+| `data-preset-duplicate` | `themeStudioRender` | 36175 |
+| `data-preset-preview` | `themeStudioRender` | 36175 |
+| `data-preset-preview-apply` | `themeStudioPreviewPreset` | 34507 |
+| `data-preset-preview-close` | `themeStudioPreviewPreset` | 34504 |
+| `data-preset-rename` | `themeStudioRender` | 36175 |
+| `data-preset-save` | `themeStudioSavePresetDialog` | 34560 |
+| `data-preset-update` | `themeStudioRender` | 36175 |
+| `data-return-media-bg` | `themeStudioResolveMediaPreviews`, `themeStudioBgAttr` | 35287, 35402 |
+| `data-return-media-fallback` | `themeStudioIconMarkup`, `themeStudioResolveMediaPreviews`, `themeStudioImgTag`, `themeStudioBgAttr` | 34802, 35281, 35396, 35402 |
+| `data-return-media-src` | `_fbSeedMediaFromSyncedAssets`, `fbApplyData`, `themeStudioIconMarkup`, `themeStudioApplyIcons`, `themeStudioResolveMediaPreviews`, `themeStudioImgTag` | 28463, 29007, 34802, 34977, 35279, 35396 |
+| `data-role` | `themeStudioRenderAssetActions` | 35632 |
+| `data-select-unused` | `themeStudioRenderAssets` | 35660 |
+| `data-skin` | `themeStudioRenderComponentGuide`, `themeStudioRender` | 36036, 36170 |
+| `data-state` | `loadDiaryNotionConfig`, `loadHabitNotionConfig`, `clearDiaryNotionConfig`, `gcalStatus` | 30693, 30828, 31122, 32645 |
+| `data-sticker-asset` | `openGlobalStickerBoard` | 15424 |
+| `data-sticker-close` | `openGlobalStickerBoard` | 15424 |
+| `data-sticker-upload` | `openGlobalStickerBoard` | 15424 |
+| `data-theme-color` | `themeStudioRender` | 36165 |
+| `data-theme-icon` | `themeStudioRender` | 36177 |
+| `data-theme-intensity` | `themeStudioRenderIntensityControls` | 36043 |
+| `data-theme-media-clear` | `themeStudioRenderMediaControls` | 36152 |
+| `data-theme-media-file` | `themeStudioRenderMediaControls` | 36152 |
+| `data-theme-media-preview` | `themeStudioRenderMediaControls` | 36152 |
+| `data-theme-panel` | `themeStudioRender` | 36159 |
+| `data-theme-task-palette` | `themeStudioRenderTaskPalette` | 22985 |
+| `data-typo-key` | `themeStudioRenderTypographyControls` | 36076 |
+| `data-typo-value` | `themeStudioRenderTypographyControls` | 36076 |
+| `data-url` | `themeStudioBuildThemedIcon` | 34877 |
+| `data-value` | `themeStudioRender` | 36162 |
 
 **All module functions** (best-effort grouping by naming convention — the full surface
 area to check when touching this page):
 
-- _settings_ (3): `openProfileSettings`(25601), `loadNotifSettings`(25910), `_initSettings`(36178)
-- _theme studio_ (170): `bannerDebugLog`(13990), `loadHomeBanner`(14258), `compactHomeBannerStateForStorage`(14931), `saveHomeBanner`(14937), `applyHomeBannerVisual`(14951), `clearHomeBannerVisual`(14958), `migrateHomeBannerImageToMedia`(14965), `renderHomeBanner`(14978), `fileToBannerDataUrl`(15011), `homeStickerDrag`(15094), `startHomeBannerPositionDrag`(15104), `loadGlobalStickers`(15126), `compactGlobalStickerStateForStorage`(15130), `saveGlobalStickers`(15142), `globalStickerEnsureMediaFallbacks`(15158), `stickerEditingEnabled`(15211), `stickerShadowEnabled`(15214), `applyStickerShadowSetting`(15217), `_findStickerHost`(15226), `renderGlobalStickers`(15244), `placeGlobalStickerFromUrl`(15331), `migrateGlobalStickerDataUrls`(15370), `openGlobalStickerUpload`(15392), `openGlobalStickerBoard`(15408), `clearCurrentPageStickers`(15426), `clearAllGlobalStickers`(15461), `globalStickerPoint`(15479), `globalStickerBindMove`(15483), `globalStickerUnbindMove`(15490), `dragGlobalSticker`(15497), `resizeGlobalSticker`(15522), `rotateGlobalSticker`(15529), `initHobbyBanner`(21151), `themePalettePresets`(22865), `themePaletteSavePresets`(22868), `themePalettePresetSwatches`(22872), `themePaletteSaveCurrent`(22876), `themePaletteApplyPreset`(22889), `themePaletteDeletePreset`(22905), `themePalettePresetButtons`(22911), `bindThemePalettePresetButtons`(22918), `themeStudioRenderTaskPalette`(22972), `renderTodayBanner`(23151), `getThemePresets`(25431), `renderThemeSwatches`(25439), `applyThemePalette`(25465), `applyThemeColor`(25498), `resetTheme`(25512), `applyThemeMode`(25527), `loadThemeMode`(25539), `toggleStickerHandle`(26185), `toggleStickerShadow`(26191), `themeStudioIsRetiredIcon`(34287), `themeStudioUpgradeLegacyColorDefaults`(34288), `themeStudioClone`(34296), `themeStudioReadJSON`(34297), `themeStudioWriteJSON`(34298), `themeStudioUid`(34305), `themeStudioEsc`(34306), `themeStudioMerge`(34307), `themeStudioNormalizeState`(34315), `themeStudioGet`(34326), `themeStudioResetColorsOnce`(34332), `themeStudioSet`(34345), `themeStudioQueueCloudSync`(34346), `themeStudioEnsureSkinState`(34356), `themeStudioRepairCornerSlotDrift`(34362), `themeStudioEnsureIconsState`(34369), `themeStudioSetIconValue`(34374), `themeStudioSystemPresets`(34381), `themeStudioUserPresets`(34389), `themeStudioImportedPresets`(34390), `themeStudioAllPresets`(34391), `themeStudioSnapshotFrom`(34392), `themeStudioSnapshot`(34424), `themeStudioPresetCategories`(34425), `themeStudioCategoryMeta`(34426), `themeStudioRoleMeta`(34443), `themeStudioPresetPreview`(34459), `themeStudioPresetMappedSlots`(34470), `themeStudioPreviewPreset`(34490), `themeStudioApplyPresetCategories`(34508), `themeStudioApplyPreset`(34526), `themeStudioSavePresetDialog`(34548), `themeStudioDeletePreset`(34569), `themeStudioDuplicatePreset`(34577), `themeStudioReplacePresetInStore`(34585), `themeStudioRenamePreset`(34595), `themeStudioUpdatePreset`(34602), `themeStudioCleanHex`(34608), `themeStudioPaletteFromAccent`(34609), `themeStudioTaskPaletteFromAccent`(34622), `themeStudioApplyPalettes`(34633), `themeStudioReset`(34657), `themeStudioApply`(34658), `themeStudioApplyResolvedSkinMedia`(34710), `themeStudioApplySkinSlots`(34719), `themeStudioApplyBackground`(34733), `themeStudioApplyBanner`(34747), `themeStudioApplyHobbyBanner`(34760), `themeStudioClearHomeBannerImage`(34775), `themeStudioClearHobbyBannerImage`(34781), `themeStudioIconMarkup`(34787), `themeStudioIconLabel`(34801), `themeStudioSetFaviconHref`(34820), `themeStudioBuildThemedIcon`(34837), `themeStudioApplyPwaManifest`(34872), `themeStudioApplyFavicon`(34931), `themeStudioApplyIcons`(34962), `themeStudioApplyPreview`(35003), `themeStudioAssets`(35009), `themeStudioCloudFallbackDataUrl`(35010), `themeStudioCompactAssetForStorage`(35046), `themeStudioSaveAssets`(35056), `themeStudioEnsureMediaFallbacks`(35060), `themeStudioAddMediaAssetRef`(35232), `themeStudioResolveMediaPreviews`(35271), `themeStudioMediaFallbackForUrl`(35287), `themeStudioImgTag`(35383), `themeStudioBgAttr`(35393), `themeStudioSelectedAsset`(35399), `themeStudioMarkRole`(35405), `themeStudioCollectUsedAssetUrls`(35410), `themeStudioAssetIsUsed`(35426), `themeStudioDeleteSelectedAssets`(35430), `themeStudioSelectUnusedAssets`(35446), `themeStudioClearAssetSelection`(35451), `themeStudioMarkRolesFromState`(35452), `themeStudioAttachAssetFallback`(35476), `themeStudioApplyCornerAsset`(35495), `themeStudioOpenCornerSlotDialog`(35514), `themeStudioApplyAssetRole`(35544), `themeStudioPlaceSticker`(35567), `themeStudioDeletePack`(35576), `themeStudioAssetMatchesFilter`(35594), `themeStudioRenderAssetActions`(35608), `themeStudioOpenIconPicker`(35630), `themeStudioRenderAssets`(35642), `themeStudioBlobToDataUrl`(35662), `themeStudioOpenImport`(35663), `themeStudioRenderImportPreview`(35687), `themeStudioRgbToHex`(35693), `themeStudioHexToRgb`(35696), `themeStudioMix`(35701), `themeStudioDominantColor`(35705), `themeStudioAnalyzeImage`(35726), `themeStudioInferKind`(35761), `themeStudioMime`(35835), `themeStudioBuildImportedPresetSuggestion`(35836), `themeStudioCreateImportedPreset`(35853), `themeStudioOpenImportedPresetDialog`(35862), `themeStudioToggleSkins`(35898), `themeStudioClearSkinAssets`(35899), `themeStudioSetIntensity`(35900), `themeStudioClearSkinSlot`(35906), `themeStudioRenderSkinResources`(35918), `themeStudioCurrentMappedSlots`(35938), `themeStudioClearMappedSlot`(35962), `themeStudioApplyAssetToMappedSlot`(35974), `themeStudioOpenMappingAssetPicker`(35993), `themeStudioRenderComponentGuide`(36025), `themeStudioRenderIntensityControls`(36032), `themeStudioPickAppearance`(36040), `themeStudioSetTypography`(36047), `themeStudioRenderTypographyControls`(36053), `themeStudioSetColor`(36074), `themeStudioSetMedia`(36080), `themeStudioStoreBannerMedia`(36089), `themeStudioRenderMediaControls`(36138), `themeStudioRender`(36151)
-- _ai/api_ (5): `saveApiKey`(25715), `clearApiKey`(25726), `updateApiBadge`(25735), `loadApiKeys`(25742), `savePushVapid`(26155)
-- _notifications_ (19): `_notifHHMMToMin`(25814), `_notifMinToHHMM`(25815), `_notifTodayKey`(25830), `_notifHHMM`(25835), `_saveNotifShown`(25840), `loadNotifPrefs`(25844), `saveNotifPrefs`(25877), `_renderNotifUI`(25883), `toggleNotifType`(25916), `setNotifInterval`(25923), `setNotifTime`(25933), `requestNotif`(25944), `_showNotif`(25957), `_notifSchedulerTick`(25969), `getPushCfg`(26057), `savePushCfg`(26058), `renderPushUI`(26141), `savePushEndpoint`(26154), `pushToggle`(26156)
-- _firebase sync_ (20): `fbConfig`(27506), `fbHealInvalidApiKey`(27524), `fbShareConfigLink`(27550), `_fbShareFallback`(27572), `fbLocalOnlyMode`(27590), `fbCollectData`(27743), `fbEntityDocId`(27813), `fbEntityBuildDocs`(27822), `fbSanitizeNotionCfg`(28204), `fbSanitizeGcalCfg`(28216), `fbCollectCloudSettings`(28247), `fbHasLocalCloudSettings`(28255), `fbApplyCloudSettings`(28258), `fbDocIdForKey`(28327), `fbSplitValue`(28328), `_fbSeedMediaFromSyncedAssets`(28381), `fbApplyData`(28482), `fbStatusTime`(29007), `fbSaveAll`(29139), `showFirebaseRulesHelp`(29898)
-- _notion sync_ (20): `habitNotionMergeCloudCfg`(28239), `_notionConfigured`(30121), `getNotionCfg`(30667), `notionVal`(30685), `setNotionVal`(30686), `loadDiaryNotionConfig`(30687), `getHabitNotionCfg`(30756), `_saveHabitNotionCfgObj`(30761), `loadHabitNotionConfig`(30796), `habitNotionBuildTexts`(30858), `queueHabitNotionSave`(30877), `_healNotionAutoSyncOnce`(30944), `queueDiaryNotionSave`(30977), `queueDiaryNotionPull`(31002), `clearDiaryNotionConfig`(31060), `_notionBlocksHash`(31881), `_notionMergeSection`(31882), `_notionUpdateBaseline`(31910), `_readNotionRichTextProp`(32068), `_diaryNotionFocusPull`(32594)
-- _google-calendar sync_ (28): `migrateGcalEventMetaKey`(16981), `gcalMergeCloudCfg`(28226), `gcalStatus`(32624), `gcalLoadConfig`(32642), `gcalSaveConfig`(32682), `gcalClearConfig`(32703), `gcalCopyHint`(32705), `gcalPkceVerifier`(32785), `gcalIsRefreshRevoked`(32824), `gcalBuildAuthUrl`(32867), `_gcalUseRedirectAuthFlow`(32890), `_gcalLaunchRedirectAuth`(32898), `_gcalFinishRedirectToken`(32912), `gcalResumeRedirectAuth`(32926), `gcalAuth`(32947), `gcalTaskStableKey`(33072), `gcalTaskTargetCalId`(33081), `gcalFindLocalTaskByKey`(33085), `gcalPreferredCalendarForKey`(33093), `gcalEventStartValue`(33099), `gcalEventEndValue`(33100), `gcalIsReturnOwnedEvent`(33101), `gcalConfiguredCalendarIds`(33155), `gcalEventEquivalent`(33351), `gcalPlanTitleTimeDedup`(33372), `gcalQueueTaskEventDeletion`(33497), `gcalEventFromTask`(33514), `gcalQueueAutoSync`(33577)
-- _auth_ (2): `updateAuthLockCopy`(25791), `updateAuthGate`(27601)
-- _notion auto-push trace_ (1): `_apTrace`(30969)
+- _settings_ (3): `openProfileSettings`(25607), `loadNotifSettings`(25916), `_initSettings`(36184)
+- _theme studio_ (170): `bannerDebugLog`(13996), `loadHomeBanner`(14264), `compactHomeBannerStateForStorage`(14937), `saveHomeBanner`(14943), `applyHomeBannerVisual`(14957), `clearHomeBannerVisual`(14964), `migrateHomeBannerImageToMedia`(14971), `renderHomeBanner`(14984), `fileToBannerDataUrl`(15017), `homeStickerDrag`(15100), `startHomeBannerPositionDrag`(15110), `loadGlobalStickers`(15132), `compactGlobalStickerStateForStorage`(15136), `saveGlobalStickers`(15148), `globalStickerEnsureMediaFallbacks`(15164), `stickerEditingEnabled`(15217), `stickerShadowEnabled`(15220), `applyStickerShadowSetting`(15223), `_findStickerHost`(15232), `renderGlobalStickers`(15250), `placeGlobalStickerFromUrl`(15337), `migrateGlobalStickerDataUrls`(15376), `openGlobalStickerUpload`(15398), `openGlobalStickerBoard`(15414), `clearCurrentPageStickers`(15432), `clearAllGlobalStickers`(15467), `globalStickerPoint`(15485), `globalStickerBindMove`(15489), `globalStickerUnbindMove`(15496), `dragGlobalSticker`(15503), `resizeGlobalSticker`(15528), `rotateGlobalSticker`(15535), `initHobbyBanner`(21157), `themePalettePresets`(22871), `themePaletteSavePresets`(22874), `themePalettePresetSwatches`(22878), `themePaletteSaveCurrent`(22882), `themePaletteApplyPreset`(22895), `themePaletteDeletePreset`(22911), `themePalettePresetButtons`(22917), `bindThemePalettePresetButtons`(22924), `themeStudioRenderTaskPalette`(22978), `renderTodayBanner`(23157), `getThemePresets`(25437), `renderThemeSwatches`(25445), `applyThemePalette`(25471), `applyThemeColor`(25504), `resetTheme`(25518), `applyThemeMode`(25533), `loadThemeMode`(25545), `toggleStickerHandle`(26191), `toggleStickerShadow`(26197), `themeStudioIsRetiredIcon`(34293), `themeStudioUpgradeLegacyColorDefaults`(34294), `themeStudioClone`(34302), `themeStudioReadJSON`(34303), `themeStudioWriteJSON`(34304), `themeStudioUid`(34311), `themeStudioEsc`(34312), `themeStudioMerge`(34313), `themeStudioNormalizeState`(34321), `themeStudioGet`(34332), `themeStudioResetColorsOnce`(34338), `themeStudioSet`(34351), `themeStudioQueueCloudSync`(34352), `themeStudioEnsureSkinState`(34362), `themeStudioRepairCornerSlotDrift`(34368), `themeStudioEnsureIconsState`(34375), `themeStudioSetIconValue`(34380), `themeStudioSystemPresets`(34387), `themeStudioUserPresets`(34395), `themeStudioImportedPresets`(34396), `themeStudioAllPresets`(34397), `themeStudioSnapshotFrom`(34398), `themeStudioSnapshot`(34430), `themeStudioPresetCategories`(34431), `themeStudioCategoryMeta`(34432), `themeStudioRoleMeta`(34449), `themeStudioPresetPreview`(34465), `themeStudioPresetMappedSlots`(34476), `themeStudioPreviewPreset`(34496), `themeStudioApplyPresetCategories`(34514), `themeStudioApplyPreset`(34532), `themeStudioSavePresetDialog`(34554), `themeStudioDeletePreset`(34575), `themeStudioDuplicatePreset`(34583), `themeStudioReplacePresetInStore`(34591), `themeStudioRenamePreset`(34601), `themeStudioUpdatePreset`(34608), `themeStudioCleanHex`(34614), `themeStudioPaletteFromAccent`(34615), `themeStudioTaskPaletteFromAccent`(34628), `themeStudioApplyPalettes`(34639), `themeStudioReset`(34663), `themeStudioApply`(34664), `themeStudioApplyResolvedSkinMedia`(34716), `themeStudioApplySkinSlots`(34725), `themeStudioApplyBackground`(34739), `themeStudioApplyBanner`(34753), `themeStudioApplyHobbyBanner`(34766), `themeStudioClearHomeBannerImage`(34781), `themeStudioClearHobbyBannerImage`(34787), `themeStudioIconMarkup`(34793), `themeStudioIconLabel`(34807), `themeStudioSetFaviconHref`(34826), `themeStudioBuildThemedIcon`(34843), `themeStudioApplyPwaManifest`(34878), `themeStudioApplyFavicon`(34937), `themeStudioApplyIcons`(34968), `themeStudioApplyPreview`(35009), `themeStudioAssets`(35015), `themeStudioCloudFallbackDataUrl`(35016), `themeStudioCompactAssetForStorage`(35052), `themeStudioSaveAssets`(35062), `themeStudioEnsureMediaFallbacks`(35066), `themeStudioAddMediaAssetRef`(35238), `themeStudioResolveMediaPreviews`(35277), `themeStudioMediaFallbackForUrl`(35293), `themeStudioImgTag`(35389), `themeStudioBgAttr`(35399), `themeStudioSelectedAsset`(35405), `themeStudioMarkRole`(35411), `themeStudioCollectUsedAssetUrls`(35416), `themeStudioAssetIsUsed`(35432), `themeStudioDeleteSelectedAssets`(35436), `themeStudioSelectUnusedAssets`(35452), `themeStudioClearAssetSelection`(35457), `themeStudioMarkRolesFromState`(35458), `themeStudioAttachAssetFallback`(35482), `themeStudioApplyCornerAsset`(35501), `themeStudioOpenCornerSlotDialog`(35520), `themeStudioApplyAssetRole`(35550), `themeStudioPlaceSticker`(35573), `themeStudioDeletePack`(35582), `themeStudioAssetMatchesFilter`(35600), `themeStudioRenderAssetActions`(35614), `themeStudioOpenIconPicker`(35636), `themeStudioRenderAssets`(35648), `themeStudioBlobToDataUrl`(35668), `themeStudioOpenImport`(35669), `themeStudioRenderImportPreview`(35693), `themeStudioRgbToHex`(35699), `themeStudioHexToRgb`(35702), `themeStudioMix`(35707), `themeStudioDominantColor`(35711), `themeStudioAnalyzeImage`(35732), `themeStudioInferKind`(35767), `themeStudioMime`(35841), `themeStudioBuildImportedPresetSuggestion`(35842), `themeStudioCreateImportedPreset`(35859), `themeStudioOpenImportedPresetDialog`(35868), `themeStudioToggleSkins`(35904), `themeStudioClearSkinAssets`(35905), `themeStudioSetIntensity`(35906), `themeStudioClearSkinSlot`(35912), `themeStudioRenderSkinResources`(35924), `themeStudioCurrentMappedSlots`(35944), `themeStudioClearMappedSlot`(35968), `themeStudioApplyAssetToMappedSlot`(35980), `themeStudioOpenMappingAssetPicker`(35999), `themeStudioRenderComponentGuide`(36031), `themeStudioRenderIntensityControls`(36038), `themeStudioPickAppearance`(36046), `themeStudioSetTypography`(36053), `themeStudioRenderTypographyControls`(36059), `themeStudioSetColor`(36080), `themeStudioSetMedia`(36086), `themeStudioStoreBannerMedia`(36095), `themeStudioRenderMediaControls`(36144), `themeStudioRender`(36157)
+- _ai/api_ (5): `saveApiKey`(25721), `clearApiKey`(25732), `updateApiBadge`(25741), `loadApiKeys`(25748), `savePushVapid`(26161)
+- _notifications_ (19): `_notifHHMMToMin`(25820), `_notifMinToHHMM`(25821), `_notifTodayKey`(25836), `_notifHHMM`(25841), `_saveNotifShown`(25846), `loadNotifPrefs`(25850), `saveNotifPrefs`(25883), `_renderNotifUI`(25889), `toggleNotifType`(25922), `setNotifInterval`(25929), `setNotifTime`(25939), `requestNotif`(25950), `_showNotif`(25963), `_notifSchedulerTick`(25975), `getPushCfg`(26063), `savePushCfg`(26064), `renderPushUI`(26147), `savePushEndpoint`(26160), `pushToggle`(26162)
+- _firebase sync_ (20): `fbConfig`(27512), `fbHealInvalidApiKey`(27530), `fbShareConfigLink`(27556), `_fbShareFallback`(27578), `fbLocalOnlyMode`(27596), `fbCollectData`(27749), `fbEntityDocId`(27819), `fbEntityBuildDocs`(27828), `fbSanitizeNotionCfg`(28210), `fbSanitizeGcalCfg`(28222), `fbCollectCloudSettings`(28253), `fbHasLocalCloudSettings`(28261), `fbApplyCloudSettings`(28264), `fbDocIdForKey`(28333), `fbSplitValue`(28334), `_fbSeedMediaFromSyncedAssets`(28387), `fbApplyData`(28488), `fbStatusTime`(29013), `fbSaveAll`(29145), `showFirebaseRulesHelp`(29904)
+- _notion sync_ (20): `habitNotionMergeCloudCfg`(28245), `_notionConfigured`(30127), `getNotionCfg`(30673), `notionVal`(30691), `setNotionVal`(30692), `loadDiaryNotionConfig`(30693), `getHabitNotionCfg`(30762), `_saveHabitNotionCfgObj`(30767), `loadHabitNotionConfig`(30802), `habitNotionBuildTexts`(30864), `queueHabitNotionSave`(30883), `_healNotionAutoSyncOnce`(30950), `queueDiaryNotionSave`(30983), `queueDiaryNotionPull`(31008), `clearDiaryNotionConfig`(31066), `_notionBlocksHash`(31887), `_notionMergeSection`(31888), `_notionUpdateBaseline`(31916), `_readNotionRichTextProp`(32074), `_diaryNotionFocusPull`(32600)
+- _google-calendar sync_ (28): `migrateGcalEventMetaKey`(16987), `gcalMergeCloudCfg`(28232), `gcalStatus`(32630), `gcalLoadConfig`(32648), `gcalSaveConfig`(32688), `gcalClearConfig`(32709), `gcalCopyHint`(32711), `gcalPkceVerifier`(32791), `gcalIsRefreshRevoked`(32830), `gcalBuildAuthUrl`(32873), `_gcalUseRedirectAuthFlow`(32896), `_gcalLaunchRedirectAuth`(32904), `_gcalFinishRedirectToken`(32918), `gcalResumeRedirectAuth`(32932), `gcalAuth`(32953), `gcalTaskStableKey`(33078), `gcalTaskTargetCalId`(33087), `gcalFindLocalTaskByKey`(33091), `gcalPreferredCalendarForKey`(33099), `gcalEventStartValue`(33105), `gcalEventEndValue`(33106), `gcalIsReturnOwnedEvent`(33107), `gcalConfiguredCalendarIds`(33161), `gcalEventEquivalent`(33357), `gcalPlanTitleTimeDedup`(33378), `gcalQueueTaskEventDeletion`(33503), `gcalEventFromTask`(33520), `gcalQueueAutoSync`(33583)
+- _auth_ (2): `updateAuthLockCopy`(25797), `updateAuthGate`(27607)
+- _notion auto-push trace_ (1): `_apTrace`(30975)
 
 ## Shared / cross-page modules
 
 These aren't owned by one page but are touched from many — check them whenever a redesign
 changes how/when a page mounts, unmounts, or re-renders.
 
-- _shared modal_ (27): `openModal`(10594), `closeModal`(10599), `openCatModal`(16572), `closeCatModal`(16713), `openTaskSearchModal`(17619), `tasksOpenNewModal`(19327), `tasksOpenModal`(19384), `saveModal`(19449), `_writeTaskFromModal`(19597), `bindTaskModalRows`(19890), `tasksCloseModal`(19977), `closeModal`(19990), `openItemModal`(20899), `closeItemModal`(20934), `openActModal`(22638), `closeActModal`(22658), `openLogModal`(22685), `closeLogModal`(22695), `openSlotModal`(23445), `closeSlotModal`(23464), `saveSlotModal`(23469), `deleteSlotFromModal`(23500), `openMetricModal`(24452), `closeMetricModal`(24460), `ensureMetricConfigModal`(24491), `openMetricConfigModal`(24502), `closeMetricConfigModal`(24514)
-- _storage/sync core_ (40): `isReturnMediaRef`(13999), `returnMediaRefId`(14002), `returnMediaDb`(14006), `returnMediaPut`(14020), `returnMediaGet`(14030), `returnMediaStoreDataUrl`(14040), `returnMediaResolveUrl`(14056), `returnMediaResolveUrlWithFallback`(14079), `mediaSyncLoad`(14113), `mediaSyncGet`(14120), `_mediaSyncSize`(14124), `mediaSyncPut`(14125), `mediaSyncPrune`(14142), `mediaSyncResolve`(14179), `_idbSet`(14404), `_idbDelete`(14416), `__storageHealthRecord`(14513), `returnStorageWriteIsDurable`(14545), `setReturnStorageItem`(14846), `syncDeadlineCompletions`(17221), `syncTaskRepeatItem`(19293), `_syncSpecialToggle`(19616), `pushQueueSync`(26120), `shouldFbSyncKey`(27490), `_returnResyncEidShadow`(28087), `returnSyncSelfTest`(28164), `returnSyncModelStatus`(28186), `returnSyncModelSet`(28195), `_storageClassifyKey`(29956), `returnStorageReport`(29966), `_storageIsOrphanBackup`(30064), `returnStoragePrune`(30065), `__isQuotaError`(30426), `__quotaDiagnoseMessage`(30435), `__relieveQuotaOnce`(30454), `__markStaleQuota`(30467), `__clearStaleQuota`(30485), `simplifySyncSettingsUI`(31033), `syncExpandedCover`(37807), `syncPlayIcon`(37831)
-- _core/diagnostics_ (22): `isReturnDisplayableImageUrl`(13996), `returnDataMap`(14467), `returnNewId`(14573), `returnStampNew`(14590), `returnStampUpdate`(14598), `returnEntityBackfillIds`(14632), `returnEntityStampChanged`(14656), `returnTombstoneMarkMany`(14712), `returnTombstoneMark`(14719), `returnTombstoneIsActive`(14720), `returnTombstoneClear`(14726), `returnTombstoneGC`(14733), `returnEntityFilterTombstoned`(14742), `returnDedupById`(14758), `returnEntityPrepareForSave`(14792), `returnEntityPrepareObjectForSave`(14819), `returnAllowSampleSeed`(16788), `returnDemoCleanupOnce`(16811), `returnEntityLogConflicts`(28014), `_returnEntityDecide`(28023), `returnEntityMergeArray`(28045), `returnEntityMergeObject`(28069)
+- _shared modal_ (27): `openModal`(10600), `closeModal`(10605), `openCatModal`(16578), `closeCatModal`(16719), `openTaskSearchModal`(17625), `tasksOpenNewModal`(19333), `tasksOpenModal`(19390), `saveModal`(19455), `_writeTaskFromModal`(19603), `bindTaskModalRows`(19896), `tasksCloseModal`(19983), `closeModal`(19996), `openItemModal`(20905), `closeItemModal`(20940), `openActModal`(22644), `closeActModal`(22664), `openLogModal`(22691), `closeLogModal`(22701), `openSlotModal`(23451), `closeSlotModal`(23470), `saveSlotModal`(23475), `deleteSlotFromModal`(23506), `openMetricModal`(24458), `closeMetricModal`(24466), `ensureMetricConfigModal`(24497), `openMetricConfigModal`(24508), `closeMetricConfigModal`(24520)
+- _storage/sync core_ (40): `isReturnMediaRef`(14005), `returnMediaRefId`(14008), `returnMediaDb`(14012), `returnMediaPut`(14026), `returnMediaGet`(14036), `returnMediaStoreDataUrl`(14046), `returnMediaResolveUrl`(14062), `returnMediaResolveUrlWithFallback`(14085), `mediaSyncLoad`(14119), `mediaSyncGet`(14126), `_mediaSyncSize`(14130), `mediaSyncPut`(14131), `mediaSyncPrune`(14148), `mediaSyncResolve`(14185), `_idbSet`(14410), `_idbDelete`(14422), `__storageHealthRecord`(14519), `returnStorageWriteIsDurable`(14551), `setReturnStorageItem`(14852), `syncDeadlineCompletions`(17227), `syncTaskRepeatItem`(19299), `_syncSpecialToggle`(19622), `pushQueueSync`(26126), `shouldFbSyncKey`(27496), `_returnResyncEidShadow`(28093), `returnSyncSelfTest`(28170), `returnSyncModelStatus`(28192), `returnSyncModelSet`(28201), `_storageClassifyKey`(29962), `returnStorageReport`(29972), `_storageIsOrphanBackup`(30070), `returnStoragePrune`(30071), `__isQuotaError`(30432), `__quotaDiagnoseMessage`(30441), `__relieveQuotaOnce`(30460), `__markStaleQuota`(30473), `__clearStaleQuota`(30491), `simplifySyncSettingsUI`(31039), `syncExpandedCover`(37813), `syncPlayIcon`(37837)
+- _core/diagnostics_ (22): `isReturnDisplayableImageUrl`(14002), `returnDataMap`(14473), `returnNewId`(14579), `returnStampNew`(14596), `returnStampUpdate`(14604), `returnEntityBackfillIds`(14638), `returnEntityStampChanged`(14662), `returnTombstoneMarkMany`(14718), `returnTombstoneMark`(14725), `returnTombstoneIsActive`(14726), `returnTombstoneClear`(14732), `returnTombstoneGC`(14739), `returnEntityFilterTombstoned`(14748), `returnDedupById`(14764), `returnEntityPrepareForSave`(14798), `returnEntityPrepareObjectForSave`(14825), `returnAllowSampleSeed`(16794), `returnDemoCleanupOnce`(16817), `returnEntityLogConflicts`(28020), `_returnEntityDecide`(28029), `returnEntityMergeArray`(28051), `returnEntityMergeObject`(28075)
 
 ## Uncategorized (misc/util)
 
@@ -811,7 +811,7 @@ convention (generic helpers like date/escaping utilities, or module-specific fun
 without their module's usual prefix). Grep for these by name before assuming they're safe to
 leave alone during a redesign pass:
 
-`goPage`(9050), `_maTrace`(9292), `openFormDialog`(11305), `openConfirmDialog`(11368), `applyTtSlotEdit`(11495), `_scopeLabel`(11522), `generatedRepairLog`(11830), `generatedDateManuallyModified`(11853), `generatedCanonicalType`(12531), `generatedCanonicalSourceId`(12550), `isGeneratedManual`(12577), `buildExpectedGeneratedMap`(12662), `expectedForExistingGenerated`(12722), `_entityPayloadHash`(14647), `tombstonesLoad`(14705), `tombstonesSave`(14711), `fileToDataUrl`(15010), `getCatMeta`(15576), `saveCats`(15580), `loadCats`(15584), `timeAgo`(15637), `timeGroup`(15645), `filteredItems`(15659), `renderFeed`(15667), `fallbackCopyText`(15736), `buildItemEl`(16084), `markDone`(16204), `undoDone`(16212), `deleteItem`(16219), `cycleCat`(16249), `_composerEls`(16301), `sendItem`(16330), `addComposerImage`(16365), `renderCatPills`(16421), `renderFilterBar`(16437), `escCloseCat`(16717), `getCatDefaultPriority`(16770), `dk`(16777), `tPad`(16778), `stripPrepEmoji`(16952), `queueGeneratedExternalDeletion`(16990), `savePrefs`(17288), `renderWeekStartControl`(17289), `applyWeekStart`(17293), `orderedWeekdays`(17300), `renderCalDowHeader`(17304), `getCat`(17348), `upgradeCatColor`(17405), `dlState`(17501), `dlText`(17508), `tEscHtml`(17514), `renderCal`(17699), `renderDlCanvas`(17840), `setupCalDragDrop`(18110), `renderList`(18166), `renderDueDateSection`(18690), `renderByCategory`(18700), `renderByPriority`(18713), `renderByDeadline`(18719), `renderSection`(18734), `moveCategoryOverdueToToday`(18797), `openAddForCategory`(18819), `toggleDone`(18939), `appendAddRow`(18953), `toggleSel`(18960), `enterSelMode`(18969), `exitSelMode`(18975), `bulkDone`(18985), `bulkUndone`(18986), `bulkDelete`(18987), `bulkDeleteDone`(18992), `bulkMoveDate`(18999), `moveAllPast`(19004), `openNameDelete`(19021), `closeMoreMenu`(19082), `openAdd`(19089), `closeAdd`(19090), `confirmAdd`(19091), `updateAddChips`(19100), `renderLanding`(20092), `renderStep`(20129), `renderInput`(20174), `selectOpt`(20212), `prevStep`(20219), `nextStep`(20223), `scrollTop`(20229), `renderResult`(20242), `runAnalysis`(20307), `buildContext`(20360), `saveResult`(20406), `saveCatsData`(20488), `loadItems`(20492), `saveItemsData`(20496), `dateKey`(20538), `renderDayDetail`(20671), `renderSummary`(20884), `selType`(20939), `updateTypeUI`(20942), `renderWeekdays`(20960), `saveItem`(20977), `renderSwatches`(21067), `saveCat`(21085), `deleteCat`(21100), `todayKey`(21303), `dPad`(21307), `dEscHtml`(21308), `loadDate`(21311), `updateDateHeader`(21369), `renderContextChips`(21387), `pickContextCycle`(21410), `autoGrow`(21441), `commitCurrent`(21447), `saveAll`(21475), `updateRightMeta`(21559), `renderStrip`(21612), `renderStripDays`(21619), `renderStripEntries`(21650), `shiftDate`(21712), `goToday`(21721), `loadBlocks`(21776), `renderBlock`(21790), `autoGrowBlock`(21886), `addBlock`(21891), `insertBlockAfter`(21915), `deleteBlock`(21934), `reRenderBlocks`(21941), `pickImageForBlock`(22024), `loadTrackers`(22072), `saveTrackers`(22095), `trackerActiveOnDate`(22104), `renderTrackerRow`(22116), `renderRightTrackers`(22187), `openTrackerManager`(22213), `loadData`(22426), `saveData`(22446), `updateTime`(22462), `selectEnergy`(22481), `renderAll`(22513), `buildCard`(22542), `saveActivity`(22663), `deleteActivity`(22678), `saveLog`(22700), `deleteLog`(22707), `saveReflect`(22713), `renderReflects`(22723), `applyTtPalette`(22840), `saveTtPalette`(22848), `resetTtPalette`(22857), `renderTtPaletteEditor`(22924), `bindTtPaletteToggle`(23005), `scPad`(23056), `scEscHtml`(23057), `timeToRow`(23058), `rowToTime`(23063), `getActiveTt`(23067), `getTodayDayIdx`(23070), `renderSemList`(23077), `selectTt`(23124), `renderGrid`(23168), `renderSlotList`(23321), `quickAddSlot`(23418), `removeSlot`(23506), `changeSubjectColor`(23517), `saveTt`(23527), `loadAll`(23710), `tsToDate`(23740), `tsToMonthKey`(23744), `tsToTime`(23748), `switchPanel`(23754), `renderTrends`(24025), `timeToMinutes`(24083), `buildTrackerCard`(24090), `freqLabel`(24155), `buildTrendCard`(24189), `buildChart`(24307), `buildSparkline`(24447), `renderMoods`(24643), `switchTab`(24921), `toggleSetNav`(24933), `closeSetNav`(24941), `_wpUpdate`(24977), `toggleDetail`(25416), `loadProfile`(25544), `loadCalendarPrefs`(25557), `saveProfileName`(25566), `saveProfilePhoto`(25580), `renderSidebarProfile`(25606), `renderAccountProfile`(25622), `accountLogout`(25645), `loadPhilCards`(25655), `renderPhilList`(25662), `addPhilCard`(25695), `savePhilCards`(25701), `updateAiStatus`(25763), `togglePwVis`(25775), `savePw`(25782), `setInterval_`(25931), `_urlBase64ToUint8Array`(26059), `_lsGet`(27303), `_lsSet`(27304), `loadScript`(27306), `readFbInputs`(27534), `fillFbInputs`(27535), `setFbStatus`(27580), `_entitySafeSet`(27892), `__compressDataUrl`(30497), `_hnTrace`(30873), `_isWritableRichText`(31520), `calcDataSize`(33703), `exportData`(33714), `importData`(33727), `handleImport`(33731), `clearDone`(33755), `clearAllData`(33775), `showToast`(33791), `ytReady`(37752), `isPlaying`(37755), `queueLen`(37761), `curIndex`(37766), `gotoIndex`(37770), `stripListeners`(37837), `bindControls`(37843), `v12Tick`(37918), `ensureCreatePanel`(37948), `openCreate`(37959), `isCreateOpen`(37987), `stripStaleAddHandlers`(38022)
+`goPage`(9050), `_maTrace`(9298), `openFormDialog`(11311), `openConfirmDialog`(11374), `applyTtSlotEdit`(11501), `_scopeLabel`(11528), `generatedRepairLog`(11836), `generatedDateManuallyModified`(11859), `generatedCanonicalType`(12537), `generatedCanonicalSourceId`(12556), `isGeneratedManual`(12583), `buildExpectedGeneratedMap`(12668), `expectedForExistingGenerated`(12728), `_entityPayloadHash`(14653), `tombstonesLoad`(14711), `tombstonesSave`(14717), `fileToDataUrl`(15016), `getCatMeta`(15582), `saveCats`(15586), `loadCats`(15590), `timeAgo`(15643), `timeGroup`(15651), `filteredItems`(15665), `renderFeed`(15673), `fallbackCopyText`(15742), `buildItemEl`(16090), `markDone`(16210), `undoDone`(16218), `deleteItem`(16225), `cycleCat`(16255), `_composerEls`(16307), `sendItem`(16336), `addComposerImage`(16371), `renderCatPills`(16427), `renderFilterBar`(16443), `escCloseCat`(16723), `getCatDefaultPriority`(16776), `dk`(16783), `tPad`(16784), `stripPrepEmoji`(16958), `queueGeneratedExternalDeletion`(16996), `savePrefs`(17294), `renderWeekStartControl`(17295), `applyWeekStart`(17299), `orderedWeekdays`(17306), `renderCalDowHeader`(17310), `getCat`(17354), `upgradeCatColor`(17411), `dlState`(17507), `dlText`(17514), `tEscHtml`(17520), `renderCal`(17705), `renderDlCanvas`(17846), `setupCalDragDrop`(18116), `renderList`(18172), `renderDueDateSection`(18696), `renderByCategory`(18706), `renderByPriority`(18719), `renderByDeadline`(18725), `renderSection`(18740), `moveCategoryOverdueToToday`(18803), `openAddForCategory`(18825), `toggleDone`(18945), `appendAddRow`(18959), `toggleSel`(18966), `enterSelMode`(18975), `exitSelMode`(18981), `bulkDone`(18991), `bulkUndone`(18992), `bulkDelete`(18993), `bulkDeleteDone`(18998), `bulkMoveDate`(19005), `moveAllPast`(19010), `openNameDelete`(19027), `closeMoreMenu`(19088), `openAdd`(19095), `closeAdd`(19096), `confirmAdd`(19097), `updateAddChips`(19106), `renderLanding`(20098), `renderStep`(20135), `renderInput`(20180), `selectOpt`(20218), `prevStep`(20225), `nextStep`(20229), `scrollTop`(20235), `renderResult`(20248), `runAnalysis`(20313), `buildContext`(20366), `saveResult`(20412), `saveCatsData`(20494), `loadItems`(20498), `saveItemsData`(20502), `dateKey`(20544), `renderDayDetail`(20677), `renderSummary`(20890), `selType`(20945), `updateTypeUI`(20948), `renderWeekdays`(20966), `saveItem`(20983), `renderSwatches`(21073), `saveCat`(21091), `deleteCat`(21106), `todayKey`(21309), `dPad`(21313), `dEscHtml`(21314), `loadDate`(21317), `updateDateHeader`(21375), `renderContextChips`(21393), `pickContextCycle`(21416), `autoGrow`(21447), `commitCurrent`(21453), `saveAll`(21481), `updateRightMeta`(21565), `renderStrip`(21618), `renderStripDays`(21625), `renderStripEntries`(21656), `shiftDate`(21718), `goToday`(21727), `loadBlocks`(21782), `renderBlock`(21796), `autoGrowBlock`(21892), `addBlock`(21897), `insertBlockAfter`(21921), `deleteBlock`(21940), `reRenderBlocks`(21947), `pickImageForBlock`(22030), `loadTrackers`(22078), `saveTrackers`(22101), `trackerActiveOnDate`(22110), `renderTrackerRow`(22122), `renderRightTrackers`(22193), `openTrackerManager`(22219), `loadData`(22432), `saveData`(22452), `updateTime`(22468), `selectEnergy`(22487), `renderAll`(22519), `buildCard`(22548), `saveActivity`(22669), `deleteActivity`(22684), `saveLog`(22706), `deleteLog`(22713), `saveReflect`(22719), `renderReflects`(22729), `applyTtPalette`(22846), `saveTtPalette`(22854), `resetTtPalette`(22863), `renderTtPaletteEditor`(22930), `bindTtPaletteToggle`(23011), `scPad`(23062), `scEscHtml`(23063), `timeToRow`(23064), `rowToTime`(23069), `getActiveTt`(23073), `getTodayDayIdx`(23076), `renderSemList`(23083), `selectTt`(23130), `renderGrid`(23174), `renderSlotList`(23327), `quickAddSlot`(23424), `removeSlot`(23512), `changeSubjectColor`(23523), `saveTt`(23533), `loadAll`(23716), `tsToDate`(23746), `tsToMonthKey`(23750), `tsToTime`(23754), `switchPanel`(23760), `renderTrends`(24031), `timeToMinutes`(24089), `buildTrackerCard`(24096), `freqLabel`(24161), `buildTrendCard`(24195), `buildChart`(24313), `buildSparkline`(24453), `renderMoods`(24649), `switchTab`(24927), `toggleSetNav`(24939), `closeSetNav`(24947), `_wpUpdate`(24983), `toggleDetail`(25422), `loadProfile`(25550), `loadCalendarPrefs`(25563), `saveProfileName`(25572), `saveProfilePhoto`(25586), `renderSidebarProfile`(25612), `renderAccountProfile`(25628), `accountLogout`(25651), `loadPhilCards`(25661), `renderPhilList`(25668), `addPhilCard`(25701), `savePhilCards`(25707), `updateAiStatus`(25769), `togglePwVis`(25781), `savePw`(25788), `setInterval_`(25937), `_urlBase64ToUint8Array`(26065), `_lsGet`(27309), `_lsSet`(27310), `loadScript`(27312), `readFbInputs`(27540), `fillFbInputs`(27541), `setFbStatus`(27586), `_entitySafeSet`(27898), `__compressDataUrl`(30503), `_hnTrace`(30879), `_isWritableRichText`(31526), `calcDataSize`(33709), `exportData`(33720), `importData`(33733), `handleImport`(33737), `clearDone`(33761), `clearAllData`(33781), `showToast`(33797), `ytReady`(37758), `isPlaying`(37761), `queueLen`(37767), `curIndex`(37772), `gotoIndex`(37776), `stripListeners`(37843), `bindControls`(37849), `v12Tick`(37924), `ensureCreatePanel`(37954), `openCreate`(37965), `isCreateOpen`(37993), `stripStaleAddHandlers`(38028)
 
 ## How to use this for a redesign
 
