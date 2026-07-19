@@ -990,6 +990,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .allday-chip:hover { opacity:.8; }
 .chip-accent { background:var(--accent-light); color:var(--a-600); }
 .chip-teal { background:var(--t-50); color:var(--t-600); }
+.htb-pull-chip { border:none; background:var(--accent); color:var(--n-0); font-family:inherit; }
+.htb-pull-chip:hover { background:var(--accent-hover); opacity:1; }
 .chip-purple { background:var(--p-50); color:var(--p-600); }
 .chip-warn { background:var(--w-50); color:var(--w-600); }
 
@@ -12920,6 +12922,25 @@ function openHomeTimeBlockPrefs(){
 }
 document.getElementById('htb-range-btn') && document.getElementById('htb-range-btn').addEventListener('click',openHomeTimeBlockPrefs);
 
+/* Pull every past incomplete task to today (home 타임블록 empty-state action).
+   Mirrors moveAllPast() but re-renders the Home cards and uses a toast instead
+   of the alert()/calendar-only refresh. */
+function homePullOverdueToToday(){
+  if(typeof tasks==='undefined')return;
+  var n=0;
+  tasks.forEach(function(t){
+    if(!t||t.done||!t.date||t.date>=TK||t._travelOnly)return;
+    if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,TK);
+    else if(t._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(t);t._repeatMoved=true;}
+    if(t._repeatId||t.repeatRuleId||t._ruleGen||t._ruleId||t.sourceType==='repeat'||t.sourceType==='activeRule')t.userModifiedDate=true;
+    t.date=TK; t.updatedAt=Date.now(); n++;
+  });
+  if(typeof saveTaskData==='function')saveTaskData();
+  if(typeof homeRefreshCards==='function')homeRefreshCards({force:true});
+  else { try{renderHomeTimeBlocks();renderHomeTasks();renderHomeSituation();}catch(_e){} }
+  if(typeof renderList==='function')try{renderList();}catch(_e){}
+  if(typeof showToast==='function')showToast(n+'개 밀린 할일을 오늘로 옮겼어요.');
+}
 function renderHomeTimeBlocks(){
   if (typeof tasks === 'undefined') return;
   var slots = document.getElementById('htb-slots');
@@ -13368,11 +13389,24 @@ function renderHomeTimeBlocks(){
     makeBlock(t, sm, em, (t.catId === 'schedule' || t._isTt ? 'vblk-sched' : 'vblk-task'), t.deadlineDate && typeof dlText==='function' ? dlText(t.deadlineDate) : '');
   });
 
+  var _htbHasTimed = !!slots.querySelector('.vblk-task,.vblk-sched,.vblk-deadline');
   if (!allday.children.length) {
     var empty=document.createElement('span');
     empty.className='allday-chip chip-teal';
     empty.textContent='오늘 종일 할일 없음';
     allday.appendChild(empty);
+    /* Nothing scheduled today at all — the usual reason is overdue tasks still
+       parked on past dates. Offer a one-tap pull-to-today (audit C2 idea). */
+    if(!_htbHasTimed){
+      var _overdue=(tasks||[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&t.date&&t.date<TK;}).length;
+      if(_overdue){
+        var pull=document.createElement('button');
+        pull.type='button'; pull.className='allday-chip htb-pull-chip';
+        pull.textContent='↩︎ 밀린 할일 '+_overdue+'개 오늘로';
+        pull.addEventListener('click',function(e){e.stopPropagation();homePullOverdueToToday();});
+        allday.appendChild(pull);
+      }
+    }
   }
   function handleAllDayDragOver(e){ e.preventDefault(); allday.classList.add('drag-over-date'); }
   function handleAllDayDragLeave(){ allday.classList.remove('drag-over-date'); }
