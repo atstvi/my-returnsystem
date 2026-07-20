@@ -15,6 +15,14 @@
 > **This document is a constraint, not a mood board.** Every component and pattern below must
 > name the exact page/control in `docs/UI_FUNCTION_INVENTORY.md` it replaces. If a redesign pass
 > can't point to that mapping, it is not ready to ship — see "적용 프로세스" (§6).
+>
+> **Design north-star (owner's mood keywords, reference only):** `#생산성` ·
+> `#SNS(X)-앱st` · `#MZ·20대 여성st` · `#세련·깔끔`. Read as: a **productivity** tool that feels as
+> effortless and modern as a well-made social app (clean feed/card rhythm, light-touch interactions —
+> *the polish of X/SNS, not its noise or vanity metrics*), tuned to a **20s-women / MZ** sensibility
+> (soft dusty-rose palette, rounded, airy, tactile), landing on **refined + clean** over busy or
+> cute. These are vibe cues to weigh against §1 principles (usability always wins), **not** a license
+> to add social features or decoration for its own sake.
 
 ---
 
@@ -564,11 +572,31 @@ The view controls (콤팩트/마감 뷰/시간표/완료 숨김) were compacted 
   `#page-tasks` into the top-level overlay reads as "lost from the tasks page" — the ids and their
   listeners are unchanged and still bind; nothing is functionally removed.
 
+### 5.3 루틴/Routine — SHIPPED (structural "do-first" redesign)
+
+The old tab read like an admin spreadsheet (every row packed with 편집·삭제·선택▼·×·↑↓·▶, completion
+via a slow `선택 ▼` dropdown, intensity hidden, library eating half the screen). Rebuilt around
+*doing today's routine* (owner-confirmed direction + tap-to-complete). Full audit:
+`docs/routine-tab-audit.md`.
+- **Do-first header**: date + **overall progress ring** ("오늘 N/M") + prominent **Mini·Plus·Max
+  intensity segment** (was hidden). Management (새 습관/새 묶음/오늘 초기화/습관 보관함) moved to a
+  `⋯` menu (`.menu-pop`), so the daily surface stays clean.
+- **Bundle do-cards**: header = bundle emoji inside a **progress ring** + slot + ▶ 루틴 시작 (timer
+  preserved) + `⋯` (습관 추가/순서/편집/삭제). Habit rows = **round tap-checkbox** (done↔none, like
+  Tasks) + title + selected-intensity plan; 건너뜀/쉼 live in a per-row `⋯` popover. done/skip strike
+  through; rest = periwinkle dash.
+- **습관 보관함 → modal** (opened from `⋯`), so it doesn't compete with the daily view.
+- **Weekly → heatmap**: 7-day cells with intensity levels (`.rt-week-cell.lv1/2/3`) + stats
+  (오늘 완료 / 연속 달성 streak / 쉼).
+- Implemented as **final render overrides** (`renderRoutineHeader/Conditions/Bundles/Stats/Routine`)
+  that reuse every existing helper (timer/play, difficulty, CRUD, logs, Notion, Home quick-routine),
+  so all functionality is preserved; the flat white canvas (`--bg-card`) matches §5.1/§5.2.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
   editability affordance, image block controls. *refs* nagi-memo toolbar grouping if rich text grows.
-- **루틴/Routine** — *keep* habits/bundles + weekly view. *fix* the dot-tracker rhythm & density.
+- **루틴/Routine** — SHIPPED (§5.3). Structural do-first redesign.
 - **할일/Tasks** — *keep* category sidebar, view-switcher, recurring rules (rated above refs).
   *fix* messy secondary-action placement accreted over time; consider §4.4 review step.
 - **프로젝트/Projects** — *fix* toward ref-4 folder-card + progress-bar + favorite grid.
