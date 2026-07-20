@@ -485,8 +485,7 @@ refs). Audit + backlog in `docs/tasks-tab-audit.md` (T1–T10). What landed, by 
   buttons (선택/검색/추가/더보기) moved from emoji/glyphs to line SVGs. Toggle labels update via a
   `.ctrl-label`/`.ctrl-label`-span so the SVG persists across `renderCal` re-renders.
 - **P1 — surface + states + identity:** `.list-panel` → flat white canvas (`--bg-card`, matches
-  §5.1). Empty day → single prompt + **할일 추가** CTA (`.task-cat-empty-all`); empty category
-  headers dim (`.cat-empty`, hover-restores). Category **filter chips gain a color swatch**
+  §5.1). Category **filter chips gain a color swatch**
   (`.cat-chip-swatch` = `normalizeTaskCatColor(cat.color)`) for at-a-glance ID while keeping the
   user emoji. (검색/필터 row was already a modal — `openTaskSearchModal` — inline row is `display:none` legacy.)
 - **P2 — chip/dialog polish:** quick-add chips → **color dots** (priority level color, category
@@ -514,8 +513,14 @@ refs). Audit + backlog in `docs/tasks-tab-audit.md` (T1–T10). What landed, by 
 
 **Reusable patterns this pass added** (available to later tabs): `.cat-chip-swatch`/`.add-chip-dot`
 color-dot on a chip for category/priority identity; the "icon in a leading span, JS updates only the
-label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG); `.cat-empty`
-dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
+label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG).
+
+**Category bars stay visible + calendar left-aligned (revision).** Per the owner, every category
+bar renders even with 0 items (empty categories no longer collapse to a single prompt, and the
+`.cat-empty` header keeps full opacity — only its count reads muted) so adding via each bar's `+`
+is always one tap away. Separately, the Tasks **calendar column now shares the topbar's left inset**
+(`clamp(16px,3vw,40px)` on `.cal-header`/`.cal-grid-outer`), so the calendar's left edge lines up
+with the capture bar above it instead of starting ~24px further left.
 
 **Follow-up refinement (task row + menus):**
 - **Task item priority** no longer uses a left-border bracket (the curved stripe read as clunky
