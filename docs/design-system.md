@@ -503,6 +503,34 @@ color-dot on a chip for category/priority identity; the "icon in a leading span,
 label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG); `.cat-empty`
 dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
 
+**Follow-up refinement (task row + menus):**
+- **Task item priority** no longer uses a left-border bracket (the curved stripe read as clunky
+  against the flat sheet). Priority is now the **checkbox ring color** via a `--ck-ring` CSS var set
+  on the row (`.task-item.pri-*` and Home `.ti-*`): high=`--danger`, mid=`--warning`, low=`--success`,
+  none=`--border-strong`; done stays a solid filled check. `.task-check` reads
+  `box-shadow:0 0 0 1.5px var(--ck-ring,var(--border-strong))`, so hover/done override cleanly with
+  no specificity fight. This keeps the circle/dot language consistent with the chips and applies to
+  **both** the Tasks list and the Home 오늘 할일 list (same `.task-item`).
+- **Dropdown menu** (`.menu-pop`/`.menu-item`/`.menu-sep`) — reusable popover: rounded card,
+  SVG line icons in a muted `--fg-4`, `danger` variant tints red on hover (`--d-50`), a `.menu-sep`
+  divider to group destructive actions apart from safe ones. First applied to the Tasks 더보기 menu.
+- **Top breathing room / density.** The Tasks headers used the same `--sp-8` top padding as the
+  content, so the dense `.cal-header`/`.list-header` (with their `border-bottom`) sat only ~16px
+  under the white topbar and read as a cramped echo of it — versus Home, where content floats airily
+  on the canvas. Bumped both headers' top padding to `--sp-12` (16→24px), enlarged the `.list-date`
+  "오늘" heading (`--text-lg`→`--text-xl`, with a `20px` fallback since `--text-xl` is theme-only),
+  relaxed the header internal spacing, and gave `.list-scroll` a small top padding so the first
+  section clears the header line. Result: a clearer, calmer separation from the topbar.
+- **활성 규칙 · 반복 할일 panel → on-demand modal.** The rule/repeat management widget no longer
+  sits permanently at the bottom of the task list (it's occasional-config, not daily-glance). Its
+  seed `.rules-box` was relocated into a hidden `#ops-overlay` modal; `ensureHomeOpsPanel()` builds
+  `#home-ops-section` inside the modal body (same code, same ids/handlers), and a new 더보기 menu
+  item (`openOpsModal`/`closeOpsModal`) pulls it up when needed. `.ops-modal` flattens the wrapped
+  card (transparent, no shadow) and hides the panel's duplicate `.sec-label`. NB: the inventory
+  scanner is page-boundary based, so moving `home-rule-btn`/`home-repeat-btn`/`rule-card-btn` out of
+  `#page-tasks` into the top-level overlay reads as "lost from the tasks page" — the ids and their
+  listeners are unchanged and still bind; nothing is functionally removed.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
