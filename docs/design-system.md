@@ -498,6 +498,20 @@ refs). Audit + backlog in `docs/tasks-tab-audit.md` (T1–T10). What landed, by 
   0 hooks lost (removed tokens = retired emoji labels only). Remaining: 취미탭 `confirm()` deferred
   to the Hobby pass.
 
+**활성 규칙 (active-rule) system — clearer + multi-period.**
+- Dropped the per-row `규칙`/`반복` type badge (the section header already labels them); ops-row
+  edit/delete are now line SVGs.
+- **Rules can have multiple active periods.** New model field `rule.dateRanges` = `[{start,end}]`;
+  `ruleDateRanges(rule)` reads it with a legacy `startDate`/`endDate` fallback, and `ruleDateInRange`
+  returns true if the date is in **any** range (empty = always active). The generation path
+  (`buildExpectedGeneratedMap` weekday loop) now iterates the whole horizon and lets `ruleDateInRange`
+  gate, so one or many periods work; `reconcileGeneratedTasks` prunes tasks that fall outside.
+- **`taskCreateRangePicker(mount, ranges)`** — reusable mini-calendar: tap start→end to add a period,
+  periods show as removable chips and highlight on the grid (`.mrp*` styles). Exposed to
+  `openFormDialog` as a new `type:'dateranges'` field; `openFormDialog` also gained inline `help`
+  text under any field's label. The rule editor now uses plain-language labels + help + the picker.
+- Ops-row meta shows `기간 05.07~06.07` for one period or `기간 N개` for several (`opsFmtRange`).
+
 **Reusable patterns this pass added** (available to later tabs): `.cat-chip-swatch`/`.add-chip-dot`
 color-dot on a chip for category/priority identity; the "icon in a leading span, JS updates only the
 label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG); `.cat-empty`
