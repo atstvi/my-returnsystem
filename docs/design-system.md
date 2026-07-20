@@ -6,11 +6,11 @@
 > materials (§0, inspire don't copy).** The workflow governs *how* a redesign is carried out; this
 > governs *what* the design is.
 >
-> **Status: DRAFT — all sections drafted; §2 (tokens/color) shipped.** §3 (components) and §6
-> (application process) document existing reality + decided rules. §4 (patterns) and §5 (page
-> notes) are the intent layer and carry **open decisions** — most notably the app-shell change in
-> §4.1 — which get their own scoped approval before any code. Do not treat an open-decision item
-> as settled.
+> **Status — §2 (tokens/color), the app shell (§4.1), and the 나/Home tab are SHIPPED.** §3
+> (components) documents the real, current vocabulary (updated as Home was built). §6 (application
+> process) is the decided workflow. §5 is now part intent / part done-record: the **나/Home** entry
+> is a built record (§5.1); the other tabs are still the intent layer and get scoped approval before
+> code. Reference §7 for the distilled **one-tab redesign playbook** derived from the Home pass.
 >
 > **This document is a constraint, not a mood board.** Every component and pattern below must
 > name the exact page/control in `docs/UI_FUNCTION_INVENTORY.md` it replaces. If a redesign pass
@@ -204,10 +204,16 @@ so this matches the app's existing bar rather than lowering it. Covered by
 **Still deferred:** emotion/mood tag colors (if any carry saturated hex) — verify in the Records
 page pass.
 
-**Flagged, not touched (pre-existing, out of scope):** Theme Studio's boot override pins
-`--bg-page`/`--bg-card`/`--fg` to its (light) color state as literals, which largely supersedes
-the separate dark-mode blocks when active. This is existing architecture, not introduced here —
-noted for a future "does dark mode actually reach the user?" investigation.
+**Dark mode — FIXED (was: flagged).** Theme Studio's boot override used to pin
+`--bg-page`/`--bg-card`/`--fg`/`--border`/`--sidebar-*` on `:root` as light literals, which
+overrode `html[data-mode="dark"]` — so choosing 다크 changed almost nothing. Fix (in
+`themeStudioApply`): the accent + typography + card-media vars stay on `:root` and self-adapt
+(their `color-mix()` refs resolve `--bg-card`/`--fg` to the dark palette); the **neutral
+surface/ink/sidebar colors are emitted under `html:not([data-mode="dark"])`** so dark falls
+through to the dark palette + the base `var(--n-*)` fallbacks. The dark block also got explicit
+`--border-subtle` / `--sidebar-bg` / `--sidebar-fg` / `--sidebar-active`. Light mode is
+byte-identical; verified light + dark headlessly across pages. **Rule going forward:** never emit
+a user's light color literal on bare `:root` — scope surface/ink literals to `:not([data-mode="dark"])`.
 
 ### 2.1.4 `--bg-tint` (deferred naming aid)
 
@@ -290,9 +296,16 @@ not a label — 원칙 7, separate concepts). Pills use `--r-full`.
 
 ### 3.4 Inputs — `.set-inp` / `.field-inp` / `.set-select`
 
-One input look across the app: `1px --border`, `--r-md`, `--bg-card`/`--bg-raised` fill,
-`--focus-ring` on focus. Labels sit above or inline-left at `--text-xs`/`--fg-3`. Placeholder text
-is `--fg-4`. A field that's editable must *look* editable (원칙 1 "is this editable?").
+One input look across the app: `1px --border`, `--r-md`, `--bg-card`/`--bg-raised` fill. Labels
+sit above or inline-left at `--text-xs`/`--fg-3`. Placeholder text is `--fg-4`. A field that's
+editable must *look* editable (원칙 1 "is this editable?").
+
+**Focus highlight — accent, not the teal ring.** The legacy `--focus-ring`
+(`0 0 0 3px rgba(58,155,133,.22)`) is **teal** and clashes with the rose theme. The direction
+(applied to the capture bar) is a clean **accent** focus: `border-color:var(--accent)` +
+`box-shadow:0 0 0 3px var(--accent-light)`. New/redesigned fields should use the accent focus;
+migrate `--focus-ring` usages as pages are touched (don't mass-replace blindly — it's used
+widely, so change per-page with a visual check).
 
 ### 3.5 Modal / overlay
 
@@ -322,6 +335,34 @@ not text glyphs (`✓ ✕ ↗ ◈`), so every window reads as one family.
 `.toggle-wrap` / `.toggle-track` / `.toggle-thumb` — the single switch component. On = `--accent`
 track. Don't substitute a checkbox where a toggle is the established control, or vice-versa
 (consistency).
+
+### 3.7 Quick-capture bar (`.capture-inner`) — DONE
+
+The top-bar quick-capture composer (`homeCapture`, ids `capture-inp` / `capture-inbox-btn` /
+`capture-task-btn` / `capture-send`). Shipped form:
+- **Field:** rounded `--r-lg` (not a full pill), `1px --border-subtle`, `--bg-card`, a leading
+  `.capture-lead` **+ icon** (SVG, `--fg-4`, turns accent on focus). Accent focus per §3.4. The
+  input has **`min-width:0`** (without it the field won't shrink and overflows the action icons on
+  mobile) and **no placeholder** (a long placeholder overflowed on mobile).
+- **Mode selector:** Inbox/Task as one compact **segmented control** (`.capture-modes`, right
+  side), active segment = `--bg-card` chip on a `--bg-raised` track.
+- **Send button:** hidden at rest (`width:0;opacity:0`), **expands + fades in only while the field
+  is active** (`:focus-within`), smooth transition; `onmousedown:preventDefault` keeps it from
+  blurring the field mid-click.
+
+### 3.8 Empty / first-use states — one calm pattern
+
+Every card states its empty case rather than showing a blank box (Phase 6). The reusable shape is
+`.hw-empty` (SVG icon + short message + optional CTA); the Home widgets (values/music), the
+오늘 할일 all-empty prompt, and the 타임블록 empty (with a "밀린 할일 N개 오늘로" action) all follow
+it. Use a muted accent glyph, one line of copy, at most one CTA. An empty state is part of the
+product, not an afterthought.
+
+### 3.9 Section-header icons (`.sec-ico`)
+
+Every dashboard card header leads with a small **SVG line icon** (`.sec-ico`, 24-grid, ~1.7
+stroke, `currentColor`) before its `.sec-label` title, so cards read as one family. No card header
+is icon-less; no emoji/glyph headers.
 
 ---
 
@@ -358,11 +399,12 @@ show for everyone, while a genuinely custom tab icon still overrides.
 content column `.app-main` = `.app-topbar` (persistent, 60px desktop / 52px mobile) + `.page-stack`
 (flex:1); `.page-container` height became `100%` so pages fit under the bar with no overflow, and
 the mobile `100dvh` rule was reconciled the same way. Instead of shipping a non-functional search
-box (원칙 13), the **search slot holds the quick-capture composer** (the Home `.capture-bar` moved
-here verbatim — ids/classes preserved, so `homeCapture` works app-wide). Right zone: a **settings
-gear** (`topbar-settings-btn` → `goPage('settings')`). The sidebar **설정** tab was removed;
-settings stays reachable via the gear and the sidebar profile button (`openProfileSettings`).
-Focus-mode hides the bar like the sidebar (reveal on hover/focus).
+box (원칙 13), the **search slot holds the quick-capture composer** (`.capture-bar`) — see its
+shipped form in **§3.7**. The topbar background is `--bg-card` (white, matches content); the
+installed-app titlebar (`theme-color` meta) is a **lightened** tint of the accent, not the raw
+accent. Right zone: notification/music/**settings** icon buttons. The sidebar **설정** tab was
+removed; settings stays reachable via the gear and the sidebar profile button. Focus-mode hides
+the bar like the sidebar (reveal on hover/focus).
 
 Still logged for a later top-bar pass (not yet built): a real global search backend, a two-zone
 per-page action layout (view controls | doc actions — 나기메모), clock, notifications,
@@ -391,16 +433,50 @@ act → recharge), which currently lacks a task-side end-of-day review (Done / L
 for the Tasks page or a bridge into Recharge/Diary. Structure only — DayFlow's visuals are rejected.
 Not started; needs its own proposal.
 
+### 4.5 Two-column masonry with equal-height fill (Home) — DONE
+
+Chrome has no `grid masonry`, so a dashboard that must avoid per-card gaps uses **two independent
+flex-column stacks** inside a 2-col grid (`align-items:stretch`, both columns `grid-row:1`), routed
+by JS (`normalizeHomeLayoutOrder` → `#home-col-l` / `#home-col-r`); on mobile they collapse via
+`display:contents` + `order`. The **last card of each column** flexes to equalize the two column
+bottoms with the full-width row below. Use **`flex:1 1 0`** (not `1 1 auto`) on a last card whose
+own content is tall/scrollable (e.g. the 타임블록 timeline) so its intrinsic height does **not**
+drive the column (which balloons it and breaks alignment); the scroll body then `flex:1;
+min-height:0; overflow:auto` fills the card and its grid `align-items:stretch` + `min-height`
+extends downward instead of leaving empty space. A fixed `max-height` cap on the last card only
+aligns by coincidence — don't.
+
 ---
 
 ## 5. Page-by-page application notes
 
 Per page: **keep** (structure the user validated — don't touch) / **fix** (surface cleanup) /
 **refs** (which reference informs it). Detailed control lists live in
-`docs/UI_FUNCTION_INVENTORY.md`; this is the intent layer. Nothing here is built yet.
+`docs/UI_FUNCTION_INVENTORY.md`; this is the intent layer. **나/Home is built (§5.1); the rest are
+intent.**
 
-- **나/Home** — *keep* the dashboard composition (banner, stickers, quick routine, signals). *fix*
-  spacing rhythm, one clear primary per card, empty states. *refs* ref-1 calm dashboard.
+### 5.1 나/Home — SHIPPED (reference implementation for the other tabs)
+
+The first fully-redesigned tab; it's the worked example the §7 playbook is drawn from. What landed:
+- **Layout:** two-column masonry with equal-height fill (§4.5) — left = 날짜 → 배너 → 오늘 할일 →
+  타임블록; right = 오늘 상황 → 오늘 습관 → 처리 필요 → 빠른 메모; full-width 타임그리드 below.
+  Both columns' last cards align to the timegrid with no gaps.
+- **Surfaces:** white content canvas (`.home-page` = `--bg-card`), **flat borderless cards**
+  (border dropped, `--elev-1` only) so it reads as an airy sheet, not a grid of boxes. Every card
+  header has a `.sec-ico` (§3.9).
+- **Cards:** 오늘 상황 (situation + signal pills + upcoming preview); 오늘 습관 with a per-habit
+  **last-7-days mini-streak**; 오늘 할일 eisenhower quadrants with an **all-empty prompt + CTA**;
+  빠른 메모 flex-widget (memo/values/photo/music) with a **hover-only type picker** and unified
+  empty states (§3.8); 처리 필요 inbox list with per-item type icons; 타임블록 vertical scheduler
+  with an **empty state that pulls overdue tasks (밀린 할일 오늘로)**; 타임그리드 canvas whose
+  **legend colors match the pill `--task-pal-*` tokens** and which draws **same-row U-arcs and
+  cross-row dashed connectors** for task↔deadline links (fixed first-paint via ResizeObserver).
+- **Task links:** the modal now shows **reverse links** ("연결된 할일" — which tasks point at this
+  item), since the link is stored one-way.
+- **Chrome:** redesigned quick-capture bar (§3.7); white topbar; lightened titlebar.
+- **Modals/dialogs:** unified footer + confirm + SVG icons (§3.5).
+- Everything verified headlessly (14 pages 0 overflow/errors, light+dark), inventory 0 lost.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
@@ -456,3 +532,48 @@ this rule is what you do about an intended one: surface it and wait for a yes be
    network-first, so a merged change reaches the installed PWA on next online open).
 7. **Every component/pattern in this doc must trace to a real inventory entry.** If a proposed
    component can't point to what it replaces, it isn't ready.
+
+---
+
+## 7. One-tab redesign playbook (distilled from the 나/Home pass)
+
+The repeatable loop for redesigning the remaining tabs, as actually run on Home. It sits on top of
+`docs/REDESIGN_WORKFLOW.md` (Phases 1–8) and §6 above (the engineering safety net); this is the
+condensed operating procedure.
+
+**A. Understand + functional-audit the tab first.** Read the real code in `index.html` (grep the
+`render*`/`open*` functions for the tab) and its `docs/UI_FUNCTION_INVENTORY.md` section. List
+every control, interaction, and stored/synced key. Nothing may silently disappear (§6.0/§6.4).
+
+**B. UX audit (Phase 3).** Assume every existing decision is questionable. Hunt: needless clicks,
+weak hierarchy, inconsistent interactions, poor discoverability, missing states, native
+`confirm()`/glyph icons that break the unified language. Write it down (a per-tab audit doc, like
+`docs/home-tab-audit.md`) with severity — it becomes the backlog.
+
+**C. Decide the visual target against §2–§4**, not against the reference screenshot. Reuse the
+shipped components (§3): `.btn` hierarchy, flat cards (§3.2), tint+ink chips (§3.3), accent focus
+(§3.4), unified modal (§3.5), capture/compose bar (§3.7), empty states (§3.8), section icons
+(§3.9), masonry (§4.5). A reference inspires a *principle*; restate it in Return's terms.
+
+**D. Implement strangler-fig (§6.1–6.2).** Redesign markup/CSS while keeping every `id` /
+`data-*` / `onclick`. One coherent change per commit/PR. Prefer read-chokepoint migrations for
+saved/synced state (§6.3). **Don't guess in the sync/theme/timegrid footgun areas — reproduce a
+bug headlessly before changing guard/merge logic** (CLAUDE.md); the Home timegrid link bug and the
+dark-mode bug were both fixed only after a real repro.
+
+**E. Design every state (Phase 6).** empty / first-use / loading / offline / overflow / long &
+short text / single & zero & many items / destructive-confirm. Use the §3.8 pattern.
+
+**F. Verify headlessly before every push.** Playwright render at desktop + mobile (and light +
+dark for anything touching color): screenshot, and *measure* the specific thing you changed
+(alignment px, overflow, computed tokens) — don't eyeball. Then `node
+scripts/generate-ui-inventory.js` + diff (**0 functions lost**) and `npm test` green.
+
+**G. Ship in small reviewable PRs and iterate on owner feedback (Phase 8).** Show a screenshot,
+state what changed and how it was verified, let the owner react, refine. **Surface conflicts /
+composition changes and get a yes before making them** — don't silently change the agreed layout
+to solve a secondary problem.
+
+**H. Reconcile this doc, both directions.** When the pass lands, update §3–§5 so the doc matches
+what shipped (new component → add it here; "flagged" → "fixed"; intent → done-record). The doc and
+the code must never drift — that reconciliation is itself a step, not optional.
