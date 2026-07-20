@@ -514,6 +514,13 @@ dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
 - **Dropdown menu** (`.menu-pop`/`.menu-item`/`.menu-sep`) — reusable popover: rounded card,
   SVG line icons in a muted `--fg-4`, `danger` variant tints red on hover (`--d-50`), a `.menu-sep`
   divider to group destructive actions apart from safe ones. First applied to the Tasks 더보기 menu.
+- **Top breathing room / density.** The Tasks headers used the same `--sp-8` top padding as the
+  content, so the dense `.cal-header`/`.list-header` (with their `border-bottom`) sat only ~16px
+  under the white topbar and read as a cramped echo of it — versus Home, where content floats airily
+  on the canvas. Bumped both headers' top padding to `--sp-12` (16→24px), enlarged the `.list-date`
+  "오늘" heading (`--text-lg`→`--text-xl`, with a `20px` fallback since `--text-xl` is theme-only),
+  relaxed the header internal spacing, and gave `.list-scroll` a small top padding so the first
+  section clears the header line. Result: a clearer, calmer separation from the topbar.
 - **활성 규칙 · 반복 할일 panel → on-demand modal.** The rule/repeat management widget no longer
   sits permanently at the bottom of the task list (it's occasional-config, not daily-glance). Its
   seed `.rules-box` was relocated into a hidden `#ops-overlay` modal; `ensureHomeOpsPanel()` builds
