@@ -518,9 +518,13 @@ label span" rule for any chip/button whose text is re-rendered (prevents wiping 
 **Category bars stay visible + calendar left-aligned (revision).** Per the owner, every category
 bar renders even with 0 items (empty categories no longer collapse to a single prompt, and the
 `.cat-empty` header keeps full opacity — only its count reads muted) so adding via each bar's `+`
-is always one tap away. Separately, the Tasks **calendar column now shares the topbar's left inset**
-(`clamp(16px,3vw,40px)` on `.cal-header`/`.cal-grid-outer`), so the calendar's left edge lines up
-with the capture bar above it instead of starting ~24px further left.
+is always one tap away. Separately, the Tasks **calendar column is aligned to the capture bar AND balanced**, to match how
+Home reads (Home content sits at the capture-bar's left edge with symmetric padding). The narrow
+296px panel couldn't do both, so the panel was widened to **376px** and given **symmetric**
+horizontal padding (`clamp(16px,3vw,40px)` on both sides of `.cal-header`/`.cal-grid-outer`): the
+grid's left edge lands on the capture bar (256≈256) while left/right margins stay equal (~40/40).
+The view controls (콤팩트/마감 뷰/시간표/완료 숨김) were compacted (`.ctrl-btn` padding `--sp-3`,
+`.cal-controls` gap `--sp-1`) so they fit on **one row** in the wider panel instead of wrapping.
 
 **Follow-up refinement (task row + menus):**
 - **Task item priority** no longer uses a left-border bracket (the curved stripe read as clunky
