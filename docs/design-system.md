@@ -503,6 +503,18 @@ color-dot on a chip for category/priority identity; the "icon in a leading span,
 label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG); `.cat-empty`
 dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
 
+**Follow-up refinement (task row + menus):**
+- **Task item priority** no longer uses a left-border bracket (the curved stripe read as clunky
+  against the flat sheet). Priority is now the **checkbox ring color** via a `--ck-ring` CSS var set
+  on the row (`.task-item.pri-*` and Home `.ti-*`): high=`--danger`, mid=`--warning`, low=`--success`,
+  none=`--border-strong`; done stays a solid filled check. `.task-check` reads
+  `box-shadow:0 0 0 1.5px var(--ck-ring,var(--border-strong))`, so hover/done override cleanly with
+  no specificity fight. This keeps the circle/dot language consistent with the chips and applies to
+  **both** the Tasks list and the Home 오늘 할일 list (same `.task-item`).
+- **Dropdown menu** (`.menu-pop`/`.menu-item`/`.menu-sep`) — reusable popover: rounded card,
+  SVG line icons in a muted `--fg-4`, `danger` variant tints red on hover (`--d-50`), a `.menu-sep`
+  divider to group destructive actions apart from safe ones. First applied to the Tasks 더보기 menu.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
