@@ -514,6 +514,15 @@ dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
 - **Dropdown menu** (`.menu-pop`/`.menu-item`/`.menu-sep`) — reusable popover: rounded card,
   SVG line icons in a muted `--fg-4`, `danger` variant tints red on hover (`--d-50`), a `.menu-sep`
   divider to group destructive actions apart from safe ones. First applied to the Tasks 더보기 menu.
+- **활성 규칙 · 반복 할일 panel → on-demand modal.** The rule/repeat management widget no longer
+  sits permanently at the bottom of the task list (it's occasional-config, not daily-glance). Its
+  seed `.rules-box` was relocated into a hidden `#ops-overlay` modal; `ensureHomeOpsPanel()` builds
+  `#home-ops-section` inside the modal body (same code, same ids/handlers), and a new 더보기 menu
+  item (`openOpsModal`/`closeOpsModal`) pulls it up when needed. `.ops-modal` flattens the wrapped
+  card (transparent, no shadow) and hides the panel's duplicate `.sec-label`. NB: the inventory
+  scanner is page-boundary based, so moving `home-rule-btn`/`home-repeat-btn`/`rule-card-btn` out of
+  `#page-tasks` into the top-level overlay reads as "lost from the tasks page" — the ids and their
+  listeners are unchanged and still bind; nothing is functionally removed.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
