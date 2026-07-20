@@ -2283,6 +2283,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .cat-chip{height:22px;padding:0 var(--sp-4);border-radius:var(--r-full);font-size:var(--text-xs);font-weight:var(--fw-medium);background:var(--bg-raised);color:var(--fg-3);cursor:pointer;white-space:nowrap;transition:background var(--t-snap),color var(--t-snap);display:inline-flex;align-items:center;gap:var(--sp-1)}
 .cat-chip:hover{background:var(--bg-sunken);color:var(--fg-2)}
 .cat-chip.active{background:var(--accent-light);color:var(--a-600)}
+.cat-chip-swatch{width:8px;height:8px;border-radius:var(--r-full);flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
+.cat-chip-emoji{font-size:var(--text-xs);line-height:1}
+.cat-chip.cat-chip-dot.active .cat-chip-swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .task-cat-row{align-items:center;gap:var(--sp-3)}
 .cat-color-picker{display:flex;gap:var(--sp-2);align-items:center}
 .cat-color-swatch{width:24px;height:24px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--border);background:var(--swatch)}
@@ -2417,7 +2420,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .section-move-btn:hover{background:var(--accent-hover)}
 
 /* ── RIGHT: LIST PANEL ── */
-.list-panel{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-page)}
+.list-panel{flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg-card)}
 
 /* List header */
 .list-header{padding:var(--sp-8) var(--sp-10) var(--sp-5);border-bottom:.5px solid var(--border-subtle);background:var(--bg-card);flex-shrink:0}
@@ -2542,6 +2545,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .section-head:hover{background:var(--bg-hover)}
 .section-title{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);letter-spacing:.5px;text-transform:uppercase;flex:1}
 .section-head.cat-section-head{background:var(--bg-raised);border-radius:var(--r-lg);box-shadow:var(--elev-inset)}
+.section-head.cat-section-head.cat-empty{background:transparent;box-shadow:none;opacity:.5}
+.section-head.cat-section-head.cat-empty:hover{opacity:1;background:var(--bg-hover)}
+.task-cat-empty-all{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--sp-4);padding:var(--sp-16) var(--sp-6);text-align:center}
+.task-cat-empty-all .tce-msg{font-size:var(--text-sm);color:var(--fg-4)}
 .section-head.cat-section-head .section-title{color:var(--fg-2);letter-spacing:.2px;text-transform:none}
 .section-count{font-size:var(--text-xs);font-weight:var(--fw-medium);color:var(--fg-4);background:var(--bg-raised);border-radius:var(--r-full);padding:1px var(--sp-3)}
 .section-chevron{font-size:10px;color:var(--fg-4);transition:transform var(--t-snap)}
@@ -17354,8 +17361,16 @@ function renderTaskCatFilter(){
   bar.appendChild(all);
   CATS.forEach(function(c){
     var b=document.createElement('button');
-    b.className='cat-chip'+(activeCat===c.id?' active':'');
-    b.dataset.cat=c.id; b.textContent=c.emoji;
+    b.className='cat-chip cat-chip-dot'+(activeCat===c.id?' active':'');
+    b.dataset.cat=c.id;
+    var dot=document.createElement('span');
+    dot.className='cat-chip-swatch';
+    dot.style.background=normalizeTaskCatColor(c.color);
+    b.appendChild(dot);
+    var em=document.createElement('span');
+    em.className='cat-chip-emoji';
+    em.textContent=c.emoji;
+    b.appendChild(em);
     b.title=c.label;
     bar.appendChild(b);
   });
@@ -18732,6 +18747,16 @@ function renderDueDateSection(container){
 }
 
 function renderByCategory(container,vt){
+  /* Whole day empty → one calm prompt instead of a stack of 0-count category
+     sections (audit T4). Add routes through the existing quick-add. */
+  if(!vt.length){
+    var box=document.createElement('div');box.className='task-cat-empty-all';
+    box.innerHTML='<div class="tce-msg">이 날엔 할일이 없어요</div><button class="hw-cta" type="button" id="tce-add">할일 추가</button>';
+    container.appendChild(box);
+    var addBtn=box.querySelector('#tce-add');
+    if(addBtn)addBtn.addEventListener('click',function(){var b=document.getElementById('btn-add');if(b)b.click();});
+    return;
+  }
   var cg={};
   vt.forEach(function(t){if(!cg[t.catId])cg[t.catId]=[];cg[t.catId].push(t);});
   CATS.forEach(function(catDef){
@@ -18776,6 +18801,8 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
   var cat=catId?getCat(catId):null;
   if(cat){
     head.classList.add('cat-section-head');
+    /* Empty category on a non-empty day → dim it so filled categories lead. */
+    if(!items.length)head.classList.add('cat-empty');
   }
 
   var titleEl=document.createElement('span');titleEl.className='section-title';titleEl.textContent=title;
