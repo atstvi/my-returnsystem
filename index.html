@@ -11403,7 +11403,8 @@ function repeatDebugLog(label,data){
    user tap a start day then an end day to add an active period, shows the periods
    as removable chips, and highlights them on the calendar. getRanges() returns the
    current [{start,end}] array (YYYY-MM-DD). No ranges = always active. */
-function taskCreateRangePicker(mount, initialRanges){
+function taskCreateRangePicker(mount, initialRanges, opts){
+  opts=opts||{};
   var ranges=(initialRanges||[]).filter(function(r){return r&&r.start&&r.end;})
     .map(function(r){return {start:r.start,end:r.end};});
   var today=new Date();
@@ -11418,7 +11419,8 @@ function taskCreateRangePicker(mount, initialRanges){
   function pick(key){
     if(!pending){pending=key;render();return;}
     var a=pending<key?pending:key, b=pending<key?key:pending;
-    if(!ranges.some(function(r){return r.start===a&&r.end===b;}))ranges.push({start:a,end:b});
+    if(opts.single){ranges=[{start:a,end:b}];}
+    else if(!ranges.some(function(r){return r.start===a&&r.end===b;}))ranges.push({start:a,end:b});
     pending=null;render();
   }
   function render(){
@@ -11450,10 +11452,10 @@ function taskCreateRangePicker(mount, initialRanges){
     }
     mount.appendChild(grid);
     var hint=document.createElement('div');hint.className='mrp-hint';
-    hint.textContent=pending?('종료일을 선택하세요 · '+fmt(pending)+' ~'):'시작일 → 종료일 순서로 눌러 기간을 추가하세요';
+    hint.textContent=pending?('종료일을 선택하세요 · '+fmt(pending)+' ~'):'시작일 → 종료일 순서로 눌러 기간을 정하세요';
     mount.appendChild(hint);
     var chips=document.createElement('div');chips.className='mrp-chips';
-    if(!ranges.length){var none=document.createElement('div');none.className='mrp-none';none.textContent='기간 제한 없음 · 항상 활성';chips.appendChild(none);}
+    if(!ranges.length){var none=document.createElement('div');none.className='mrp-none';none.textContent=opts.emptyLabel||'기간 제한 없음 · 항상 활성';chips.appendChild(none);}
     ranges.slice().sort(function(a,b){return a.start<b.start?-1:1;}).forEach(function(r){
       var chip=document.createElement('span');chip.className='mrp-chip';
       var lbl=document.createElement('span');lbl.textContent=fmt(r.start)+' ~ '+fmt(r.end);chip.appendChild(lbl);
@@ -11493,7 +11495,7 @@ function openFormDialog(title, fields, onSave){
   fields.forEach(function(f){
     if(f.type==='dateranges'){
       var m=ov.querySelector('[data-mrp-key="'+f.key+'"]');
-      if(m)rangePickers[f.key]=taskCreateRangePicker(m, Array.isArray(f.value)?f.value:[]);
+      if(m)rangePickers[f.key]=taskCreateRangePicker(m, Array.isArray(f.value)?f.value:[], {single:!!f.single, emptyLabel:f.emptyLabel});
     }
   });
   ov.querySelectorAll('.weekday-picker').forEach(function(wrap){
@@ -11751,19 +11753,20 @@ function openHomeRepeatModal(){
   var catOptions=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {value:c.id,label:(c.emoji?c.emoji+' ':'')+c.label};});
   if(!catOptions.length)catOptions=[{value:'etc',label:'기타'}];
   openFormDialog('반복 할일 추가', [
-    {key:'text', label:'반복 할일 이름', value:''},
+    {key:'text', label:'반복할 할일', value:''},
     {key:'catId', label:'카테고리', type:'select', value:'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:'', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'반복 주기', type:'select', value:'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
-    {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:''},
-    {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(new Date().getDate())},
-    {key:'endDate', label:'반복 종료일', type:'date', value:''}
+    {key:'freq', label:'얼마나 자주?', type:'select', value:'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
+    {key:'weekdays', label:'무슨 요일에?', type:'weekdays', value:''},
+    {key:'monthDay', label:'매월 며칠에?', type:'number', value:String(new Date().getDate())},
+    {key:'dateRanges', label:'활성 기간', type:'dateranges', single:true, emptyLabel:'기간 제한 없음 · 계속 반복', value:[], help:'이 기간에만 반복해요. 달력에서 시작일→종료일을 고르고, 비워두면 계속 반복돼요.'}
   ], function(data){
     var text=(data.text||'').trim();
     if(!text)return;
     var freq=data.freq||'daily';
+    var rng=(Array.isArray(data.dateRanges)?data.dateRanges:[]).filter(function(x){return x&&x.start&&x.end;});
     var repeats=loadRepeatItems();
-    var entry={id:returnNewId('ri_'),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:TK,endDate:data.endDate||''};
+    var entry={id:returnNewId('ri_'),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:rng.length?rng[0].start:TK,endDate:rng.length?rng[0].end:''};
     repeats.push(entry); saveRepeatItems(repeats);
     generateRepeatTasks(entry, TK, 21);
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -12221,14 +12224,14 @@ function editHomeRepeat(id){
   var catOptions=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {value:c.id,label:(c.emoji?c.emoji+' ':'')+c.label};});
   if(!catOptions.length)catOptions=[{value:'etc',label:'기타'}];
   openFormDialog('반복 할일 편집', [
-    {key:'text', label:'반복 할일 이름', value:r.text || ''},
+    {key:'text', label:'반복할 할일', value:r.text || ''},
     {key:'catId', label:'카테고리', type:'select', value:r.catId || 'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:r.priority || '', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'반복 주기', type:'select', value:r.freq || 'daily', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
-    {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:r.weekdays || ''},
-    {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(r.monthDay || new Date().getDate())},
-    {key:'endDate', label:'반복 종료일', type:'date', value:r.endDate || ''},
-    {key:'skipLink', label:'연결 필요에서 숨기기 (일정 카테고리일 때 홈 화면의 연결 필요 목록에 표시 안 함)', type:'checkbox', value:r.skipLink?'on':''}
+    {key:'freq', label:'얼마나 자주?', type:'select', value:r.freq || 'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
+    {key:'weekdays', label:'무슨 요일에?', type:'weekdays', value:r.weekdays || ''},
+    {key:'monthDay', label:'매월 며칠에?', type:'number', value:String(r.monthDay || new Date().getDate())},
+    {key:'dateRanges', label:'활성 기간', type:'dateranges', single:true, emptyLabel:'기간 제한 없음 · 계속 반복', value:(r.startDate&&r.endDate)?[{start:r.startDate,end:r.endDate}]:[], help:'이 기간에만 반복해요. 달력에서 시작일→종료일을 고르고, 비워두면 계속 반복돼요.'},
+    {key:'skipLink', label:'"연결 필요" 목록에서 숨기기 (일정 카테고리 전용)', type:'checkbox', value:r.skipLink?'on':''}
   ], function(data){
     r.text=(data.text||'').trim();
     r.catId=data.catId||'etc';
@@ -12236,7 +12239,8 @@ function editHomeRepeat(id){
     r.freq=data.freq||'daily';
     r.weekdays=data.weekdays||'';
     r.monthDay=parseInt(data.monthDay,10)||new Date().getDate();
-    r.endDate=data.endDate||'';
+    var rng=(Array.isArray(data.dateRanges)?data.dateRanges:[]).filter(function(x){return x&&x.start&&x.end;});
+    if(rng.length){r.startDate=rng[0].start;r.endDate=rng[0].end;}else{r.endDate='';}
     r.skipLink=data.skipLink==='on';
     if (typeof tasks !== 'undefined') {
       tasks.forEach(function(t){ if (t._repeatId === id) { t.text = r.text; t.catId = r.catId; t.priority = r.priority; } });
@@ -12575,7 +12579,8 @@ renderHomeOpsPanel=function(){
     var meta=['반복 '+(freqMap[rep.freq]||rep.freq||'매일')];
     if(rep.weekdays)meta.push('요일 '+ruleWeekdayLabel(rep.weekdays));
     if(rep.freq==='monthly'&&rep.monthDay)meta.push('매월 '+rep.monthDay+'일');
-    if(rep.endDate)meta.push('종료 '+rep.endDate);
+    if(rep.startDate&&rep.endDate)meta.push('기간 '+opsFmtRange({start:rep.startDate,end:rep.endDate}));
+    else if(rep.endDate)meta.push('종료 '+opsFmtRange({end:rep.endDate}));
     var cat=(typeof getCat==='function')?getCat(rep.catId||'etc'):null;
     if(cat)meta.push((cat.emoji?cat.emoji+' ':'')+cat.label);
     var pending=pendingForRepeat(rep);

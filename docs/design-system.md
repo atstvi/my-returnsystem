@@ -510,6 +510,11 @@ refs). Audit + backlog in `docs/tasks-tab-audit.md` (T1–T10). What landed, by 
   `openFormDialog` as a new `type:'dateranges'` field; `openFormDialog` also gained inline `help`
   text under any field's label. The rule editor now uses plain-language labels + help + the picker.
 - Ops-row meta shows `기간 05.07~06.07` for one period or `기간 N개` for several (`opsFmtRange`).
+- **반복 할일 editor gets the same treatment.** Plain-language labels + help ("얼마나 자주?",
+  "무슨 요일에?", "매월 며칠에?", "활성 기간") and a **single-window** calendar picker
+  (`taskCreateRangePicker(..., {single:true})` via the `single` field flag) for the repeat's active
+  window, mapped to the existing `startDate`/`endDate` (empty = 계속 반복). Repeat ops-row meta shows
+  `기간 …` to match rules.
 
 **Reusable patterns this pass added** (available to later tabs): `.cat-chip-swatch`/`.add-chip-dot`
 color-dot on a chip for category/priority identity; the "icon in a leading span, JS updates only the
