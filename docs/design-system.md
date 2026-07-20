@@ -6,11 +6,11 @@
 > materials (§0, inspire don't copy).** The workflow governs *how* a redesign is carried out; this
 > governs *what* the design is.
 >
-> **Status — §2 (tokens/color), the app shell (§4.1), and the 나/Home tab are SHIPPED.** §3
+> **Status — §2 (tokens/color), the app shell (§4.1), and the 나/Home + 할일/Tasks tabs are SHIPPED.** §3
 > (components) documents the real, current vocabulary (updated as Home was built). §6 (application
-> process) is the decided workflow. §5 is now part intent / part done-record: the **나/Home** entry
-> is a built record (§5.1); the other tabs are still the intent layer and get scoped approval before
-> code. Reference §7 for the distilled **one-tab redesign playbook** derived from the Home pass.
+> process) is the decided workflow. §5 is now part intent / part done-record: the **나/Home** (§5.1)
+> and **할일/Tasks** (§5.2) entries are built records; the other tabs are still the intent layer and
+> get scoped approval before code. Reference §7 for the distilled **one-tab redesign playbook**.
 >
 > **This document is a constraint, not a mood board.** Every component and pattern below must
 > name the exact page/control in `docs/UI_FUNCTION_INVENTORY.md` it replaces. If a redesign pass
@@ -476,6 +476,32 @@ The first fully-redesigned tab; it's the worked example the §7 playbook is draw
 - **Chrome:** redesigned quick-capture bar (§3.7); white topbar; lightened titlebar.
 - **Modals/dialogs:** unified footer + confirm + SVG icons (§3.5).
 - Everything verified headlessly (14 pages 0 overflow/errors, light+dark), inventory 0 lost.
+
+### 5.2 할일/Tasks — SHIPPED (second tab; applied the §7 playbook)
+
+Structure kept intact (category sidebar, calendar, view-switcher, recurring rules — rated above
+refs). Audit + backlog in `docs/tasks-tab-audit.md` (T1–T10). What landed, by priority:
+- **P0 — chrome icons → SVG:** calendar controls (콤팩트/마감 뷰/시간표/완료 숨김) and list-header
+  buttons (선택/검색/추가/더보기) moved from emoji/glyphs to line SVGs. Toggle labels update via a
+  `.ctrl-label`/`.ctrl-label`-span so the SVG persists across `renderCal` re-renders.
+- **P1 — surface + states + identity:** `.list-panel` → flat white canvas (`--bg-card`, matches
+  §5.1). Empty day → single prompt + **할일 추가** CTA (`.task-cat-empty-all`); empty category
+  headers dim (`.cat-empty`, hover-restores). Category **filter chips gain a color swatch**
+  (`.cat-chip-swatch` = `normalizeTaskCatColor(cat.color)`) for at-a-glance ID while keeping the
+  user emoji. (검색/필터 row was already a modal — `openTaskSearchModal` — inline row is `display:none` legacy.)
+- **P2 — chip/dialog polish:** quick-add chips → **color dots** (priority level color, category
+  color) + calendar SVG for deadline (`.add-chip-dot`/`.add-chip-ico`; `updateAddChips` only
+  rewrites `.add-chip-label` so icons survive). Bulk-action bar → line SVGs, delete = danger.
+  Destructive `confirm()` (bulkDelete/bulkDeleteDone/openNameDelete/single-delete) → `openConfirmDialog`
+  danger dialog with a `confirm()` fallback.
+- Verified headlessly (chips/bulk render, dots colored, 0 pageerrors), `npm test` green, inventory
+  0 hooks lost (removed tokens = retired emoji labels only). Remaining: 취미탭 `confirm()` deferred
+  to the Hobby pass.
+
+**Reusable patterns this pass added** (available to later tabs): `.cat-chip-swatch`/`.add-chip-dot`
+color-dot on a chip for category/priority identity; the "icon in a leading span, JS updates only the
+label span" rule for any chip/button whose text is re-rendered (prevents wiping SVG); `.cat-empty`
+dimmed-header + `.task-cat-empty-all` prompt for grouped-list empty states.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
