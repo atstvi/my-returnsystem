@@ -591,6 +591,14 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
 - Implemented as **final render overrides** (`renderRoutineHeader/Conditions/Bundles/Stats/Routine`)
   that reuse every existing helper (timer/play, difficulty, CRUD, logs, Notion, Home quick-routine),
   so all functionality is preserved; the flat white canvas (`--bg-card`) matches §5.1/§5.2.
+- **Alignment + per-habit intensity (refinement).** The content column is left-aligned to the capture
+  bar (`clamp(16px,3vw,40px)` inset, `.routine-shell` `max-width:860px;margin:0`) so its left edge
+  matches the search bar (256=256), unified with Home/Tasks. Each habit row shows an **intensity
+  chip** (`.rt-plan-chip`) that displays the *custom level name* the user set (e.g. "물 한 컵 마시기")
+  plus a Mini/Plus/Max tag — not just "Mini"; tapping opens `.rt-diff-menu` listing every level by
+  its custom name. Effective level = per-habit override (`log.difficulty`) → today's global 오늘 강도
+  → first defined (`rtEffectiveDiff`), so the top segment is a quick "set all" default and the chip
+  is the per-habit override.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
