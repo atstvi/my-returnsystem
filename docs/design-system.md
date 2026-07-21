@@ -621,6 +621,23 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
     switched `display:none→block` painted one frame at full opacity **before** the animation's `from`
     (opacity:0) applied — a visible flash-then-fade ("깜박 한두번"). Added `animation-fill-mode:backwards`;
     headless trace confirms opacity now starts at 0 (no opaque first frame). Fixes every `.menu-pop`.
+- **Cleaner surface + on-demand stats + row interactions + timer polish (owner course-correction).**
+  - **No black stat numbers.** The 오늘 완료/연속 기록/이번 주 numeric tiles (`#routine-stats`) were removed
+    from the surface; the heatmap is the statistic. The timer toast header dropped its `· N/M` counter.
+  - **Stats on demand (2-column slide-in).** The shell is now left-aligned to the capture/search bar
+    (`.routine-shell` `flex-direction:row; margin:0`, `.rt-left` `max-width:720px`) — verified 254=254.
+    Stats are hidden by default; a header 통계 toggle (`#rt-stats-btn`, bar-chart icon) adds `.stats-open`,
+    revealing an `.rt-side` (300px) that **slides in from the right** (`@keyframes rt-side-in`), making a
+    2-column layout. ≤900px it wraps below. The heatmap + legend live inside `.rt-side`.
+  - **Habit-row interactions.** Removed the per-row `⋯` state button. The right slot is now a **drag
+    handle** (`.rt-drag`, reveals on hover, always faintly visible on touch) that **reorders habits within
+    a bundle** via pointer drag (`rtStartHabitDrag`, mouse+touch, commits to `bundle.habitIds`). State is
+    now chosen by **long-pressing the left check** (tap = 완료 toggle, ~420ms hold = state menu); each menu
+    item (완료/건너뜀/쉼/선택 안 함) gained a leading line **icon** (check / arrow / coffee / no-symbol).
+  - **Timer compact fix + movable window.** The compact (small-window) timer overflowed its card; added
+    `max-height` + `overflow-y:auto` and `width:100%` on inner fixed-width rows so it stays contained. The
+    non-functional 🔇 mute icon was replaced with a **move** control (`#routine-timer-move`) that cycles
+    the compact window between corners (`.corner-br/bl/tl/tr`).
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
