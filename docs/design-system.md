@@ -636,8 +636,21 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
     item (완료/건너뜀/쉼/선택 안 함) gained a leading line **icon** (check / arrow / coffee / no-symbol).
   - **Timer compact fix + movable window.** The compact (small-window) timer overflowed its card; added
     `max-height` + `overflow-y:auto` and `width:100%` on inner fixed-width rows so it stays contained. The
-    non-functional 🔇 mute icon was replaced with a **move** control (`#routine-timer-move`) that cycles
-    the compact window between corners (`.corner-br/bl/tl/tr`).
+    non-functional 🔇 mute icon was replaced with a **move** control (`#routine-timer-move`).
+- **Free-drag mini window + labeled levels + right-column photo banner (owner course-correction).**
+  - **Compact timer = free drag.** The corner-cycle read as "위치 조절 안 됨"; replaced with **pointer
+    drag** on the move handle (`rtApplyTimerPos` + `routineTimerPos`), clamped to the viewport and
+    reapplied across re-renders (the 1s tick only repaints the clock, so a drag isn't interrupted).
+  - **Mini/Plus/Max are identifiable in the timer.** `routineTimerDifficultyControls` chips now show the
+    level's **custom plan text** under the label (`.rt-diff-chip` → `.rtc-lv` + `.rtc-tx`), so you can tell
+    what each level is from the mini window, not just "Mini/Plus/Max".
+  - **Right column always populated.** The layout is now always 2-column: `.rt-side` shows a
+    **photo-attachable banner** (`#rt-banner`, `renderRoutineBanner`) by default and the stats panel when
+    통계 is toggled. The banner stretches to the left column's height (`align-self:stretch` + `flex:1`;
+    verified 398=398), reuses the home-banner media pipeline (`fileToBannerDataUrl` →
+    `returnMediaStoreDataUrl` → `returnMediaResolveUrlWithFallback`), stores `routine_banner_v1`
+    (added to `DATA_KEYS` + `RETURN_DATA_MAP.banners`; `syncDataUrl` inline ≤180KB), with 사진 추가 /
+    변경 / 삭제 controls.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
