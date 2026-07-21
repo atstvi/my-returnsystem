@@ -591,6 +591,15 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
 - Implemented as **final render overrides** (`renderRoutineHeader/Conditions/Bundles/Stats/Routine`)
   that reuse every existing helper (timer/play, difficulty, CRUD, logs, Notion, Home quick-routine),
   so all functionality is preserved; the flat white canvas (`--bg-card`) matches §5.1/§5.2.
+- **루틴 잔디밭 + 2-column fill (gamification, refinement).** The left-aligned column left the right
+  side empty and the UI read as generic. Reworked into a responsive **2-column body** (`.rt-body`:
+  do-list `.rt-col-main` | `.rt-col-side`, collapses to 1 col ≤900px) that fills the space with
+  tasteful, no-XP gamification: **per-routine heatmap "gardens"** (`renderRoutineBoards` → `.rt-board`
+  contribution-graph, 16 weeks × 7, each routine its own color via `rtBundleColor` + `--rt-c`, cell
+  levels by daily completion ratio, today ringed) plus a 🔥 streak per board (`rtBoardStreak`), and
+  a 전체 루틴 garden aggregating all habits. This doubles as the "clearer, more varied heatmap stats"
+  ask; the 이번 주 stat card + 7-day strip stay below it. Cells are fixed 13px (GitHub-style), not
+  stretched.
 - **Alignment + per-habit intensity (refinement).** The content column is left-aligned to the capture
   bar (`clamp(16px,3vw,40px)` inset, `.routine-shell` `max-width:860px;margin:0`) so its left edge
   matches the search bar (256=256), unified with Home/Tasks. Each habit row shows an **intensity
