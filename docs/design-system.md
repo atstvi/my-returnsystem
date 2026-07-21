@@ -608,6 +608,36 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
   its custom name. Effective level = per-habit override (`log.difficulty`) → today's global 오늘 강도
   → first defined (`rtEffectiveDiff`), so the top segment is a quick "set all" default and the chip
   is the per-habit override.
+- **Unified time-of-day icons + richer heatmap + menu-flash fix (refinement).**
+  - **모닝/오후/저녁 line icons.** Time-of-day bundles now render a cohesive **line SVG** in the ring
+    instead of a stray emoji: `rtSlotIcon(bundle)` matches the title/slot (아침·모닝·오전 → sunrise,
+    오후·점심·낮 → sun, 저녁·밤·취침 → moon, Feather-style) and returns `.rt-slot-ic` (`currentColor`
+    stroke, `--fg-2`); non-time bundles keep their custom emoji. Uniform with the app's §3.9 icon set.
+  - **Heatmap bigger + more legible.** The aggregate `#rt-boards` grew from 10px bare cells to a small
+    **calendar heatmap**: 13px cells, **month labels** (`.rt-heat-months`), **weekday labels** (월·수·금,
+    `.rt-heat-days`), a **적음→많음 legend** (`#rt-heat-legend`), and a per-day **tooltip** (`M월 D일 · N/M 완료`).
+    16 weeks, scrolls horizontally, scrollbar hidden. Still one tidy card — informative, not gamified.
+  - **Menu open-flash fixed (app-wide).** `.menu-pop` played `menu-in` without a fill-mode, so a menu
+    switched `display:none→block` painted one frame at full opacity **before** the animation's `from`
+    (opacity:0) applied — a visible flash-then-fade ("깜박 한두번"). Added `animation-fill-mode:backwards`;
+    headless trace confirms opacity now starts at 0 (no opaque first frame). Fixes every `.menu-pop`.
+- **Cleaner surface + on-demand stats + row interactions + timer polish (owner course-correction).**
+  - **No black stat numbers.** The 오늘 완료/연속 기록/이번 주 numeric tiles (`#routine-stats`) were removed
+    from the surface; the heatmap is the statistic. The timer toast header dropped its `· N/M` counter.
+  - **Stats on demand (2-column slide-in).** The shell is now left-aligned to the capture/search bar
+    (`.routine-shell` `flex-direction:row; margin:0`, `.rt-left` `max-width:720px`) — verified 254=254.
+    Stats are hidden by default; a header 통계 toggle (`#rt-stats-btn`, bar-chart icon) adds `.stats-open`,
+    revealing an `.rt-side` (300px) that **slides in from the right** (`@keyframes rt-side-in`), making a
+    2-column layout. ≤900px it wraps below. The heatmap + legend live inside `.rt-side`.
+  - **Habit-row interactions.** Removed the per-row `⋯` state button. The right slot is now a **drag
+    handle** (`.rt-drag`, reveals on hover, always faintly visible on touch) that **reorders habits within
+    a bundle** via pointer drag (`rtStartHabitDrag`, mouse+touch, commits to `bundle.habitIds`). State is
+    now chosen by **long-pressing the left check** (tap = 완료 toggle, ~420ms hold = state menu); each menu
+    item (완료/건너뜀/쉼/선택 안 함) gained a leading line **icon** (check / arrow / coffee / no-symbol).
+  - **Timer compact fix + movable window.** The compact (small-window) timer overflowed its card; added
+    `max-height` + `overflow-y:auto` and `width:100%` on inner fixed-width rows so it stays contained. The
+    non-functional 🔇 mute icon was replaced with a **move** control (`#routine-timer-move`) that cycles
+    the compact window between corners (`.corner-br/bl/tl/tr`).
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
