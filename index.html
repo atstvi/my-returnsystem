@@ -27578,6 +27578,7 @@ function routineTimerMarkCurrent(state){
   if(!habit)return;
   var log=routineTodayLog();
   log[habit.id]=log[habit.id]||{};
+  if(typeof rtApplyCompletionLock==='function')rtApplyCompletionLock(habit.id,log[habit.id],state);
   log[habit.id].state=state;
   if(state==='done'){
     var total=routineTimerMs();
@@ -27660,7 +27661,9 @@ function routineTimerSetState(state){
   log[habit.id]=log[habit.id]||{};
   var cur=log[habit.id].state||'';
   /* 같은 상태를 다시 누르면 해제(토글). */
-  log[habit.id].state=(state==='clear'||cur===state)?'':state;
+  var newState=(state==='clear'||cur===state)?'':state;
+  if(typeof rtApplyCompletionLock==='function')rtApplyCompletionLock(habit.id,log[habit.id],newState);
+  log[habit.id].state=newState;
   log[habit.id].updatedAt=Date.now();
   saveRoutineData();
   renderRoutineTimerToast();
@@ -27808,6 +27811,16 @@ function rtEffectiveDiff(h,item){
   if(opts.some(function(o){return o.key===routineCondition;}))return routineCondition;
   return opts[0].key;
 }
+/* Completing a habit records (freezes) its intensity at the value in effect, so later 오늘 강도
+   changes don't move a done item. Un-completing clears the freeze → it follows 오늘 강도 again. */
+function rtApplyCompletionLock(id,item,newState){
+  if(!item)return;
+  if(newState==='done'||newState==='skip'){
+    if(!item.difficulty){var h=routineHabitById(id);if(h){var d=rtEffectiveDiff(h,item);if(d)item.difficulty=d;}}
+  }else{
+    item.difficulty='';
+  }
+}
 /* unified line icon for morning/afternoon/evening routines (detected from title+slot); null → keep custom emoji */
 function rtSlotIcon(bundle){
   var t=(((bundle&&bundle.title)||'')+' '+((bundle&&bundle.slot)||'')).toLowerCase();
@@ -27897,12 +27910,12 @@ renderRoutineBundles=function(){
     function cancelLp(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}}
     btn.addEventListener('pointerdown',function(){longFired=false;cancelLp();lpTimer=setTimeout(function(){longFired=true;lpTimer=null;openStateMenu();},420);});
     ['pointerup','pointerleave','pointercancel'].forEach(function(ev){btn.addEventListener(ev,cancelLp);});
-    btn.addEventListener('click',function(e){e.stopPropagation();if(longFired){longFired=false;return;}var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var cur=lg[id].state||'';lg[id].state=(cur==='done'||cur==='skip')?'':'done';lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});
+    btn.addEventListener('click',function(e){e.stopPropagation();if(longFired){longFired=false;return;}var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var cur=lg[id].state||'';var next=(cur==='done'||cur==='skip')?'':'done';rtApplyCompletionLock(id,lg[id],next);lg[id].state=next;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});
     btn.addEventListener('contextmenu',function(e){e.preventDefault();});
   });
   root.querySelectorAll('[data-routine-diff-toggle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var w=btn.closest('.rt-habit').querySelector('.rt-diff-menu');var was=w.classList.contains('open');closeAll();if(!was)w.classList.add('open');});});
   root.querySelectorAll('[data-routine-diff-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};lg[id].difficulty=btn.getAttribute('data-routine-diff-option')||'';lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
-  root.querySelectorAll('[data-routine-state-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var next=btn.getAttribute('data-routine-state-option');lg[id].state=(next==='clear'||lg[id].state===next)?'':next;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
+  root.querySelectorAll('[data-routine-state-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var next=btn.getAttribute('data-routine-state-option');var newState=(next==='clear'||lg[id].state===next)?'':next;rtApplyCompletionLock(id,lg[id],newState);lg[id].state=newState;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
   // drag handle: reorder habits within a bundle (pointer-based; mouse + touch)
   root.querySelectorAll('.rt-bundle').forEach(function(bundleEl){
     var bundleId=bundleEl.getAttribute('data-routine-bundle');
@@ -28069,37 +28082,30 @@ function staminaUpdateSuggestion(v){
   var sug=document.getElementById('energy-suggestion'), txt=document.getElementById('suggestion-text');
   if(sug&&txt&&s){var ic=sug.querySelector('.suggestion-icon');if(ic)ic.textContent=s.icon;txt.textContent=s.text;}
 }
-/* energy = comes to life toward "충전" (dim mauve → dusty coral → apricot → gold → bright amber);
-   intensity = rose that just deepens with strength. */
-var STAMINA_ENERGY_RAMP=['#B3A0A6','#D98C86','#E59A66','#EEB447','#F4C63C'];
+/* ONE unified ramp for every stamina bar (rose that warms + brightens toward full):
+   soft rose → rose → coral → apricot → bright gold. Same color/knob everywhere;
+   only the top-right label differs (루틴 = Mini/Plus/Max, 충전 = 에너지 수준). */
+var STAMINA_RAMP=['#CE9AA0','#D18189','#DA8073','#E89E5C','#F0BC48'];
 function _stmHex(c){return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];}
 function _stmRamp(stops,t){t=Math.max(0,Math.min(1,t));if(t<=0)return 'rgb('+_stmHex(stops[0]).join(',')+')';if(t>=1)return 'rgb('+_stmHex(stops[stops.length-1]).join(',')+')';var s=t*(stops.length-1),i=Math.floor(s),f=s-i,a=_stmHex(stops[i]),b=_stmHex(stops[i+1]);return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+Math.round(a[1]+(b[1]-a[1])*f)+','+Math.round(a[2]+(b[2]-a[2])*f)+')';}
-function staminaFill(mode,t){ return mode==='energy' ? _stmRamp(STAMINA_ENERGY_RAMP,t) : 'color-mix(in srgb, var(--accent) '+Math.round(22+t*78)+'%, var(--bg-raised))'; }
+function staminaFill(t){ return _stmRamp(STAMINA_RAMP,t); }
 function staminaPaint(host,v){
   var mode=host.getAttribute('data-stamina-bar'), isE=mode==='energy', t=v/100;
-  host.style.setProperty('--stm-fill', staminaFill(mode,t));
+  host.style.setProperty('--stm-fill', staminaFill(t));
   var fill=host.querySelector('.stm-fill'), knob=host.querySelector('.stm-knob'), kc=host.querySelector('.stm-kc'), cur=host.querySelector('.stm-cur'), sl=host.querySelector('.stm-slider');
   if(fill)fill.style.width=v+'%'; if(knob)knob.style.left=v+'%';
-  var photos=_staminaPhotos();
-  if(isE){
-    var b=Math.min(4,Math.floor(v/20));
-    if(knob){ if(photos[b]){knob.classList.add('has-photo');knob.style.backgroundImage='url("'+photos[b]+'")';}
-      else{knob.classList.remove('has-photo');knob.style.backgroundImage='';if(kc){kc.className='stm-kc glyph';kc.textContent=STAMINA_GLYPH[b];}} }
-    if(cur)cur.innerHTML=(photos[b]?'':'<span class="stm-cur-g">'+STAMINA_GLYPH[b]+'</span>')+'<span>'+STAMINA_LABEL5[b]+'</span>';
-    host.querySelectorAll('.stm-ticks span').forEach(function(s,i){s.classList.toggle('on',i===b);});
-    if(sl)sl.setAttribute('aria-valuetext',STAMINA_LABEL5[b]);
-  }else{
-    var b3=Math.min(2,Math.floor(v/(100/3)));
-    if(knob){knob.classList.remove('has-photo');knob.style.backgroundImage='';if(kc){kc.className='stm-kc text';kc.textContent=STAMINA_LABEL3[b3];}}
-    if(cur)cur.innerHTML='<span>'+STAMINA_LABEL3[b3]+'</span>';
-    host.querySelectorAll('.stm-ticks span').forEach(function(s,i){s.classList.toggle('on',i===b3);});
-    if(sl)sl.setAttribute('aria-valuetext',STAMINA_LABEL3[b3]);
-  }
-  if(sl)sl.setAttribute('aria-valuenow',Math.round(v));
+  var photos=_staminaPhotos(), b5=Math.min(4,Math.floor(v/20));
+  /* unified knob: the 5-band photo (if set) else its emoji — identical in every tab */
+  if(knob){ if(photos[b5]){knob.classList.add('has-photo');knob.style.backgroundImage='url("'+photos[b5]+'")';}
+    else{knob.classList.remove('has-photo');knob.style.backgroundImage='';if(kc){kc.className='stm-kc glyph';kc.textContent=STAMINA_GLYPH[b5];}} }
+  /* only per-tab difference: the top-right interpretation label */
+  var label=isE?STAMINA_LABEL5[b5]:STAMINA_LABEL3[Math.min(2,Math.floor(v/(100/3)))];
+  if(cur)cur.innerHTML='<span>'+label+'</span>';
+  if(sl){sl.setAttribute('aria-valuenow',Math.round(v));sl.setAttribute('aria-valuetext',label);}
 }
 /* per-band photo grids live in Settings now (energy 손잡이 사진); paint every mounted grid */
 function staminaPaintPhotos(v){
-  var b=Math.min(4,Math.floor(v/20)), photos=_staminaPhotos(), col=_stmRamp(STAMINA_ENERGY_RAMP,v/100);
+  var b=Math.min(4,Math.floor(v/20)), photos=_staminaPhotos(), col=_stmRamp(STAMINA_RAMP,v/100);
   document.querySelectorAll('.stm-photos').forEach(function(grid){
     grid.style.setProperty('--stm-fill',col);
     grid.querySelectorAll('.stm-pslot').forEach(function(slot,i){slot.classList.toggle('on',i===b);var th=slot.querySelector('.stm-thumb'),g=slot.querySelector('.stm-g');if(!th)return;if(photos[i]){th.classList.add('filled');th.style.backgroundImage='url("'+photos[i]+'")';if(g)g.style.display='none';}else{th.classList.remove('filled');th.style.backgroundImage='';if(g)g.style.display='';}});
@@ -28134,8 +28140,7 @@ function staminaBuild(host,mode){
   var title=isE?'지금 에너지 수준':'오늘 강도';
   var ticks=isE?STAMINA_LABEL5:STAMINA_LABEL3;
   var html='<div class="stm-head"><span class="stm-title">'+title+'</span><span class="stm-cur"></span></div>'
-    +'<div class="stm-slider" tabindex="0" role="slider" aria-label="'+title+'" aria-valuemin="0" aria-valuemax="100"><div class="stm-track"><div class="stm-fill"></div></div><div class="stm-knob"><span class="stm-kc"></span></div></div>'
-    +'<div class="stm-ticks">'+ticks.map(function(t){return '<span>'+t+'</span>';}).join('')+'</div>';
+    +'<div class="stm-slider" tabindex="0" role="slider" aria-label="'+title+'" aria-valuemin="0" aria-valuemax="100"><div class="stm-track"><div class="stm-fill"></div></div><div class="stm-knob"><span class="stm-kc"></span></div></div>';
   host.classList.add('stm');
   host.setAttribute('data-stamina-bar',mode);
   host.style.display='flex'; host.style.flexDirection='column'; host.style.alignItems='stretch'; host.style.gap='8px';
