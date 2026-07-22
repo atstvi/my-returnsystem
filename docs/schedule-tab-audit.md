@@ -34,4 +34,15 @@
 **S3** — 세션 행 `×` → SVG 라인 아이콘(`.session-del svg`).
 **S4** — 네이티브 date/time picker 인디케이터 `opacity .4→hover .68`, `.tt-date-inp`/`.qa-inp`/
 `.qa-select` focus ring, `.qa-select` 커스텀 chevron(배경 SVG). 네이티브 접근성·동작 유지.
+
+## D. 그리드 버그 수정 (오너 리포트)
+
+- **B1 — 과목 블록 아래 구분선 없는 흰 칸**: 원인은 `.tt-cell{height:48px}` 고정 높이가 `grid-row:
+  span N` 블록에도 적용돼, 블록이 첫 행(48px)만 채우고 나머지 span 영역이 빈 채로 남아 테두리 없는
+  흰 구멍이 생김. `renderGrid`에서 블록 셀에 `height:auto`를 줘 span 전체를 채우게 수정(측정:
+  블록 96px, 아래 셀과 gap 0). 겸사겸사 모든 셀·헤더·시간축·블록에 **명시적 `grid-column`/
+  `grid-row`** 부여해 auto-placement 드리프트 여지 제거.
+- **B2 — hover ＋가 기능 없음**: 빈 칸 클릭이 우측 폼만 조용히 채우던 걸, 클릭 시 해당 요일·시간이
+  미리 채워진 **수업 추가 모달**(`openNewSlotModal` → 기존 `saveSlotModal` new 모드)로 열리게 연결.
+
 구조·기능 무손실, 헤드리스 0 pageerror, `npm test` green.

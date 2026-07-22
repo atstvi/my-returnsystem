@@ -23680,6 +23680,7 @@ function renderGrid(tt) {
   var corner = document.createElement('div');
   corner.className = 'tt-day-header time-col';
   corner.textContent = '시간';
+  corner.style.gridColumn = '1'; corner.style.gridRow = '1';
   grid.appendChild(corner);
 
   days.forEach(function(dayLabel, di) {
@@ -23699,6 +23700,7 @@ function renderGrid(tt) {
     colDay.setDate(now.getDate() + mondayOffset + (di < 6 ? di : 6)); /* 일요일은 +6 */
     var colDate = (colDay.getMonth()+1) + '/' + colDay.getDate();
     cell.innerHTML = dayLabel + '<br><span style="font-family:var(--font-mono);font-size:9px;opacity:.6">' + colDate + '</span>';
+    cell.style.gridColumn = (di + 2); cell.style.gridRow = '1';
     grid.appendChild(cell);
   });
 
@@ -23733,6 +23735,7 @@ function renderGrid(tt) {
     var timecell = document.createElement('div');
     timecell.className = 'tt-time-label' + (isHour ? ' hour-mark' : '');
     timecell.textContent = isHour ? timeLabel : '';
+    timecell.style.gridColumn = '1'; timecell.style.gridRow = (r + 2);
     grid.appendChild(timecell);
 
     for (var c = 0; c < COL; c++) {
@@ -23746,17 +23749,13 @@ function renderGrid(tt) {
           + (c === todayDow ? ' today-col' : '')
           + (c === 5 ? ' sat-col-bg' : '')
           + (c === 6 ? ' sun-col-bg' : '');
+        emptyCell.style.gridColumn = (c + 2); emptyCell.style.gridRow = (r + 2);
         ;(function(day, timeStr) {
           emptyCell.addEventListener('click', function() {
-            clickDay = day;
-            clickTime = timeStr;
-            document.getElementById('qa-day').value = day;
-            document.getElementById('qa-start').value = timeStr;
             var endParts = timeStr.split(':');
-            var endMin = parseInt(endParts[0])*60 + parseInt(endParts[1]) + 90;
-            endMin = Math.min(endMin, END_H * 60);
-            document.getElementById('qa-end').value = scPad(Math.floor(endMin/60))+':'+scPad(endMin%60);
-            document.getElementById('qa-title').focus();
+            var endMin = Math.min(parseInt(endParts[0])*60 + parseInt(endParts[1]) + 90, END_H * 60);
+            var endStr = scPad(Math.floor(endMin/60))+':'+scPad(endMin%60);
+            if (typeof openNewSlotModal === 'function') openNewSlotModal(day, timeStr, endStr);
           });
         })(c, timeLabel);
         grid.appendChild(emptyCell);
@@ -23770,7 +23769,9 @@ function renderGrid(tt) {
           + (c === todayDow ? ' today-col' : '')
           + (c === 5 ? ' sat-col-bg' : '')
           + (c === 6 ? ' sun-col-bg' : '');
-        blockCell.style.gridRow = 'span ' + span;
+        blockCell.style.gridColumn = (c + 2);
+        blockCell.style.gridRow = (r + 2) + ' / span ' + span;
+        blockCell.style.height = 'auto'; /* fill the full multi-row span (not the fixed 48px) */
         blockCell.style.position = 'relative';
         blockCell.style.cursor = 'default';
 
@@ -23957,6 +23958,22 @@ function openSlotModal(slotIdx) {
   setTimeout(function() { document.getElementById('sm-title').focus(); }, 60);
 }
 
+/* New slot from clicking an empty grid cell (the hover ＋) — opens the same modal in add mode */
+function openNewSlotModal(day, startStr, endStr) {
+  var tt = getActiveTt();
+  if (!tt) return;
+  editSlotIdx = null;
+  document.getElementById('slot-modal-title').textContent = '수업 추가';
+  document.getElementById('sm-title').value  = '';
+  document.getElementById('sm-day').value    = day;
+  document.getElementById('sm-start').value  = startStr;
+  document.getElementById('sm-end').value    = endStr || startStr;
+  var prep = document.getElementById('sm-prep'); if (prep) prep.value = '';
+  var travel = document.getElementById('sm-travel'); if (travel) travel.value = '';
+  document.getElementById('sm-del-btn').style.display = 'none';
+  document.getElementById('slot-modal').classList.add('open');
+  setTimeout(function() { document.getElementById('sm-title').focus(); }, 60);
+}
 function closeSlotModal() {
   document.getElementById('slot-modal').classList.remove('open');
   editSlotIdx = null;
