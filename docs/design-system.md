@@ -672,10 +672,11 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
   reads it as 3 bands → `routineCondition`; check-in reads it as 5 bands → `currentEnergy` + suggestion.
   **Adjusting it anywhere reflects everywhere** (`staminaStore` derives both + `staminaPaintAll` repaints
   every mounted `[data-stamina-bar]`). The fill/knob track the finger **1:1** during drag (`.drag` kills
-  the transition). **Two color logics** (`staminaFill`): 강도 is rose that just deepens with strength
-  (`color-mix(--accent …)`, theme-aware); 에너지 is a warm ramp that *comes to life* toward 충전
-  (dim mauve → coral → apricot → bright amber, `STAMINA_ENERGY_RAMP`). Energy bands carry an emoji
-  (🪫😴😐🙂⚡) and an optional **per-band photo** shown on the knob; the photo-attach UI lives in
+  the transition). **The bar is identical in both tabs** — same fill, same knob — the *only* difference
+  is the top-right interpretation label (`.stm-cur`: 루틴 = Mini/Plus/Max, 충전 = 에너지 수준). The
+  bottom tick labels were removed. One unified color ramp (`STAMINA_RAMP`, `staminaFill`): a rose that
+  warms + brightens toward full (soft rose → coral → apricot → bright gold). The knob always shows the
+  5-band emoji (🪫😴😐🙂⚡) or, if set, its **per-band photo**; the photo-attach UI lives in
   **Settings → 테마·외관 → 에너지 단계별 사진** (`#stamina-photo-settings`, `staminaRenderPhotos`), not on
   the check-in card. `stamina_level_v1` + `stamina_photos_v1` are in `DATA_KEYS` + `RETURN_DATA_MAP.stamina`.
   Built as `staminaBuild`/`staminaPaint`, mounted in `renderRoutineConditions` (routine) and
