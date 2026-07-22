@@ -651,6 +651,20 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
     `returnMediaStoreDataUrl` → `returnMediaResolveUrlWithFallback`), stores `routine_banner_v1`
     (added to `DATA_KEYS` + `RETURN_DATA_MAP.banners`; `syncDataUrl` inline ≤180KB), with 사진 추가 /
     변경 / 삭제 controls.
+- **Timer view bugfixes + vertical month-calendar heatmap + softer surfaces (owner course-correction).**
+  - **Mini-timer freeze / broken fullscreen fixed.** Returning to fullscreen after dragging left the
+    dragged inline `left/top` on the element, so the overlay wasn't full — now the full branch clears the
+    inline position. And `renderRoutineTimerToast` **self-heals** the tick interval (re-arms it if
+    `startedAt` is set but `timer` is null), so a lost interval on view-switch/sync-rehydrate no longer
+    freezes the clock.
+  - **Heatmap → stacked month calendars.** Replaced the horizontal week-column grid with **vertical
+    monthly calendars** (`rtMonthCells` + `renderRoutineBoards`): the last 3 months stack top→bottom
+    (records flow down), each with a full **월~일 weekday header** (Monday-start) and week rows of day
+    cells (numbered, colored by completion, today ringed). Panel scrolls internally (`max-height`).
+  - **Softer surfaces (less "raw"/pointy).** Timer difficulty chips (`.rt-diff-chip`) went from bordered
+    stadium pills to soft tinted **rounded rectangles** (label + custom text), and the state buttons
+    (`.routine-timer-state-big`) dropped their hard 1px border for a filled `--bg-raised` fill with a
+    rounder radius — removing the boxy/edgy read.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
