@@ -672,10 +672,14 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
   reads it as 3 bands → `routineCondition`; check-in reads it as 5 bands → `currentEnergy` + suggestion.
   **Adjusting it anywhere reflects everywhere** (`staminaStore` derives both + `staminaPaintAll` repaints
   every mounted `[data-stamina-bar]`). The fill/knob track the finger **1:1** during drag (`.drag` kills
-  the transition); the rose deepens with level via `color-mix(--accent …)` (theme-aware). Energy bands
-  carry an emoji (🪫😴😐🙂⚡) and optional **per-band photo** (`stamina_photos_v1`) shown on the knob;
-  both keys are in `DATA_KEYS` + `RETURN_DATA_MAP.stamina`. Built as `staminaBuild`/`staminaPaint`, mounted
-  in `renderRoutineConditions` (routine) and `staminaMountEnergy` (check-in).
+  the transition). **Two color logics** (`staminaFill`): 강도 is rose that just deepens with strength
+  (`color-mix(--accent …)`, theme-aware); 에너지 is a warm ramp that *comes to life* toward 충전
+  (dim mauve → coral → apricot → bright amber, `STAMINA_ENERGY_RAMP`). Energy bands carry an emoji
+  (🪫😴😐🙂⚡) and an optional **per-band photo** shown on the knob; the photo-attach UI lives in
+  **Settings → 테마·외관 → 에너지 단계별 사진** (`#stamina-photo-settings`, `staminaRenderPhotos`), not on
+  the check-in card. `stamina_level_v1` + `stamina_photos_v1` are in `DATA_KEYS` + `RETURN_DATA_MAP.stamina`.
+  Built as `staminaBuild`/`staminaPaint`, mounted in `renderRoutineConditions` (routine) and
+  `staminaMountEnergy` (check-in).
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
