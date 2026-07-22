@@ -682,6 +682,21 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
   Built as `staminaBuild`/`staminaPaint`, mounted in `renderRoutineConditions` (routine) and
   `staminaMountEnergy` (check-in).
 
+- **타이머/Timer — 한 화면 통합 + 진행 링 + 오늘의 집중 (owner-approved big redesign).** The
+  타이머 console and 집중 기록 were two separate screens; they now share **one screen**. The top
+  segment is `오늘`/`주간 기록` (`data-ft-view` hooks kept). **오늘** is a 2-column `.ftu-grid`:
+  **left** = the full timer console (모드·소리·할일 연결·설정 all preserved), with the flat progress
+  bar replaced by a **progress ring** wrapping the clock (`.ftu-ringwrap`/`#focus-timer-ring`,
+  driven live by `focusTimerTick` via `stroke-dashoffset`; stopwatch shows the track only). **right**
+  = an **오늘의 집중** card (`focusTodayHtml`/`focusTodayAggregate`, pure): today total · 세션/평균/
+  포모 mini-stats · an **hour-grid timeline** of today's sessions (mode-colored blocks) · a **recent
+  record list** (mode color dot + name + completed-time), tap-to-delete + `+ 직접 추가`
+  (`#ft-today-add` → `focusTimerManualAdd`). **주간 기록** keeps the existing weekly grid. Mode palette
+  softened + unified across today/weekly/records (`_ftModeColor`: `#E08A5B` 포모 / `#4FB0A6` 카운트다운
+  / `#9B8CF0` 스톱워치; `--pom/--cd/--sw` on `#focus-timer-root`). Ref (subject stopwatch + record
+  list + hour timeline) restated in Return terms; **task-linking kept** (no subject/category concept).
+  See `docs/timer-tab-audit.md`. No functionality removed (§6.0); inventory diff = line-number churn only.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
