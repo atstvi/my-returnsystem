@@ -666,6 +666,17 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
     (`.routine-timer-state-big`) dropped their hard 1px border for a filled `--bg-raised` fill with a
     rounder radius — removing the boxy/edgy read.
 
+- **Shared stamina slider — 오늘 강도 ↔ 지금 에너지 (one value across pages).** The routine `오늘 강도`
+  (Mini/Plus/Max) and the 충전 check-in `지금 에너지 수준` (방전 직전…충전 완료) are now the **same
+  confirmed slim slider** (시안 C) bound to **one per-day value** (`stamina_level_v1`, 0–100). Routine
+  reads it as 3 bands → `routineCondition`; check-in reads it as 5 bands → `currentEnergy` + suggestion.
+  **Adjusting it anywhere reflects everywhere** (`staminaStore` derives both + `staminaPaintAll` repaints
+  every mounted `[data-stamina-bar]`). The fill/knob track the finger **1:1** during drag (`.drag` kills
+  the transition); the rose deepens with level via `color-mix(--accent …)` (theme-aware). Energy bands
+  carry an emoji (🪫😴😐🙂⚡) and optional **per-band photo** (`stamina_photos_v1`) shown on the knob;
+  both keys are in `DATA_KEYS` + `RETURN_DATA_MAP.stamina`. Built as `staminaBuild`/`staminaPaint`, mounted
+  in `renderRoutineConditions` (routine) and `staminaMountEnergy` (check-in).
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
