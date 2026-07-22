@@ -27578,6 +27578,7 @@ function routineTimerMarkCurrent(state){
   if(!habit)return;
   var log=routineTodayLog();
   log[habit.id]=log[habit.id]||{};
+  if(typeof rtApplyCompletionLock==='function')rtApplyCompletionLock(habit.id,log[habit.id],state);
   log[habit.id].state=state;
   if(state==='done'){
     var total=routineTimerMs();
@@ -27660,7 +27661,9 @@ function routineTimerSetState(state){
   log[habit.id]=log[habit.id]||{};
   var cur=log[habit.id].state||'';
   /* 같은 상태를 다시 누르면 해제(토글). */
-  log[habit.id].state=(state==='clear'||cur===state)?'':state;
+  var newState=(state==='clear'||cur===state)?'':state;
+  if(typeof rtApplyCompletionLock==='function')rtApplyCompletionLock(habit.id,log[habit.id],newState);
+  log[habit.id].state=newState;
   log[habit.id].updatedAt=Date.now();
   saveRoutineData();
   renderRoutineTimerToast();
@@ -27808,6 +27811,16 @@ function rtEffectiveDiff(h,item){
   if(opts.some(function(o){return o.key===routineCondition;}))return routineCondition;
   return opts[0].key;
 }
+/* Completing a habit records (freezes) its intensity at the value in effect, so later 오늘 강도
+   changes don't move a done item. Un-completing clears the freeze → it follows 오늘 강도 again. */
+function rtApplyCompletionLock(id,item,newState){
+  if(!item)return;
+  if(newState==='done'||newState==='skip'){
+    if(!item.difficulty){var h=routineHabitById(id);if(h){var d=rtEffectiveDiff(h,item);if(d)item.difficulty=d;}}
+  }else{
+    item.difficulty='';
+  }
+}
 /* unified line icon for morning/afternoon/evening routines (detected from title+slot); null → keep custom emoji */
 function rtSlotIcon(bundle){
   var t=(((bundle&&bundle.title)||'')+' '+((bundle&&bundle.slot)||'')).toLowerCase();
@@ -27897,12 +27910,12 @@ renderRoutineBundles=function(){
     function cancelLp(){if(lpTimer){clearTimeout(lpTimer);lpTimer=null;}}
     btn.addEventListener('pointerdown',function(){longFired=false;cancelLp();lpTimer=setTimeout(function(){longFired=true;lpTimer=null;openStateMenu();},420);});
     ['pointerup','pointerleave','pointercancel'].forEach(function(ev){btn.addEventListener(ev,cancelLp);});
-    btn.addEventListener('click',function(e){e.stopPropagation();if(longFired){longFired=false;return;}var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var cur=lg[id].state||'';lg[id].state=(cur==='done'||cur==='skip')?'':'done';lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});
+    btn.addEventListener('click',function(e){e.stopPropagation();if(longFired){longFired=false;return;}var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var cur=lg[id].state||'';var next=(cur==='done'||cur==='skip')?'':'done';rtApplyCompletionLock(id,lg[id],next);lg[id].state=next;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});
     btn.addEventListener('contextmenu',function(e){e.preventDefault();});
   });
   root.querySelectorAll('[data-routine-diff-toggle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var w=btn.closest('.rt-habit').querySelector('.rt-diff-menu');var was=w.classList.contains('open');closeAll();if(!was)w.classList.add('open');});});
   root.querySelectorAll('[data-routine-diff-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};lg[id].difficulty=btn.getAttribute('data-routine-diff-option')||'';lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
-  root.querySelectorAll('[data-routine-state-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var next=btn.getAttribute('data-routine-state-option');lg[id].state=(next==='clear'||lg[id].state===next)?'':next;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
+  root.querySelectorAll('[data-routine-state-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineTodayLog();lg[id]=lg[id]||{};var next=btn.getAttribute('data-routine-state-option');var newState=(next==='clear'||lg[id].state===next)?'':next;rtApplyCompletionLock(id,lg[id],newState);lg[id].state=newState;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
   // drag handle: reorder habits within a bundle (pointer-based; mouse + touch)
   root.querySelectorAll('.rt-bundle').forEach(function(bundleEl){
     var bundleId=bundleEl.getAttribute('data-routine-bundle');
