@@ -3609,6 +3609,27 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ftl-block-task{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
 .ftl-block-task-solo{font-weight:var(--fw-semibold);opacity:1}
 .ftl-empty{padding:var(--sp-8) var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-sm)}
+/* 연간 잔디 히트맵 (GitHub contribution-style) */
+.fty-scroll{overflow-x:auto;padding-bottom:var(--sp-2)}
+.fty-grid{display:inline-flex;flex-direction:column;gap:var(--sp-1)}
+.fty-months{display:flex;gap:3px}
+.fty-dow-spacer{flex:0 0 26px}
+.fty-mon{flex:0 0 16px;font-size:10px;color:var(--fg-4);white-space:nowrap}
+.fty-body{display:flex;gap:3px}
+.fty-axis{display:flex;flex-direction:column;gap:3px;flex:0 0 26px}
+.fty-dow{height:13px;font-size:9px;color:var(--fg-4);line-height:13px}
+.fty-weeks{display:flex;gap:3px}
+.fty-col{display:flex;flex-direction:column;gap:3px}
+.fty-cell{width:13px;height:13px;border-radius:3px;background:var(--bg-sunken)}
+.fty-out{background:transparent}
+.fty-l0{background:var(--bg-sunken)}
+.fty-l1{background:color-mix(in srgb,var(--accent) 24%,var(--bg-sunken))}
+.fty-l2{background:color-mix(in srgb,var(--accent) 48%,var(--bg-sunken))}
+.fty-l3{background:color-mix(in srgb,var(--accent) 72%,var(--bg-sunken))}
+.fty-l4{background:var(--accent)}
+.fty-legend{display:flex;align-items:center;gap:5px;justify-content:flex-end;font-size:var(--text-2xs);color:var(--fg-4)}
+.fty-legend .fty-cell{width:12px;height:12px}
+.ftl-nav[disabled]{opacity:.35;cursor:default}
 .ftl-field{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3);color:var(--fg-3);font-size:var(--text-sm)}
 .ftl-field input,.ftl-field select{height:38px;border-radius:var(--r-md);border:.5px solid var(--border-subtle);background:var(--bg-raised);color:var(--fg);padding:0 var(--sp-3);font-size:var(--text-sm);min-width:150px}
 .htb-timer-btn.running{background:var(--accent-light)!important;animation:htbTimerPulse 1.8s ease-in-out infinite}
@@ -39275,6 +39296,7 @@ var focusTimerLog=[];
 var focusTimerView='timer';      /* 'timer' | 'log' — top segmented control */
 var focusTodayPane='timeline';   /* 'timeline' | 'log' — 오늘 zone pane (records hidden by default) */
 var _ftlAnchor=null;             /* Date: start of the week shown in the records view */
+var _ftYear=null;                /* number: year shown in the 연간 heatmap */
 var _focusAudio={ctx:null,source:null,gain:null,osc1:null,osc2:null,running:false};
 
 /* Every log record gets a stable id so the records view can delete a specific
@@ -39955,7 +39977,66 @@ function _ftModeIcon(mode){return mode==='countdown'?'⏱':mode==='stopwatch'?'�
 function focusViewTabs(){
   return '<div class="focus-timer-tabs">'+
     '<button class="focus-timer-tab'+(focusTimerView==='timer'?' active':'')+'" type="button" data-ft-view="timer">오늘</button>'+
-    '<button class="focus-timer-tab'+(focusTimerView==='log'?' active':'')+'" type="button" data-ft-view="log">주간 기록</button></div>';
+    '<button class="focus-timer-tab'+(focusTimerView==='log'?' active':'')+'" type="button" data-ft-view="log">주간</button>'+
+    '<button class="focus-timer-tab'+(focusTimerView==='year'?' active':'')+'" type="button" data-ft-view="year">연간</button></div>';
+}
+/* ── 연간 잔디 히트맵 (GitHub contribution-style) ─────────────────────────── */
+function _ftDayKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+/* Sum the log per local day across a year and lay it out as week-columns × 7 rows
+   (the grid spans whole weeks around Jan 1–Dec 31). Pure — unit-testable. */
+function focusYearAggregate(log,year,weekStartDay){
+  weekStartDay=(weekStartDay===1)?1:0;
+  var byDay={},total=0,yStart=new Date(year,0,1).getTime(),yEnd=new Date(year+1,0,1).getTime();
+  (log||[]).forEach(function(l){if(!l)return;var end=Number(l.completedAt)||0;if(end<yStart||end>=yEnd)return;var d=new Date(end),k=_ftDayKey(d),dur=Math.max(0,Math.round(Number(l.durationMs)||0));byDay[k]=(byDay[k]||0)+dur;total+=dur;});
+  function lvl(ms){if(ms<=0)return 0;var m=ms/60000;if(m<30)return 1;if(m<60)return 2;if(m<120)return 3;return 4;}
+  var jan1=new Date(year,0,1),startOff=(weekStartDay===1)?((jan1.getDay()+6)%7):jan1.getDay();
+  var dec31=new Date(year,11,31),endOff=(weekStartDay===1)?(6-((dec31.getDay()+6)%7)):(6-dec31.getDay());
+  var cur=new Date(year,0,1-startOff),gridEnd=new Date(year,11,31+endOff),weeks=[],activeDays=0;
+  while(cur<=gridEnd){
+    var col=[];
+    for(var i=0;i<7;i++){
+      var inYear=(cur.getFullYear()===year),k=_ftDayKey(cur),ms=inYear?(byDay[k]||0):0;
+      if(inYear&&ms>0)activeDays++;
+      col.push({key:k,inYear:inYear,totalMs:ms,level:lvl(ms),month:cur.getMonth(),date:cur.getDate()});
+      cur.setDate(cur.getDate()+1);
+    }
+    weeks.push(col);
+  }
+  return {weeks:weeks,total:total,activeDays:activeDays,year:year};
+}
+function focusYearHtml(){
+  if(!_ftYear)_ftYear=new Date().getFullYear();
+  var agg=focusYearAggregate(focusTimerLog,_ftYear,weekStart),thisYear=new Date().getFullYear();
+  var MON=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+  var DOW=weekStart===1?['월','화','수','목','금','토','일']:['일','월','화','수','목','금','토'];
+  var bar='<div class="ftl-bar"><div class="ftl-nav-group">'+
+    '<button class="ftl-nav" id="fty-prev" type="button">‹</button>'+
+    '<span class="ftl-range-label">'+_ftYear+'년'+(_ftYear===thisYear?' <span style="color:var(--fg-4);font-weight:var(--fw-semibold)">(올해)</span>':'')+'</span>'+
+    '<button class="ftl-nav" id="fty-next" type="button"'+(_ftYear>=thisYear?' disabled':'')+'>›</button></div>'+
+    '<div class="ftl-bar-right"><button class="ftl-add-btn" id="fty-add" type="button">+ 기록 추가</button>'+focusViewTabs()+'</div></div>';
+  var stats='<div class="ftl-stats" style="grid-template-columns:repeat(2,1fr)">'+
+    '<div class="ftl-stat"><div class="ftl-stat-val">'+_fte(agg.total>0?focusFmtDur(agg.total):'0분')+'</div><div class="ftl-stat-lbl">올해 총 집중</div></div>'+
+    '<div class="ftl-stat"><div class="ftl-stat-val">'+agg.activeDays+'일</div><div class="ftl-stat-lbl">집중한 날</div></div></div>';
+  var lastMonth=-1;
+  var months=agg.weeks.map(function(col){var m=col[0].month;if(m!==lastMonth&&col[0].inYear){lastMonth=m;return '<div class="fty-mon">'+MON[m]+'</div>';}return '<div class="fty-mon"></div>';}).join('');
+  var axis=DOW.map(function(d,i){return '<div class="fty-dow">'+((i%2===1)?d:'')+'</div>';}).join('');
+  var cols=agg.weeks.map(function(col){
+    return '<div class="fty-col">'+col.map(function(d){
+      if(!d.inYear)return '<div class="fty-cell fty-out"></div>';
+      var t=d.totalMs>0?focusFmtDur(d.totalMs):'집중 없음';
+      return '<div class="fty-cell fty-l'+d.level+'" title="'+d.key+' · '+_fte(t)+'"></div>';
+    }).join('')+'</div>';
+  }).join('');
+  var grid='<div class="fty-scroll"><div class="fty-grid"><div class="fty-months"><div class="fty-dow-spacer"></div>'+months+'</div>'+
+    '<div class="fty-body"><div class="fty-axis">'+axis+'</div><div class="fty-weeks">'+cols+'</div></div></div></div>';
+  var legend='<div class="fty-legend">적음<span class="fty-cell fty-l0"></span><span class="fty-cell fty-l1"></span><span class="fty-cell fty-l2"></span><span class="fty-cell fty-l3"></span><span class="fty-cell fty-l4"></span>많음</div>';
+  return '<div class="ftl-wrap">'+bar+stats+grid+legend+'</div>';
+}
+function wireFocusYear(root){
+  var thisYear=new Date().getFullYear();
+  var pv=root.querySelector('#fty-prev');if(pv)pv.addEventListener('click',function(){_ftYear=(_ftYear||thisYear)-1;renderFocusTimer();});
+  var nx=root.querySelector('#fty-next');if(nx)nx.addEventListener('click',function(){if((_ftYear||thisYear)<thisYear){_ftYear=(_ftYear||thisYear)+1;renderFocusTimer();}});
+  var ad=root.querySelector('#fty-add');if(ad)ad.addEventListener('click',focusTimerManualAdd);
 }
 /* Attribute today's sessions to local time-of-day; build totals + positioned
    blocks (start/end minute-of-day) + a fitted hour range. Pure — mirrors
@@ -40042,7 +40123,10 @@ function wireFocusToday(root){
   root.querySelectorAll('.ftu-today [data-ftl-id]').forEach(function(el){
     el.addEventListener('click',function(){
       var id=el.getAttribute('data-ftl-id');if(!id)return;
-      if(window.confirm('이 집중 기록을 삭제할까요?'))focusTimerDeleteRecord(id);
+      var durEl=el.querySelector('.d, .ftu-rec-dur');
+      var msg='이 집중 기록을 삭제할까요?'+(durEl?' ('+durEl.textContent.trim()+')':'');
+      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
+      else if(window.confirm(msg))focusTimerDeleteRecord(id);
     });
   });
 }
@@ -40174,7 +40258,9 @@ function wireFocusLog(root){
     b.addEventListener('click',function(){
       var id=b.getAttribute('data-ftl-id');if(!id)return;
       var dur=b.querySelector('.ftl-block-dur');
-      if(window.confirm('이 집중 기록을 삭제할까요?'+(dur?'\n'+dur.textContent:'')))focusTimerDeleteRecord(id);
+      var msg='이 집중 기록을 삭제할까요?'+(dur?' ('+dur.textContent.trim()+')':'');
+      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
+      else if(window.confirm(msg))focusTimerDeleteRecord(id);
     });
   });
 }
@@ -40248,6 +40334,11 @@ function renderFocusTimer(){
   if(focusTimerView==='log'){
     root.innerHTML='<div class="ftu-body ftu-body-week">'+focusLogHtml()+'</div>';
     wireFtTabs();wireFocusLog(root);
+    return;
+  }
+  if(focusTimerView==='year'){
+    root.innerHTML='<div class="ftu-body ftu-body-week">'+focusYearHtml()+'</div>';
+    wireFtTabs();wireFocusYear(root);
     return;
   }
   var mode=focusTimerState.mode;

@@ -13,7 +13,7 @@ const block = sliceBlock(html, 'function _ftDateKeyFromMs(', 'function focusLogH
 const sandbox = { console };
 vm.createContext(sandbox);
 vm.runInContext(block, sandbox);
-const { focusWeekStart, focusFmtDur, focusWeekAggregate, buildManualFocusRecord, _ftDateKeyFromMs } = sandbox;
+const { focusWeekStart, focusFmtDur, focusWeekAggregate, buildManualFocusRecord, _ftDateKeyFromMs, focusYearAggregate, _ftDayKey } = sandbox;
 
 const t = runner('Focus timeline — pure helpers');
 
@@ -82,5 +82,25 @@ t.ok('bad date → null', buildManualFocusRecord({ date: 'nope', durationMin: 10
 t.ok('zero duration → null', buildManualFocusRecord({ date: '2026-06-23', durationMin: 0 }) === null);
 let rec2 = buildManualFocusRecord({ date: '2026-06-23', durationMin: 15, id: 'z' });
 t.ok('missing time → 00:00', rec2 && rec2.completedAt === new Date(2026, 5, 23, 0, 0).getTime() + 900000, rec2 && rec2.completedAt);
+
+/* ── focusYearAggregate ── 연간 잔디 히트맵 ── */
+const yr = focusYearAggregate([
+  { id: 'y1', durationMs: 10 * 60000, completedAt: new Date(2026, 0, 5, 9).getTime() },   // 10m → level 1
+  { id: 'y2', durationMs: 40 * 60000, completedAt: new Date(2026, 0, 5, 14).getTime() },   // +40m → 50m total → level 2
+  { id: 'y3', durationMs: 130 * 60000, completedAt: new Date(2026, 5, 10, 9).getTime() },  // 130m → level 4
+  { id: 'yOut', durationMs: 60 * 60000, completedAt: new Date(2025, 11, 31, 9).getTime() } // prior year → excluded
+], 2026, 0);
+t.ok('year total excludes other years', yr.total === (10 + 40 + 130) * 60000, yr.total);
+t.ok('active days = 2', yr.activeDays === 2, yr.activeDays);
+t.ok('weeks are 7-tall columns', yr.weeks.every(c => c.length === 7), yr.weeks.length);
+t.ok('grid spans whole year (>=52 cols)', yr.weeks.length >= 52 && yr.weeks.length <= 54, yr.weeks.length);
+const allDays = yr.weeks.flat();
+const jan5 = allDays.find(d => d.key === '2026-01-05');
+t.ok('Jan 5 accumulates to level 2', jan5 && jan5.totalMs === 50 * 60000 && jan5.level === 2, jan5);
+const jun10 = allDays.find(d => d.key === '2026-06-10');
+t.ok('130m day → level 4', jun10 && jun10.level === 4, jun10);
+t.ok('out-of-year cells flagged', allDays.some(d => !d.inYear), 'some padding days');
+t.ok('empty log → 0 total, 0 active', (function(){ const e = focusYearAggregate([], 2026, 0); return e.total === 0 && e.activeDays === 0; })());
+t.ok('_ftDayKey padded', _ftDayKey(new Date(2026, 2, 4)) === '2026-03-04', _ftDayKey(new Date(2026, 2, 4)));
 
 t.done();
