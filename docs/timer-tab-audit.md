@@ -65,3 +65,14 @@
   테두리+`--bg-sunken` 박스로 감싸 여백 확보. (오늘 flex-축 압축 버그: `.ftu-tl-hour{flex-shrink:0}`.)
 - **밀도** — 오늘 카드 패딩 `--sp-7/6`, 통계 타일 `--r-lg`+패딩↑, 기록 행 여백↑. 주간 뷰를
   `.ftl-wrap` **카드**(elev-1·패딩)로 감싸고 통계 타일을 중첩표면 규칙대로 그림자 제거(§3.2).
+
+## F. 구역형 전환 — 할일 탭 패턴 (오너 피드백: "카드형 말고 구역을 나눠서")
+
+떠 있는 두 카드 대신 **할일 탭(`.task-page`/`.list-panel`)처럼 전면(全面) 평면 표면을 분할선으로 나눈다.**
+- `.focus-timer-page`는 `height:100%;overflow:hidden`, `#focus-timer-root`가 **bg-card 표면**을 꽉 채움.
+- **상단 바** `.ftu-topbar`(제목 + 오늘/주간 세그먼트, `border-bottom` 한 줄).
+- **오늘** = `.ftu-body`(flex row): **콘솔 존**(`.ftu-console-zone`, 세로 중앙, `border-right` 분할선) ｜
+  **오늘의 집중 존**(`.ftu-today-zone`, `flex:1`, 스크롤). 각 존은 카드 크롬 제거(그림자·라운드·테두리 없음),
+  분할선으로만 구분. **주간** = `.ftu-body-week` 단일 스크롤 표면.
+- 콘솔/오늘/주간 내부 요소는 그대로 유지하되 감싸던 카드(`box-shadow`/`border`/`radius`/`padding`)만 벗김.
+- <900px에서는 존이 세로로 쌓이고 분할선이 `border-bottom`으로 전환.
