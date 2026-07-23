@@ -100,6 +100,16 @@
   1400` 중앙정렬로 밀도 확보.
 - 데스크탑은 오늘 존이 `overflow:hidden`으로 페인이 높이를 채우고, 모바일은 페인이 `max-height` 스크롤.
 
-### 후속 제안(원띵 참고, 미구현)
-연간 GitHub-잔디형 히트맵(집중 완료 강도), D-Day 카운트다운 챌린지, 과목/프리셋 타이머, 시계 표시
-스타일(Linear/Circular/Flip) — 별도 스코프로 논의 후 추가.
+## I. 삭제 확인창 통일 + 연간 잔디 히트맵 (원띵 참고)
+
+- **네이티브 confirm 제거(§3.5)** — 오늘 타임라인/기록 블록·주간 블록 삭제가 `window.confirm()`
+  브라우저 창을 띄우던 걸 앱 통일 다이얼로그 `openConfirmDialog('집중 기록 삭제', …)`(destructive)로 교체.
+- **연간 잔디 히트맵** — 세그먼트에 **`연간`** 추가([오늘·주간·연간]). `focusYearAggregate`(순수: 로그를
+  로컬 하루로 집계 → 주 컬럼 × 7행, 분 기준 레벨 0–4)와 `focusYearHtml`/`wireFocusYear`. 로즈 램프
+  (`color-mix` accent 24/48/72/100%)로 GitHub contribution식 잔디, 월 라벨·요일축·범례(적음↔많음)·
+  연도 네비(‹ 2026년(올해) ›). 올해 총 집중·집중한 날 요약. **새 저장 도메인 없음**(기존 로그만 집계).
+  단위 테스트 `tests/focus-timeline.test.js`에 `focusYearAggregate` 케이스 추가.
+
+### 후속(원띵 참고, 다음 스코프)
+**카테고리**(색상 태그 + 세션에 타이핑/할일선택) → 그 위에 **과목/프리셋 타이머**. D-Day 카운트다운,
+시계 표시 스타일(Linear/Circular/Flip)은 이후 논의.
