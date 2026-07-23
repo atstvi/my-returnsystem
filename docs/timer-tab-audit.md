@@ -52,3 +52,16 @@
 시작(카운트다운 + 링 라이브)·일시정지·모드전환(스톱워치 링 제거)·주간↔오늘 전환·기록 삭제 모두 정상.
 `npm test` green(전 스위트), UI 인벤토리 diff는 **라인번호 이동 노이즈만**(기능 훅 손실 0 —
 `data-ft-view`/`data-focus-mode`/`data-focus-sound`/`renderFocusTimer` 모두 유지).
+
+## E. 레이아웃·밀도 패스 (오너 피드백)
+
+- **헤더 재배치** — 상단 중앙에 떠 있던 `오늘/주간` 세그먼트를 **페이지 헤더**로: 왼쪽 `⏱ 타이머`
+  제목(SVG) + 오른쪽 세그먼트(`.ftu-header`/`.ftu-page-title`). 두 뷰 공통.
+- **화면 활용** — `#focus-timer-root` max-width 1040→**1320**, `.focus-timer-page` 좌우 패딩↑,
+  `.ftu-grid` 컬럼 `460px + 1fr`·gap `--sp-6`. 콘솔 링·시계·패딩 키움.
+- **타임라인 전체 24시간 + 스크롤** — 오늘/주간 모두 fit-range를 버리고 **00–24 전체**를 그리며,
+  `wireFocusToday`/`wireFocusLog`가 첫 세션 시각으로 **자동 스크롤**(`data-scrollhour`/`data-slot`).
+  행 높이 오늘 34→**56px**, 주간 34→**52px**, 블록 최소 높이↑ → 짧은 세션도 읽힘. 오늘 타임라인은
+  테두리+`--bg-sunken` 박스로 감싸 여백 확보. (오늘 flex-축 압축 버그: `.ftu-tl-hour{flex-shrink:0}`.)
+- **밀도** — 오늘 카드 패딩 `--sp-7/6`, 통계 타일 `--r-lg`+패딩↑, 기록 행 여백↑. 주간 뷰를
+  `.ftl-wrap` **카드**(elev-1·패딩)로 감싸고 통계 타일을 중첩표면 규칙대로 그림자 제거(§3.2).
