@@ -110,6 +110,20 @@
   연도 네비(‹ 2026년(올해) ›). 올해 총 집중·집중한 날 요약. **새 저장 도메인 없음**(기존 로그만 집계).
   단위 테스트 `tests/focus-timeline.test.js`에 `focusYearAggregate` 케이스 추가.
 
-### 후속(원띵 참고, 다음 스코프)
-**카테고리**(색상 태그 + 세션에 타이핑/할일선택) → 그 위에 **과목/프리셋 타이머**. D-Day 카운트다운,
-시계 표시 스타일(Linear/Circular/Flip)은 이후 논의.
+## J. 카테고리 (원띵 참고, 오너: "과목 아니고 카테고리")
+
+세션에 **색상 카테고리**를 태그하고, 세부는 **직접 타이핑 또는 할일에서 선택**.
+- 저장소 `focus_categories_v1`(디바이스 로컬 — 나머지 focus 서브시스템과 동일). 기본 5개(공부·작업·
+  독서·운동·기타), 무채도 파스텔 팔레트. `focusCatLoad/Save/ById/NewId/NextColor`.
+- `focusTimerState.{categoryId,customText}` 추가. `focusTimerLogSession`이 `categoryId/Name/Color`를
+  **denormalize** 저장(이후 카테고리 수정/삭제해도 기록 색 유지).
+- **타깃 칩** — 기존 `+ 할일 연결`을 `[●카테고리 · 세부 ✎]`(`#focus-timer-target-btn`)로 교체.
+- **타깃 피커 시트**(`focusTimerOpenTargetPicker`) — 카테고리 칩 선택 + `편집`(삭제)·`＋추가`(인라인),
+  세부 = 직접입력 인풋 + `할일에서 선택` 목록. 저장 시 상태 커밋.
+- **표시 색** — 오늘 타임라인 블록·기록 dot·주간 블록을 `categoryColor || 모드색`으로. 라벨은
+  `카테고리 · 세부`.
+- 기존 할일 연결은 피커의 "할일에서 선택"으로 흡수(무손실, §6.0).
+
+### 후속(다음 스코프)
+카테고리 위에 **과목/프리셋 타이머**(자주 쓰는 카테고리+시간 저장·원탭 시작). D-Day 카운트다운, 시계
+표시 스타일(Linear/Circular/Flip)은 이후.
