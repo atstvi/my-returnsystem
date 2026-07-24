@@ -39941,17 +39941,41 @@ function focusTimerShowTaskPicker(){
 function _minToHHMM(m){m=Math.max(0,Math.min(1439,Math.round(m)));return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
 function _ftHHMMtoMin(s){var m=/^(\d{1,2}):(\d{2})$/.exec(String(s||''));return m?(Math.min(23,parseInt(m[1],10))*60+Math.min(59,parseInt(m[2],10))):null;}
 function focusTimerTaskHasRecord(taskId){if(typeof focusTimerLog==='undefined'||taskId==null||taskId==='')return false;return focusTimerLog.some(function(l){return l&&l.taskId&&String(l.taskId)===String(taskId);});}
-/* On completing a task with no focus record yet, offer to add one. A timed task
-   prefills its time range; an untimed one lets you pick the time. Category is
-   still required — the add sheet handles all of it in one quick step. */
+/* On completing a task with no focus record yet, offer to add one — via a
+   non-blocking action snackbar, NOT a modal, so checking off tasks stays
+   instant. The task is already done by the time this runs; the toast just
+   gives a quick "추가" shortcut that opens the record sheet (timed task →
+   prefilled range, untimed → pick the time), and auto-dismisses if ignored. */
 function focusTimerOfferRecord(task){
   try{
     if(!task||task.id==null)return;
     if(focusTimerTaskHasRecord(task.id))return;
-    if(typeof openConfirmDialog!=='function'||typeof focusTimerAddFromTask!=='function')return;
+    if(typeof focusTimerAddFromTask!=='function')return;
     var name=task.text||task.label||'이 할일';
-    openConfirmDialog('집중 기록으로 추가','"'+name+'"에 들인 시간을 집중 기록으로 추가할까요?',function(){focusTimerAddFromTask(task);},{danger:false,confirmText:'추가'});
+    focusOfferToast(name,function(){focusTimerAddFromTask(task);});
   }catch(e){}
+}
+/* Lightweight action snackbar: message + [추가] button, slides up from the
+   bottom (above the nav), pointer-through except on the button, auto-hides. */
+function focusOfferToast(name,onAdd){
+  var old=document.getElementById('focus-offer-toast');
+  if(old){clearTimeout(old._t);old.remove();}
+  var el=document.createElement('div');
+  el.id='focus-offer-toast';
+  el.style.cssText='position:fixed;left:50%;bottom:calc(76px + env(safe-area-inset-bottom,0px));transform:translateX(-50%) translateY(8px);display:flex;align-items:center;gap:var(--sp-3);max-width:min(92vw,420px);background:var(--n-700);color:var(--n-0);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);border-radius:var(--r-full);box-shadow:var(--elev-3);z-index:600;opacity:0;transition:opacity var(--t-snap),transform var(--t-snap)';
+  var msg=document.createElement('span');
+  msg.style.cssText='font-size:var(--text-sm);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0';
+  msg.textContent=(name.length>12?name.slice(0,12)+'…':name)+' 집중 기록으로';
+  var btn=document.createElement('button');
+  btn.type='button';
+  btn.textContent='추가';
+  btn.style.cssText='flex-shrink:0;background:var(--n-0);color:var(--n-800);border:none;padding:var(--sp-2) var(--sp-4);border-radius:var(--r-full);font-size:var(--text-sm);font-weight:var(--fw-semibold);cursor:pointer';
+  function close(){clearTimeout(el._t);el.style.opacity='0';el.style.transform='translateX(-50%) translateY(8px)';setTimeout(function(){el.remove();},220);}
+  btn.addEventListener('click',function(){close();try{onAdd();}catch(e){}});
+  el.appendChild(msg);el.appendChild(btn);
+  document.body.appendChild(el);
+  requestAnimationFrame(function(){el.style.opacity='1';el.style.transform='translateX(-50%) translateY(0)';});
+  el._t=setTimeout(close,5000);
 }
 function focusTimerAddFromTask(task){
   var dayMs,dstr=task.date;
