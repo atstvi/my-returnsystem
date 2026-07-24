@@ -3494,6 +3494,30 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ft-noti-btn{height:32px;padding:0 var(--sp-4);border-radius:var(--r-full);background:var(--bg-raised);border:.5px solid var(--border-subtle);color:var(--fg-3);font-size:var(--text-sm);font-weight:var(--fw-semibold);cursor:pointer}
 .ft-noti-btn.on{background:var(--accent-light);color:var(--accent);border-color:var(--a-200)}
 @keyframes ft-fade{from{opacity:0}to{opacity:1}}
+/* focus target chip dot + category picker sheet */
+.ftt-dot{width:9px;height:9px;border-radius:var(--r-full);flex:0 0 auto}
+.ft-sheet-overlay{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;animation:ft-fade .14s var(--t-snap)}
+.ft-sheet{width:100%;max-width:540px;max-height:82vh;overflow-y:auto;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-xl) var(--r-xl) 0 0;box-shadow:var(--elev-3);padding:var(--sp-6);display:flex;flex-direction:column;gap:var(--sp-5)}
+.ft-sheet-title{font-weight:var(--fw-bold);color:var(--fg);font-size:var(--text-lg)}
+.ft-sheet-sec{display:flex;flex-direction:column;gap:var(--sp-2)}
+.ft-sheet-lbl{display:flex;align-items:center;justify-content:space-between;font-size:var(--text-xs);font-weight:var(--fw-bold);color:var(--fg-4)}
+.ft-sheet-foot{display:flex;gap:var(--sp-2);margin-top:var(--sp-1)}
+.ft-sheet-foot .btn{flex:1;height:44px}
+.ftt-cats{display:flex;flex-wrap:wrap;gap:var(--sp-2)}
+.ftt-cat{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 var(--sp-4);border-radius:var(--r-full);background:var(--bg-raised);border:.5px solid var(--border-subtle);color:var(--fg-2);font-size:var(--text-sm);font-weight:var(--fw-semibold);cursor:pointer}
+.ftt-cat.on{background:var(--accent-light);border-color:var(--a-200);color:var(--accent)}
+.ftt-cat.ftt-add{color:var(--fg-4);border-style:dashed}
+.ftt-del{margin-left:2px;color:var(--fg-4);font-size:15px;line-height:1;cursor:pointer}
+.ftt-manage{background:none;border:none;color:var(--accent);font-size:var(--text-xs);font-weight:var(--fw-bold);cursor:pointer}
+.ftt-addrow{display:flex;gap:var(--sp-2)}
+.ftt-addbtn{height:40px;padding:0 var(--sp-4);flex:0 0 auto}
+.ftt-input{flex:1;height:40px;border-radius:var(--r-md);border:.5px solid var(--border-subtle);background:var(--bg-raised);color:var(--fg);padding:0 var(--sp-3);font-size:var(--text-sm)}
+.ftt-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
+.ftt-input:disabled{opacity:.6}
+.ftt-tasks{display:flex;flex-direction:column;gap:var(--sp-1);max-height:200px;overflow-y:auto}
+.ftt-task{text-align:left;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);background:transparent;border:.5px solid transparent;color:var(--fg-2);font-size:var(--text-sm);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ftt-task:hover{background:var(--bg-raised)}
+.ftt-task.on{background:var(--accent-light);color:var(--accent);border-color:var(--a-200)}
 /* ── Zoned 오늘 view (Tasks-style): console zone | divider | 오늘의 집중 zone ── */
 .ftu-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .ftu-body-week{display:block;overflow-y:auto}
@@ -39289,8 +39313,26 @@ var focusTimerCfg={
 var focusTimerState={
   running:false,startedAt:0,elapsed:0,
   mode:'pomodoro',phase:'work',pomCount:0,
-  targetMs:0,linkedTaskId:'',timer:null
+  targetMs:0,linkedTaskId:'',categoryId:'',customText:'',timer:null
 };
+/* Focus categories (device-local, like the rest of this subsystem). A session
+   can be tagged with one; the log denormalizes name+color so records/timeline
+   keep their color even if a category is later renamed or deleted. */
+var FOCUS_CAT_KEY='focus_categories_v1';
+var FOCUS_CAT_DEFAULTS=[
+  {id:'study',name:'공부',color:'#BE727A'},
+  {id:'work',name:'작업',color:'#4E9A84'},
+  {id:'reading',name:'독서',color:'#7E7BC0'},
+  {id:'exercise',name:'운동',color:'#B0863F'},
+  {id:'etc',name:'기타',color:'#897E74'}
+];
+var FOCUS_CAT_PALETTE=['#BE727A','#4E9A84','#7E7BC0','#B0863F','#6E9463','#9985C2','#897E74','#C77F9B','#5F8FB0','#C08552'];
+var focusCategories=[];
+function focusCatLoad(){try{var s=JSON.parse(localStorage.getItem(FOCUS_CAT_KEY)||'null');focusCategories=(Array.isArray(s)&&s.length)?s:FOCUS_CAT_DEFAULTS.slice();}catch(e){focusCategories=FOCUS_CAT_DEFAULTS.slice();}}
+function focusCatSave(){try{localStorage.setItem(FOCUS_CAT_KEY,JSON.stringify(focusCategories));}catch(e){}}
+function focusCatById(id){if(!id)return null;for(var i=0;i<focusCategories.length;i++)if(focusCategories[i].id===id)return focusCategories[i];return null;}
+function focusCatNewId(){return 'fc_'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);}
+function focusCatNextColor(){var used=focusCategories.map(function(c){return c.color;});for(var i=0;i<FOCUS_CAT_PALETTE.length;i++){if(used.indexOf(FOCUS_CAT_PALETTE[i])<0)return FOCUS_CAT_PALETTE[i];}return FOCUS_CAT_PALETTE[focusCategories.length%FOCUS_CAT_PALETTE.length];}
 var _focusTimerLastSyncAt=0; /* timestamp of last _doSyncWidgetTimerState write (LWW guard) */
 var focusTimerLog=[];
 var focusTimerView='timer';      /* 'timer' | 'log' — top segmented control */
@@ -39631,7 +39673,9 @@ function focusTimerLinkedTask(){
 }
 function focusTimerLogSession(ms){
   var task=focusTimerLinkedTask();
-  focusTimerLog.push({id:focusTimerNewId(),mode:focusTimerState.mode,phase:focusTimerState.phase,durationMs:Math.round(ms||0),taskId:focusTimerState.linkedTaskId||'',taskText:task?task.text:'',completedAt:Date.now()});
+  var cat=focusCatById(focusTimerState.categoryId);
+  var text=task?task.text:(focusTimerState.customText||'');
+  focusTimerLog.push({id:focusTimerNewId(),mode:focusTimerState.mode,phase:focusTimerState.phase,durationMs:Math.round(ms||0),taskId:focusTimerState.linkedTaskId||'',taskText:text,categoryId:cat?cat.id:'',categoryName:cat?cat.name:'',categoryColor:cat?cat.color:'',completedAt:Date.now()});
   focusTimerSaveLog();
 }
 /* 중단: log whatever's been measured so far, then return to a fresh idle state
@@ -39844,6 +39888,55 @@ function focusTimerShowTaskPicker(){
     });
   }catch(e){console.warn('[focusTimer] task picker:',e);}
 }
+/* Focus target picker: choose a category (+ manage them) and an optional detail
+   that is either typed free text or picked from an open 할일. Commits into
+   focusTimerState.{categoryId,linkedTaskId,customText} on 저장. */
+function focusTimerOpenTargetPicker(){
+  if(document.querySelector('.ft-sheet-overlay'))return;
+  var selCat=focusTimerState.categoryId||'';
+  var selTaskId=focusTimerState.linkedTaskId||'';
+  var typed=selTaskId?'':(focusTimerState.customText||'');
+  var manage=false,adding=false;
+  var openTasks=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.filter(function(t){return !t.done;}).slice(0,40):[];
+  var overlay=document.createElement('div');overlay.className='ft-sheet-overlay';
+  var sheet=document.createElement('div');sheet.className='ft-sheet';overlay.appendChild(sheet);document.body.appendChild(overlay);
+  function taskText(id){var t=openTasks.find(function(x){return String(x.id)===String(id);});return t?t.text:'';}
+  function render(){
+    var cats=focusCategories.map(function(c){
+      return '<button class="ftt-cat'+(selCat===c.id?' on':'')+'" type="button" data-cat="'+c.id+'"><span class="ftt-dot" style="background:'+c.color+'"></span>'+_fte(c.name)+(manage?'<span class="ftt-del" data-del="'+c.id+'" title="삭제">×</span>':'')+'</button>';
+    }).join('');
+    var taskChips=openTasks.map(function(t){return '<button class="ftt-task'+(String(selTaskId)===String(t.id)?' on':'')+'" type="button" data-task="'+_fte(String(t.id))+'">'+_fte(t.text)+'</button>';}).join('');
+    sheet.innerHTML=
+      '<div class="ft-sheet-title">무엇에 집중하나요?</div>'+
+      '<div class="ft-sheet-sec"><div class="ft-sheet-lbl">카테고리<button class="ftt-manage" id="ftt-manage" type="button">'+(manage?'완료':'편집')+'</button></div>'+
+        '<div class="ftt-cats">'+cats+'<button class="ftt-cat ftt-add" id="ftt-add" type="button">＋ 추가</button></div>'+
+        '<div id="ftt-addrow" class="ftt-addrow" style="display:'+(adding?'flex':'none')+'"><input class="ftt-input" id="ftt-newcat" placeholder="새 카테고리 이름" maxlength="12" value=""><button class="btn btn-primary ftt-addbtn" id="ftt-addok" type="button">추가</button></div></div>'+
+      '<div class="ft-sheet-sec"><div class="ft-sheet-lbl">세부 (선택)</div>'+
+        '<input class="ftt-input" id="ftt-detail" placeholder="직접 입력…" value="'+_fte(selTaskId?taskText(selTaskId):typed)+'"'+(selTaskId?' disabled':'')+'>'+
+        (openTasks.length?'<div class="ft-sheet-lbl" style="margin-top:var(--sp-3)">할일에서 선택</div><div class="ftt-tasks">'+taskChips+'</div>':'')+
+      '</div>'+
+      '<div class="ft-sheet-foot"><button class="btn btn-ghost" id="ftt-clear" type="button">지우기</button><button class="btn btn-primary" id="ftt-save" type="button">저장</button></div>';
+    wire();
+  }
+  function wire(){
+    sheet.querySelectorAll('[data-cat]').forEach(function(b){b.addEventListener('click',function(e){if(e.target.closest('[data-del]'))return;var id=b.getAttribute('data-cat');selCat=(selCat===id?'':id);render();});});
+    sheet.querySelectorAll('[data-del]').forEach(function(x){x.addEventListener('click',function(e){e.stopPropagation();var id=x.getAttribute('data-del');focusCategories=focusCategories.filter(function(c){return c.id!==id;});focusCatSave();if(selCat===id)selCat='';render();});});
+    var mg=sheet.querySelector('#ftt-manage');if(mg)mg.addEventListener('click',function(){manage=!manage;render();});
+    var addBtn=sheet.querySelector('#ftt-add');if(addBtn)addBtn.addEventListener('click',function(){adding=true;render();var n=sheet.querySelector('#ftt-newcat');if(n)n.focus();});
+    function addCat(){var n=sheet.querySelector('#ftt-newcat');if(!n)return;var nm=(n.value||'').trim();if(nm){var c={id:focusCatNewId(),name:nm.slice(0,12),color:focusCatNextColor()};focusCategories.push(c);focusCatSave();selCat=c.id;}adding=false;render();}
+    var addOk=sheet.querySelector('#ftt-addok');if(addOk)addOk.addEventListener('click',addCat);
+    var nc=sheet.querySelector('#ftt-newcat');if(nc)nc.addEventListener('keydown',function(e){if(e.key==='Enter')addCat();});
+    var det=sheet.querySelector('#ftt-detail');if(det)det.addEventListener('input',function(){typed=det.value;selTaskId='';});
+    sheet.querySelectorAll('[data-task]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-task');selTaskId=(String(selTaskId)===String(id)?'':id);typed='';render();});});
+    var clr=sheet.querySelector('#ftt-clear');if(clr)clr.addEventListener('click',function(){selCat='';selTaskId='';typed='';render();});
+    var sv=sheet.querySelector('#ftt-save');if(sv)sv.addEventListener('click',function(){focusTimerState.categoryId=selCat;focusTimerState.linkedTaskId=selTaskId||'';focusTimerState.customText=selTaskId?'':(typed||'').trim();close();renderFocusTimer();});
+  }
+  function close(){overlay.remove();document.removeEventListener('keydown',esc);}
+  function esc(e){if(e.key==='Escape')close();}
+  document.addEventListener('keydown',esc);
+  overlay.addEventListener('mousedown',function(e){if(e.target===overlay)close();});
+  render();
+}
 
 /* ── Mini floating timer (draggable, position persisted) ───────────────── */
 var FT_MINI_POS_KEY='focus_timer_mini_pos';
@@ -39942,7 +40035,7 @@ function focusWeekAggregate(log,weekStartMs){
     var startMin=Math.max(0,endMin-Math.round(dur/60000));
     var day=days[idx];
     day.totalMs+=dur;totalMs+=dur;count++;
-    day.sessions.push({id:l.id||'',mode:l.mode||'pomodoro',phase:l.phase||'work',durationMs:dur,taskText:l.taskText||'',taskId:l.taskId||'',source:l.source||'',startMin:startMin,endMin:Math.max(startMin+1,endMin)});
+    day.sessions.push({id:l.id||'',mode:l.mode||'pomodoro',phase:l.phase||'work',durationMs:dur,taskText:l.taskText||'',taskId:l.taskId||'',categoryName:l.categoryName||'',categoryColor:l.categoryColor||'',source:l.source||'',startMin:startMin,endMin:Math.max(startMin+1,endMin)});
     if(startMin<minStartMin)minStartMin=startMin;
     if(endMin>maxEndMin)maxEndMin=endMin;
   });
@@ -40050,7 +40143,7 @@ function focusTodayAggregate(log,nowMs){
     var dur=Math.max(0,Math.round(Number(l.durationMs)||0));
     var endDt=new Date(end),endMin=endDt.getHours()*60+endDt.getMinutes();
     var startMin=Math.max(0,endMin-Math.round(dur/60000));
-    sessions.push({id:l.id||'',mode:l.mode||'pomodoro',phase:l.phase||'work',durationMs:dur,taskText:l.taskText||'',source:l.source||'',startMin:startMin,endMin:Math.max(startMin+1,endMin),completedAt:end});
+    sessions.push({id:l.id||'',mode:l.mode||'pomodoro',phase:l.phase||'work',durationMs:dur,taskText:l.taskText||'',categoryName:l.categoryName||'',categoryColor:l.categoryColor||'',source:l.source||'',startMin:startMin,endMin:Math.max(startMin+1,endMin),completedAt:end});
     totalMs+=dur;count++;if(modeCounts[l.mode]!==undefined)modeCounts[l.mode]++;
     if(startMin<minStartMin)minStartMin=startMin;if(endMin>maxEndMin)maxEndMin=endMin;
   });
@@ -40088,18 +40181,19 @@ function focusTodayHtml(){
   var lines='';for(var h2=rs;h2<re;h2++){lines+='<div class="ftu-tl-line" style="top:'+((h2-rs)*SLOT_H)+'px"></div>';}
   var blocks=agg.sessions.map(function(s){
     var top=Math.max(0,(s.startMin-rs*60)*pxPerMin);
-    var height=Math.max(s.taskText?46:36,(s.endMin-s.startMin)*pxPerMin);
-    var col=_ftModeColor(s.mode),bg=twvHexAlpha(col,0.16);
+    var label=s.categoryName?(s.categoryName+(s.taskText?' · '+s.taskText:'')):s.taskText;
+    var height=Math.max(label?46:36,(s.endMin-s.startMin)*pxPerMin);
+    var col=s.categoryColor||_ftModeColor(s.mode),bg=twvHexAlpha(col,0.16);
     var durLine='<div class="d" style="color:'+col+'">'+_ftModeIcon(s.mode)+' '+_fte(focusFmtDur(s.durationMs))+'</div>';
-    var inner=durLine+(s.taskText?'<div class="t">'+_fte(s.taskText)+'</div>':'');
-    return '<div class="ftu-tl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(focusFmtDur(s.durationMs)+(s.taskText?' · '+s.taskText:''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
+    var inner=durLine+(label?'<div class="t">'+_fte(label)+'</div>':'');
+    return '<div class="ftu-tl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(focusFmtDur(s.durationMs)+(label?' · '+label:''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
   }).join('');
   var timeline='<div class="ftu-tl ftu-pane-body" data-slot="'+SLOT_H+'" data-scrollhour="'+scrollHour+'"><div class="ftu-tl-axis">'+axis+'</div><div class="ftu-tl-track" style="height:'+totalPx+'px">'+lines+blocks+'</div></div>';
   var recItems=agg.sessions.map(function(s){
-    var col=_ftModeColor(s.mode);
-    var name=s.taskText||(_ftModeLabel(s.mode)+(s.mode==='pomodoro'?' 집중':''));
+    var col=s.categoryColor||_ftModeColor(s.mode);
+    var name=s.categoryName?(s.categoryName+(s.taskText?' · '+s.taskText:'')):(s.taskText||(_ftModeLabel(s.mode)+(s.mode==='pomodoro'?' 집중':'')));
     var t=new Date(s.completedAt),hhmm=String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0');
-    var meta=(s.taskText?_ftModeLabel(s.mode)+' · ':'')+hhmm+' 완료';
+    var meta=_ftModeLabel(s.mode)+' · '+hhmm+' 완료';
     return '<div class="ftu-rec-item" data-ftl-id="'+_fte(s.id)+'"><span class="ftu-rec-dot" style="background:'+col+'"></span><div class="ftu-rec-main"><div class="ftu-rec-name">'+_fte(name)+'</div><div class="ftu-rec-meta">'+_fte(meta)+'</div></div><div class="ftu-rec-dur">'+_fte(focusFmtDur(s.durationMs))+'</div></div>';
   }).join('');
   var records='<div class="ftu-rec ftu-pane-body">'+recItems+'</div>';
@@ -40177,24 +40271,25 @@ function focusLogHtml(){
       var top=Math.max(0,(s.startMin-rs*60)*pxPerMin);
       /* Blocks linked to a task get a slightly taller floor so the task name
          stays legible (like a home time block label) even for short sessions. */
-      var height=Math.max(s.taskText?42:32,(s.endMin-s.startMin)*pxPerMin);
-      var col=_ftModeColor(s.mode);
+      var detail=s.categoryName?(s.categoryName+(s.taskText?' · '+s.taskText:'')):s.taskText;
+      var height=Math.max(detail?42:32,(s.endMin-s.startMin)*pxPerMin);
+      var col=s.categoryColor||_ftModeColor(s.mode);
       var bg=twvHexAlpha(col,0.18);
       var icon=s.mode==='pomodoro'?'🍅':s.mode==='countdown'?'⏱':s.mode==='stopwatch'?'⏲':'•';
       var label=focusFmtDur(s.durationMs);
       var durLine='<div class="ftl-block-dur">'+icon+' '+_fte(label)+'</div>';
-      /* Show the task name like a time block: the name is the primary label
+      /* Show the category/task like a time block: the name is the primary label
          (always shown when present); the duration line joins it only when the
          block is tall enough for two lines. */
       var inner;
-      if(s.taskText){
+      if(detail){
         inner=(height>=34)
-          ? durLine+'<div class="ftl-block-task">'+_fte(s.taskText)+'</div>'
-          : '<div class="ftl-block-task ftl-block-task-solo">'+_fte(s.taskText)+'</div>';
+          ? durLine+'<div class="ftl-block-task">'+_fte(detail)+'</div>'
+          : '<div class="ftl-block-task ftl-block-task-solo">'+_fte(detail)+'</div>';
       }else{
         inner=durLine;
       }
-      return '<div class="ftl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(label+(s.taskText?' · '+s.taskText:'')+(s.source==='manual'?' · 수동':s.source==='widget'?' · 위젯':''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
+      return '<div class="ftl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(label+(detail?' · '+detail:'')+(s.source==='manual'?' · 수동':s.source==='widget'?' · 위젯':''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
     }).join('');
     return '<div class="ftl-col" style="height:'+totalPx+'px">'+lines+blocks+'</div>';
   }).join('');
@@ -40368,10 +40463,13 @@ function renderFocusTimer(){
   var sounds=[{id:'none',label:'없음'},{id:'white',label:'백색소음'},{id:'brown',label:'갈색소음'},{id:'rain',label:'빗소리'},{id:'binaural',label:'바이노럴'}];
   var soundBtns=sounds.map(function(s){return '<button class="focus-timer-sound-btn'+(focusTimerCfg.sound===s.id?' active':'')+'" type="button" data-focus-sound="'+s.id+'">'+s.label+'</button>';}).join('');
 
-  /* Task chip */
-  var taskChip=task?
-    '<button class="focus-timer-task-chip" id="focus-timer-task-btn" type="button">📋 <span>'+_fte(task.text)+'</span> <span style="flex-shrink:0;color:var(--fg-4)">×</span></button>':
-    '<button class="focus-timer-task-chip" id="focus-timer-task-btn" type="button" style="color:var(--fg-4)">+ 할일 연결</button>';
+  /* Focus target chip: category + optional detail (task or typed) */
+  var _tcat=focusCatById(focusTimerState.categoryId);
+  var _tdetail=task?task.text:(focusTimerState.customText||'');
+  var _tlabel=(_tcat?_tcat.name:'')+(_tcat&&_tdetail?' · ':'')+(_tdetail||'');
+  var taskChip=(_tcat||_tdetail)
+    ?'<button class="focus-timer-task-chip" id="focus-timer-target-btn" type="button">'+(_tcat?'<span class="ftt-dot" style="background:'+_tcat.color+'"></span>':'')+'<span>'+_fte(_tlabel)+'</span> <span style="flex-shrink:0;color:var(--fg-4)">✎</span></button>'
+    :'<button class="focus-timer-task-chip" id="focus-timer-target-btn" type="button" style="color:var(--fg-4)">+ 무엇에 집중?</button>';
 
 
   /* Action buttons.
@@ -40481,12 +40579,9 @@ function renderFocusTimer(){
       root.querySelectorAll('[data-focus-sound]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-focus-sound')===s);});
     });
   });
-  /* Task link */
-  var tb=root.querySelector('#focus-timer-task-btn');
-  if(tb){
-    if(task)tb.addEventListener('click',function(){focusTimerState.linkedTaskId='';renderFocusTimer();});
-    else tb.addEventListener('click',focusTimerShowTaskPicker);
-  }
+  /* Focus target (category + detail) picker */
+  var tb=root.querySelector('#focus-timer-target-btn');
+  if(tb)tb.addEventListener('click',focusTimerOpenTargetPicker);
   /* Settings — opens a modal window */
   var sop=root.querySelector('#ft-settings-open');
   if(sop)sop.addEventListener('click',focusTimerOpenSettings);
@@ -40502,6 +40597,7 @@ function _initTimer(){
 }
 focusTimerLoadCfg();
 focusTimerLoadLog();
+focusCatLoad();
 focusTimerSetTarget();
 </script>
 <script>
