@@ -146,6 +146,17 @@
   (`focusPresetAddCurrent`; 카테고리 없으면 토스트). **롱프레스(550ms)** = 삭제 확인
   (`openConfirmDialog`). 프리셋 칩 `touch-action:none`으로 롱프레스 안정화.
 
+## M. 블록 라벨 강조 + 할일 완료 → 집중 기록 제안 (오너 피드백)
+
+- **타임블록 작업명 진하게** — 오늘 블록 `.ftu-tl-block .t` fg-3→**fg-2 + semibold**, 주간
+  `.ftl-block-task` opacity 제거 + semibold.
+- **할일 완료 → 기록 제안** — 할일을 완료할 때 그 할일에 연결된 집중 기록이 없으면
+  (`focusTimerTaskHasRecord`) **"집중 기록으로 추가할까요?"** 확인창(`focusTimerOfferRecord`). 추가 시
+  `focusTimerAddFromTask`: **시간 범위가 있는 할일**(timeStart+timeEnd)은 그 범위로, **시작만 있으면**
+  기본 1h, **시간 없으면** 지금 시각+25분으로 add 시트를 열되 모두 편집 가능. 할일이 세부로 프리필되고
+  카테고리만 고르면 끝(피커 `opts.taskId/taskText` → `taskId:selTaskId||forcedTaskId`). 완료 훅은
+  Tasks 목록(`toggleDone`)·주간뷰·홈 단일 완료에 연결.
+
 ### 후속(다음 스코프)
 D-Day 카운트다운 챌린지, 시계 표시 스타일(Linear/Circular/Flip). 필요 시 프리셋을 우측 목록형(원띵식)
 으로 확장.
