@@ -3484,6 +3484,13 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ft-settings-open-btn{display:inline-flex;align-items:center;gap:var(--sp-2);height:38px;padding:0 var(--sp-5);border-radius:var(--r-full);background:var(--bg-raised);border:.5px solid var(--border-subtle);color:var(--fg-3);font-size:var(--text-sm);font-weight:var(--fw-semibold);cursor:pointer;transition:color var(--t-snap),border-color var(--t-snap)}
 .ft-settings-open-btn:hover{color:var(--fg);border-color:var(--border)}
 .ft-settings-open-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.6}
+/* saved presets (one-tap start) */
+.ft-preset-row{display:flex;gap:var(--sp-2);flex-wrap:wrap;justify-content:center;max-width:100%}
+.ft-preset{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 var(--sp-3);border-radius:var(--r-full);background:var(--bg-raised);border:.5px solid var(--border-subtle);color:var(--fg-2);font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;max-width:220px;touch-action:none;transition:background var(--t-snap)}
+.ft-preset:hover{background:var(--bg-hover)}
+.ft-preset-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ft-preset-min{color:var(--fg-4);flex-shrink:0}
+.ft-preset-save{color:var(--fg-4);border-style:dashed;touch-action:auto}
 /* timer settings modal (§3.5) */
 .ft-modal-overlay{position:fixed;inset:0;z-index:500;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:var(--sp-5);animation:ft-fade .14s var(--t-snap) backwards}
 .ft-modal{width:100%;max-width:440px;max-height:82vh;overflow-y:auto;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-xl);box-shadow:var(--elev-3);display:flex;flex-direction:column}
@@ -39345,6 +39352,32 @@ function focusCatSave(){try{localStorage.setItem(FOCUS_CAT_KEY,JSON.stringify(fo
 function focusCatById(id){if(!id)return null;for(var i=0;i<focusCategories.length;i++)if(focusCategories[i].id===id)return focusCategories[i];return null;}
 function focusCatNewId(){return 'fc_'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);}
 function focusCatNextColor(){var used=focusCategories.map(function(c){return c.color;});for(var i=0;i<FOCUS_CAT_PALETTE.length;i++){if(used.indexOf(FOCUS_CAT_PALETTE[i])<0)return FOCUS_CAT_PALETTE[i];}return FOCUS_CAT_PALETTE[focusCategories.length%FOCUS_CAT_PALETTE.length];}
+/* Focus presets (device-local): a saved category + mode + minutes (+ detail) for
+   one-tap start, like OneThing's saved-timer list. */
+var FOCUS_PRESET_KEY='focus_presets_v1';
+var focusPresets=[];
+function focusPresetLoad(){try{var s=JSON.parse(localStorage.getItem(FOCUS_PRESET_KEY)||'null');focusPresets=Array.isArray(s)?s:[];}catch(e){focusPresets=[];}}
+function focusPresetSave(){try{localStorage.setItem(FOCUS_PRESET_KEY,JSON.stringify(focusPresets.slice(0,30)));}catch(e){}}
+function focusPresetNewId(){return 'fp_'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);}
+function focusPresetAddCurrent(){
+  var cat=focusCatById(focusTimerState.categoryId);
+  if(!cat){if(typeof showToast==='function')showToast('카테고리를 먼저 선택해 주세요');return;}
+  var task=focusTimerLinkedTask(),detail=task?task.text:(focusTimerState.customText||'');
+  var mode=focusTimerState.mode,minutes=mode==='pomodoro'?focusTimerCfg.pomodoro.work:mode==='countdown'?focusTimerCfg.countdown.minutes:0;
+  focusPresets.push({id:focusPresetNewId(),name:detail||cat.name,categoryId:cat.id,categoryName:cat.name,categoryColor:cat.color,mode:mode,minutes:minutes,taskId:focusTimerState.linkedTaskId||'',customText:task?'':detail});
+  focusPresetSave();renderFocusTimer();if(typeof showToast==='function')showToast('프리셋 저장됨 ✓');
+}
+function focusPresetApply(id){
+  var p=focusPresets.find(function(x){return x.id===id;});if(!p)return;
+  if(focusTimerState.running||focusTimerState.elapsed>0){if(typeof showToast==='function')showToast('진행 중인 세션을 먼저 끝내주세요');return;}
+  focusTimerState.categoryId=p.categoryId;focusTimerState.linkedTaskId=p.taskId||'';focusTimerState.customText=p.taskId?'':(p.customText||'');
+  focusTimerState.mode=p.mode;focusTimerCfg.mode=p.mode;
+  if(p.mode==='pomodoro')focusTimerCfg.pomodoro.work=p.minutes||25;
+  else if(p.mode==='countdown')focusTimerCfg.countdown.minutes=p.minutes||25;
+  focusTimerState.phase='work';focusTimerState.elapsed=0;focusTimerState.startedAt=0;
+  focusTimerSetTarget();focusTimerSaveCfg();
+  focusTimerStart({reset:true});renderFocusTimer();renderFocusTimerMini();
+}
 var _focusTimerLastSyncAt=0; /* timestamp of last _doSyncWidgetTimerState write (LWW guard) */
 var focusTimerLog=[];
 var focusTimerView='timer';      /* 'timer' | 'log' — top segmented control */
@@ -40565,6 +40598,12 @@ function renderFocusTimer(){
     ?'<button class="focus-timer-task-chip" id="focus-timer-target-btn" type="button">'+(_tcat?'<span class="ftt-dot" style="background:'+_tcat.color+'"></span>':'')+'<span>'+_fte(_tlabel)+'</span> <span style="flex-shrink:0;color:var(--fg-4)">✎</span></button>'
     :'<button class="focus-timer-task-chip" id="focus-timer-target-btn" type="button" style="color:var(--fg-4)">+ 무엇에 집중?</button>';
 
+  /* Saved presets: one-tap start; ＋ 저장 saves the current setup; long-press deletes. */
+  var presetChips=focusPresets.map(function(p){
+    return '<button class="ft-preset" type="button" data-preset="'+p.id+'"><span class="ftt-dot" style="background:'+(p.categoryColor||'var(--accent)')+'"></span><span class="ft-preset-name">'+_fte(p.name)+'</span><span class="ft-preset-min">'+(p.minutes?p.minutes+'분':'스톱워치')+'</span></button>';
+  }).join('');
+  var presetRow='<div class="ft-preset-row">'+presetChips+'<button class="ft-preset ft-preset-save" type="button" id="ft-preset-save" title="지금 설정을 프리셋으로 저장">＋ 저장</button></div>';
+
 
   /* Action buttons.
      ↺ reset = 버림(초기화) · ▶/⏸ = 시작/일시정지 · ■ = 중단(기록하고 종료).
@@ -40617,6 +40656,7 @@ function renderFocusTimer(){
       (mode==='pomodoro'&&active?'<button class="focus-timer-skip-link" type="button" id="focus-timer-skip">건너뛰기 →</button>':'')+
       '<div class="focus-timer-sound-row">'+soundBtns+'</div>'+
       taskChip+
+      presetRow+
       '<button class="ft-settings-open-btn" type="button" id="ft-settings-open"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>타이머 설정</button>'+
     '</div>'+
     '</section>'+
@@ -40674,6 +40714,15 @@ function renderFocusTimer(){
       root.querySelectorAll('[data-focus-sound]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-focus-sound')===s);});
     });
   });
+  /* Presets: tap = one-tap start, long-press = delete; ＋ 저장 = save current */
+  var psave=root.querySelector('#ft-preset-save');if(psave)psave.addEventListener('click',focusPresetAddCurrent);
+  root.querySelectorAll('[data-preset]').forEach(function(el){
+    var lp=null,longFired=false;
+    function cancel(){if(lp){clearTimeout(lp);lp=null;}}
+    el.addEventListener('pointerdown',function(){longFired=false;cancel();lp=setTimeout(function(){longFired=true;var id=el.getAttribute('data-preset'),p=focusPresets.find(function(x){return x.id===id;});if(typeof openConfirmDialog==='function')openConfirmDialog('프리셋 삭제',(p?'"'+p.name+'" ':'')+'프리셋을 삭제할까요?',function(){focusPresets=focusPresets.filter(function(x){return x.id!==id;});focusPresetSave();renderFocusTimer();});},550);});
+    el.addEventListener('pointerup',function(){cancel();if(!longFired)focusPresetApply(el.getAttribute('data-preset'));});
+    el.addEventListener('pointerleave',cancel);el.addEventListener('pointercancel',cancel);
+  });
   /* Focus target (category + detail) picker */
   var tb=root.querySelector('#focus-timer-target-btn');
   if(tb)tb.addEventListener('click',focusTimerOpenTargetPicker);
@@ -40693,6 +40742,7 @@ function _initTimer(){
 focusTimerLoadCfg();
 focusTimerLoadLog();
 focusCatLoad();
+focusPresetLoad();
 focusTimerSetTarget();
 </script>
 <script>
