@@ -3518,6 +3518,18 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ftt-task{flex-shrink:0;min-height:36px;text-align:left;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);background:transparent;border:.5px solid transparent;color:var(--fg-2);font-size:var(--text-sm);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ftt-task:hover{background:var(--bg-raised)}
 .ftt-task.on{background:var(--accent-light);color:var(--accent);border-color:var(--a-200)}
+.ftt-req{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--accent);background:var(--accent-light);border-radius:var(--r-full);padding:1px 7px;margin-left:4px}
+.ftt-search-wrap{position:relative;display:flex;align-items:center}
+.ftt-search-ico{position:absolute;left:10px;width:15px;height:15px;stroke:var(--fg-4);fill:none;stroke-width:1.8;pointer-events:none}
+.ftt-search{padding-left:32px}
+.ftt-noresult{padding:var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-xs)}
+.ftt-timegrid{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+.ftt-timegrid .ftt-input{flex:1;min-width:120px}
+.ftt-timedur{display:flex;align-items:center;gap:var(--sp-1);color:var(--fg-3);font-size:var(--text-sm);flex:1;min-width:120px}
+.ftt-timedur .ftt-input{flex:1;min-width:0}
+.ft-sheet-foot .btn[disabled]{opacity:.45;cursor:default}
+.ftu-tl-track{touch-action:pan-y}
+.ftu-tl-ghost{position:absolute;left:6px;right:8px;border-radius:var(--r-md);background:color-mix(in srgb,var(--accent) 20%,transparent);border:1.5px dashed var(--accent);color:var(--accent);font-size:11px;font-weight:var(--fw-bold);padding:2px 6px;pointer-events:none;overflow:hidden;z-index:2}
 /* ── Zoned 오늘 view (Tasks-style): console zone | divider | 오늘의 집중 zone ── */
 .ftu-body{flex:1;min-height:0;display:flex;overflow:hidden}
 .ftu-body-week{display:block;overflow-y:auto}
@@ -39891,31 +39903,45 @@ function focusTimerShowTaskPicker(){
 /* Focus target picker: choose a category (+ manage them) and an optional detail
    that is either typed free text or picked from an open 할일. Commits into
    focusTimerState.{categoryId,linkedTaskId,customText} on 저장. */
-function focusTimerOpenTargetPicker(){
+function _minToHHMM(m){m=Math.max(0,Math.min(1439,Math.round(m)));return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+/* Unified focus target / record picker.
+   opts.add  → create a manual record (shows date/time/duration inputs);
+   opts.drag → {startMin,durMin,dayMs} prefilling the add-mode time from a
+               timeline drag; opts.startAfter → start the timer after saving.
+   Category is required; the 할일 detail has a live search box. */
+function focusTimerOpenTargetPicker(opts){
+  opts=opts||{};
   if(document.querySelector('.ft-sheet-overlay'))return;
+  var addMode=!!(opts.add||opts.drag),dr=opts.drag||null,startAfter=!!opts.startAfter;
   var selCat=focusTimerState.categoryId||'';
-  var selTaskId=focusTimerState.linkedTaskId||'';
-  var typed=selTaskId?'':(focusTimerState.customText||'');
-  var manage=false,adding=false;
-  var openTasks=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.filter(function(t){return !t.done;}).slice(0,40):[];
+  var selTaskId=addMode?'':(focusTimerState.linkedTaskId||'');
+  var typed=(!addMode&&!selTaskId)?(focusTimerState.customText||''):'';
+  var now=new Date();
+  var addDate=dr?_ftDayKey(new Date(dr.dayMs)):_ftDayKey(now);
+  var addStart=dr?_minToHHMM(dr.startMin):(String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'));
+  var addDur=dr?dr.durMin:25;
+  var manage=false,adding=false,taskQuery='';
+  var allOpen=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.filter(function(t){return !t.done;}):[];
   var overlay=document.createElement('div');overlay.className='ft-sheet-overlay';
   var sheet=document.createElement('div');sheet.className='ft-sheet';overlay.appendChild(sheet);document.body.appendChild(overlay);
-  function taskText(id){var t=openTasks.find(function(x){return String(x.id)===String(id);});return t?t.text:'';}
+  function taskText(id){var t=allOpen.find(function(x){return String(x.id)===String(id);});return t?t.text:'';}
+  function filtered(){var q=taskQuery.trim().toLowerCase();var l=q?allOpen.filter(function(t){return (t.text||'').toLowerCase().indexOf(q)>=0;}):allOpen;return l.slice(0,60);}
+  function taskListHtml(){var l=filtered();if(!l.length)return '<div class="ftt-noresult">'+(taskQuery?'검색 결과가 없어요':'열려있는 할일이 없어요')+'</div>';return l.map(function(t){return '<button class="ftt-task'+(String(selTaskId)===String(t.id)?' on':'')+'" type="button" data-task="'+_fte(String(t.id))+'">'+_fte(t.text)+'</button>';}).join('');}
   function render(){
-    var cats=focusCategories.map(function(c){
-      return '<button class="ftt-cat'+(selCat===c.id?' on':'')+'" type="button" data-cat="'+c.id+'"><span class="ftt-dot" style="background:'+c.color+'"></span>'+_fte(c.name)+(manage?'<span class="ftt-del" data-del="'+c.id+'" title="삭제">×</span>':'')+'</button>';
-    }).join('');
-    var taskChips=openTasks.map(function(t){return '<button class="ftt-task'+(String(selTaskId)===String(t.id)?' on':'')+'" type="button" data-task="'+_fte(String(t.id))+'">'+_fte(t.text)+'</button>';}).join('');
+    var cats=focusCategories.map(function(c){return '<button class="ftt-cat'+(selCat===c.id?' on':'')+'" type="button" data-cat="'+c.id+'"><span class="ftt-dot" style="background:'+c.color+'"></span>'+_fte(c.name)+(manage?'<span class="ftt-del" data-del="'+c.id+'" title="삭제">×</span>':'')+'</button>';}).join('');
+    var timeRow=addMode?('<div class="ft-sheet-sec"><div class="ft-sheet-lbl">시간</div><div class="ftt-timegrid"><input class="ftt-input" type="date" id="ftt-date" value="'+addDate+'"><input class="ftt-input" type="time" id="ftt-start" value="'+addStart+'"><span class="ftt-timedur"><input class="ftt-input" type="number" min="1" max="1440" id="ftt-dur" value="'+addDur+'"> 분</span></div></div>'):'';
     sheet.innerHTML=
-      '<div class="ft-sheet-title">무엇에 집중하나요?</div>'+
-      '<div class="ft-sheet-sec"><div class="ft-sheet-lbl">카테고리<button class="ftt-manage" id="ftt-manage" type="button">'+(manage?'완료':'편집')+'</button></div>'+
+      '<div class="ft-sheet-title">'+(addMode?'집중 기록 추가':'무엇에 집중하나요?')+'</div>'+
+      '<div class="ft-sheet-sec"><div class="ft-sheet-lbl"><span>카테고리 <span class="ftt-req">필수</span></span><button class="ftt-manage" id="ftt-manage" type="button">'+(manage?'완료':'편집')+'</button></div>'+
         '<div class="ftt-cats">'+cats+'<button class="ftt-cat ftt-add" id="ftt-add" type="button">＋ 추가</button></div>'+
         '<div id="ftt-addrow" class="ftt-addrow" style="display:'+(adding?'flex':'none')+'"><input class="ftt-input" id="ftt-newcat" placeholder="새 카테고리 이름" maxlength="12" value=""><button class="btn btn-primary ftt-addbtn" id="ftt-addok" type="button">추가</button></div></div>'+
+      timeRow+
       '<div class="ft-sheet-sec"><div class="ft-sheet-lbl">세부 (선택)</div>'+
         '<input class="ftt-input" id="ftt-detail" placeholder="직접 입력…" value="'+_fte(selTaskId?taskText(selTaskId):typed)+'"'+(selTaskId?' disabled':'')+'>'+
-        (openTasks.length?'<div class="ft-sheet-lbl" style="margin-top:var(--sp-3)">할일에서 선택</div><div class="ftt-tasks">'+taskChips+'</div>':'')+
+        '<div class="ftt-search-wrap"><svg class="ftt-search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="ftt-input ftt-search" id="ftt-search" placeholder="할일 검색…" value="'+_fte(taskQuery)+'"></div>'+
+        '<div class="ftt-tasks" id="ftt-tasklist">'+taskListHtml()+'</div>'+
       '</div>'+
-      '<div class="ft-sheet-foot"><button class="btn btn-ghost" id="ftt-clear" type="button">지우기</button><button class="btn btn-primary" id="ftt-save" type="button">저장</button></div>';
+      '<div class="ft-sheet-foot"><button class="btn btn-ghost" id="ftt-clear" type="button">지우기</button><button class="btn btn-primary" id="ftt-save" type="button"'+(selCat?'':' disabled')+'>'+(addMode?'추가':'저장')+'</button></div>';
     wire();
   }
   function wire(){
@@ -39925,11 +39951,37 @@ function focusTimerOpenTargetPicker(){
     var addBtn=sheet.querySelector('#ftt-add');if(addBtn)addBtn.addEventListener('click',function(){adding=true;render();var n=sheet.querySelector('#ftt-newcat');if(n)n.focus();});
     function addCat(){var n=sheet.querySelector('#ftt-newcat');if(!n)return;var nm=(n.value||'').trim();if(nm){var c={id:focusCatNewId(),name:nm.slice(0,12),color:focusCatNextColor()};focusCategories.push(c);focusCatSave();selCat=c.id;}adding=false;render();}
     var addOk=sheet.querySelector('#ftt-addok');if(addOk)addOk.addEventListener('click',addCat);
-    var nc=sheet.querySelector('#ftt-newcat');if(nc)nc.addEventListener('keydown',function(e){if(e.key==='Enter')addCat();});
+    var ncc=sheet.querySelector('#ftt-newcat');if(ncc)ncc.addEventListener('keydown',function(e){if(e.key==='Enter')addCat();});
+    if(addMode){
+      var dd=sheet.querySelector('#ftt-date');if(dd)dd.addEventListener('change',function(){addDate=dd.value;});
+      var ss=sheet.querySelector('#ftt-start');if(ss)ss.addEventListener('change',function(){addStart=ss.value;});
+      var du=sheet.querySelector('#ftt-dur');if(du)du.addEventListener('change',function(){addDur=Math.max(1,parseInt(du.value,10)||1);});
+    }
     var det=sheet.querySelector('#ftt-detail');if(det)det.addEventListener('input',function(){typed=det.value;selTaskId='';});
-    sheet.querySelectorAll('[data-task]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-task');selTaskId=(String(selTaskId)===String(id)?'':id);typed='';render();});});
-    var clr=sheet.querySelector('#ftt-clear');if(clr)clr.addEventListener('click',function(){selCat='';selTaskId='';typed='';render();});
-    var sv=sheet.querySelector('#ftt-save');if(sv)sv.addEventListener('click',function(){focusTimerState.categoryId=selCat;focusTimerState.linkedTaskId=selTaskId||'';focusTimerState.customText=selTaskId?'':(typed||'').trim();close();renderFocusTimer();});
+    function wireTasks(){sheet.querySelectorAll('[data-task]').forEach(function(b){b.addEventListener('click',function(){var id=b.getAttribute('data-task');selTaskId=(String(selTaskId)===String(id)?'':id);typed='';render();});});}
+    wireTasks();
+    var sr=sheet.querySelector('#ftt-search');if(sr)sr.addEventListener('input',function(){taskQuery=sr.value;var tl=sheet.querySelector('#ftt-tasklist');if(tl){tl.innerHTML=taskListHtml();wireTasks();}});
+    var clr=sheet.querySelector('#ftt-clear');if(clr)clr.addEventListener('click',function(){selTaskId='';typed='';taskQuery='';render();});
+    var sv=sheet.querySelector('#ftt-save');if(sv)sv.addEventListener('click',function(){
+      if(!selCat){if(typeof showToast==='function')showToast('카테고리를 선택해 주세요');return;}
+      var c=focusCatById(selCat),detail=selTaskId?taskText(selTaskId):(typed||'').trim();
+      if(addMode){
+        var du2=sheet.querySelector('#ftt-dur');if(du2)addDur=Math.max(1,parseInt(du2.value,10)||1);
+        var dd2=sheet.querySelector('#ftt-date');if(dd2)addDate=dd2.value;
+        var ss2=sheet.querySelector('#ftt-start');if(ss2)addStart=ss2.value;
+        var rec=buildManualFocusRecord({date:addDate,startHHMM:addStart,durationMin:addDur,mode:'stopwatch',taskId:selTaskId||'',taskText:detail});
+        if(!rec){if(typeof showToast==='function')showToast('시간을 확인해 주세요');return;}
+        rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';rec.source='manual';
+        focusTimerLog.push(rec);focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});focusTimerSaveLog();
+        if(_ftlAnchor&&typeof focusWeekStart==='function')_ftlAnchor=focusWeekStart(new Date(rec.completedAt),weekStart);
+        close();renderFocusTimer();if(typeof showToast==='function')showToast('기록 추가됨 ✓');
+      }else{
+        focusTimerState.categoryId=selCat;focusTimerState.linkedTaskId=selTaskId||'';focusTimerState.customText=selTaskId?'':detail;
+        close();
+        if(startAfter){focusTimerStart({reset:true});renderFocusTimerMini();}
+        renderFocusTimer();
+      }
+    });
   }
   function close(){overlay.remove();document.removeEventListener('keydown',esc);}
   function esc(e){if(e.key==='Escape')close();}
@@ -40129,7 +40181,7 @@ function wireFocusYear(root){
   var thisYear=new Date().getFullYear();
   var pv=root.querySelector('#fty-prev');if(pv)pv.addEventListener('click',function(){_ftYear=(_ftYear||thisYear)-1;renderFocusTimer();});
   var nx=root.querySelector('#fty-next');if(nx)nx.addEventListener('click',function(){if((_ftYear||thisYear)<thisYear){_ftYear=(_ftYear||thisYear)+1;renderFocusTimer();}});
-  var ad=root.querySelector('#fty-add');if(ad)ad.addEventListener('click',focusTimerManualAdd);
+  var ad=root.querySelector('#fty-add');if(ad)ad.addEventListener('click',function(){focusTimerOpenTargetPicker({add:true});});
 }
 /* Attribute today's sessions to local time-of-day; build totals + positioned
    blocks (start/end minute-of-day) + a fitted hour range. Pure — mirrors
@@ -40207,13 +40259,55 @@ function focusTodayHtml(){
   return '<div class="ftu-today">'+head+stats+paneBar+pane+legend+'</div>';
 }
 /* Wire the 오늘 panel: 직접 추가 + tap-to-delete on blocks/records. */
+/* Drag on an empty part of the today timeline to sketch a time range, then the
+   add picker opens prefilled with that start/duration. Mouse/pen only — touch
+   keeps scrolling (use the + button there). */
+function _ftWireTimelineDrag(track){
+  var tlEl=track.closest('.ftu-tl');
+  var SLOT_H=parseInt(tlEl&&tlEl.getAttribute('data-slot'),10)||56,pxPerMin=SLOT_H/60;
+  var dragging=false,startY=0,ghost=null,pid=null;
+  function clean(){dragging=false;pid=null;if(ghost){ghost.remove();ghost=null;}}
+  track.addEventListener('pointerdown',function(e){
+    if(e.pointerType==='touch')return;
+    if(e.button&&e.button!==0)return;
+    if(e.target.closest('.ftu-tl-block'))return; /* a block = delete, not a drag */
+    dragging=true;pid=e.pointerId;
+    var r=track.getBoundingClientRect();startY=e.clientY-r.top;
+    ghost=document.createElement('div');ghost.className='ftu-tl-ghost';track.appendChild(ghost);
+    ghost.style.top=startY+'px';ghost.style.height='0px';
+    try{track.setPointerCapture(e.pointerId);}catch(_){}
+    e.preventDefault();
+  });
+  track.addEventListener('pointermove',function(e){
+    if(!dragging||e.pointerId!==pid||!ghost)return;
+    var r=track.getBoundingClientRect(),y=e.clientY-r.top;
+    var top=Math.max(0,Math.min(startY,y)),h=Math.abs(y-startY);
+    ghost.style.top=top+'px';ghost.style.height=h+'px';
+    ghost.textContent=focusFmtDur(Math.max(0,Math.round(h/pxPerMin))*60000);
+  });
+  track.addEventListener('pointerup',function(e){
+    if(!dragging||e.pointerId!==pid)return;
+    var r=track.getBoundingClientRect(),y=e.clientY-r.top;
+    var top=Math.max(0,Math.min(startY,y)),h=Math.abs(y-startY);
+    clean();
+    var durMin=Math.round(h/pxPerMin);
+    if(durMin<5)return; /* a click / tiny drag — ignore */
+    var startMin=Math.max(0,Math.round((top/pxPerMin)/5)*5);
+    durMin=Math.max(5,Math.round(durMin/5)*5);
+    if(startMin+durMin>1440)durMin=1440-startMin;
+    var d=new Date();d.setHours(0,0,0,0);
+    focusTimerOpenTargetPicker({drag:{startMin:startMin,durMin:durMin,dayMs:d.getTime()}});
+  });
+  track.addEventListener('pointercancel',clean);
+}
 function wireFocusToday(root){
   var tl=root.querySelector('.ftu-tl[data-scrollhour]');
   if(tl){var sh=parseInt(tl.getAttribute('data-scrollhour'),10)||0,sl=parseInt(tl.getAttribute('data-slot'),10)||56;tl.scrollTop=Math.max(0,sh*sl-sl/2);}
+  var trk=root.querySelector('.ftu-tl-track');if(trk)_ftWireTimelineDrag(trk);
   root.querySelectorAll('[data-ft-pane]').forEach(function(btn){
     btn.addEventListener('click',function(){var p=btn.getAttribute('data-ft-pane');if(p===focusTodayPane)return;focusTodayPane=p;renderFocusTimer();});
   });
-  var add=root.querySelector('#ft-today-add');if(add)add.addEventListener('click',focusTimerManualAdd);
+  var add=root.querySelector('#ft-today-add');if(add)add.addEventListener('click',function(){focusTimerOpenTargetPicker({add:true});});
   root.querySelectorAll('.ftu-today [data-ftl-id]').forEach(function(el){
     el.addEventListener('click',function(){
       var id=el.getAttribute('data-ftl-id');if(!id)return;
@@ -40348,7 +40442,7 @@ function wireFocusLog(root){
   var prev=root.querySelector('#ftl-prev');if(prev)prev.addEventListener('click',function(){var a=new Date(_ftlAnchor);a.setDate(a.getDate()-7);_ftlAnchor=a;renderFocusTimer();});
   var next=root.querySelector('#ftl-next');if(next)next.addEventListener('click',function(){var a=new Date(_ftlAnchor);a.setDate(a.getDate()+7);_ftlAnchor=a;renderFocusTimer();});
   var today=root.querySelector('#ftl-today');if(today)today.addEventListener('click',function(){_ftlAnchor=focusWeekStart(new Date(),weekStart);renderFocusTimer();});
-  var add=root.querySelector('#ftl-add');if(add)add.addEventListener('click',focusTimerManualAdd);
+  var add=root.querySelector('#ftl-add');if(add)add.addEventListener('click',function(){focusTimerOpenTargetPicker({add:true});});
   root.querySelectorAll('[data-ftl-id]').forEach(function(b){
     b.addEventListener('click',function(){
       var id=b.getAttribute('data-ftl-id');if(!id)return;
@@ -40549,6 +40643,7 @@ function renderFocusTimer(){
   if(tog)tog.addEventListener('click',function(){
     if(focusTimerState.running)focusTimerPause();
     else if(focusTimerState.elapsed>0)focusTimerResume();
+    else if(!focusTimerState.categoryId)focusTimerOpenTargetPicker({startAfter:true}); /* category required before starting */
     else focusTimerStart({reset:true});
   });
   /* Reset */
