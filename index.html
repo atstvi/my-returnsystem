@@ -3599,7 +3599,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ftu-tl-line{position:absolute;left:0;right:0;height:.5px;background:color-mix(in srgb,var(--border) 60%,transparent)}
 .ftu-tl-block{position:absolute;left:6px;right:8px;border-radius:var(--r-md);padding:var(--sp-2) var(--sp-3);overflow:hidden;box-shadow:var(--elev-1);cursor:pointer}
 .ftu-tl-block .d{font-size:12px;font-weight:var(--fw-bold);font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ftu-tl-block .t{font-size:11px;color:var(--fg-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ftu-tl-block .t{font-size:11px;color:var(--fg-2);font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .ftu-tl-empty{color:var(--fg-4);font-size:var(--text-xs);text-align:center;padding:var(--sp-8) 0}
 /* today record list */
 .ftu-rec-head{display:flex;align-items:center;justify-content:space-between;padding-top:var(--sp-4);border-top:.5px solid var(--border-subtle)}
@@ -3649,7 +3649,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ftl-block{position:absolute;left:2px;right:2px;border-radius:4px;padding:2px 4px;overflow:hidden;cursor:pointer;font-size:var(--text-2xs);line-height:1.2;color:var(--fg)}
 .ftl-block:hover{filter:brightness(1.08);box-shadow:0 0 0 1px var(--accent)}
 .ftl-block-dur{font-weight:var(--fw-bold);font-variant-numeric:tabular-nums}
-.ftl-block-task{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.85}
+.ftl-block-task{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:var(--fw-semibold)}
 .ftl-block-task-solo{font-weight:var(--fw-semibold);opacity:1}
 .ftl-empty{padding:var(--sp-8) var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-sm)}
 /* 연간 잔디 히트맵 (GitHub contribution-style) */
@@ -13732,7 +13732,7 @@ function renderHomeTimeBlocks(){
     if(virtual){ el.style.opacity='.92'; el.style.borderStyle='dashed'; el.style.left='var(--sp-6)'; el.style.right='var(--sp-6)'; el.style.zIndex='1'; }
     var bar=document.createElement('div');bar.className='htb-vbar';
     var ck=document.createElement('button');ck.className='task-check'+(t.done?' done':'');ck.style.cssText='width:18px;height:18px;flex-shrink:0';
-    ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); });
+    ck.addEventListener('click', function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderHomeTimeBlocks(); renderHomeTasks(); if(t.done&&typeof focusTimerOfferRecord==='function')focusTimerOfferRecord(t); });
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
     var travelInfo=parseInt(t.travelMin,10)||0;
@@ -19112,6 +19112,7 @@ function renderTaskWeekView(){
         if(typeof saveTaskData==='function')saveTaskData();
         renderTaskWeekView();
         if(typeof renderCal==='function')renderCal();
+        if(t.done&&typeof focusTimerOfferRecord==='function')focusTimerOfferRecord(t);
       });
     }
     twvAttachBlockDrag(block,t,H,SLOT_H);
@@ -19585,6 +19586,7 @@ function toggleDone(task,el,ck){
     ck.classList.add('done');ck.setAttribute('aria-label','완료됨');
     el.classList.add('completing');
     setTimeout(function(){el.classList.remove('completing');renderList();renderCal();},300);
+    if(typeof focusTimerOfferRecord==='function')focusTimerOfferRecord(task);
   } else {
     renderList();
   }
@@ -39937,6 +39939,30 @@ function focusTimerShowTaskPicker(){
    that is either typed free text or picked from an open 할일. Commits into
    focusTimerState.{categoryId,linkedTaskId,customText} on 저장. */
 function _minToHHMM(m){m=Math.max(0,Math.min(1439,Math.round(m)));return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');}
+function _ftHHMMtoMin(s){var m=/^(\d{1,2}):(\d{2})$/.exec(String(s||''));return m?(Math.min(23,parseInt(m[1],10))*60+Math.min(59,parseInt(m[2],10))):null;}
+function focusTimerTaskHasRecord(taskId){if(typeof focusTimerLog==='undefined'||taskId==null||taskId==='')return false;return focusTimerLog.some(function(l){return l&&l.taskId&&String(l.taskId)===String(taskId);});}
+/* On completing a task with no focus record yet, offer to add one. A timed task
+   prefills its time range; an untimed one lets you pick the time. Category is
+   still required — the add sheet handles all of it in one quick step. */
+function focusTimerOfferRecord(task){
+  try{
+    if(!task||task.id==null)return;
+    if(focusTimerTaskHasRecord(task.id))return;
+    if(typeof openConfirmDialog!=='function'||typeof focusTimerAddFromTask!=='function')return;
+    var name=task.text||task.label||'이 할일';
+    openConfirmDialog('집중 기록으로 추가','"'+name+'"에 들인 시간을 집중 기록으로 추가할까요?',function(){focusTimerAddFromTask(task);},{danger:false,confirmText:'추가'});
+  }catch(e){}
+}
+function focusTimerAddFromTask(task){
+  var dayMs,dstr=task.date;
+  if(dstr&&/^\d{4}-\d{2}-\d{2}$/.test(dstr)){var p=dstr.split('-');dayMs=new Date(+p[0],+p[1]-1,+p[2]).getTime();}
+  else{var d=new Date();d.setHours(0,0,0,0);dayMs=d.getTime();}
+  var st=_ftHHMMtoMin(task.timeStart),en=_ftHHMMtoMin(task.timeEnd),startMin,durMin;
+  if(st!=null&&en!=null&&en>st){startMin=st;durMin=en-st;}          /* timed range → use it */
+  else if(st!=null){startMin=st;durMin=60;}                          /* start only → default 1h, editable */
+  else{var n=new Date();startMin=n.getHours()*60+n.getMinutes();durMin=25;} /* untimed → pick the time */
+  focusTimerOpenTargetPicker({add:true,drag:{startMin:startMin,durMin:durMin,dayMs:dayMs},taskId:task.id,taskText:(task.text||task.label||'')});
+}
 /* Unified focus target / record picker.
    opts.add  → create a manual record (shows date/time/duration inputs);
    opts.drag → {startMin,durMin,dayMs} prefilling the add-mode time from a
@@ -39946,9 +39972,10 @@ function focusTimerOpenTargetPicker(opts){
   opts=opts||{};
   if(document.querySelector('.ft-sheet-overlay'))return;
   var addMode=!!(opts.add||opts.drag),dr=opts.drag||null,startAfter=!!opts.startAfter;
+  var forcedTaskId=opts.taskId||'';           /* link this record to a source task (e.g. completed task) */
   var selCat=focusTimerState.categoryId||'';
   var selTaskId=addMode?'':(focusTimerState.linkedTaskId||'');
-  var typed=(!addMode&&!selTaskId)?(focusTimerState.customText||''):'';
+  var typed=addMode?(opts.taskText||''):(!selTaskId?(focusTimerState.customText||''):'');
   var now=new Date();
   var addDate=dr?_ftDayKey(new Date(dr.dayMs)):_ftDayKey(now);
   var addStart=dr?_minToHHMM(dr.startMin):(String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0'));
@@ -40002,7 +40029,7 @@ function focusTimerOpenTargetPicker(opts){
         var du2=sheet.querySelector('#ftt-dur');if(du2)addDur=Math.max(1,parseInt(du2.value,10)||1);
         var dd2=sheet.querySelector('#ftt-date');if(dd2)addDate=dd2.value;
         var ss2=sheet.querySelector('#ftt-start');if(ss2)addStart=ss2.value;
-        var rec=buildManualFocusRecord({date:addDate,startHHMM:addStart,durationMin:addDur,mode:'stopwatch',taskId:selTaskId||'',taskText:detail});
+        var rec=buildManualFocusRecord({date:addDate,startHHMM:addStart,durationMin:addDur,mode:'stopwatch',taskId:selTaskId||forcedTaskId||'',taskText:detail});
         if(!rec){if(typeof showToast==='function')showToast('시간을 확인해 주세요');return;}
         rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';rec.source='manual';
         focusTimerLog.push(rec);focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});focusTimerSaveLog();
