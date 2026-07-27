@@ -30,3 +30,8 @@
 - `.music-cover`에 로즈 음표 SVG 워터마크(background-image, 38% 중앙) + `--bg-raised` 베이스. `<img>` 있으면
   위에 덮여 자동으로 가려짐. 빈 커버가 "의도된 플레이스홀더"로 보임(밋밋한 회색 박스 해소).
 - 검증: 플레이리스트 카드 커버에 워터마크 렌더, pageerror 0, `npm test` 32스위트 통과. CSS만, 훅 무손상.
+
+## B. 1단계-b — 지금 추천 카드 정돈
+- 라이브 추천 카드는 `.music-v9-reco`(V9). 커버 `.music-v9-reco-cover`가 빈 회색(`--bg-sunken`)이던 것을
+  로즈 음표 워터마크로(52% 중앙), 이유 `.music-v9-reco-reason`은 2줄 클램프로 어색한 단어 줄바꿈 방지.
+- 검증: 추천 커버 워터마크 렌더, pageerror 0, `npm test` 32스위트 통과. CSS만, 훅 무손상.
