@@ -3037,6 +3037,20 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .commitment-ta:focus { box-shadow:var(--elev-inset), var(--focus-ring); }
 .commitment-ta::placeholder { color:var(--fg-4); font-family:var(--font-ui); }
 
+/* ── RESULT → ACTION ── carry the check-in into today's tasks / inbox so it
+   closes the check-in→act loop instead of ending as a read-only reflection. */
+.result-actions { display:flex; flex-direction:column; gap:var(--sp-4); margin-top:var(--sp-6); animation:fade-up var(--t-enter) .12s both; }
+.ra-block { background:var(--bg-card); border-radius:var(--r-xl); box-shadow:var(--elev-1); padding:var(--sp-6) var(--sp-7); }
+.ra-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); margin-bottom:var(--sp-4); }
+.ra-title { font-size:var(--text-xs); font-weight:var(--fw-semibold); color:var(--fg-4); letter-spacing:.5px; }
+.ra-btn { height:30px; padding:0 var(--sp-5); border-radius:var(--r-full); border:none; flex-shrink:0; background:var(--accent-light); color:var(--accent); font-size:var(--text-xs); font-weight:var(--fw-semibold); cursor:pointer; transition:background var(--t-snap),color var(--t-snap); }
+.ra-btn:hover { background:var(--a-200); }
+.ra-btn.done { background:var(--bg-sunken); color:var(--fg-4); cursor:default; }
+.ra-chips { display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.ra-chip { padding:var(--sp-2) var(--sp-4); border-radius:var(--r-full); background:var(--bg-raised); color:var(--fg-2); font-size:var(--text-sm); line-height:var(--lh-snug); }
+.ra-chip.pri { background:var(--accent-light); color:var(--accent); font-weight:var(--fw-medium); }
+.ra-reframe { font-family:var(--font-serif); font-size:var(--text-base); color:var(--fg); line-height:var(--lh-relaxed); }
+
 /* Bottom CTA row */
 .result-cta {
   display:flex; align-items:center; justify-content:space-between;
@@ -20973,6 +20987,7 @@ function renderResult() {
     + '<div class="result-col"><div class="result-col-head"><span class="result-col-title">내가 입력한 것</span></div><div class="result-col-body">' + (ansHtml || '<span style="color:var(--fg-4);font-size:var(--text-sm)">입력 내용 없음</span>') + '</div></div>'
     + '<div class="result-col ai-panel"><div class="result-col-head ai-panel-head"><div class="ai-dot"></div><span class="result-col-title" style="margin-left:0">AI 읽기</span></div><div class="result-col-body ai-panel-body" id="ai-body"><div class="ai-loading"><div class="ai-loading-dots"><div class="ai-dot-anim"></div><div class="ai-dot-anim"></div><div class="ai-dot-anim"></div></div><div class="ai-loading-text">분석 중...</div></div></div></div>'
     + '</div>'
+    + buildResultActions()
     + '<div class="commitment-card">'
     + '<div class="commitment-label">✦ 오늘의 다짐 · 생각</div>'
     + '<textarea class="commitment-ta" id="commitment-ta" placeholder="이 결과를 보고 드는 생각, 오늘 다짐하고 싶은 것..."></textarea>'
@@ -20986,6 +21001,56 @@ function renderResult() {
 
   /* Trigger AI analysis */
   setTimeout(runAnalysis, 400);
+}
+
+/* ── RESULT → ACTION ── turn "오늘 집중할 것"(task1~3) into today's tasks and
+   "지금 할 수 있는 것"(reframe) into an inbox item, so the check-in flows into
+   doing. Buttons are one-shot; feedback via the app toast, no modal. */
+function buildResultActions() {
+  var focus = [answers.task1, answers.task2, answers.task3].filter(function(t){ return t && String(t).trim(); });
+  var reframe = (answers.reframe || '').trim();
+  if (!focus.length && !reframe) return '';
+  var html = '<div class="result-actions">';
+  if (focus.length) {
+    html += '<div class="ra-block"><div class="ra-head"><span class="ra-title">✔ 오늘 집중할 것</span>'
+      + '<button class="ra-btn" onclick="checkinAddTasks(this)">할일로 담기</button></div>'
+      + '<div class="ra-chips">'
+      + focus.map(function(t, i){ return '<span class="ra-chip' + (i===0?' pri':'') + '">' + chkEscHtml(t) + '</span>'; }).join('')
+      + '</div></div>';
+  }
+  if (reframe) {
+    html += '<div class="ra-block"><div class="ra-head"><span class="ra-title">➜ 지금 할 수 있는 것</span>'
+      + '<button class="ra-btn" onclick="checkinAddReframe(this)">인박스로 담기</button></div>'
+      + '<div class="ra-reframe">' + chkEscHtml(reframe) + '</div></div>';
+  }
+  html += '</div>';
+  return html;
+}
+function checkinAddTasks(btn) {
+  if (btn && btn.classList.contains('done')) return;
+  var keys = ['task1','task2','task3'], pris = ['high','mid',''], made = 0;
+  if (typeof tasks === 'undefined') return;
+  keys.forEach(function(k, i){
+    var txt = (answers[k] || '').trim();
+    if (!txt) return;
+    tasks.push({ id:Date.now()+Math.random(), text:txt, catId:'etc',
+      date:(typeof TK!=='undefined'?TK:''), priority:pris[i], done:false,
+      deadlineDate:'', deadlineId:'', timeStart:'', timeEnd:'',
+      note:'체크인에서 담음', subs:[], createdAt:Date.now(), updatedAt:Date.now() });
+    made++;
+  });
+  if (made && typeof saveTaskData === 'function') saveTaskData();
+  if (btn) { btn.classList.add('done'); btn.textContent = '✓ ' + made + '개 담음'; }
+  if (typeof showToast === 'function') showToast(made + '개를 오늘 할일로 담았어요');
+}
+function checkinAddReframe(btn) {
+  if (btn && btn.classList.contains('done')) return;
+  var txt = (answers.reframe || '').trim();
+  if (!txt || typeof inboxItems === 'undefined') return;
+  inboxItems.unshift({ id:Date.now(), text:txt, cat:'memo', ts:Date.now(), done:false, unread:true });
+  if (typeof saveInboxItems === 'function') saveInboxItems();
+  if (btn) { btn.classList.add('done'); btn.textContent = '✓ 인박스로 담음'; }
+  if (typeof showToast === 'function') showToast('인박스로 담았어요');
 }
 
 /* ── AI ANALYSIS (Groq) ── */
