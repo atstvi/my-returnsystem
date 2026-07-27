@@ -35,3 +35,12 @@
 - 라이브 추천 카드는 `.music-v9-reco`(V9). 커버 `.music-v9-reco-cover`가 빈 회색(`--bg-sunken`)이던 것을
   로즈 음표 워터마크로(52% 중앙), 이유 `.music-v9-reco-reason`은 2줄 클램프로 어색한 단어 줄바꿈 방지.
 - 검증: 추천 커버 워터마크 렌더, pageerror 0, `npm test` 32스위트 통과. CSS만, 훅 무손상.
+
+## C. 2단계-a — 전송바(확장 플레이어) 컨트롤 아이콘 정돈
+- 확장 플레이어(`.music-ep-wrap`)의 컨트롤이 글리프/이모지(⇌ ⏮ ⏭ ↻ 🔍 🔈)라 세련도 낮고 §3.9 위반.
+- **클린 SVG 라인 아이콘**으로 교체: 셔플·이전(skip-back)·다음(skip-fwd)·반복·볼륨(스피커). **재생 버튼은
+  로즈 원형 primary라 ▶/Ⅱ 텍스트 유지**(JS가 textContent로 토글 → 무손상, refs의 filled-play+outline 패턴).
+- 광고 진단 버튼(`music-ep-diag`)은 유틸이라 작게·흐리게(transport에서 분리, 기능 유지).
+- 확장 커버 `.music-ep-cover-sm` 빈칸에 음표 워터마크.
+- 훅 7/7 유지(shuffle/prev/play/next/repeat/ad-diag/vol-slider). 검증: 컨트롤 SVG 5개+볼륨 SVG,
+  pageerror 0, `npm test` 32스위트 통과. HTML/CSS만.
