@@ -48,3 +48,10 @@
 - **우측 섹션 라벨** `취미 카테고리`/`이번 달 요약`에 §3.9 `.sec-ico` 라인 아이콘(4-그리드 / 3-바) 추가.
   `.hobby-right .right-section-label`만 flex+아이콘으로 스코프(다른 탭 `right-section-label` 불변).
 - 검증: 선택 배경 `rgb(167,95,102)`, 라벨 아이콘 2개, pageerror 0. `npm test` 32스위트 통과. CSS/HTML만.
+
+## C. P2 — 이번 달 요약 숫자 경량화
+
+- `.stat-num` `text-xl`/`fw-bold`/`--fg` → `text-lg`/`fw-semibold`/`--fg-2` + `tabular-nums`. 무거운 볼드
+  검정 숫자를 타 탭(타이머·태스크) 기정리 패턴으로 통일.
+- 배너 세로 공간은 사용자 배경사진 기능(`hobby_banner_v1`, 루틴 탭과 동형)이라 의도된 영역 → 유지.
+- 검증: pageerror 0, `npm test` 32스위트 통과. CSS만.
