@@ -41,3 +41,10 @@
   같은 min-width 쿼리로 이동(모바일 하이라인 제거).
 - **검증**: 390=`1fr`(stacked), 768=`1fr`(stacked), 1440=`1fr 340px`(2단). 세 폭 모두 가로 오버플로 0,
   pageerror 0. `npm test` 32스위트 통과. 훅/JS 미변경(CSS만).
+
+## B. P1 — 디자인 시스템 정합 (선택 날짜 색 + 섹션 아이콘)
+
+- **선택 날짜** `.hob-day.selected` 배경 `--n-700`(near-black) → **`--accent`**(로즈). §2.1.2 no-true-black.
+- **우측 섹션 라벨** `취미 카테고리`/`이번 달 요약`에 §3.9 `.sec-ico` 라인 아이콘(4-그리드 / 3-바) 추가.
+  `.hobby-right .right-section-label`만 flex+아이콘으로 스코프(다른 탭 `right-section-label` 불변).
+- 검증: 선택 배경 `rgb(167,95,102)`, 라벨 아이콘 2개, pageerror 0. `npm test` 32스위트 통과. CSS/HTML만.
