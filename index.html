@@ -3945,14 +3945,16 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .cat-card-actions{display:flex;gap:var(--sp-2);flex-shrink:0;opacity:0;transition:opacity var(--t-snap)}
 .cat-card:hover .cat-card-actions{opacity:1}
 
-/* Activity heatmap strip — last 4 weeks */
-.cat-heatmap{
-  display:flex;gap:var(--sp-1);flex-wrap:wrap;
-  margin-top:var(--sp-3);
+/* Forward timeline — a thin 4-week track (today → +28d) with a dot per
+   upcoming plan, so the card reads as "what's coming" rather than a grid of
+   past-activity circles. */
+.cat-fwd-line{
+  position:relative;height:3px;border-radius:var(--r-full);
+  background:var(--bg-sunken);margin-top:var(--sp-4);margin-right:var(--sp-2);
 }
-.hm-cell{
-  width:10px;height:10px;border-radius:var(--r-sm);
-  background:var(--bg-sunken);flex-shrink:0;
+.cat-fwd-dot{
+  position:absolute;top:50%;width:8px;height:8px;border-radius:50%;
+  transform:translate(-50%,-50%);box-shadow:0 0 0 2px var(--bg-card);
 }
 
 /* Add category button */
@@ -21636,30 +21638,37 @@ function hobRenderCats() {
     name.className='cat-card-name';
     name.textContent=cat.name;
 
-    /* Stats — a hobby is joy, not a checklist, so frame it by how often and
-       how recently you engaged (frequency + recency), not a done/total ratio. */
+    /* Stat — this tab looks forward, so the line shows the next upcoming plan
+       as a D-day (see hobCatStatHtml), not a done/total ratio. */
     var catItems=items.filter(function(it){return it.catId===cat.id;});
     var stat=document.createElement('div');
     stat.className='cat-card-stat';
     stat.innerHTML=hobCatStatHtml(catItems);
 
-    /* Heatmap — last 28 days */
-    var hm=document.createElement('div');
-    hm.className='cat-heatmap';
-    for(var w=27;w>=0;w--){
-      var dd=new Date(); dd.setDate(dd.getDate()-w);
-      var dk=dateKey(dd);
-      var count=catItems.filter(function(it){return it.date===dk;}).length;
-      var cell=document.createElement('div');
-      cell.className='hm-cell';
-      cell.style.background=count>0?(cat.color+(count>1?'CC':'66')):'';
-      cell.title=dk+(count?': '+count+'개':'');
-      hm.appendChild(cell);
-    }
+    /* Forward timeline — next 28 days, a marker on each day with a plan coming
+       up. Anticipation ahead, not a grid grading the past (which read like a
+       habit/completion tracker and clashed with the tab's purpose). */
+    var fwd=document.createElement('div');
+    fwd.className='cat-fwd-line';
+    var _t0=new Date(); _t0.setHours(0,0,0,0);
+    var _tKey=dateKey(_t0), _span=28, _hasUpcoming=false;
+    catItems.forEach(function(it){
+      if(!it.date||it.date<_tKey) return;
+      var _p=it.date.split('-'), _d=new Date(+_p[0],+_p[1]-1,+_p[2]); _d.setHours(0,0,0,0);
+      var _off=Math.round((_d-_t0)/86400000);
+      if(_off>_span) return;
+      var dot=document.createElement('span');
+      dot.className='cat-fwd-dot';
+      dot.style.left=(_off/_span*100)+'%';
+      dot.style.background=cat.color;
+      dot.title=it.date+' · '+it.text;
+      fwd.appendChild(dot);
+      _hasUpcoming=true;
+    });
 
     body.appendChild(name);
     body.appendChild(stat);
-    body.appendChild(hm);
+    if(_hasUpcoming) body.appendChild(fwd);
 
     /* Actions */
     var actions=document.createElement('div');
