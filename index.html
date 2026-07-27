@@ -3938,6 +3938,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .cat-card-body{flex:1;min-width:0}
 .cat-card-name{font-size:var(--text-base);font-weight:var(--fw-semibold);color:var(--fg);margin-bottom:var(--sp-1)}
 .cat-card-stat{font-size:var(--text-xs);color:var(--fg-3)}
+.cat-stat-empty{color:var(--fg-4);font-style:italic}
+.cat-stat-nudge{display:inline-block;margin-left:var(--sp-1);padding:1px var(--sp-2);border-radius:var(--r-full);background:var(--accent-light);color:var(--accent);font-size:var(--text-2xs);font-weight:var(--fw-semibold);font-style:normal;vertical-align:middle}
 .cat-card-actions{display:flex;gap:var(--sp-2);flex-shrink:0;opacity:0;transition:opacity var(--t-snap)}
 .cat-card:hover .cat-card-actions{opacity:1}
 
@@ -21584,6 +21586,27 @@ function hobBuildItemEl(it, idx) {
 }
 
 /* ── CATEGORIES (right panel) ── */
+/* Category stat line for the hobby cards. A hobby is joy, not a checklist,
+   so we surface engagement — how many times this month and how recently —
+   instead of a done/total ratio. A hobby left untouched for a while gets a
+   gentle 돌아올 때가 됐어요 nudge (the app's Return/돌아오기 spirit). */
+function hobCatStatHtml(catItems){
+  if(!catItems.length) return '<span class="cat-stat-empty">아직 즐긴 기록이 없어요</span>';
+  var t0=new Date(); t0.setHours(0,0,0,0);
+  var todayKey=dateKey(t0);
+  var monthStr=t0.getFullYear()+'-'+hobPad(t0.getMonth()+1);
+  var monthCount=catItems.filter(function(it){return String(it.date||'').startsWith(monthStr)&&it.date<=todayKey;}).length;
+  var past=catItems.map(function(it){return it.date;}).filter(function(d){return d&&d<=todayKey;}).sort();
+  var html=hobEscHtml('이번 달 '+monthCount+'번');
+  if(past.length){
+    var last=past[past.length-1], lp=last.split('-'), ld=new Date(+lp[0],+lp[1]-1,+lp[2]); ld.setHours(0,0,0,0);
+    var diff=Math.round((t0-ld)/86400000);
+    var rec=diff<=0?'오늘':(diff===1?'어제':diff+'일 전');
+    html+=hobEscHtml(' · 마지막 '+rec);
+    if(diff>=14) html+=' <span class="cat-stat-nudge">돌아올 때가 됐어요</span>';
+  }
+  return html;
+}
 function hobRenderCats() {
   var container=document.getElementById('cat-cards');
   container.innerHTML='';
@@ -21614,12 +21637,12 @@ function hobRenderCats() {
     name.className='cat-card-name';
     name.textContent=cat.name;
 
-    /* Stats */
+    /* Stats — a hobby is joy, not a checklist, so frame it by how often and
+       how recently you engaged (frequency + recency), not a done/total ratio. */
     var catItems=items.filter(function(it){return it.catId===cat.id;});
-    var done=catItems.filter(function(it){return it.done;}).length;
     var stat=document.createElement('div');
     stat.className='cat-card-stat';
-    stat.textContent=catItems.length+'개 항목 · '+done+'개 완료';
+    stat.innerHTML=hobCatStatHtml(catItems);
 
     /* Heatmap — last 28 days */
     var hm=document.createElement('div');
