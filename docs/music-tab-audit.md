@@ -44,3 +44,8 @@
 - 확장 커버 `.music-ep-cover-sm` 빈칸에 음표 워터마크.
 - 훅 7/7 유지(shuffle/prev/play/next/repeat/ad-diag/vol-slider). 검증: 컨트롤 SVG 5개+볼륨 SVG,
   pageerror 0, `npm test` 32스위트 통과. HTML/CSS만.
+
+## D. 2단계-b — 진행바 정돈
+- `#music-mini-progress` hover 시 4→6px로 굵어지고, fill 끝(재생 위치)에 로즈 **썸**(`::after`, hover 노출)이
+  나타나 모던 플레이어 느낌. `overflow:visible`로 썸이 잘리지 않게. 시크(role=slider) 기능 무손상.
+- 검증: fill 42% + hover 시 썸 렌더, pageerror 0, `npm test` 32스위트 통과. CSS만.
