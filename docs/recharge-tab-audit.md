@@ -38,3 +38,15 @@
 
 ### 후속(다음 스코프)
 충전 로그 주간/잔디 보상 뷰, 최근 7일 에너지 스파크라인, 체크인 결과·AI 읽기 화면 스캔성 개선.
+
+## B. 체크인 결과 → 행동 연결
+
+- 결과 화면(`renderResult`)에 `result-actions` 블록 추가(그리드와 다짐 카드 사이):
+  - **✔ 오늘 집중할 것** — `answers.task1~3`를 칩으로 보여주고 `할일로 담기`(`checkinAddTasks`) →
+    오늘 날짜(TK)·우선순위(high/mid/·)로 `tasks`에 추가 + `saveTaskData`.
+  - **➜ 지금 할 수 있는 것** — `answers.reframe`를 `인박스로 담기`(`checkinAddReframe`) →
+    `inboxItems.unshift({cat:'memo',unread:true})` + `saveInboxItems`.
+- 버튼은 일회성(`.done`), 피드백은 앱 토스트(`showToast`)로 — 모달 아님. 답이 없으면 블록 미표시.
+- 체크인이 성찰로 끝나지 않고 "체크인→행동" 루프로 이어짐(앱 철학). AI/저장 로직 미변경.
+- 검증: 헤드리스에서 3칩+리프레임 렌더, 담기 시 tasks 3개(high/mid/·, 오늘)·inbox 1개 생성, 버튼
+  일회성 처리, pageerror 0. `npm test` 32스위트 통과.
