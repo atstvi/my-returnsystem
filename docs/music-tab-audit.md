@@ -55,3 +55,16 @@
 - 참고: 접힘 디스크 `#music-disc-face`는 **v10 패치로 영구 `display:none!important`** → 다듬을 대상 아님.
   플레이어는 항상 확장 패널로 표시. 회전 CD/바이닐 심미는 3단계 Now Playing 뷰의 신규 영역.
 - 검증: 닫기 SVG 렌더, pageerror 0, `npm test` 32스위트 통과. 2단계(전송바) 마무리.
+
+## F. 3단계 — Now Playing 뷰 (회전 바이닐 + 트랙리스트 + UP NEXT)
+- **재생 모델 매핑**(정규 오버라이드 10409~): `musicQueue`(song 배열)·`musicCurrentSongIndex`,
+  `musicCurrentItem/Playlist()`, `musicPlayPlaylist(id,i)`/`musicPlaySong`/`musicNext/Prev/PlayPause`.
+- **새 전체화면 오버레이 `#music-nowplaying`**(자체 완결, 재생 로직 0):
+  - 좌: **회전 바이닐**(`.music-np-disc`, 그루브 radial-gradient + 커버 라벨, 재생 중 `.spinning`) + 제목/아티스트
+    + 진행바/시간 + 전송(prev/play/next).
+  - 우: **트랙리스트**(`musicQueue` 렌더, 현재곡 로즈 하이라이트, `다음 트랙` 구분자). 행 클릭 → 해당 인덱스 점프.
+  - 진입: 확장 플레이어 헤더의 **전체화면 버튼**(`#music-np-open-btn`). 닫기: 셰브론/Esc.
+  - 모든 조작은 기존 전역을 **클릭 시점 이름 호출**(나중 재정의에도 견고). 500ms 틱으로 진행바/시간/재생아이콘/
+    바이닐 회전/트랙 하이라이트 동기화(musicPlayer 읽기 전용). `musicUpdateMini` 래핑으로 곡 변경 즉시 갱신.
+- 검증: 시딩 큐(4곡, idx1)에서 오버레이 열림, 현재곡·트랙4·다음트랙 구분자·컨트롤 렌더, 데스크탑/모바일(스택)
+  가로 오버플로 0, pageerror 0. 기존 플레이어 훅 무손상. `npm test` 32스위트 통과.
