@@ -49,3 +49,9 @@
 - `#music-mini-progress` hover 시 4→6px로 굵어지고, fill 끝(재생 위치)에 로즈 **썸**(`::after`, hover 노출)이
   나타나 모던 플레이어 느낌. `overflow:visible`로 썸이 잘리지 않게. 시크(role=slider) 기능 무손상.
 - 검증: fill 42% + hover 시 썸 렌더, pageerror 0, `npm test` 32스위트 통과. CSS만.
+
+## E. 2단계-c — 닫기 버튼 SVG + (디스크는 죽은 요소)
+- 확장 패널 닫기 버튼 `—` 글리프 → 셰브론다운 SVG(`.music-ep-close-btn svg`). 플레이어의 마지막 글리프 제거.
+- 참고: 접힘 디스크 `#music-disc-face`는 **v10 패치로 영구 `display:none!important`** → 다듬을 대상 아님.
+  플레이어는 항상 확장 패널로 표시. 회전 CD/바이닐 심미는 3단계 Now Playing 뷰의 신규 영역.
+- 검증: 닫기 SVG 렌더, pageerror 0, `npm test` 32스위트 통과. 2단계(전송바) 마무리.
