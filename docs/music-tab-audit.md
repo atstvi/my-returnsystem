@@ -68,3 +68,12 @@
     바이닐 회전/트랙 하이라이트 동기화(musicPlayer 읽기 전용). `musicUpdateMini` 래핑으로 곡 변경 즉시 갱신.
 - 검증: 시딩 큐(4곡, idx1)에서 오버레이 열림, 현재곡·트랙4·다음트랙 구분자·컨트롤 렌더, 데스크탑/모바일(스택)
   가로 오버플로 0, pageerror 0. 기존 플레이어 훅 무손상. `npm test` 32스위트 통과.
+
+## G. 3단계-b — Now Playing에 셔플/반복/볼륨 추가 (오너)
+- 확인: 셔플/반복/볼륨은 후속 층(39170~)이 `_ytPlayer` 정의 + `musicState`(shuffle/repeat off·all·one)를
+  실제 재생에 소비 → **기능함**. 그래서 NP 컨트롤은 **정규 컨트롤에 프록시**(원칙13: 비작동 금지 준수).
+- NP 셔플/반복 → `#music-shuffle-btn`/`#music-repeat-btn` `.click()` 위임(정규 토글·토스트·반복 3상태 그대로),
+  NP 볼륨 → `#music-vol-slider`에 값 위임 후 `input` 디스패치. 상태는 `syncSecondary()`가 `musicState`/슬라이더에서
+  미러링(NP 셔플 `.active`, 반복 `.active`+`.repeat-one` "1" 배지, 볼륨 값). renderNP·틱마다 동기화.
+- 검증: NP 셔플→`musicState.shuffle=true`(정규 버튼도 active), NP 반복×2→`repeat='one'`(active+repeat-one),
+  NP 볼륨 55→정규 슬라이더 55. pageerror 0, `npm test` 32스위트 통과.

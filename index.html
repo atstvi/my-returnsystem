@@ -6221,6 +6221,15 @@ to{opacity:1;transform:translateY(0)}}
 .music-np-btn svg{width:23px;height:23px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .music-np-play{width:60px!important;height:60px!important;background:var(--accent,#BE727A)!important;color:#fff!important;font-size:1.4rem}
 .music-np-play:hover{background:var(--accent-hover,#a75f66)!important}
+.music-np-sec{width:40px;height:40px;color:rgba(240,240,248,.55)}
+.music-np-sec svg{width:19px;height:19px}
+.music-np-sec.active{color:var(--accent,#BE727A)}
+.music-np-sec.repeat-one{position:relative}
+.music-np-sec.repeat-one::after{content:'1';position:absolute;top:4px;right:5px;font-size:8px;font-weight:700;color:var(--accent,#BE727A)}
+.music-np-vol{display:flex;align-items:center;gap:10px;width:100%;max-width:300px;margin-top:var(--sp-1,4px)}
+.music-np-vol-ico{color:rgba(240,240,248,.5);display:flex;align-items:center}
+.music-np-vol-ico svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#music-np-vol{flex:1;accent-color:var(--accent,#BE727A);height:4px;cursor:pointer}
 .music-np-side{width:min(38vw,420px);align-self:stretch;display:flex;flex-direction:column;min-height:0;max-height:80vh}
 .music-np-side-head{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:rgba(240,240,248,.4);margin-bottom:var(--sp-3,12px)}
 .music-np-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding-right:6px}
@@ -9722,9 +9731,15 @@ to{opacity:1;transform:translateY(0)}}
       <div class="music-np-bar" id="music-np-bar"><span class="music-np-bar-fill" id="music-np-bar-fill"></span></div>
       <div class="music-np-time" id="music-np-time">0:00 / 0:00</div>
       <div class="music-np-controls">
+        <button class="music-np-btn music-np-sec" id="music-np-shuffle" type="button" aria-label="셔플"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 3h5v5"/><path d="M4 20 21 3"/><path d="M21 16v5h-5"/><path d="M15 15l6 6"/><path d="M4 4l5 5"/></svg></button>
         <button class="music-np-btn" id="music-np-prev" type="button" aria-label="이전"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 20 9 12l10-8v16z"/><path d="M5 19V5"/></svg></button>
         <button class="music-np-btn music-np-play" id="music-np-play" type="button" aria-label="재생/일시정지">▶</button>
         <button class="music-np-btn" id="music-np-next" type="button" aria-label="다음"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4l10 8-10 8V4z"/><path d="M19 5v14"/></svg></button>
+        <button class="music-np-btn music-np-sec" id="music-np-repeat" type="button" aria-label="반복"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg></button>
+      </div>
+      <div class="music-np-vol">
+        <span class="music-np-vol-ico" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M11 5 6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/></svg></span>
+        <input type="range" id="music-np-vol" min="0" max="100" value="80" aria-label="볼륨">
       </div>
     </div>
     <aside class="music-np-side">
@@ -38317,12 +38332,24 @@ musicRender=function(){
       }
     }
     syncPlayIcon();
+    syncSecondary();
   }
   function syncPlayIcon(){
     var b=el('music-np-play'); if(!b)return;
     var playing=false; try{if(typeof musicPlayer!=='undefined'&&musicPlayer&&musicPlayer.getPlayerState)playing=musicPlayer.getPlayerState()===1;}catch(e){}
     b.textContent=playing?'Ⅱ':'▶';
     var disc=el('music-np-disc'); if(disc)disc.classList.toggle('spinning',playing);
+  }
+  /* Mirror the canonical shuffle/repeat/volume state onto the NP controls (the
+     NP controls proxy to the real #music-shuffle-btn/#music-repeat-btn/
+     #music-vol-slider, so this just reflects their state). */
+  function syncSecondary(){
+    var st=(typeof musicState!=='undefined'&&musicState)?musicState:null;
+    var sh=el('music-np-shuffle'); if(sh&&st)sh.classList.toggle('active',!!st.shuffle);
+    var rp=el('music-np-repeat');
+    if(rp&&st){var r=st.repeat==='one'||st.repeat===true?'one':(st.repeat==='all'?'all':(st.repeat&&st.repeat!=='off'?'all':'off'));rp.classList.toggle('active',r!=='off');rp.classList.toggle('repeat-one',r==='one');}
+    var np=el('music-np-vol'),src=el('music-vol-slider');
+    if(np&&src&&document.activeElement!==np)np.value=src.value;
   }
   function tick(){
     var o=el('music-nowplaying'); if(!o||!o.classList.contains('open'))return;
@@ -38331,6 +38358,7 @@ musicRender=function(){
     var fill=el('music-np-bar-fill'); if(fill)fill.style.width=(dur>0?Math.min(100,cur/dur*100):0)+'%';
     var t=el('music-np-time'); if(t)t.textContent=fmt(cur)+' / '+fmt(dur);
     syncPlayIcon();
+    syncSecondary();
     var idx=npIndex(),curRow=o.querySelector('.music-np-row.current');
     if(!curRow||parseInt(curRow.getAttribute('data-np-idx'),10)!==idx)renderNP();
   }
@@ -38357,6 +38385,10 @@ musicRender=function(){
     var pv=el('music-np-prev'); if(pv&&!pv.dataset.np){pv.dataset.np='1';pv.addEventListener('click',function(){if(typeof musicPrev==='function')musicPrev();});}
     var pp=el('music-np-play'); if(pp&&!pp.dataset.np){pp.dataset.np='1';pp.addEventListener('click',function(){if(typeof musicPlayPause==='function')musicPlayPause();});}
     var nx=el('music-np-next'); if(nx&&!nx.dataset.np){nx.dataset.np='1';nx.addEventListener('click',function(){if(typeof musicNext==='function')musicNext();});}
+    /* shuffle/repeat/volume proxy the canonical controls so their real logic runs */
+    var sh=el('music-np-shuffle'); if(sh&&!sh.dataset.np){sh.dataset.np='1';sh.addEventListener('click',function(){var b=el('music-shuffle-btn');if(b)b.click();syncSecondary();});}
+    var rp=el('music-np-repeat'); if(rp&&!rp.dataset.np){rp.dataset.np='1';rp.addEventListener('click',function(){var b=el('music-repeat-btn');if(b)b.click();syncSecondary();});}
+    var vol=el('music-np-vol'); if(vol&&!vol.dataset.np){vol.dataset.np='1';vol.addEventListener('input',function(){var src=el('music-vol-slider');if(src){src.value=vol.value;src.dispatchEvent(new Event('input',{bubbles:true}));}});}
     var list=el('music-np-list'); if(list&&!list.dataset.np){list.dataset.np='1';list.addEventListener('click',function(e){var row=e.target.closest('[data-np-idx]');if(row)jump(parseInt(row.getAttribute('data-np-idx'),10)||0);});}
     if(!window._npEsc){window._npEsc=1;document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=el('music-nowplaying');if(o&&o.classList.contains('open'))closeNP();}});}
   }
