@@ -6486,8 +6486,10 @@ to{opacity:1;transform:translateY(0)}}
 .music-v8-resume-info{flex:1;min-width:0}
 .music-v8-resume-label{
   font-size:.67rem;text-transform:uppercase;letter-spacing:.06em;
-  color:var(--fg-3);margin-bottom:2px;
+  color:var(--accent);margin-bottom:2px;font-weight:var(--fw-semibold);
+  display:flex;align-items:center;gap:5px;
 }
+.music-v8-resume-ico{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .music-v8-resume-title{
   font-size:.9rem;font-weight:600;color:var(--fg);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
@@ -6500,8 +6502,9 @@ to{opacity:1;transform:translateY(0)}}
   background:var(--accent);color:#fff;border:none;
   border-radius:var(--r-lg);padding:var(--sp-2) var(--sp-4);
   font-size:.82rem;font-weight:600;cursor:pointer;flex-shrink:0;
-  transition:filter .15s;
+  transition:filter .15s;display:inline-flex;align-items:center;gap:6px;
 }
+.music-v8-resume-btn svg{width:14px;height:14px;fill:currentColor;stroke:none}
 .music-v8-resume-btn:hover{filter:brightness(1.12)}
 
 /* 4. Section header: minimal */
@@ -38969,27 +38972,31 @@ function musicV8RenderResume(){
   }
   if(!pl){bar.classList.remove('visible');return;}
 
+  /* The persistent bottom transport bar owns the "now playing / pause" state.
+     This top bar has ONE clear job: resume the LAST session when nothing is
+     loaded into the transport yet. Once a queue is active it would just
+     duplicate the bottom bar (the ambiguity the owner flagged), so hide it. */
+  var queueActive=(typeof musicQueue!=='undefined'&&musicQueue&&musicQueue.length>0);
+  if(queueActive){bar.classList.remove('visible');return;}
+
   var cover=pl.coverImage||pl.thumbnail||'';
   var songs=(pl.songIds||[]).map(musicSongById).filter(Boolean);
-  var isPlaying=false;
-  try{isPlaying=window._ytPlayer&&_ytPlayer.getPlayerState&&_ytPlayer.getPlayerState()===1;}catch(e){}
 
   bar.innerHTML=
     '<div class="music-v8-resume-cover">'+(cover?'<img src="'+musicEsc(cover)+'" alt="">':'')+'</div>'+
     '<div class="music-v8-resume-info">'+
-      '<div class="music-v8-resume-label">'+(isPlaying?'지금 재생 중':'이어서 듣기')+'</div>'+
+      '<div class="music-v8-resume-label"><svg class="music-v8-resume-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>이어 듣기</div>'+
       '<div class="music-v8-resume-title">'+musicEsc(pl.title||'Playlist')+'</div>'+
       '<div class="music-v8-resume-sub">'+musicEsc([pl.mood,pl.useCase,songs.length+'곡'].filter(Boolean).join(' · '))+'</div>'+
     '</div>'+
-    '<button type="button" class="music-v8-resume-btn" id="music-v8-resume-play-btn">'+(isPlaying?'⏸ 일시정지':'▶ 재생')+'</button>';
+    '<button type="button" class="music-v8-resume-btn" id="music-v8-resume-play-btn"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4l14 8-14 8V4z"/></svg>이어서 재생</button>';
   bar.classList.add('visible');
 
   bar.querySelector('#music-v8-resume-play-btn').addEventListener('click',function(e){
     e.stopPropagation();
-    if(isPlaying){if(window._ytPlayer&&_ytPlayer.pauseVideo)_ytPlayer.pauseVideo();musicUpdateMini();}
-    else{musicPlayPlaylist(pl.id,musicCurrent.itemIndex||0);}
+    musicPlayPlaylist(pl.id,musicCurrent.itemIndex||0);
   });
-  /* Clicking bar body also plays */
+  /* Clicking bar body also resumes */
   bar.addEventListener('click',function(){
     if(!musicCurrent.playlistId)return;
     var p=musicPlaylistById&&musicPlaylistById(musicCurrent.playlistId);
