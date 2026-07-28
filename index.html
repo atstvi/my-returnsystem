@@ -6366,6 +6366,13 @@ to{opacity:1;transform:translateY(0)}}
 .music-detail-row.current .music-detail-row-title{color:var(--accent,#BE727A)}
 .music-detail-row-artist{font-size:.74rem;color:rgba(240,240,248,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
 .music-detail-row-eq{font-size:.7rem;color:var(--accent,#BE727A)}
+.music-detail-row-rm{border:none;background:transparent;color:rgba(240,240,248,.4);width:30px;height:30px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s,background .12s,color .12s}
+.music-detail-row:hover .music-detail-row-rm{opacity:1}
+.music-detail-row-rm:hover{background:rgba(255,255,255,.1);color:var(--accent,#BE727A)}
+.music-detail-row-rm svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.music-detail-addrow{display:inline-flex;align-items:center;gap:7px;margin-top:12px;padding:9px 16px;border:1px dashed rgba(255,255,255,.2);background:transparent;color:rgba(240,240,248,.72);border-radius:10px;cursor:pointer;font-size:.84rem;font-weight:600;transition:background .12s,border-color .12s,color .12s;align-self:flex-start}
+.music-detail-addrow:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.32);color:#fff}
+.music-detail-addrow svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .music-detail-empty{padding:40px 12px;text-align:center;font-size:.85rem;color:rgba(240,240,248,.4)}
 .music-playlist-card .music-cover{cursor:pointer}
 .music-playlist-card .music-card-title{cursor:pointer}
@@ -38715,7 +38722,8 @@ musicRender=function(){
     var list=el('music-detail-list');
     if(list){
       var active=curIdx();
-      if(!songs.length){list.innerHTML='<div class="music-detail-empty">아직 담긴 노래가 없어요. 관리에서 노래를 담아보세요.</div>';}
+      var addBtn='<button class="music-detail-addrow" id="music-detail-add" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14"/><path d="M5 12h14"/></svg>노래 담기</button>';
+      if(!songs.length){list.innerHTML='<div class="music-detail-empty">아직 담긴 노래가 없어요.</div>'+addBtn;}
       else{
         var head='<div class="music-detail-listhead"><span>#</span><span></span><span>제목</span><span></span></div>';
         list.innerHTML=head+songs.map(function(s,i){
@@ -38729,10 +38737,23 @@ musicRender=function(){
             +'<div class="music-detail-row-cover">'+coverHtml(s.thumbnail||s.cover)+'</div>'
             +'<div class="music-detail-row-main"><div class="music-detail-row-title">'+musicEsc(s.title||'Untitled')+'</div>'
             +(s.artist?'<div class="music-detail-row-artist">'+musicEsc(s.artist)+'</div>':'')+'</div>'
-            +'<div></div></div>';
-        }).join('');
+            +'<button class="music-detail-row-rm" type="button" data-drm="'+musicEsc(s.id)+'" aria-label="빼기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg></button>'
+            +'</div>';
+        }).join('')+addBtn;
       }
     }
+  }
+  function removeTrack(songId){
+    if(!_detId||!songId)return;
+    if(typeof musicRemoveSongFromPlaylist==='function')musicRemoveSongFromPlaylist(_detId,songId);
+    setTimeout(renderDetail,60);
+  }
+  function addSongs(){
+    var id=_detId; if(!id)return;
+    /* the add-song picker mounts in the shell behind this overlay, so close
+       the detail first (same as the 관리 button), then open the flow */
+    closeDetail();
+    if(typeof musicAddSongToPlaylistPrompt==='function')musicAddSongToPlaylistPrompt('',id);
   }
   function tick(){
     var o=el('music-detail'); if(!o||!o.classList.contains('open'))return;
@@ -38775,7 +38796,11 @@ musicRender=function(){
     var pb=el('music-detail-play'); if(pb&&!pb.dataset.d){pb.dataset.d='1';pb.addEventListener('click',function(){play(0);});}
     var sf=el('music-detail-shuffle'); if(sf&&!sf.dataset.d){sf.dataset.d='1';sf.addEventListener('click',shuffleAll);}
     var mg=el('music-detail-manage'); if(mg&&!mg.dataset.d){mg.dataset.d='1';mg.addEventListener('click',function(){var id=_detId;closeDetail();if(id&&typeof musicManagePlaylist==='function')musicManagePlaylist(id);});}
-    var list=el('music-detail-list'); if(list&&!list.dataset.d){list.dataset.d='1';list.addEventListener('click',function(e){var row=e.target.closest('[data-di]');if(row)play(parseInt(row.getAttribute('data-di'),10)||0);});}
+    var list=el('music-detail-list'); if(list&&!list.dataset.d){list.dataset.d='1';list.addEventListener('click',function(e){
+      if(e.target.closest('#music-detail-add')){addSongs();return;}
+      var rm=e.target.closest('.music-detail-row-rm'); if(rm){e.stopPropagation();removeTrack(rm.getAttribute('data-drm'));return;}
+      var row=e.target.closest('[data-di]'); if(row)play(parseInt(row.getAttribute('data-di'),10)||0);
+    });}
     /* Esc closes */
     if(!window._detEsc){window._detEsc=1;document.addEventListener('keydown',function(e){if(e.key==='Escape'){var o=el('music-detail');if(o&&o.classList.contains('open'))closeDetail();}});}
     /* Delegated open: tapping a playlist card (but not its inline buttons/inputs) */
