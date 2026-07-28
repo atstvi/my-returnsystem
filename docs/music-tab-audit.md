@@ -77,3 +77,16 @@
   미러링(NP 셔플 `.active`, 반복 `.active`+`.repeat-one` "1" 배지, 볼륨 값). renderNP·틱마다 동기화.
 - 검증: NP 셔플→`musicState.shuffle=true`(정규 버튼도 active), NP 반복×2→`repeat='one'`(active+repeat-one),
   NP 볼륨 55→정규 슬라이더 55. pageerror 0, `npm test` 32스위트 통과.
+
+## H. 3단계-c — 통상적 하단 전송 바 + 옛 플로팅 플레이어 은퇴 (오너 "안 보임/통상 음악앱 아님")
+- **감사**: 기존 플레이어는 재생 중에도 숨김(`.active:not(.ep-open)` opacity:0)이고, hover-소환 CD 버튼 →
+  좌하단 300px 플로팅 패널 → 작은 ⤢로만 Now Playing 진입 → 발견성 낮음, 통상적 음악앱 모델(항상 보이는
+  하단 전송 바) 아님.
+- **새 `#music-bar`**(자체 완결, 엔진 위임): 화면 하단 **전체폭 전송 바**, 큐가 로드되면 **항상 표시**.
+  커버+제목/아티스트(탭→Now Playing) · prev/재생/next · 진행바+시간(클릭 시크 `musicPlayer.seekTo`) · ⤢.
+  컨트롤은 전역을 클릭 시점 이름 호출, 500ms 틱으로 진행/시간/재생아이콘 동기화. 모바일은 하단 탭바 위
+  (`bottom:56px`)·진행바 숨김·컴팩트.
+- **옛 UI 은퇴**: `#music-mini-player`·`#music-sidebar-cd` `display:none`. 단, 내부 컨트롤은 DOM에 남아
+  Now Playing 프록시(`.click()`/dispatch)가 계속 동작(셔플/반복/볼륨 유지).
+- 검증: 데스크탑 바 전체폭·최하단, 모바일 탭바 위, 정보 탭→NP 열림, **NP 셔플 프록시 미니 숨김에도 동작**,
+  옛 미니 `display:none`, 가로 오버플로 0, pageerror 0. 엔진 훅 5/5. `npm test` 32스위트 통과.
