@@ -1,24 +1,21 @@
 'use strict';
-/* Music tab — "플레이리스트 관리" panel placement (Music UX v3 JS).
+/* Music tab — "플레이리스트 관리" is a centered modal (Music UX v3 JS).
 
-   musicShowManagePanel() builds the inline playlist-manage panel
-   (#music-manage-pl-panel) and used to anchor it relative to
-   #music-add-panel, which lives in the LEFT column (.music-v9-left, the
-   song list). That made the manage panel render below the song list
-   instead of next to the playlist it manages.
-
-   The fix anchors the panel to #music-playlist-grid's enclosing
-   .music-panel (in the RIGHT column, .music-v9-right) and inserts the
-   manage panel immediately before it via insertBefore, so it appears as
-   the right column's first child, right above the playlist grid.
+   musicShowManagePanel() builds the playlist-edit panel
+   (#music-manage-pl-panel) and now mounts it as a centered modal: the panel
+   is wrapped in a .music-modal-backdrop scrim (#music-manage-backdrop) that
+   is appended to document.body, and clicking the backdrop (or Esc) closes it
+   via musicCloseEditPanel(). It used to be inserted inline before the
+   playlist grid in the right column; the modal is roomier and focused.
 
    Tests:
-   1. When #music-playlist-grid exists, the manage panel is inserted via
-      its parent's insertBefore(panel, playlistGridPanel) — i.e. as the
-      first child of the right column, NOT anchored to #music-add-panel.
-   2. _musicEditPanel is set to the new panel.
-   3. When #music-playlist-grid (or its enclosing .music-panel) is
-      missing, the panel falls back to shell.prepend(panel). */
+   1. The panel is wrapped in a backdrop appended to document.body (not
+      inserted into the shell / playlist column).
+   2. The panel (#music-manage-pl-panel, .music-modal) is a child of the
+      backdrop.
+   3. _musicEditPanel is set to the backdrop, so musicCloseEditPanel() removes
+      the whole modal.
+   4. Clicking the backdrop itself closes the modal (musicCloseEditPanel). */
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
@@ -27,32 +24,43 @@ const startMarker = 'function musicShowManagePanel(id){';
 const endMarker = '\n\n/* ── 5. Cleaner playlist card';
 const src = sliceBlock(html, startMarker, endMarker);
 
+function makeClassList() {
+  const set = new Set();
+  return {
+    contains: (c) => set.has(c),
+    add: (...cs) => cs.forEach((c) => set.add(c)),
+    remove: (...cs) => cs.forEach((c) => set.delete(c)),
+    toggle: (c, f) => { if (f === undefined) { if (set.has(c)) { set.delete(c); return false; } set.add(c); return true; } if (f) set.add(c); else set.delete(c); return f; },
+  };
+}
+
 function makeEl(tag) {
   return {
     tagName: tag,
     className: '',
     id: '',
     _innerHTML: '',
+    children: [],
+    style: {},
+    dataset: {},
+    classList: makeClassList(),
+    _listeners: {},
     set innerHTML(v) { this._innerHTML = v; },
     get innerHTML() { return this._innerHTML; },
+    appendChild(c) { this.children.push(c); return c; },
     querySelector() { return makeEl('div'); },
     querySelectorAll() { return []; },
-    addEventListener() {},
-    appendChild() {},
-    remove() {},
+    addEventListener(ev, fn) { (this._listeners[ev] = this._listeners[ev] || []).push(fn); },
+    remove() { this._removed = true; },
     scrollIntoView() {},
+    focus() {},
   };
 }
 
-function makeSandbox(opts) {
-  opts = opts || {};
-  const shell = { _prepended: [], prepend(node) { this._prepended.push(node); } };
-  const rightCol = { _insertBeforeCalls: [], insertBefore(newNode, ref) { this._insertBeforeCalls.push({ newNode, ref }); } };
-  const plGridPanel = { className: 'music-panel', parentNode: rightCol };
-  const plGridEl = { id: 'music-playlist-grid', closest: () => plGridPanel };
-  const addPanelEl = { id: 'music-add-panel', _afterCalls: 0, after() { this._afterCalls++; } };
-
-  const hasGrid = opts.hasGrid !== false;
+function makeSandbox() {
+  const appended = [];
+  const docListeners = {};
+  let closeCalls = 0;
 
   const pl = { id: 'pl1', title: 'Mix', songIds: ['s1', 's2'] };
   const songs = {
@@ -62,24 +70,26 @@ function makeSandbox(opts) {
 
   const sb = {
     console: { log() {}, warn() {}, error() {} },
+    window: {},
     document: {
-      querySelector: (sel) => (sel === '#page-music .music-shell' ? shell : null),
-      getElementById: (id) => {
-        if (id === 'music-playlist-grid') return hasGrid ? plGridEl : null;
-        if (id === 'music-add-panel') return addPanelEl;
-        return null;
-      },
       createElement: (tag) => makeEl(tag),
+      body: { appendChild(el) { appended.push(el); return el; } },
+      getElementById: () => null,
+      querySelector: () => null,
+      addEventListener: (ev, fn) => { (docListeners[ev] = docListeners[ev] || []).push(fn); },
     },
     musicPlaylistById: (id) => (id === pl.id ? pl : null),
     musicSongById: (id) => songs[id] || null,
     musicEsc: (s) => String(s == null ? '' : s),
-    musicCloseEditPanel: () => {},
+    musicCloseEditPanel: () => { closeCalls++; },
     musicClosePickerPanel: () => {},
     musicPresetChipsHtml: () => '',
     musicBindPresetChips: () => {},
     musicReadPresetChips: () => [],
     musicSplitTags: (v) => String(v || '').split(',').map((s) => s.trim()).filter(Boolean),
+    musicAddSongToPlaylistPrompt: () => {},
+    musicMovePlaylistSong: () => {},
+    musicRemoveSongFromPlaylist: () => {},
     musicSave: () => {},
     musicRender: () => {},
     showToast: () => {},
@@ -87,31 +97,38 @@ function makeSandbox(opts) {
   };
   vm.createContext(sb);
   vm.runInContext(src, sb);
-  return { sb, shell, rightCol, plGridPanel, addPanelEl };
+  return { sb, appended, docListeners, get closeCalls() { return closeCalls; } };
 }
 
-const t = runner('Music playlist-manage panel placement');
+const t = runner('Music playlist-manage modal mounting');
 
-// ── 1 & 2. anchored to the playlist-grid panel (right column) ───────────
 {
-  const { sb, rightCol, addPanelEl, plGridPanel } = makeSandbox();
-  sb.musicShowManagePanel('pl1');
+  const env = makeSandbox();
+  const closesBefore = env.closeCalls; // the initial musicCloseEditPanel() at fn start
+  env.sb.musicShowManagePanel('pl1');
 
-  t.ok('inserted via right column insertBefore', rightCol._insertBeforeCalls.length === 1, rightCol._insertBeforeCalls);
-  const call = rightCol._insertBeforeCalls[0];
-  t.ok('inserted before the playlist-grid panel', call && call.ref === plGridPanel);
-  t.ok('panel is the manage panel', call && call.newNode && call.newNode.id === 'music-manage-pl-panel', call && call.newNode);
-  t.ok('not anchored to #music-add-panel', addPanelEl._afterCalls === 0);
-  t.ok('_musicEditPanel set to the new panel', sb._musicEditPanel === call.newNode);
-}
+  t.ok('one node appended to body', env.appended.length === 1, env.appended.length);
+  const back = env.appended[0];
+  t.ok('appended node is the modal backdrop', back && back.className === 'music-modal-backdrop' && back.id === 'music-manage-backdrop', back && back.className);
+  const panel = back && back.children[0];
+  t.ok('panel is inside the backdrop', !!panel && panel.id === 'music-manage-pl-panel', panel && panel.id);
+  t.ok('panel carries the music-modal class', !!panel && /music-modal/.test(panel.className), panel && panel.className);
+  t.ok('_musicEditPanel set to the backdrop', env.sb._musicEditPanel === back);
 
-// ── 3. fallback to shell.prepend when playlist-grid panel missing ──────
-{
-  const { sb, shell, rightCol } = makeSandbox({ hasGrid: false });
-  sb.musicShowManagePanel('pl1');
+  // backdrop click closes the modal
+  const clickFns = (back && back._listeners.click) || [];
+  t.ok('backdrop has a click handler', clickFns.length === 1, clickFns.length);
+  const before = env.closeCalls;
+  clickFns[0]({ target: back });
+  t.ok('clicking the backdrop calls musicCloseEditPanel', env.closeCalls === before + 1, env.closeCalls);
 
-  t.ok('right column insertBefore not used', rightCol._insertBeforeCalls.length === 0);
-  t.ok('falls back to shell.prepend', shell._prepended.length === 1 && shell._prepended[0].id === 'music-manage-pl-panel', shell._prepended);
+  // clicking inside (target = panel) does NOT close
+  const before2 = env.closeCalls;
+  clickFns[0]({ target: panel });
+  t.ok('clicking inside the modal does not close it', env.closeCalls === before2, env.closeCalls);
+
+  t.ok('Esc keydown handler registered on document', (env.docListeners.keydown || []).length >= 1, (env.docListeners.keydown || []).length);
+  void closesBefore;
 }
 
 t.done();

@@ -205,3 +205,27 @@
   숨김 + 우측 풀폭**(≥1024px). 패널 폭 708→**1012px**, 트랙 제목 완전 표시. 닫으면(musicCloseEditPanel) 복원.
   song-edit 패널은 좌측이라 스코프 제외(관리 패널만).
 - 검증: 관리 열기→`music-editing` set·좌측 display:none·패널 1012px, 닫기 복원, pageerror 0, `npm test` 32스위트 통과.
+
+## S. 편집창 → 중앙 모달 전환 (오너 지시)
+- R의 인라인 풀폭(좌측 레일 숨김) 방식을 **중앙 모달**로 승격. `musicShowManagePanel`이 패널을 스크림
+  `.music-modal-backdrop`(#music-manage-backdrop, `z-index:800`, 블러+페이드/팝 애니)으로 감싸 `document.body`에
+  append. `_musicEditPanel=backdrop`이라 `musicCloseEditPanel()`이 모달 전체 제거.
+- 닫기: **닫기 버튼 · 스크림 클릭(패널 내부 클릭은 무시) · Esc**. 상세화면 `관리` 버튼→상세 닫고 모달 오픈.
+- 패널 `.music-modal`: `min(880px,100%)`·상단정렬+백드롭 스크롤(긴 내용 대응)·elev-3·`r-xl`. 인라인 시절의
+  좌측 액센트 보더/마진 제거. 모든 훅·필드·드래그·pill·저장 로직 무변경. `music-editing`(레일 숨김) CSS 제거.
+- **배치 테스트를 모달 마운트 검증으로 갱신**(백드롭 body append·패널 자식·`_musicEditPanel`=백드롭·스크림
+  클릭 닫힘·내부 클릭 무시·Esc 등록) 9/9.
+- 검증(데스크탑/모바일): 모달 z800·중앙정렬·880px, Esc/스크림 클릭 닫힘, 상세 관리→모달, 모바일 스택·가로
+  오버플로 0, pageerror 0. `npm test` 32스위트 통과.
+
+## T. 나머지 음악 편집 패널도 모달로 (오너 "노래 관리 창들 다 엄청 밑에 뜸")
+- 문제: S에서 플레이리스트 `관리`만 모달화. **노래 `수정`(`musicShowEditPanel`)·`담기` 피커
+  (`musicShowAddSongFlow` 2브랜치)** 는 여전히 `music-add-panel.after()`로 인라인 삽입 → 페이지 한참
+  아래에 떠서 스크롤해야 보임.
+- 공용 헬퍼 `musicMountModal(panel, closeFn, backdropId)`: 패널에 `music-modal` 부여 후 스크림
+  `.music-modal-backdrop`으로 감싸 body에 append, 스크림 클릭 시 닫기. 모듈 레벨 **단일 Esc 핸들러**가
+  열린 음악 모달(picker→edit 순) 닫음.
+- `수정`·`담기` 패널을 헬퍼로 마운트 + `music-modal-sm`(min(460px)) — 단순 폼/리스트에 맞는 좁은 모달.
+  훅(id·`data-pick-*`·프리셋칩) 무변경.
+- 검증: 수정 모달 body·중앙·455px·Esc 닫힘, 담기 피커 body·중앙·455px·플레이리스트 2개·스크림 클릭 닫힘,
+  pageerror 0, 관리 배치 테스트 9/9, `npm test` 32스위트 통과. → 음악 편집 3종(관리·수정·담기) 전부 중앙 모달.
