@@ -1313,6 +1313,24 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 
 /* — LOGS — true timeline */
 .project-mini-list{display:flex;flex-direction:column;gap:var(--sp-2);position:relative}
+/* Projects folder-grid landing (dashboard) */
+.pj-landing{display:none;padding:var(--sp-8) clamp(var(--sp-6),4vw,var(--sp-12)) var(--sp-12);max-width:1120px;margin:0 auto;width:100%;overflow:auto}
+#page-projects:not(.pj-detail-mode) .pj-landing{display:block}
+#page-projects:not(.pj-detail-mode) .projects-page{display:none}
+.pj-land-head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp-3);margin-bottom:var(--sp-6);flex-wrap:wrap}
+.pj-eyebrow{font-size:var(--text-2xs);font-weight:var(--fw-bold);letter-spacing:.1em;text-transform:uppercase;color:var(--accent)}
+.pj-h2{font-size:var(--text-2xl);font-weight:var(--fw-bold);letter-spacing:-.01em;margin-top:2px}
+.pj-folders{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:var(--sp-4)}
+.pj-folder{text-align:left;border:.5px solid var(--border);background:var(--bg-card);border-radius:var(--r-xl);padding:var(--sp-5);box-shadow:var(--elev-1);cursor:pointer;transition:transform var(--t-snap),box-shadow var(--t-snap),border-color var(--t-snap);color:var(--fg);font-family:inherit;display:block;width:100%}
+.pj-folder:hover{transform:translateY(-2px);box-shadow:var(--elev-2);border-color:var(--accent)}
+.pj-fic{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;margin-bottom:var(--sp-3);flex:none}
+.pj-fic svg{width:24px;height:24px}
+.pj-fname{font-size:var(--text-md);font-weight:var(--fw-bold)}
+.pj-fmeta{display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:5px;font-size:var(--text-xs);color:var(--fg-4);font-weight:var(--fw-semibold);font-variant-numeric:tabular-nums}
+.pj-flog{font-size:var(--text-xs);color:var(--fg-3);margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:.5px solid var(--border-subtle);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pj-folder-new{border-style:dashed;color:var(--fg-3);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:150px;font-weight:var(--fw-bold);gap:var(--sp-1)}
+.pj-fic-new{background:var(--bg-raised);color:var(--accent)}
+.pj-back{margin-right:var(--sp-2)}
 /* Single continuous connector behind dots */
 .project-mini-list::before{
   content:"";position:absolute;
@@ -26066,13 +26084,14 @@ function openProjectEditor(project){
   openFormDialog(project?'프로젝트 편집':'새 프로젝트', [
     {key:'title',label:'제목',value:project?project.title:''},
     {key:'description',label:'설명',value:project?project.description:''},
+    {key:'color',label:'색상',type:'select',value:project?(project.color||'#BE727A'):'#BE727A',options:[{value:'#BE727A',label:'로즈'},{value:'#8296c8',label:'블루'},{value:'#5c9e86',label:'그린'},{value:'#ce8a55',label:'오렌지'},{value:'#a76f8f',label:'플럼'},{value:'#7c8aa0',label:'슬레이트'}]},
     {key:'status',label:'상태',type:'select',value:project?project.status:'active',options:[{value:'active',label:'진행'},{value:'done',label:'완료'},{value:'archived',label:'보관'}]},
     {key:'deadline',label:'마감일',type:'date',value:project?project.deadline:''},
     {key:'icon',label:'아이콘',value:project?project.icon:'🗂️'}
   ], function(data){
     var title=(data.title||'').trim(); if(!title)return;
-    if(project){project.title=title;project.description=data.description||'';project.status=data.status||'active';project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.updatedAt=Date.now();}
-    else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
+    if(project){project.title=title;project.description=data.description||'';project.status=data.status||'active';project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.color=data.color||project.color||'#BE727A';project.updatedAt=Date.now();}
+    else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',color:data.color||'#BE727A',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
     saveProjects();
     renderProjects();
   });
@@ -26646,6 +26665,68 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
   bindProjectRecordRows(detail);
 };
+
+/* ── Projects landing: folder-grid dashboard in front of the studio detail ──
+   Additive over the existing "project-studio" renderProjects: the folders are
+   the landing; clicking one navigates into the (unchanged) studio detail, and
+   a "← 전체" button returns to the grid. Project color drives the folder tile. */
+(function(){
+  if(typeof renderProjects!=='function')return;
+  var _studioRender=renderProjects;
+  var _mode='dash';
+  var _folderSvg='<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+  function ensureLanding(){
+    var pg=document.getElementById('page-projects'); if(!pg)return;
+    if(document.getElementById('pj-landing'))return;
+    var land=document.createElement('div'); land.id='pj-landing'; land.className='pj-landing';
+    land.innerHTML='<div class="pj-land-head"><div><div class="pj-eyebrow">프로젝트</div><h2 class="pj-h2">프로젝트</h2></div>'+
+      '<button class="btn btn-primary" id="pj-new">＋ 새 프로젝트</button></div>'+
+      '<div id="pj-folders" class="pj-folders"></div>';
+    pg.insertBefore(land, pg.firstChild);
+    var nb=land.querySelector('#pj-new'); if(nb)nb.addEventListener('click',function(){openProjectEditor(null);});
+  }
+  function renderFolders(){
+    var host=document.getElementById('pj-folders'); if(!host)return;
+    var vis=projects.filter(function(p){return p&&p.status!=='archived';});
+    host.innerHTML=vis.map(function(p){
+      var linked=projectTaskItems(p), pct=projectProgress(p);
+      var log=(p.logs&&p.logs.length&&p.logs[0]&&p.logs[0].text)?('최근 로그: '+projectEsc(String(p.logs[0].text).slice(0,42))):(p.description?projectEsc(String(p.description).slice(0,42)):'');
+      return '<button class="pj-folder" type="button" data-open="'+projectEsc(p.id)+'">'+
+        '<span class="pj-fic" style="background:'+projectEsc(p.color||'#BE727A')+'">'+_folderSvg+'</span>'+
+        '<div class="pj-fname">'+projectEsc(p.title)+'</div>'+
+        '<div class="pj-fmeta"><span>할일 '+linked.length+'</span><span>'+pct+'%</span>'+(p.deadline?'<span>'+projectEsc(p.deadline)+'</span>':'')+'</div>'+
+        (log?'<div class="pj-flog">'+log+'</div>':'')+
+        '</button>';
+    }).join('')+
+      '<button class="pj-folder pj-folder-new" type="button" id="pj-new-folder"><span class="pj-fic pj-fic-new">'+
+        '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>새 프로젝트</button>';
+    host.querySelectorAll('[data-open]').forEach(function(b){b.addEventListener('click',function(){activeProjectId=b.getAttribute('data-open');_mode='detail';renderProjects();});});
+    var nf=host.querySelector('#pj-new-folder'); if(nf)nf.addEventListener('click',function(){openProjectEditor(null);});
+  }
+  function ensureBackBtn(){
+    var head=document.querySelector('#page-projects .project-list-head'); if(!head)return;
+    if(head.querySelector('#pj-back'))return;
+    var b=document.createElement('button'); b.id='pj-back'; b.type='button'; b.className='btn btn-ghost pj-back'; b.textContent='← 전체';
+    b.addEventListener('click',function(){_mode='dash';renderProjects();});
+    head.insertBefore(b, head.firstChild);
+  }
+  renderProjects=function(){
+    loadProjects();
+    ensureLanding();
+    var pg=document.getElementById('page-projects');
+    var hasActive=activeProjectId&&projects.some(function(p){return String(p.id)===String(activeProjectId);});
+    if(_mode==='detail'&&hasActive){
+      if(pg)pg.classList.add('pj-detail-mode');
+      _studioRender();
+      ensureBackBtn();
+    }else{
+      _mode='dash';
+      if(pg)pg.classList.remove('pj-detail-mode');
+      renderFolders();
+    }
+  };
+  window.projectsOpenDetail=function(id){activeProjectId=id;_mode='detail';renderProjects();};
+})();
 
 /* Toggle expand detail */
 function toggleDetail(id) {
