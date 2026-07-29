@@ -1331,6 +1331,21 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pj-folder-new{border-style:dashed;color:var(--fg-3);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;min-height:150px;font-weight:var(--fw-bold);gap:var(--sp-1)}
 .pj-fic-new{background:var(--bg-raised);color:var(--accent)}
 .pj-back{margin-right:var(--sp-2)}
+.pj-subseg{display:inline-flex;gap:4px;padding:4px;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-full);margin-bottom:var(--sp-5)}
+.pj-subseg button{border:none;background:transparent;color:var(--fg-3);font-weight:var(--fw-bold);font-size:var(--text-sm);padding:7px 16px;border-radius:var(--r-full);transition:background var(--t-snap),color var(--t-snap)}
+.pj-subseg button:hover{color:var(--fg)}
+.pj-subseg button.on{background:var(--bg-card);color:var(--accent);box-shadow:var(--elev-1)}
+.pj-subview{display:none}
+.pj-subview.on{display:block}
+.pj-logs{max-width:640px;display:flex;flex-direction:column;gap:var(--sp-3)}
+.pj-log{text-align:left;width:100%;font-family:inherit;color:var(--fg);border:.5px solid var(--border);background:var(--bg-card);border-radius:var(--r-lg);padding:var(--sp-4) var(--sp-5);box-shadow:var(--elev-1);cursor:pointer;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
+.pj-log:hover{border-color:var(--accent);box-shadow:var(--elev-2)}
+.pj-log-top{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-1)}
+.pj-log-chip{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-xs);font-weight:var(--fw-bold);color:var(--fg-2)}
+.pj-log-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.pj-log-time{margin-left:auto;font-size:var(--text-xs);color:var(--fg-4);font-weight:var(--fw-semibold)}
+.pj-log-title{font-size:var(--text-md);font-weight:var(--fw-bold);color:var(--fg);margin-bottom:2px}
+.pj-log-text{font-size:var(--text-sm);color:var(--fg-2);line-height:1.55;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical}
 /* Single continuous connector behind dots */
 .project-mini-list::before{
   content:"";position:absolute;
@@ -26681,9 +26696,40 @@ renderProjects=function(){
     var land=document.createElement('div'); land.id='pj-landing'; land.className='pj-landing';
     land.innerHTML='<div class="pj-land-head"><div><div class="pj-eyebrow">프로젝트</div><h2 class="pj-h2">프로젝트</h2></div>'+
       '<button class="btn btn-primary" id="pj-new">＋ 새 프로젝트</button></div>'+
-      '<div id="pj-folders" class="pj-folders"></div>';
+      '<div class="pj-subseg" role="tablist">'+
+        '<button type="button" class="on" data-pjsub="folders">폴더</button>'+
+        '<button type="button" data-pjsub="logs">전체 기록</button>'+
+      '</div>'+
+      '<div id="pj-sub-folders" class="pj-subview on" data-pjsub="folders"><div id="pj-folders" class="pj-folders"></div></div>'+
+      '<div id="pj-sub-logs" class="pj-subview" data-pjsub="logs"><div id="pj-logs" class="pj-logs"></div></div>';
     pg.insertBefore(land, pg.firstChild);
     var nb=land.querySelector('#pj-new'); if(nb)nb.addEventListener('click',function(){openProjectEditor(null);});
+    land.querySelectorAll('.pj-subseg button').forEach(function(b){b.addEventListener('click',function(){
+      var t=b.getAttribute('data-pjsub');
+      land.querySelectorAll('.pj-subseg button').forEach(function(x){x.classList.toggle('on',x===b);});
+      land.querySelectorAll('.pj-subview').forEach(function(v){v.classList.toggle('on',v.getAttribute('data-pjsub')===t);});
+    });});
+  }
+  function renderAllLogs(){
+    var host=document.getElementById('pj-logs'); if(!host)return;
+    var all=[];
+    projects.forEach(function(p){ if(p&&Array.isArray(p.logs)) p.logs.forEach(function(l){ if(l) all.push({p:p,l:l}); }); });
+    all.sort(function(a,b){ return (b.l.updatedAt||b.l.createdAt||0)-(a.l.updatedAt||a.l.createdAt||0); });
+    if(!all.length){ host.innerHTML='<div class="project-empty">아직 작업 로그가 없어요. 프로젝트에 들어가 “+ 로그”로 남기면 여기에 모여요.</div>'; return; }
+    host.innerHTML=all.map(function(o){
+      var l=o.l, p=o.p, date=l.updatedAt||l.createdAt;
+      return '<button type="button" class="pj-log" data-log-pid="'+projectEsc(p.id)+'" data-log-id="'+projectEsc(l.id)+'">'+
+        '<div class="pj-log-top"><span class="pj-log-chip"><span class="pj-log-dot" style="background:'+projectEsc(p.color||'#BE727A')+'"></span>'+projectEsc(p.title)+'</span>'+
+        '<span class="pj-log-time">'+(date?projectEsc(new Date(date).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})):'')+'</span></div>'+
+        (l.title?'<div class="pj-log-title">'+projectEsc(l.title)+'</div>':'')+
+        (l.text?'<div class="pj-log-text">'+projectEsc(String(l.text).slice(0,220))+'</div>':'')+
+        '</button>';
+    }).join('');
+    host.querySelectorAll('[data-log-pid]').forEach(function(b){b.addEventListener('click',function(){
+      var p=projects.find(function(x){return String(x.id)===String(b.getAttribute('data-log-pid'));}); if(!p)return;
+      var l=(p.logs||[]).find(function(x){return String(x.id)===String(b.getAttribute('data-log-id'));});
+      if(l&&typeof openProjectLogEditor==='function')openProjectLogEditor(p,l);
+    });});
   }
   function renderFolders(){
     var host=document.getElementById('pj-folders'); if(!host)return;
@@ -26723,6 +26769,7 @@ renderProjects=function(){
       _mode='dash';
       if(pg)pg.classList.remove('pj-detail-mode');
       renderFolders();
+      renderAllLogs();
     }
   };
   window.projectsOpenDetail=function(id){activeProjectId=id;_mode='detail';renderProjects();};
