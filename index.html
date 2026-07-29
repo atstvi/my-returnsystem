@@ -5996,6 +5996,11 @@ to{opacity:1;transform:translateY(0)}}
 .music-mng2-pill-custom{border-style:dashed;color:var(--fg-4)}
 .music-mng2-pill-custom.active{border-style:solid}
 .music-mng2-custominp{margin-top:6px}
+/* Playlist edit modal — centered scrim, roomy focused editor */
+.music-modal-backdrop{position:fixed;inset:0;z-index:800;background:rgba(20,18,24,.5);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:clamp(16px,5vh,64px) clamp(12px,3vw,40px);overflow-y:auto;animation:music-modal-fade .16s ease}
+@keyframes music-modal-fade{from{opacity:0}to{opacity:1}}
+.music-panel.music-modal{width:min(880px,100%);margin:0!important;align-self:flex-start;border:.5px solid var(--border)!important;border-radius:var(--r-xl)!important;box-shadow:var(--elev-3)!important;animation:music-modal-pop .18s ease}
+@keyframes music-modal-pop{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
 /* ── end Music UX v3 ─────────────────────────────────────────────────── */
 
 /* ── Music UX v4 hierarchy ─────────────────────────────────────────── */
@@ -6764,10 +6769,6 @@ to{opacity:1;transform:translateY(0)}}
   .music-v9-left{flex:0 0 280px!important}
   .music-v9-right{flex:1!important}
   #music-playlist-create-panel{flex:0 0 100%!important}
-  /* Editing a playlist → give the edit panel the full width (hide the
-     recommendation / song-manage rail so it isn't small & cramped) */
-  .music-editing .music-v9-left{display:none!important}
-  .music-editing .music-v9-right{flex:1 1 100%!important}
 }
 @media(max-width:1023px){
   .music-v9-left,.music-v9-right{width:100%}
@@ -38076,9 +38077,8 @@ function musicShowAddSongFlow(songId,playlistId){
 function musicShowManagePanel(id){
   var pl=musicPlaylistById(id);if(!pl)return;
   musicCloseEditPanel();musicClosePickerPanel();
-  var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
   var panel=document.createElement('section');
-  panel.className='music-panel music-edit-panel music-mng2';
+  panel.className='music-panel music-edit-panel music-mng2 music-modal';
   panel.id='music-manage-pl-panel';
   var _gripSvg='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
   var _rmSvg='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>';
@@ -38211,12 +38211,15 @@ function musicShowManagePanel(id){
       '<button class="set-btn btn-ghost music-mng2-del" type="button" id="music-manage-del"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>삭제</button>'+
       '<button class="set-btn btn-primary music-mng2-save" type="button" id="music-manage-save-btn">저장</button>'+
     '</div>';
-  var plGridPanel=document.getElementById('music-playlist-grid');
-  plGridPanel=plGridPanel&&plGridPanel.closest('.music-panel');
-  if(plGridPanel&&plGridPanel.parentNode)plGridPanel.parentNode.insertBefore(panel,plGridPanel);
-  else shell.prepend(panel);
-  _musicEditPanel=panel;
-  var _pm=document.getElementById('page-music');if(_pm)_pm.classList.add('music-editing');
+  /* Mount as a centered modal over a scrim (roomy, focused editing). */
+  var back=document.createElement('div');
+  back.className='music-modal-backdrop';
+  back.id='music-manage-backdrop';
+  back.appendChild(panel);
+  document.body.appendChild(back);
+  _musicEditPanel=back;
+  back.addEventListener('click',function(e){if(e.target===back)musicCloseEditPanel();});
+  if(!window._musicManageEsc){window._musicManageEsc=1;document.addEventListener('keydown',function(e){if(e.key==='Escape'&&document.getElementById('music-manage-backdrop'))musicCloseEditPanel();});}
   function rebind(){
     var list=document.getElementById('music-manage-list');if(!list)return;
     list.innerHTML=buildRows();
