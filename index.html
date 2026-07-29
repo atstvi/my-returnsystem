@@ -6000,6 +6000,7 @@ to{opacity:1;transform:translateY(0)}}
 .music-modal-backdrop{position:fixed;inset:0;z-index:800;background:rgba(20,18,24,.5);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:clamp(16px,5vh,64px) clamp(12px,3vw,40px);overflow-y:auto;animation:music-modal-fade .16s ease}
 @keyframes music-modal-fade{from{opacity:0}to{opacity:1}}
 .music-panel.music-modal{width:min(880px,100%);margin:0!important;align-self:flex-start;border:.5px solid var(--border)!important;border-radius:var(--r-xl)!important;box-shadow:var(--elev-3)!important;animation:music-modal-pop .18s ease}
+.music-panel.music-modal.music-modal-sm{width:min(460px,100%)}
 @keyframes music-modal-pop{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:none}}
 /* ── end Music UX v3 ─────────────────────────────────────────────────── */
 
@@ -37900,6 +37901,24 @@ var _musicPickerPanel=null;
 
 function musicCloseEditPanel(){if(_musicEditPanel){_musicEditPanel.remove();_musicEditPanel=null;}var _pm=document.getElementById('page-music');if(_pm)_pm.classList.remove('music-editing');}
 function musicClosePickerPanel(){if(_musicPickerPanel){_musicPickerPanel.remove();_musicPickerPanel=null;}}
+/* Mount any music editor panel as a centered modal over a scrim, instead of
+   inserting it inline (which pushed the 수정 / 담기 panels far down the page). */
+function musicMountModal(panel,closeFn,backdropId){
+  if(panel.classList)panel.classList.add('music-modal');else panel.className+=' music-modal';
+  var back=document.createElement('div');
+  back.className='music-modal-backdrop';
+  if(backdropId)back.id=backdropId;
+  back.appendChild(panel);
+  document.body.appendChild(back);
+  back.addEventListener('click',function(e){if(e.target===back&&typeof closeFn==='function')closeFn();});
+  return back;
+}
+/* One Esc handler closes whichever music modal is open (picker first). */
+document.addEventListener('keydown',function(e){
+  if(e.key!=='Escape')return;
+  if(_musicPickerPanel){musicClosePickerPanel();return;}
+  if(_musicEditPanel){musicCloseEditPanel();return;}
+});
 
 /* ── 1. Advanced-fields toggle for add-song form ── */
 function musicEnhanceSongForm(){
@@ -37935,7 +37954,7 @@ function musicShowEditPanel(songId){
   musicCloseEditPanel();musicClosePickerPanel();
   var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
   var panel=document.createElement('section');
-  panel.className='music-panel music-edit-panel';
+  panel.className='music-panel music-edit-panel music-modal-sm';
   panel.id='music-song-edit-panel';
   var grpId='edit-song-'+String(songId).slice(-6);
   panel.innerHTML=
@@ -37963,9 +37982,7 @@ function musicShowEditPanel(songId){
         '<button class="set-btn btn-primary" type="button" id="music-edit-save-btn" data-save-sid="'+musicEsc(s.id)+'">저장</button>'+
       '</div>'+
     '</div>';
-  var ref=document.getElementById('music-add-panel');
-  ref?ref.after(panel):shell.prepend(panel);
-  _musicEditPanel=panel;
+  _musicEditPanel=musicMountModal(panel,musicCloseEditPanel,'music-edit-backdrop');
   musicBindPresetChips(panel);
   panel.querySelector('#music-edit-close-btn').addEventListener('click',musicCloseEditPanel);
   panel.querySelector('#music-edit-cancel-btn').addEventListener('click',musicCloseEditPanel);
@@ -38022,7 +38039,7 @@ function musicShowAddSongFlow(songId,playlistId){
   musicClosePickerPanel();musicCloseEditPanel();
   var shell=document.querySelector('#page-music .music-shell');if(!shell)return;
   var picker=document.createElement('section');
-  picker.className='music-panel music-pl-picker';
+  picker.className='music-panel music-pl-picker music-modal-sm';
   picker.id='music-pl-picker-panel';
   /* Picking playlist for a song */
   if(song&&!pl){
@@ -38035,8 +38052,7 @@ function musicShowAddSongFlow(songId,playlistId){
         '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+cnt+'곡'+(already?' · 이미 담김':'')+'</div></div></button>';
     }).join('');
     picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">플레이리스트에 담기</div><div class="music-note">'+musicEsc(song.title)+'</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div><div class="music-pl-picker-list">'+listHtml+'</div>';
-    var ref2=document.getElementById('music-add-panel');ref2?ref2.after(picker):shell.prepend(picker);
-    _musicPickerPanel=picker;
+    _musicPickerPanel=musicMountModal(picker,musicClosePickerPanel,'music-picker-backdrop');
     picker.querySelector('#music-picker-close').addEventListener('click',musicClosePickerPanel);
     picker.querySelectorAll('[data-pick-pl]').forEach(function(btn){
       btn.addEventListener('click',function(){
@@ -38058,8 +38074,7 @@ function musicShowAddSongFlow(songId,playlistId){
         '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+musicEsc(s.artist||'YouTube')+(already?' · 이미 담김':'')+'</div></div></button>';
     }).join('');
     picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">노래 선택</div><div class="music-note">'+musicEsc(pl.title)+'에 담기</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div><div class="music-pl-picker-list">'+songHtml+'</div>';
-    var ref3=document.getElementById('music-add-panel');ref3?ref3.after(picker):shell.prepend(picker);
-    _musicPickerPanel=picker;
+    _musicPickerPanel=musicMountModal(picker,musicClosePickerPanel,'music-picker-backdrop');
     picker.querySelector('#music-picker-close').addEventListener('click',musicClosePickerPanel);
     picker.querySelectorAll('[data-pick-song]').forEach(function(btn){
       btn.addEventListener('click',function(){

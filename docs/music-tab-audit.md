@@ -217,3 +217,15 @@
   클릭 닫힘·내부 클릭 무시·Esc 등록) 9/9.
 - 검증(데스크탑/모바일): 모달 z800·중앙정렬·880px, Esc/스크림 클릭 닫힘, 상세 관리→모달, 모바일 스택·가로
   오버플로 0, pageerror 0. `npm test` 32스위트 통과.
+
+## T. 나머지 음악 편집 패널도 모달로 (오너 "노래 관리 창들 다 엄청 밑에 뜸")
+- 문제: S에서 플레이리스트 `관리`만 모달화. **노래 `수정`(`musicShowEditPanel`)·`담기` 피커
+  (`musicShowAddSongFlow` 2브랜치)** 는 여전히 `music-add-panel.after()`로 인라인 삽입 → 페이지 한참
+  아래에 떠서 스크롤해야 보임.
+- 공용 헬퍼 `musicMountModal(panel, closeFn, backdropId)`: 패널에 `music-modal` 부여 후 스크림
+  `.music-modal-backdrop`으로 감싸 body에 append, 스크림 클릭 시 닫기. 모듈 레벨 **단일 Esc 핸들러**가
+  열린 음악 모달(picker→edit 순) 닫음.
+- `수정`·`담기` 패널을 헬퍼로 마운트 + `music-modal-sm`(min(460px)) — 단순 폼/리스트에 맞는 좁은 모달.
+  훅(id·`data-pick-*`·프리셋칩) 무변경.
+- 검증: 수정 모달 body·중앙·455px·Esc 닫힘, 담기 피커 body·중앙·455px·플레이리스트 2개·스크림 클릭 닫힘,
+  pageerror 0, 관리 배치 테스트 9/9, `npm test` 32스위트 통과. → 음악 편집 3종(관리·수정·담기) 전부 중앙 모달.
