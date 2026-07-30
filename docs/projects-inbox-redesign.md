@@ -109,3 +109,18 @@
   컬럼 퀵추가(buy)·완료/처리필요 토글·그립 드래그 task→idea(드롭 하이라이트), pageerror 0,
   `npm test` 33스위트 통과.
 - **다음(보강)**: 카테고리 추가/이름변경 UI, 이미지 첨부·AI 자동분류(기존 컴포저 기능 이관), 스레드→카드 점프.
+
+## G. 6단계 — 전역 퀵 추가(＋) 로그 타깃
+- “어디서든 ＋” = 상단바 상시 캡처(`capture-inp`, Inbox/Task 모드)가 이미 모든 페이지에 노출(헤더는
+  `.page-stack` 밖). 여기에 **Log 모드** 추가 → 프로젝트 작업 로그로 바로 담기. (floating global-capture는
+  DOM 미생성 dead code라 상단바 캡처가 실질 전역 입력구.)
+- HTML: `capture-modes`에 `#capture-log-btn`(Log) 추가. `setHomeCaptureType`가 'log' 허용·토글.
+- `homeCapture`에 log 분기 → `quickAddLog(text)`. `homeCaptureAI`는 비-task를 이미 `homeCapture`로 위임하므로
+  Log 모드도 그대로 흐름.
+- `quickAddLog`: `loadProjects` 후 활성(archived 제외) 프로젝트 대상. **열린 프로젝트(activeProjectId) 우선**,
+  없고 1개면 자동, 여러 개면 `openFormDialog` 프로젝트 선택. 로그 shape/저장은 openProjectLogEditor와 동일
+  (`{id:'log_'+ts,title:'',text,createdAt,updatedAt}` unshift → saveProjects → renderProjects). 프로젝트 없으면 안내 토스트.
+- 연결성: 프로젝트 로그 X형 피드(D단계)·전체 기록(B단계)·전체 타임라인(C단계)과 같은 `p.logs` 데이터를 공유 →
+  ＋로 담은 로그가 상세 피드·전체 기록에 즉시 반영.
+- 검증(헤드리스): Log 버튼 토글(type='log'), 활성=p2 직접 담기(p2 로그 1·p1 0), 비활성+다중→선택 다이얼로그
+  (“어느 프로젝트 로그에?” 옵션 2)·p1 선택 저장, pageerror 0, `npm test` 33스위트 통과.

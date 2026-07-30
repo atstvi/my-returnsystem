@@ -7927,6 +7927,7 @@ to{opacity:1;transform:translateY(0)}}
           <div class="capture-modes" role="tablist" aria-label="캡처 대상">
             <button class="capture-type active" id="capture-inbox-btn" type="button" role="tab">Inbox</button>
             <button class="capture-type" id="capture-task-btn" type="button" role="tab">Task</button>
+            <button class="capture-type" id="capture-log-btn" type="button" role="tab">Log</button>
           </div>
           <button class="capture-send" aria-label="전송" onmousedown="event.preventDefault()">↑</button>
         </div>
@@ -14102,14 +14103,17 @@ applyActiveTaskRules=function(){return reconcileGeneratedTasks({source:'applyAct
 
 var homeCaptureType = 'inbox';
 function setHomeCaptureType(type){
-  homeCaptureType = type === 'task' ? 'task' : 'inbox';
+  homeCaptureType = type === 'task' ? 'task' : (type === 'log' ? 'log' : 'inbox');
   var ib = document.getElementById('capture-inbox-btn');
   var tb = document.getElementById('capture-task-btn');
+  var lb = document.getElementById('capture-log-btn');
   if (ib) ib.classList.toggle('active', homeCaptureType === 'inbox');
   if (tb) tb.classList.toggle('active', homeCaptureType === 'task');
+  if (lb) lb.classList.toggle('active', homeCaptureType === 'log');
 }
 document.getElementById('capture-inbox-btn') && document.getElementById('capture-inbox-btn').addEventListener('click', function(){ setHomeCaptureType('inbox'); });
 document.getElementById('capture-task-btn') && document.getElementById('capture-task-btn').addEventListener('click', function(){ setHomeCaptureType('task'); });
+document.getElementById('capture-log-btn') && document.getElementById('capture-log-btn').addEventListener('click', function(){ setHomeCaptureType('log'); });
 function scrollHomeTimeBlockToNow(force){
   var body=document.getElementById('htb-body');
   if(!body)return;
@@ -14811,6 +14815,8 @@ function homeCapture(raw){
     if (typeof renderList === 'function') renderList();
     renderHomeTasks();
     homeToast('할일로 추가했어요');
+  } else if (homeCaptureType === 'log') {
+    quickAddLog(text);
   } else if (typeof inboxItems !== 'undefined') {
     inboxItems.unshift({id:Date.now(),text:text,cat:'memo',ts:Date.now(),done:false,unread:true});
     if (typeof saveInboxItems === 'function') saveInboxItems();
@@ -14819,12 +14825,42 @@ function homeCapture(raw){
   }
 }
 
+/* Global quick-add → 프로젝트 작업 로그. Adds to the active project if one is
+   open, else auto-picks when there is a single project, else asks which one.
+   Reuses the project log shape/save path (see openProjectLogEditor). */
+function quickAddLog(text){
+  text = String(text||'').trim(); if(!text) return;
+  if (typeof loadProjects === 'function') { try{ loadProjects(); }catch(e){} }
+  var all = (typeof projects !== 'undefined' && Array.isArray(projects)) ? projects.filter(function(p){return p && p.status!=='archived';}) : [];
+  if (!all.length) { homeToast('먼저 프로젝트를 만들어 주세요'); return; }
+  function add(p){
+    if(!p) return;
+    p.logs = Array.isArray(p.logs) ? p.logs : [];
+    p.logs.unshift({ id:'log_'+Date.now(), title:'', text:text, createdAt:Date.now(), updatedAt:Date.now() });
+    p.updatedAt = Date.now();
+    if (typeof saveProjects === 'function') saveProjects();
+    if (typeof renderProjects === 'function') { try{ renderProjects(); }catch(e){} }
+    homeToast('“'+(p.title||'프로젝트')+'” 로그에 담았어요');
+  }
+  var active = (typeof activeProjectId !== 'undefined' && activeProjectId) ? all.find(function(p){return String(p.id)===String(activeProjectId);}) : null;
+  if (active) { add(active); return; }
+  if (all.length === 1) { add(all[0]); return; }
+  if (typeof openFormDialog === 'function') {
+    openFormDialog('어느 프로젝트 로그에?', [
+      { key:'pid', label:'프로젝트', type:'select', value:all[0].id, options: all.map(function(p){ return { value:p.id, label:p.title||'프로젝트' }; }) }
+    ], function(d){ add(all.find(function(x){return String(x.id)===String(d.pid);}) || all[0]); });
+  } else {
+    add(all[0]);
+  }
+}
+
 var globalCaptureType='inbox';
 function setGlobalCaptureType(type){
-  globalCaptureType=type==='task'?'task':'inbox';
-  var ib=document.getElementById('global-cap-inbox'), tb=document.getElementById('global-cap-task');
+  globalCaptureType=type==='task'?'task':(type==='log'?'log':'inbox');
+  var ib=document.getElementById('global-cap-inbox'), tb=document.getElementById('global-cap-task'), lb=document.getElementById('global-cap-log');
   if(ib)ib.classList.toggle('active',globalCaptureType==='inbox');
   if(tb)tb.classList.toggle('active',globalCaptureType==='task');
+  if(lb)lb.classList.toggle('active',globalCaptureType==='log');
 }
 function openGlobalCapture(type){
   if(_currentPage==='home')return;
