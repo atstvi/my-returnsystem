@@ -1529,6 +1529,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-link-t small{font-size:var(--text-xs);color:var(--fg-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
 .pjb-img{flex:1;overflow:hidden;background:var(--bg-sunken)}
 .pjb-img img{width:100%;display:block;pointer-events:none}
+.pjb-img.pjb-img-load{display:flex;align-items:center;justify-content:center;min-height:120px;position:relative}
+.pjb-img-ph{font-size:var(--text-xs);color:var(--fg-4)}
+.pjb-img.pjb-img-load img[data-bd-media]{position:absolute;inset:0;opacity:0}
 
 /* — LINKED LIST (records) — */
 .project-linked-list{display:flex;flex-direction:column;gap:var(--sp-2)}
@@ -26976,6 +26979,63 @@ function projectBoardExtractColor(src,cb){
     img.crossOrigin='anonymous'; img.src=src;
   }catch(e){cb('');}
 }
+/* 자료 보드 이미지 추가 — 기기 업로드(→Firebase Storage 동기화) 또는 URL 붙여넣기 선택. */
+function projectBoardAddImage(addItem,save,repaint){
+  var old=document.getElementById('pjb-img-src'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='pjb-img-src';
+  ov.innerHTML='<div class="modal" style="max-width:360px"><div class="modal-head"><div class="modal-title">이미지 추가</div></div>'
+    +'<div class="modal-body" style="display:flex;flex-direction:column;gap:var(--sp-3)">'
+    +'<button type="button" class="btn btn-primary" id="pjb-img-file" style="justify-content:center">📁 기기에서 사진 업로드</button>'
+    +'<button type="button" class="btn btn-ghost" id="pjb-img-url" style="justify-content:center">🔗 이미지 URL 붙여넣기</button>'
+    +'<div class="field-help" style="font-size:var(--text-xs);line-height:var(--lh-normal)">기기 사진은 클라우드(Storage)에 올라가 다른 기기에서도 보여요. URL은 외부 이미지 주소를 그대로 사용합니다.</div>'
+    +'</div><div class="modal-foot"><button type="button" class="btn btn-ghost" id="pjb-img-cancel">취소</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelector('#pjb-img-cancel').addEventListener('click',close);
+  ov.querySelector('#pjb-img-url').addEventListener('click',function(){
+    close();
+    openFormDialog('이미지 URL',[{key:'src',label:'이미지 URL',value:''},{key:'title',label:'캡션(선택)',value:''}],function(d){
+      if(!(d.src||'').trim())return;
+      var it=addItem({type:'image',src:d.src.trim(),title:(d.title||'').trim(),w:220,h:180});
+      projectBoardExtractColor(it.src,function(c){ if(c){it.accent=c;save();repaint();} });
+    });
+  });
+  ov.querySelector('#pjb-img-file').addEventListener('click',function(){
+    close();
+    var inp=document.createElement('input'); inp.type='file'; inp.accept='image/*';
+    inp.addEventListener('change',function(){ var f=inp.files&&inp.files[0]; if(f)projectBoardUploadImageFile(f,addItem,save,repaint); });
+    inp.click();
+  });
+}
+/* 파일 → 압축 → MediaStore(로컬 IDB + 백그라운드 Storage 업로드) → return-media 참조.
+   원본이 아니라 압축본을 저장하고, 색 추출은 CORS 회피를 위해 로컬 dataURL에서 수행. */
+function projectBoardUploadImageFile(file,addItem,save,repaint){
+  if(!file||!/^image\//.test(file.type||'')){ if(typeof showToast==='function')showToast('이미지 파일만 추가할 수 있어요'); return; }
+  var it=addItem({type:'image',src:'',title:'',w:220,h:180,_loading:true}); /* addItem already saves+repaints */
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var raw=ev.target.result;
+    __compressDataUrl(raw,1600,0.82).then(function(dataUrl){
+      projectBoardExtractColor(dataUrl,function(c){ if(c){it.accent=c;save();repaint();} });
+      return MediaStore.put(dataUrl,{role:'projectBoard'}).then(function(ref){
+        delete it._loading; it.src=ref||dataUrl; save(); repaint();
+      });
+    }).catch(function(){ delete it._loading; it.src=raw; save(); repaint(); });
+  };
+  reader.onerror=function(){ delete it._loading; if(typeof showToast==='function')showToast('이미지를 읽지 못했어요'); repaint(); };
+  reader.readAsDataURL(file);
+}
+/* return-media 참조로 저장된 보드 이미지를 비동기 해상해 <img>에 채움. 기기 B에서는
+   Firebase Storage 다운로드 URL로, 같은 기기에서는 IndexedDB 로컬 바이트로 표시됨. */
+function projectBoardResolveMedia(root){
+  if(!root||!root.querySelectorAll)return;
+  root.querySelectorAll('img[data-bd-media]').forEach(function(img){
+    var ref=img.getAttribute('data-bd-media'); img.removeAttribute('data-bd-media');
+    if(!ref||typeof MediaStore==='undefined')return;
+    MediaStore.resolve(ref,'').then(function(url){ if(url)img.src=url; }).catch(function(){});
+  });
+}
 function projectBoardItemHtml(it){
   var accent=it.accent||'var(--accent)';
   var head='<span class="pjb-grip" data-bd-drag="'+projectEsc(it.id)+'"></span>'+
@@ -26994,7 +27054,14 @@ function projectBoardItemHtml(it){
     var host='링크'; try{ if(it.url)host=new URL(it.url).hostname; }catch(e){}
     body='<a class="pjb-link" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open"><span class="pjb-link-ic"><img src="https://www.google.com/s2/favicons?domain='+projectEsc(host)+'&sz=64" alt=""></span><span class="pjb-link-t"><b>'+projectEsc(it.title||host)+'</b><small>'+projectEsc(host)+'</small></span></a>';
   }
-  else if(it.type==='image'){ body='<div class="pjb-img"><img src="'+projectEsc(it.src||'')+'" alt="'+projectEsc(it.title||'')+'" draggable="false"></div>'; }
+  else if(it.type==='image'){
+    var _src=it.src||'';
+    var _mref=(typeof MediaStore!=='undefined'&&MediaStore.isRef(_src));
+    var _shown=isReturnDisplayableImageUrl(_src)?_src:(_mref?MediaStore.resolveSync(_src):'');
+    if(_shown){ body='<div class="pjb-img"><img src="'+projectEsc(_shown)+'" alt="'+projectEsc(it.title||'')+'" draggable="false"></div>'; }
+    else if(_mref){ body='<div class="pjb-img pjb-img-load"><img data-bd-media="'+projectEsc(_src)+'" alt="'+projectEsc(it.title||'')+'" draggable="false"><span class="pjb-img-ph">불러오는 중…</span></div>'; }
+    else { body='<div class="pjb-img pjb-img-load"><span class="pjb-img-ph">'+(it._loading?'업로드 중…':'이미지 없음')+'</span></div>'; }
+  }
   return '<div class="pjb-item pjb-'+projectEsc(it.type)+(it.fav?' fav':'')+'" data-bd-item="'+projectEsc(it.id)+'" '+
     'style="left:'+(it.x||0)+'px;top:'+(it.y||0)+'px;width:'+(it.w||200)+'px;'+(it.type==='image'?'':'height:'+(it.h||150)+'px;')+'--bd-accent:'+projectEsc(accent)+'">'+
     '<div class="pjb-bar">'+head+'</div>'+body+'</div>';
@@ -27023,10 +27090,12 @@ function projectBoardBind(detail,project){
   function clampScale(s){return Math.max(0.3,Math.min(3,s));}
   function apply(){world.style.transform='translate('+V.tx+'px,'+V.ty+'px) scale('+V.scale+')';}
   apply();
+  projectBoardResolveMedia(world); /* resolve any return-media image refs already in the initial HTML */
   function save(){project.updatedAt=Date.now();saveProjects();}
   function findItem(id){return b.items.find(function(x){return String(x.id)===String(id);});}
   function repaint(){
     world.innerHTML=b.items.map(projectBoardItemHtml).join('');
+    projectBoardResolveMedia(world);
     var em=view.querySelector('.pjb-empty'); if(em&&b.items.length)em.remove();
     if(!b.items.length&&!view.querySelector('.pjb-empty')){var e=document.createElement('div');e.className='pjb-empty';e.textContent='메모·체크·이미지를 추가해 자유롭게 배치하세요. 빈 곳을 끌면 화면이 움직여요.';view.appendChild(e);}
   }
@@ -27039,7 +27108,7 @@ function projectBoardBind(detail,project){
     else if(t==='check'){ openFormDialog('체크리스트 추가',[{key:'title',label:'제목',value:''},{key:'items',label:'항목(줄바꿈으로 구분)',type:'textarea',value:''}],function(d){ var list=(d.items||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).map(function(s){return {text:s,done:false};}); addItem({type:'check',title:(d.title||'체크리스트').trim(),list:list,h:60+list.length*26,accent:'#8296c8'}); }); }
     else if(t==='frame'){ openFormDialog('프레임 추가',[{key:'label',label:'이름',value:''}],function(d){ addItem({type:'frame',label:(d.label||'프레임').trim(),w:320,h:240,accent:'#7c8aa0'}); }); }
     else if(t==='link'){ openFormDialog('링크 추가',[{key:'title',label:'제목',value:''},{key:'url',label:'URL',value:''}],function(d){ if(!(d.url||'').trim())return; addItem({type:'link',title:(d.title||d.url).trim(),url:d.url.trim(),h:96,accent:'#5c9e86'}); }); }
-    else if(t==='image'){ openFormDialog('이미지 추가',[{key:'src',label:'이미지 URL',value:''},{key:'title',label:'캡션(선택)',value:''}],function(d){ if(!(d.src||'').trim())return; var it=addItem({type:'image',src:d.src.trim(),title:(d.title||'').trim(),w:220,h:180}); projectBoardExtractColor(it.src,function(c){ if(c){it.accent=c;save();repaint();} }); }); }
+    else if(t==='image'){ projectBoardAddImage(addItem,save,repaint); }
   });});
   var ff=detail.querySelector('[data-bd-favfilter]');
   if(ff)ff.addEventListener('click',function(){ var on=view.classList.toggle('pjb-favonly'); ff.setAttribute('aria-pressed',on?'true':'false'); ff.classList.toggle('on',on); });
@@ -27090,7 +27159,19 @@ function projectBoardEditItem(project,it,repaint,save){
   else if(it.type==='check')openFormDialog('체크리스트 편집',[{key:'title',label:'제목',value:it.title||''},{key:'items',label:'항목(줄바꿈)',type:'textarea',value:(Array.isArray(it.list)?it.list:[]).map(function(c){return (c.done?'[x] ':'')+c.text;}).join('\n')}],function(d){it.title=(d.title||'체크리스트').trim();it.list=(d.items||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).map(function(s){var done=/^\[x\]\s*/i.test(s);return {text:s.replace(/^\[x\]\s*/i,''),done:done};});save();repaint();});
   else if(it.type==='frame')openFormDialog('프레임 편집',[{key:'label',label:'이름',value:it.label||''}],function(d){it.label=(d.label||'프레임').trim();save();repaint();});
   else if(it.type==='link')openFormDialog('링크 편집',[{key:'title',label:'제목',value:it.title||''},{key:'url',label:'URL',value:it.url||''}],function(d){it.title=(d.title||d.url||'').trim();it.url=(d.url||'').trim();save();repaint();});
-  else if(it.type==='image')openFormDialog('이미지 편집',[{key:'src',label:'이미지 URL',value:it.src||''},{key:'title',label:'캡션',value:it.title||''}],function(d){it.src=(d.src||'').trim();it.title=(d.title||'').trim();save();repaint();projectBoardExtractColor(it.src,function(c){if(c){it.accent=c;save();repaint();}});});
+  else if(it.type==='image'){
+    /* Uploaded images store a return-media ref (not a human URL) — don't expose
+       the raw ref in a text field where it could be clobbered; edit caption only.
+       URL images keep the editable URL as before. */
+    var _uploaded=(typeof MediaStore!=='undefined'&&MediaStore.isRef(it.src));
+    var _fields=_uploaded?[{key:'title',label:'캡션',value:it.title||''}]
+                        :[{key:'src',label:'이미지 URL',value:it.src||''},{key:'title',label:'캡션',value:it.title||''}];
+    openFormDialog('이미지 편집',_fields,function(d){
+      if(!_uploaded)it.src=(d.src||'').trim();
+      it.title=(d.title||'').trim(); save(); repaint();
+      if(!_uploaded)projectBoardExtractColor(it.src,function(c){if(c){it.accent=c;save();repaint();}});
+    });
+  }
 }
 function projectGroupTasksByDate(list){
   var groups={};
@@ -37923,6 +38004,30 @@ async function runImageDiagnostics(){
   var manifest={};try{manifest=JSON.parse(localStorage.getItem(MEDIA_SYNC_KEY)||'{}')||{};}catch(e){}
   add('로그인 상태',fbUser?'ok':'err',fbUser?('연결됨 '+(fbUser.email||'')):'로그인 안 됨 — 동기화 불가');
   add('manifest 총량','warn',Object.keys(manifest).length+'개 / '+fmt(JSON.stringify(manifest).length));
+  /* ── Firebase Storage (STAGE 5b) 상태 ───────────────────────────────────── */
+  try{
+    var _stReady=(typeof returnStorageReady==='function'&&returnStorageReady());
+    var _bucket='';
+    try{ _bucket=(typeof fbConfig==='function'&&fbConfig().storageBucket)||''; }catch(_e){}
+    add('Storage 준비', _stReady?'ok':'err',
+      _stReady?('업로드 가능 · 버킷 '+_bucket)
+              :('아직 준비 안 됨'+(!fbUser?' (로그인 필요)':(typeof firebase!=='undefined'&&!firebase.storage?' (Storage SDK 미로드)':(!fbStorage?' (핸들 없음)':'')))+(_bucket?' · 버킷 '+_bucket:'')));
+    var _fbmap={};try{_fbmap=JSON.parse(localStorage.getItem('return_media_fb_v1')||'{}')||{};}catch(_e){}
+    var _fbCount=Object.keys(_fbmap).length;
+    add('Storage 업로드됨', _fbCount?'ok':'warn', _fbCount+'개 이미지가 클라우드에 있음 / 맵 '+fmt(JSON.stringify(_fbmap).length));
+    /* 아직 Storage로 안 올라간(맵에 없는) return-media 참조 개수 — 백필 남은 양 */
+    var _seen={},_remain=0;
+    try{
+      for(var _di=0;_di<localStorage.length;_di++){
+        var _dk=localStorage.key(_di); if(_dk==='return_media_fb_v1'||_dk===MEDIA_SYNC_KEY)continue;
+        var _dv=localStorage.getItem(_dk)||''; if(_dv.indexOf('return-media:')<0)continue;
+        (_dv.match(/return-media:[^"',\s\]\}]+/g)||[]).forEach(function(r){
+          var id=r.replace(/^return-media:/,''); if(id&&!_seen[id]){ _seen[id]=1; if(!_fbmap[id])_remain++; }
+        });
+      }
+    }catch(_e){}
+    add('백필 대기', _remain?'warn':'ok', _remain?(_remain+'개가 아직 로컬 전용 — 로그인 후 자동으로 클라우드로 이동'):'모든 이미지가 클라우드에 있음');
+  }catch(_e){ add('Storage 진단','err',String(_e&&_e.message||_e)); }
   // helper to diagnose one ref; fbVal = the inline fallback that SHOULD carry
   // this image's bytes cross-device (iconFallbacks[k] / *SyncDataUrl / etc.)
   async function diagRef(label,val,fbVal,extra){
