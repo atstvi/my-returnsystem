@@ -119,3 +119,40 @@ service firebase.storage {
 - ✅ **버킷 이름**(A-5에서 복사한 정확한 문자열)
 - ✅ **내 UID**(A-7 — B-1 규칙에 직접 넣으셨다면 “넣었음”만 알려주셔도 됩니다)
 - ✅ 규칙은 **B-1(소유자 한정)** vs **B-2(사용자별)** 중 어느 쪽으로 게시했는지
+
+---
+
+## E. 배선 완료 (STAGE 5b — 실제 구현 내용)
+
+콘솔 준비(버킷 `my-return-system.firebasestorage.app`, 소유자 한정 규칙 B-1 게시)가
+끝나서 아래를 구현했습니다. 모두 **`index.html`** 안, 기존 미디어 스택에 얹는 얇고
+추가적인 계층입니다.
+
+1. **설정/SDK**: `DEFAULT_FB_CONFIG`에 `storageBucket` 추가, `initFirebase`가
+   `firebase-storage-compat.js`(v10.12.0)를 로드하고 `fbStorage=firebase.storage()`를
+   설정. Storage SDK 로드/초기화 실패는 **auth·firestore를 절대 막지 않도록** 별도
+   try/catch로 격리.
+2. **URL 맵(동기화 대상)**: `return_media_fb_v1` = `{ id → {path,url,type,size,at} }`.
+   **바이트는 없고 다운로드 URL만** 담아서(항목당 수백 바이트) 기존 Firestore 블롭
+   동기화에 그대로 실림 → 1MB 문서 한계에 한참 안 걸림.
+3. **업로드** `returnStorageUpload(id,dataUrl,meta)`:
+   dataURL→Blob→`users/<uid>/media/<id>.<ext>`에 `put()`→`getDownloadURL()`→맵 기록.
+   `returnMediaStoreDataUrl`에서 **비차단(백그라운드)** 으로 호출. 실패/미설정/오프라인이면
+   조용히 `null` → 기존 IndexedDB 사본이 그대로 durable copy.
+4. **표시(해상)**: 해상 순서 = 표시가능 URL → IndexedDB(로컬·오프라인) →
+   **이 URL 맵(기기 간, 대용량 사진)** → dedup 매니페스트(소용량) → 인라인 폴백.
+   `return-media:<id>` 참조 계약은 그대로라 자료 보드·인박스·일기 호출부 변경 없음.
+5. **삭제** `returnStorageDelete`: Storage 객체 + 맵 항목 best-effort 제거(실패 무시).
+6. **백필** `returnStorageBackfill`: 로그인 후(약 6초 뒤) localStorage의 `return-media:`
+   참조 중 아직 맵에 없는 것을 찾아 IndexedDB/매니페스트의 바이트를 **소량씩(1회 8개)**
+   올려 기존 기기-로컬 이미지도 점진적으로 기기 간 공유되게 함. **멱등**(이미 올라간 id는
+   건너뜀)이고, 실제로 새로 올린 게 있을 때만 다음 배치를 예약해 실패 시 무한 재시도 없음.
+7. **문서화/테스트**: `RETURN_DATA_MAP`에 `mediaFbStorage` 항목 추가.
+   `tests/fb-storage-media.test.js`가 URL 맵 왕복·de-dup과 **"Storage 미준비 시 전 경로가
+   조용히 기존 IndexedDB 경로로 폴백(throw·write 없음)"** 안전 속성을 검증.
+
+> ⚠️ 헤드리스(이 개발 환경)에서는 Firebase 네트워크가 막혀 **실제 업로드는 테스트 불가**.
+> 폴백·비네트워크 로직만 자동 검증했고, **폰↔PC 실제 업로드/표시 확인은 기기에서** 필요합니다.
+> 확인법: (기기 A) 자료 보드에 사진 추가 → 설정→Firebase 진단에서 `media:fb-uploaded` 로그
+> 확인, 콘솔 Storage `users/<uid>/media/`에 파일 생성 확인 → (기기 B) 로그인 후 같은 보드에서
+> 사진 표시 확인.

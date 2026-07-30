@@ -15369,6 +15369,10 @@ function returnMediaStoreDataUrl(dataUrl,meta){
        inlining a per-entity copy. Larger images stay IndexedDB-local until the
        background repair generates a compressed fallback for the manifest. */
     try{ if(String(dataUrl).length<=MEDIA_SYNC_ITEM_MAX) mediaSyncPut(id,dataUrl); }catch(_e){}
+    /* STAGE 5b: also push the original bytes to Firebase Storage (best-effort,
+       non-blocking) so large images that exceed the manifest cap still become
+       cross-device. Failure is swallowed — IndexedDB above is the durable copy. */
+    try{ if(typeof returnStorageReady==='function'&&returnStorageReady()) returnStorageUpload(id,dataUrl,meta); }catch(_e){}
     return 'return-media:'+id;
   }).catch(function(e){
     bannerDebugLog('media:store-failed',{error:String(e&&e.message||e),length:String(dataUrl||'').length});
@@ -15381,10 +15385,15 @@ function returnMediaResolveUrl(url){
   var id=returnMediaRefId(url);
   return returnMediaGet(id).then(function(record){
     if(record&&record.dataUrl&&isReturnDisplayableImageUrl(record.dataUrl))return record.dataUrl;
-    /* STAGE 4: IndexedDB miss (e.g. a fresh device that received the theme via
-       Firebase but never had the original upload). Fall back to the synced,
-       deduplicated media manifest, and seed IndexedDB so this device holds it
-       locally from now on. This is the single cross-device media channel. */
+    /* STAGE 5b: IndexedDB miss → try the Firebase Storage url map. This carries
+       large images (over the manifest cap) across devices; the download URL is
+       displayed directly in <img src>. Checked before the manifest because it
+       is the channel that works for full-size photos. */
+    var fbRec=returnFbMediaGet(id);
+    if(fbRec&&fbRec.url&&isReturnDisplayableImageUrl(fbRec.url))return fbRec.url;
+    /* STAGE 4: still a miss → fall back to the synced, deduplicated media
+       manifest (small images), and seed IndexedDB so this device holds it
+       locally from now on. */
     var fromManifest=mediaSyncGet(id);
     if(fromManifest){
       try{ returnMediaPut({id:id,type:'image',role:'',name:'',dataUrl:fromManifest,createdAt:new Date().toISOString()}); }catch(_e){}
@@ -15393,7 +15402,8 @@ function returnMediaResolveUrl(url){
     return '';
   }).catch(function(e){
     bannerDebugLog('media:resolve-failed',{value:String(url||'').slice(0,48),error:String(e&&e.message||e)});
-    /* Last resort even on IDB error: the manifest may still have it. */
+    /* Last resort even on IDB error: the Storage url map, then the manifest. */
+    try{ var fbr=returnFbMediaGet(returnMediaRefId(url)); if(fbr&&fbr.url&&isReturnDisplayableImageUrl(fbr.url))return fbr.url; }catch(_e){}
     try{ var fb=mediaSyncGet(returnMediaRefId(url)); if(fb)return fb; }catch(_e){}
     return '';
   });
@@ -15531,6 +15541,156 @@ window.mediaSyncManifestReport=function(){
      3) synced manifest (any device)             → use AND seed IndexedDB
      4) caller-supplied inline fallback          → last resort
    ════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════
+   STAGE 5b — FIREBASE STORAGE MEDIA CHANNEL
+
+   Why: the dedup manifest (STAGE 4) can only carry SMALL images across devices
+   (per-item cap MEDIA_SYNC_ITEM_MAX ≈ 165KB of bytes). Real photos on the
+   project 자료 보드 / inbox blow past that, so they stayed IndexedDB-local — i.e.
+   never visible on a second device. Firebase Storage fixes that: the original
+   bytes live in Storage, and the app data keeps only a tiny reference.
+
+   Contract kept identical to the rest of the media stack: entities still store
+   the string ref `return-media:<id>`. What changes is resolution — we keep a
+   small SYNCED map (return_media_fb_v1) of id → {path,url}. Bytes are NOT in it,
+   only the download URL (~a few hundred bytes each), so it rides the existing
+   Firestore blob sync without hitting the 1MB doc limit for a very long time.
+
+   Resolution order stays: displayable → IndexedDB (local, offline) → THIS map
+   (any device) → dedup manifest → inline fallback. Upload is best-effort and
+   never blocks a write; if Storage is unconfigured/offline/errored, the app
+   behaves exactly as before (IndexedDB + manifest).
+   ════════════════════════════════════════════════════════════════════════ */
+var RETURN_FB_MEDIA_KEY='return_media_fb_v1';
+var _returnFbUploading={};        /* id → in-flight upload Promise (dedup) */
+var _returnFbBackfillTimer=null;
+function _returnFbMediaMap(){
+  try{ var m=JSON.parse(localStorage.getItem(RETURN_FB_MEDIA_KEY)||'{}'); return (m&&typeof m==='object'&&!Array.isArray(m))?m:{}; }
+  catch(e){ return {}; }
+}
+function returnFbMediaGet(id){
+  if(!id)return null;
+  var m=_returnFbMediaMap(), v=m[id];
+  return (v&&typeof v==='object'&&typeof v.url==='string'&&v.url)?v:null;
+}
+function returnFbMediaPut(id,rec){
+  if(!id||!rec||!rec.url)return false;
+  var m=_returnFbMediaMap(), cur=m[id];
+  if(cur&&cur.url===rec.url&&cur.path===rec.path)return true; /* dedup: no rewrite */
+  m[id]=rec;
+  return !!setReturnStorageItem(RETURN_FB_MEDIA_KEY,JSON.stringify(m));
+}
+function returnFbMediaDelete(id){
+  if(!id)return;
+  var m=_returnFbMediaMap();
+  if(Object.prototype.hasOwnProperty.call(m,id)){ delete m[id]; try{ setReturnStorageItem(RETURN_FB_MEDIA_KEY,JSON.stringify(m)); }catch(_e){} }
+}
+/* Storage is usable only when the SDK loaded, the handle exists, and a user is
+   signed in (the rules require request.auth and the path is users/<uid>/…). */
+function returnStorageReady(){
+  return !!(typeof firebase!=='undefined' && firebase && firebase.storage && fbStorage && fbUser && fbUser.uid);
+}
+function _returnDataUrlToBlob(dataUrl){
+  var parts=String(dataUrl).split(','), meta=parts[0]||'', b64=parts[1]||'';
+  var mime=(meta.match(/^data:([^;,]+)/)||[])[1]||'image/jpeg';
+  var bin=atob(b64), len=bin.length, arr=new Uint8Array(len);
+  for(var i=0;i<len;i++)arr[i]=bin.charCodeAt(i);
+  return new Blob([arr],{type:mime});
+}
+/* Upload one image (data: URL) for media id → users/<uid>/media/<id>.<ext>.
+   Records {path,url,...} in the synced map. Returns Promise<rec|null>; null on
+   any not-ready / non-image / error condition (caller falls back to IDB). */
+function returnStorageUpload(id,dataUrl,meta){
+  meta=meta||{};
+  if(!id||!returnStorageReady())return Promise.resolve(null);
+  if(!/^data:image/.test(String(dataUrl||'')))return Promise.resolve(null);
+  var existing=returnFbMediaGet(id); if(existing)return Promise.resolve(existing);
+  if(_returnFbUploading[id])return _returnFbUploading[id];
+  var uid, blob, ref;
+  try{ uid=fbUser.uid; }catch(_e){ return Promise.resolve(null); }
+  try{ blob=_returnDataUrlToBlob(dataUrl); }catch(e){ return Promise.resolve(null); }
+  if(!blob||!blob.size)return Promise.resolve(null);
+  var ext=((blob.type.split('/')[1]||'jpg').replace(/[^a-z0-9]/gi,'')||'jpg').slice(0,5);
+  var path='users/'+uid+'/media/'+id+'.'+ext;
+  try{ ref=fbStorage.ref().child(path); }catch(e){ return Promise.resolve(null); }
+  var p=ref.put(blob,{contentType:blob.type})
+    .then(function(){ return ref.getDownloadURL(); })
+    .then(function(url){
+      var rec={path:path,url:url,type:blob.type,size:blob.size,role:meta.role||'',at:new Date().toISOString()};
+      returnFbMediaPut(id,rec);
+      try{ bannerDebugLog('media:fb-uploaded',{id:id,size:blob.size,type:blob.type}); }catch(_e){}
+      return rec;
+    })
+    .catch(function(e){
+      try{ bannerDebugLog('media:fb-upload-failed',{id:id,error:String(e&&e.message||e)}); }catch(_e){}
+      return null;
+    });
+  _returnFbUploading[id]=p;
+  var clear=function(){ try{ delete _returnFbUploading[id]; }catch(_e){} };
+  p.then(clear,clear);
+  return p;
+}
+/* Best-effort delete of the Storage object + map entry for a ref/id. Failures
+   are swallowed (an orphaned object is harmless and within the free tier). */
+function returnStorageDelete(idOrRef){
+  var id=isReturnMediaRef(idOrRef)?returnMediaRefId(idOrRef):String(idOrRef||'');
+  if(!id)return Promise.resolve();
+  var rec=returnFbMediaGet(id);
+  returnFbMediaDelete(id);
+  if(rec&&rec.path&&returnStorageReady()){
+    try{ return fbStorage.ref().child(rec.path).delete().then(function(){},function(){}); }catch(_e){}
+  }
+  return Promise.resolve();
+}
+/* Migrate existing device-local images (IndexedDB / manifest) into Storage so
+   older 자료 보드/inbox/diary images become cross-device. Scans localStorage for
+   `return-media:<id>` refs not yet in the fb map, uploads a bounded batch, and
+   re-schedules itself only while it is still making forward progress (uploaded
+   > 0) — so a persistent failure (e.g. rules) can't turn into a hot retry loop. */
+function returnStorageBackfill(opts){
+  opts=opts||{};
+  var empty={uploaded:0,skipped:0,failed:0,scanned:0};
+  if(!returnStorageReady())return Promise.resolve(empty);
+  var limit=opts.limit||8, map=_returnFbMediaMap(), ids={};
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i);
+      if(k===RETURN_FB_MEDIA_KEY||k===MEDIA_SYNC_KEY)continue;
+      var v=localStorage.getItem(k)||'';
+      if(v.indexOf('return-media:')<0)continue;
+      var refs=v.match(/return-media:[^"',\s\]\}]+/g)||[];
+      refs.forEach(function(r){ var id=returnMediaRefId(r); if(id&&!Object.prototype.hasOwnProperty.call(map,id))ids[id]=true; });
+    }
+  }catch(_e){}
+  var list=Object.keys(ids).slice(0,limit);
+  var res={uploaded:0,skipped:0,failed:0,scanned:list.length};
+  var chain=Promise.resolve();
+  list.forEach(function(id){
+    chain=chain.then(function(){
+      return returnMediaGet(id).then(function(rec){
+        var dataUrl=(rec&&rec.dataUrl)||mediaSyncGet(id);
+        if(!dataUrl||!/^data:image/.test(dataUrl)){ res.skipped++; return; }
+        return returnStorageUpload(id,dataUrl,{role:(rec&&rec.role)||''}).then(function(up){
+          if(up&&up.url)res.uploaded++; else res.failed++;
+        });
+      }).catch(function(){ res.failed++; });
+    });
+  });
+  return chain.then(function(){
+    try{ bannerDebugLog('media:fb-backfill',res); }catch(_e){}
+    /* keep going only if this run actually uploaded something new */
+    if(res.uploaded>0 && list.length>=limit){
+      try{ clearTimeout(_returnFbBackfillTimer); }catch(_e){}
+      _returnFbBackfillTimer=setTimeout(function(){ returnStorageBackfill(opts); },4000);
+    }
+    return res;
+  });
+}
+window.returnStorageUpload=returnStorageUpload;
+window.returnStorageDelete=returnStorageDelete;
+window.returnStorageBackfill=returnStorageBackfill;
+window.returnFbMediaGet=returnFbMediaGet;
+
 var MediaStore = {
   /* ref helpers */
   isRef: function(v){ return isReturnMediaRef(v); },
@@ -15558,6 +15718,10 @@ var MediaStore = {
      (cache-backed). Useful where a Promise is impractical. '' if absent. */
   resolveSync: function(refOrUrl){
     if(isReturnDisplayableImageUrl(refOrUrl)) return String(refOrUrl||'');
+    /* Firebase Storage url map (cross-device, carries large images), then the
+       byte manifest (small images). Both are localStorage-backed → synchronous. */
+    var id=isReturnMediaRef(refOrUrl)?returnMediaRefId(refOrUrl):'';
+    if(id){ var r=returnFbMediaGet(id); if(r&&r.url&&isReturnDisplayableImageUrl(r.url))return r.url; }
     return mediaSyncResolve(refOrUrl);
   },
 
@@ -15571,6 +15735,20 @@ var MediaStore = {
     var id = isReturnMediaRef(idOrRef) ? returnMediaRefId(idOrRef) : String(idOrRef||'');
     return mediaSyncPut(id, dataUrl);
   },
+
+  /* Firebase Storage: is this ref backed by an uploaded object (any device can
+     render it via its download URL)? */
+  hasStorage: function(refOrUrl){
+    var id = isReturnMediaRef(refOrUrl) ? returnMediaRefId(refOrUrl) : String(refOrUrl||'');
+    return !!returnFbMediaGet(id);
+  },
+  /* Upload/ensure an id's bytes are in Firebase Storage (best-effort). */
+  uploadRef: function(idOrRef, dataUrl, meta){
+    var id = isReturnMediaRef(idOrRef) ? returnMediaRefId(idOrRef) : String(idOrRef||'');
+    return returnStorageUpload(id, dataUrl, meta||{});
+  },
+  /* Best-effort remove of Storage object + url-map entry for a ref/id. */
+  remove: function(idOrRef){ return returnStorageDelete(idOrRef); },
 
   /* Diagnostics. */
   manifestReport: function(){ return window.mediaSyncManifestReport(); }
@@ -15782,6 +15960,7 @@ var RETURN_DATA_MAP = {
   music:            {owner:'localStorage', keys:['music_playlists_v1','music_current_v8','music_ad_duration_cache_v1'], read:'musicLoad', write:'musicSave', sync:'firebase-blob (music_playlists_v1: union-merge by createdAt vs _returnSessionLoadMs)', media:'thumbnail in-memory', ids:'music_+ts+rand', versioned:'createdAt/updatedAt', notes:'best-versioned domain; music_ad_duration_cache_v1 is a small videoId→duration(sec) map used to detect pre-/mid-roll ads (musicCheckAdState)'},
   media:            {owner:'IndexedDB (return_media_store_v1)', keys:[], read:'returnMediaGet', write:'returnMediaPut', sync:'via mediaSync manifest', media:'binary in IDB ✓', ids:'m_+ts+rand', versioned:'createdAt', notes:'refs only in localStorage'},
   mediaSync:        {owner:'localStorage→IDB overflow (return_media_sync_v1)', keys:['return_media_sync_v1'], read:'mediaSyncGet/mediaSyncResolve', write:'mediaSyncPut', sync:'firebase-blob (single dedup key)', media:'compressed bytes, ONE copy per id, capped', ids:'media id', versioned:false, notes:'Stage 4: single cross-device media channel; dedups inline syncDataUrl'},
+  mediaFbStorage:   {owner:'localStorage (return_media_fb_v1) + Firebase Storage', keys:['return_media_fb_v1'], read:'returnFbMediaGet', write:'returnFbMediaPut/returnStorageUpload', sync:'firebase-blob (url map only; BYTES live in Storage users/<uid>/media)', media:'download URLs only — originals in Storage', ids:'media id', versioned:'at', notes:'Stage 5b: carries LARGE images cross-device (over manifest cap). Best-effort upload; falls back to IDB/manifest. returnStorageBackfill migrates old local media.'},
   overflow:         {owner:'IndexedDB (return_overflow_v1)', keys:[], read:'_idbCache', write:'_idbSet', sync:'via firebase-blob from cache', media:'whatever overflowed', ids:'n/a', versioned:false, notes:'quota escape hatch'},
   notionConfig:     {owner:'localStorage', keys:['diary_notion_cfg'], read:'getNotionCfg', write:'saveNotionConfig', sync:'sanitized settings doc', media:false, ids:'n/a', versioned:false, notes:'token kept local'},
   googleConfig:     {owner:'localStorage', keys:['gcal_cfg_v1'], read:'gcalLoadConfig', write:'gcalSaveConfig', sync:'PARTIAL: eventMeta only (eventIds NOT synced)', media:false, ids:'n/a', versioned:false, notes:'R6 → duplicate calendar events cross-device'},
@@ -29733,7 +29912,7 @@ function loadScript(src){
   });
   return _scriptLoadPromises[src];
 }
-var fbApp=null, fbAuth=null, fbDb=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
+var fbApp=null, fbAuth=null, fbDb=null, fbStorage=null, fbUser=null, _fbSaveTimer=null, _fbUnsubscribe=null, _applyingFbData=false;
 /* Circuit breaker: when Firestore returns resource-exhausted, halt auto-saves
    for 30 minutes so we don't keep burning quota on doomed retries. Force-sync
    (manual 지금 올리기) bypasses this so the user can explicitly retry. */
@@ -29752,7 +29931,7 @@ var _fbLastPushedSnapshot=null;
 var _fbCloudSettingsLastSavedMs=0;
 var _FB_CLOUD_SETTINGS_INTERVAL=120000;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
-var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system'};
+var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system',storageBucket:'my-return-system.firebasestorage.app'};
 /* NOTE: fb_config is intentionally NOT a cloud setting. Syncing the Firebase
    config THROUGH Firebase is circular: if any one device ever stored a wrong or
    empty apiKey, that bad value propagated to settings/main and then poisoned
@@ -30039,6 +30218,12 @@ async function initFirebase(){
       await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
       await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+      /* Storage SDK: image bytes go to Firebase Storage, app data keeps only a
+         reference (see returnStorageUpload / return_media_fb_v1). Best-effort —
+         a load failure must NOT block auth/firestore, so it's caught separately
+         and the app falls back to the IndexedDB media path. */
+      try{ await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js'); }
+      catch(_se){ console.warn('[fb] storage SDK load failed (media falls back to IndexedDB):', _se&&_se.message||_se); }
     } catch(e){
       setFbStatus('Firebase 연결 실패 — 재시도하거나 로그인 없이 사용하세요','err');
       console.error('[fb] initFirebase loadScript failed:', e&&e.message||e);
@@ -30056,6 +30241,10 @@ async function initFirebase(){
   try{fbApp=firebase.app();}catch(e){fbApp=firebase.initializeApp(cfg);}
   fbAuth=firebase.auth();
   fbDb=firebase.firestore();
+  /* Storage handle (optional): only if the storage SDK loaded. Wrapped so a
+     bad/missing bucket can never break auth or firestore init. */
+  try{ if(firebase.storage) fbStorage=firebase.storage(); }
+  catch(_se){ fbStorage=null; console.warn('[fb] firebase.storage() unavailable:', _se&&_se.message||_se); }
   _fbInitOnce = true;
   // Subscribe to auth state changes only once across the lifetime of the page.
   if(!_fbAuthSubscribed){
@@ -30077,6 +30266,11 @@ async function initFirebase(){
       if(user){
         setFbStatus('연결됨 — '+(user.email||'Google 계정'),'ok');
         fbLoadAll();
+        /* Migrate existing device-local images to Storage so they become
+           cross-device. Delayed so it runs after fbLoadAll applies cloud data
+           (which may pull in more image refs). Gentle + idempotent — skips any
+           id already in the fb url map, so re-running is safe. */
+        try{ setTimeout(function(){ if(typeof returnStorageBackfill==='function') returnStorageBackfill(); }, 6000); }catch(_e){}
       } else {
         /* Unsubscribe the Firestore listener on sign-out so it doesn't keep
            firing and attempting reads (which would either fail with
