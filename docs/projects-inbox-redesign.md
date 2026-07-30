@@ -73,3 +73,22 @@
   편집). 3개 renderProjects 정의(2개 사망) 모두 일괄 갱신 → 일관성 유지.
 - 검증(헤드리스): 상세 진입, 포스트 2·제목/본문, 답글 1(“믹싱은 주말에”)·삭제버튼, 아바타색 rgb(190,114,122),
   답글 모달(openFormDialog) 오픈, pageerror 0, `npm test` 32스위트 통과.
+
+## E. 3단계-b — 자료 보드 freeform (PureRef/Freeform형 캔버스)
+- 프로젝트 상세 “참고 자료” 그리드를 **freeform 보드**로 교체(전폭 `grid-column:1/-1`).
+- **데이터**: `project.board={view:{tx,ty,scale}, items:[{id,type,x,y,w,h,fav,accent,...}]}`.
+  타입 = `note`(text)·`check`(title,list[{text,done}])·`frame`(label)·`link`(title,url)·`image`(src,title).
+- **레거시 이관**: `projectBoardEnsure`가 기존 `project.resources`를 1회만 board.items로 이관
+  (`_boardMigrated` 가드) 후 **즉시 saveProjects로 영속화**(재이관·id 중복·크로스디바이스 유실 방지).
+  resources는 백업으로 보존. → `tests/project-board-migrate.test.js`(이관 매핑·멱등·이미 이관됨 보존).
+- **조작(마우스·터치·펜, Pointer Events)**: 빈 곳 드래그=패닝, 항목 드래그=이동(그립/본문), 2손가락=핀치 줌,
+  휠=커서 기준 줌(scale 0.3~3). 제스처 종료 시 저장.
+- **항목 CRUD**: 툴바(＋메모/체크/프레임/링크/이미지, ★즐겨찾기 필터, 맞춤=뷰 리셋). 항목별 ★즐겨찾기·✎편집·×삭제,
+  체크 토글, 링크 열기. 편집/추가는 openFormDialog 재사용.
+- **색 추출**: 이미지 추가 시 `projectBoardExtractColor`(캔버스 평균색)로 accent 지정(항목 상단 보더·즐겨찾기 링).
+  ※ 외부(교차출처) 이미지는 캔버스 오염 시 추출 실패→기본 accent(예외 안전).
+- 버그 수정: 링크 항목 래퍼 클래스 `pjb-link`가 스킵 셀렉터의 `.pjb-link`와 충돌 → 드래그 불가. 스킵에서
+  `.pjb-link` 제거(앵커는 `a`/`[data-bd-ctl]`로 이미 커버).
+- **다음(2차)**: **연결선(커넥터)** — 항목 간 엣지 저장 + pan/zoom 추종 SVG 렌더(이번엔 보류).
+- 검증(헤드리스): 이관 2항목(link/note)·툴바 5·이관 영속화, 그립 드래그 이동 저장(40→140/120),
+  휠 줌 transform·즐겨찾기 토글+필터, 5종 항목 전폭 렌더, pageerror 0, `npm test` 33스위트 통과.
