@@ -18312,6 +18312,26 @@ function _initInbox(){
     for(var k in _catHints){ if(ids.indexOf(k)<0)continue; if(_catHints[k].some(function(w){return t.indexOf(w)>=0;}))return k; }
     return null;
   }
+  /* LLM classify via the shared callAI (Groq) helper; resolves to a category id.
+     Falls back to the keyword heuristic when there's no API key, on error, or
+     when the model's answer doesn't match a known category. */
+  function ib2AutoClassify(text){
+    text=String(text||'').trim();
+    var list=cats();
+    var hasKey=false; try{ hasKey=!!localStorage.getItem('groq_api_key'); }catch(_e){}
+    if(!text || !hasKey || typeof callAI!=='function') return Promise.resolve(guessCat(text));
+    var menu=list.map(function(c){return c.id+': '+c.label;}).join(', ');
+    var prompt='다음 메모를 아래 카테고리 중 하나로 분류해. 카테고리(id: 라벨) — '+menu+'.\n'
+      +'메모: "'+text.slice(0,400)+'"\n'
+      +'반드시 위 id 중 정확히 하나만, 다른 말 없이 소문자로 출력해.';
+    return Promise.resolve().then(function(){ return callAI(prompt,12); }).then(function(out){
+      var ans=String(out||'').toLowerCase();
+      var hit=list.find(function(c){ return new RegExp('(^|[^a-z0-9_])'+c.id.toLowerCase()+'([^a-z0-9_]|$)').test(ans); });
+      if(hit)return hit.id;
+      var byLabel=list.find(function(c){ return c.label && ans.indexOf(String(c.label).toLowerCase())>=0; });
+      return byLabel?byLabel.id:guessCat(text);
+    }).catch(function(){ return guessCat(text); });
+  }
   function imgsHtml(it,cls){
     var imgs=Array.isArray(it.imgs)?it.imgs:[]; if(!imgs.length)return '';
     return '<div class="'+cls+'">'+imgs.map(function(ref){
@@ -18398,9 +18418,13 @@ function _initInbox(){
     host.querySelectorAll('[data-cap]').forEach(function(b){b.addEventListener('click',function(){_capCat=b.getAttribute('data-cap');paintCapCats();});});
     var autoBtn=host.querySelector('[data-cap-auto]');
     if(autoBtn)autoBtn.addEventListener('click',function(){
-      var ta=document.getElementById('ib2-ta'); var g=guessCat(ta?ta.value:'');
-      if(g){ _capCat=g; paintCapCats(); if(typeof showToast==='function')showToast('“'+catById(g).label+'”로 분류했어요'); }
-      else if(typeof showToast==='function')showToast('내용을 조금 더 적으면 추천할 수 있어요');
+      var ta=document.getElementById('ib2-ta'); var text=ta?ta.value:'';
+      if(!String(text||'').trim()){ if(typeof showToast==='function')showToast('내용을 조금 더 적으면 추천할 수 있어요'); return; }
+      autoBtn.disabled=true; autoBtn.textContent='✨ 분류 중…';
+      ib2AutoClassify(text).then(function(g){
+        if(g){ _capCat=g; paintCapCats(); if(typeof showToast==='function')showToast('“'+catById(g).label+'”로 분류했어요'); }
+        else { autoBtn.disabled=false; autoBtn.textContent='✨ 자동'; if(typeof showToast==='function')showToast('내용을 조금 더 적으면 추천할 수 있어요'); }
+      }).catch(function(){ autoBtn.disabled=false; autoBtn.textContent='✨ 자동'; });
     });
   }
   function paintThread(){
