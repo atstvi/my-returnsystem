@@ -4363,6 +4363,18 @@ to{opacity:1;transform:translateY(0)}}
 .pjx-rmeta span{font-size:var(--text-xs);color:var(--fg-4)}
 .pjx-rdel{font-family:inherit;font-size:var(--text-xs);color:var(--fg-4);background:none;border:0;padding:2px 4px;cursor:pointer;border-radius:var(--r-sm)}
 .pjx-rdel:hover{color:var(--danger)}
+/* inline X composer */
+.pjx-composer{display:flex;gap:var(--sp-3);padding:var(--sp-3) 2px var(--sp-4);border-bottom:.5px solid var(--border-subtle)}
+.pjx-composer .pjx-avatar{background:var(--accent)}
+.pjx-cmain{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--sp-2)}
+.pjx-cinput{width:100%;resize:none;border:0;background:transparent;color:var(--fg-1);font-family:inherit;font-size:var(--text-md);line-height:1.5;padding:8px 0;min-height:24px;overflow:hidden}
+.pjx-cinput::placeholder{color:var(--fg-4)}
+.pjx-cinput:focus{outline:none}
+.pjx-crow{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.pjx-chint{font-size:var(--text-xs);color:var(--fg-4)}
+.pjx-crow .pjx-cpost{padding:6px 18px;border-radius:var(--r-full);font-size:var(--text-sm)}
+.pjx-feed-all .pjx-post{cursor:pointer}
+.pjx-feed-all .pjx-post:hover{background:var(--bg-raised)}
 .project-studio-empty{border:1px dashed var(--border);border-radius:var(--r-md);padding:var(--sp-5);color:var(--fg-3);background:var(--bg-raised)}
 .project-studio-empty strong{display:block;color:var(--fg-2);margin-bottom:var(--sp-2)}
 @media(max-width:860px){.projects-page.project-studio{grid-template-columns:1fr}.project-studio .project-list-pane{padding:var(--sp-5);border-right:none;border-bottom:.5px solid var(--border-subtle)}.project-list-head{padding:0 0 var(--sp-4)}.project-studio .project-detail-pane{padding:var(--sp-5)}.project-studio-head,.hero-card{grid-template-columns:1fr}.project-studio-board,.project-workspace{grid-template-columns:1fr}}
@@ -27328,6 +27340,7 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-open]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-open');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-edit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-edit');});if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
+  if(typeof bindProjectLogComposer==='function')bindProjectLogComposer(detail);
   if(typeof projectBoardBind==='function')projectBoardBind(detail,p);
   bindProjectRecordRows(detail);
 };
@@ -27400,6 +27413,7 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-open]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-open');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-edit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-edit');});if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
+  if(typeof bindProjectLogComposer==='function')bindProjectLogComposer(detail);
   if(typeof projectBoardBind==='function')projectBoardBind(detail,p);
   bindProjectRecordRows(detail);
 };
@@ -27415,37 +27429,98 @@ function projectLogTime(ts){
   try{return new Date(ts).toLocaleDateString('ko-KR',{month:'long',day:'numeric'});}catch(e){return '';}
 }
 /* X-style work-log feed: each log is a post; replies thread beneath it. */
+/* ── Twitter/X-style "작업 로그" feed (shared) ─────────────────────────────
+   The product concept absorbs "기록" into project work-logs rendered as an X
+   feed. These helpers are the single source of the post/composer markup so the
+   project-detail feed AND the dashboard "전체 기록" feed look identical. */
+var PJX_REPLY_SVG='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>';
+function projectXAvatar(project){ return projectEsc((project&&(project.icon||(project.title?String(project.title).trim().charAt(0):'')))||'·'); }
+/* One X post. opts.withPid stamps data-log-pid so a mixed (multi-project) feed
+   can resolve which project each post belongs to. */
+function projectXPostHtml(project, l, opts){
+  opts=opts||{};
+  var color=(project&&project.color)||'#BE727A', avatar=projectXAvatar(project);
+  var date=l.updatedAt||l.createdAt, text=String(l.text||l.body||'').trim();
+  var replies=Array.isArray(l.replies)?l.replies:[];
+  var repliesHtml=replies.length?('<div class="pjx-replies">'+replies.slice().sort(function(a,b){return (a.createdAt||0)-(b.createdAt||0);}).map(function(r){
+    return '<div class="pjx-reply" data-reply="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">'
+      +'<span class="pjx-ravatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
+      +'<div class="pjx-rmain"><div class="pjx-rtext">'+projectEsc(r.text||'')+'</div>'
+      +'<div class="pjx-rmeta"><span>'+projectEsc(projectLogTime(r.createdAt))+'</span>'
+      +'<button type="button" class="pjx-rdel" data-reply-del="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">삭제</button></div></div></div>';
+  }).join('')+'</div>'):'';
+  var pid=opts.withPid?(' data-log-pid="'+projectEsc(project.id)+'"'):'';
+  return '<article class="pjx-post" data-log="'+projectEsc(l.id)+'"'+pid+'>'
+    +'<span class="pjx-avatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
+    +'<div class="pjx-main">'
+      +'<div class="pjx-head"><span class="pjx-name">'+projectEsc(project.title||'프로젝트')+'</span>'
+      +'<span class="pjx-time">· '+projectEsc(projectLogTime(date))+'</span></div>'
+      +(l.title?'<div class="pjx-title">'+projectEsc(l.title)+'</div>':'')
+      +(text?'<div class="pjx-text">'+projectEsc(text)+'</div>':'')
+      +'<div class="pjx-actions">'
+        +'<button type="button" class="pjx-act" data-log-reply="'+projectEsc(l.id)+'">'+PJX_REPLY_SVG+(replies.length?'<span>'+replies.length+'</span>':'답글')+'</button>'
+        +'<button type="button" class="pjx-act" data-log-edit="'+projectEsc(l.id)+'">편집</button>'
+        +'<button type="button" class="pjx-act pjx-act-del" data-log-del="'+projectEsc(l.id)+'">삭제</button>'
+      +'</div>'
+      +repliesHtml
+    +'</div></article>';
+}
+/* Inline "무슨 일이 있었나요?" composer. When opts.pid is set the post goes
+   straight to that project; otherwise it routes through quickAddLog (picker). */
+function projectLogComposerHtml(color, avatar, opts){
+  opts=opts||{};
+  var pidAttr=opts.pid?(' data-composer-pid="'+projectEsc(opts.pid)+'"'):'';
+  return '<div class="pjx-composer"'+pidAttr+'>'
+    +'<span class="pjx-avatar" style="background:'+projectEsc(color||'var(--accent)')+'">'+projectEsc(avatar||'＋')+'</span>'
+    +'<div class="pjx-cmain">'
+      +'<textarea class="pjx-cinput" rows="1" placeholder="'+projectEsc(opts.placeholder||'무슨 일이 있었나요?')+'"></textarea>'
+      +'<div class="pjx-crow"><span class="pjx-chint">'+projectEsc(opts.hint||'')+'</span>'
+      +'<button type="button" class="btn btn-primary pjx-cpost">게시</button></div>'
+    +'</div></div>';
+}
+function _projectPostLog(p, text){
+  if(!p)return;
+  p.logs=Array.isArray(p.logs)?p.logs:[];
+  p.logs.unshift({id:'log_'+Date.now(),title:'',text:text,createdAt:Date.now(),updatedAt:Date.now()});
+  p.updatedAt=Date.now(); saveProjects();
+  if(typeof renderProjects==='function')renderProjects();
+}
+function bindProjectLogComposer(root){
+  if(!root||!root.querySelectorAll)return;
+  root.querySelectorAll('.pjx-composer').forEach(function(c){
+    if(c._bound)return; c._bound=true;
+    var ta=c.querySelector('.pjx-cinput'), btn=c.querySelector('.pjx-cpost'); if(!ta||!btn)return;
+    function grow(){ ta.style.height='auto'; ta.style.height=Math.min(220,ta.scrollHeight)+'px'; }
+    ta.addEventListener('input',grow);
+    ta.addEventListener('keydown',function(e){ if((e.ctrlKey||e.metaKey)&&e.key==='Enter'){ e.preventDefault(); submit(); } });
+    btn.addEventListener('click',submit);
+    function submit(){
+      var text=(ta.value||'').trim(); if(!text)return;
+      var pid=c.getAttribute('data-composer-pid');
+      if(pid){ var p=projects.find(function(x){return String(x.id)===String(pid);}); _projectPostLog(p,text); }
+      else if(typeof quickAddLog==='function'){ quickAddLog(text); }
+      ta.value=''; grow();
+    }
+  });
+}
+/* Bind a mixed multi-project X feed (전체 기록): each post carries data-log-pid. */
+function bindAllLogsFeed(host){
+  if(!host)return;
+  function P(el){ var a=el.closest('[data-log-pid]'); var pid=a&&a.getAttribute('data-log-pid'); return projects.find(function(x){return String(x.id)===String(pid);}); }
+  function L(p,id){ return p&&(p.logs||[]).find(function(x){return String(x.id)===String(id);}); }
+  host.querySelectorAll('.pjx-post').forEach(function(art){art.addEventListener('click',function(e){ if(e.target.closest('[data-log-reply],[data-log-edit],[data-log-del],[data-reply-del]'))return; var p=P(art),l=L(p,art.getAttribute('data-log')); if(l&&typeof openProjectLogEditor==='function')openProjectLogEditor(p,l); });});
+  host.querySelectorAll('[data-log-reply]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var p=P(b),l=L(p,b.getAttribute('data-log-reply'));if(l&&typeof openProjectLogReply==='function')openProjectLogReply(p,l);});});
+  host.querySelectorAll('[data-log-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var p=P(b),l=L(p,b.getAttribute('data-log-edit'));if(l&&typeof openProjectLogEditor==='function')openProjectLogEditor(p,l);});});
+  host.querySelectorAll('[data-log-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var p=P(b),l=L(p,b.getAttribute('data-log-del'));if(l&&typeof deleteProjectLog==='function')deleteProjectLog(p,l);});});
+  host.querySelectorAll('[data-reply-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var p=P(b),l=L(p,b.getAttribute('data-reply-log'));if(l&&typeof deleteProjectLogReply==='function')deleteProjectLogReply(p,l,b.getAttribute('data-reply-del'));});});
+}
 function projectLogsStudioHtml(project){
   var logs=(project.logs||[]).slice().sort(function(a,b){return (b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0);});
-  if(!logs.length)return projectStudioEmpty('아직 남긴 기록이 없어요','결정, 깨달음, 다음 액션을 짧게 남기면 프로젝트 흐름을 다시 잡기 쉬워요.','project-add-log-empty','로그 추가');
   var color=project.color||'#BE727A';
-  var avatar=projectEsc(project.icon||(project.title?project.title.trim().charAt(0):'·'));
-  return '<div class="pjx-feed">'+logs.map(function(l){
-    var date=l.updatedAt||l.createdAt;
-    var text=String(l.text||l.body||'').trim();
-    var replies=Array.isArray(l.replies)?l.replies:[];
-    var repliesHtml=replies.length?('<div class="pjx-replies">'+replies.slice().sort(function(a,b){return (a.createdAt||0)-(b.createdAt||0);}).map(function(r){
-      return '<div class="pjx-reply" data-reply="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">'
-        +'<span class="pjx-ravatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
-        +'<div class="pjx-rmain"><div class="pjx-rtext">'+projectEsc(r.text||'')+'</div>'
-        +'<div class="pjx-rmeta"><span>'+projectEsc(projectLogTime(r.createdAt))+'</span>'
-        +'<button type="button" class="pjx-rdel" data-reply-del="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">삭제</button></div></div></div>';
-    }).join('')+'</div>'):'';
-    return '<article class="pjx-post" data-log="'+projectEsc(l.id)+'">'
-      +'<span class="pjx-avatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
-      +'<div class="pjx-main">'
-        +'<div class="pjx-head"><span class="pjx-name">'+projectEsc(project.title||'프로젝트')+'</span>'
-        +'<span class="pjx-time">'+projectEsc(projectLogTime(date))+'</span></div>'
-        +(l.title?'<div class="pjx-title">'+projectEsc(l.title)+'</div>':'')
-        +(text?'<div class="pjx-text">'+projectEsc(text)+'</div>':'')
-        +'<div class="pjx-actions">'
-          +'<button type="button" class="pjx-act" data-log-reply="'+projectEsc(l.id)+'"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>'+(replies.length?'<span>'+replies.length+'</span>':'답글')+'</button>'
-          +'<button type="button" class="pjx-act" data-log-edit="'+projectEsc(l.id)+'">편집</button>'
-          +'<button type="button" class="pjx-act pjx-act-del" data-log-del="'+projectEsc(l.id)+'">삭제</button>'
-        +'</div>'
-        +repliesHtml
-      +'</div></article>';
-  }).join('')+'</div>';
+  var avatar=projectXAvatar(project);
+  var composer=projectLogComposerHtml(color, avatar, {pid:project.id, placeholder:'무슨 일이 있었나요?', hint:'⌘/Ctrl+Enter'});
+  if(!logs.length)return '<div class="pjx-feed">'+composer+'</div>'+projectStudioEmpty('아직 남긴 기록이 없어요','결정, 깨달음, 다음 액션을 짧게 남기면 프로젝트 흐름을 다시 잡기 쉬워요.',null,'');
+  return '<div class="pjx-feed">'+composer+logs.map(function(l){return projectXPostHtml(project,l,{});}).join('')+'</div>';
 }
 renderProjects=function(){
   loadProjects();
@@ -27508,6 +27583,7 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-open]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-open');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-edit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-edit');});if(r)openProjectResourceEditor(p,r);});});
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
+  if(typeof bindProjectLogComposer==='function')bindProjectLogComposer(detail);
   if(typeof projectBoardBind==='function')projectBoardBind(detail,p);
   bindProjectRecordRows(detail);
 };
@@ -27545,24 +27621,19 @@ renderProjects=function(){
   }
   function renderAllLogs(){
     var host=document.getElementById('pj-logs'); if(!host)return;
+    var active=projects.filter(function(p){return p&&p.status!=='archived';});
     var all=[];
-    projects.forEach(function(p){ if(p&&Array.isArray(p.logs)) p.logs.forEach(function(l){ if(l) all.push({p:p,l:l}); }); });
+    active.forEach(function(p){ if(Array.isArray(p.logs)) p.logs.forEach(function(l){ if(l) all.push({p:p,l:l}); }); });
     all.sort(function(a,b){ return (b.l.updatedAt||b.l.createdAt||0)-(a.l.updatedAt||a.l.createdAt||0); });
-    if(!all.length){ host.innerHTML='<div class="project-empty">아직 작업 로그가 없어요. 프로젝트에 들어가 “+ 로그”로 남기면 여기에 모여요.</div>'; return; }
-    host.innerHTML=all.map(function(o){
-      var l=o.l, p=o.p, date=l.updatedAt||l.createdAt;
-      return '<button type="button" class="pj-log" data-log-pid="'+projectEsc(p.id)+'" data-log-id="'+projectEsc(l.id)+'">'+
-        '<div class="pj-log-top"><span class="pj-log-chip"><span class="pj-log-dot" style="background:'+projectEsc(p.color||'#BE727A')+'"></span>'+projectEsc(p.title)+'</span>'+
-        '<span class="pj-log-time">'+(date?projectEsc(new Date(date).toLocaleDateString('ko-KR',{month:'long',day:'numeric'})):'')+'</span></div>'+
-        (l.title?'<div class="pj-log-title">'+projectEsc(l.title)+'</div>':'')+
-        (l.text?'<div class="pj-log-text">'+projectEsc(String(l.text).slice(0,220))+'</div>':'')+
-        '</button>';
-    }).join('');
-    host.querySelectorAll('[data-log-pid]').forEach(function(b){b.addEventListener('click',function(){
-      var p=projects.find(function(x){return String(x.id)===String(b.getAttribute('data-log-pid'));}); if(!p)return;
-      var l=(p.logs||[]).find(function(x){return String(x.id)===String(b.getAttribute('data-log-id'));});
-      if(l&&typeof openProjectLogEditor==='function')openProjectLogEditor(p,l);
-    });});
+    /* X-style feed: composer on top (routes through quickAddLog's project
+       picker), then every project's logs merged newest-first as posts. */
+    var composer=projectLogComposerHtml('var(--accent)','＋',{placeholder:active.length?'무슨 일이 있었나요?':'프로젝트를 먼저 만들어 주세요', hint:active.length?'프로젝트 선택 후 게시':''});
+    var feed=all.length
+      ? all.map(function(o){ return projectXPostHtml(o.p,o.l,{withPid:true}); }).join('')
+      : '<div class="project-empty" style="padding:var(--sp-8) var(--sp-4)">아직 작업 로그가 없어요. 위에 한 줄 적어 남겨보세요.</div>';
+    host.innerHTML='<div class="pjx-feed pjx-feed-all">'+composer+feed+'</div>';
+    bindProjectLogComposer(host);
+    bindAllLogsFeed(host);
   }
   function renderFolders(){
     var host=document.getElementById('pj-folders'); if(!host)return;
