@@ -62,3 +62,14 @@
 - 검증(헤드리스): 서브세그 3버튼, 타임라인 표시, 7일·오늘 1개 하이라이트, 그룹 3(기본+활성2, 보관 제외)·
   개수(2/1/1), 막대 배치(오늘~+2 span=3, → 표시)·완료 취소선, 주 이동(7/26–8/1 → 8/2–8/8)·토글 동작,
   pageerror 0, `npm test` 32스위트 통과.
+
+## D. 3단계-a — 프로젝트 상세 작업 로그 X화(답글/스레드)
+- `projectLogsStudioHtml`를 **X형 피드**로 교체: 각 로그 = 포스트(프로젝트 색 아바타 + 이름 + 상대시간
+  `projectLogTime`(7일 내 `timeAgo`, 이후 날짜) + 제목/본문 + 액션행). 액션 = 💬답글(개수)·편집·삭제.
+- **답글/스레드**: `log.replies=[{id:'rep_'+ts,text,createdAt}]`(하위 호환·선택 필드). 포스트 아래 들여쓴
+  스레드로 표시(작은 아바타 + 본문 + 시간·삭제). `openProjectLogReply(p,log)`(모달 1필드),
+  `deleteProjectLogReply(p,log,replyId)`.
+- 스튜디오 렌더 바인딩 갱신: `data-log-reply/edit/del`·`data-reply-del` 위임(카드 클릭은 액션 버튼 제외 시
+  편집). 3개 renderProjects 정의(2개 사망) 모두 일괄 갱신 → 일관성 유지.
+- 검증(헤드리스): 상세 진입, 포스트 2·제목/본문, 답글 1(“믹싱은 주말에”)·삭제버튼, 아바타색 rgb(190,114,122),
+  답글 모달(openFormDialog) 오픈, pageerror 0, `npm test` 32스위트 통과.

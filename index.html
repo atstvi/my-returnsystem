@@ -4231,6 +4231,32 @@ to{opacity:1;transform:translateY(0)}}
 .project-log-note-title{font-weight:var(--fw-semibold);color:var(--fg-1);margin-bottom:var(--sp-2)}
 .project-log-note-meta{font-size:var(--text-xs);color:var(--fg-4);margin-bottom:var(--sp-2)}
 .project-log-note-body{color:var(--fg-2);line-height:1.55;white-space:pre-wrap}
+/* X-style work-log feed (project detail) */
+.pjx-feed{display:flex;flex-direction:column}
+.pjx-post{display:flex;gap:var(--sp-3);padding:var(--sp-4) 2px;border-top:.5px solid var(--border-subtle)}
+.pjx-post:first-child{border-top:0}
+.pjx-avatar,.pjx-ravatar{flex:none;display:inline-flex;align-items:center;justify-content:center;color:#fff;font-weight:var(--fw-bold);border-radius:50%}
+.pjx-avatar{width:38px;height:38px;font-size:var(--text-md)}
+.pjx-ravatar{width:26px;height:26px;font-size:var(--text-xs)}
+.pjx-main{flex:1;min-width:0}
+.pjx-head{display:flex;align-items:baseline;gap:var(--sp-2)}
+.pjx-name{font-weight:var(--fw-bold);color:var(--fg-1)}
+.pjx-time{font-size:var(--text-xs);color:var(--fg-4)}
+.pjx-title{font-weight:var(--fw-semibold);color:var(--fg-1);margin-top:2px}
+.pjx-text{color:var(--fg-2);line-height:1.6;white-space:pre-wrap;word-break:break-word;margin-top:3px}
+.pjx-actions{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2)}
+.pjx-act{display:inline-flex;align-items:center;gap:5px;font-family:inherit;font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);background:none;border:0;padding:5px 9px;border-radius:var(--r-full);cursor:pointer;transition:color var(--t-snap),background var(--t-snap)}
+.pjx-act svg{opacity:.8}
+.pjx-act:hover{color:var(--accent);background:var(--accent-light)}
+.pjx-act-del:hover{color:var(--danger);background:transparent}
+.pjx-replies{margin-top:var(--sp-2);padding-left:var(--sp-2);border-left:2px solid var(--border-subtle);display:flex;flex-direction:column;gap:var(--sp-2)}
+.pjx-reply{display:flex;gap:var(--sp-2)}
+.pjx-rmain{flex:1;min-width:0}
+.pjx-rtext{color:var(--fg-2);line-height:1.5;white-space:pre-wrap;word-break:break-word;font-size:var(--text-sm)}
+.pjx-rmeta{display:flex;align-items:center;gap:var(--sp-2);margin-top:1px}
+.pjx-rmeta span{font-size:var(--text-xs);color:var(--fg-4)}
+.pjx-rdel{font-family:inherit;font-size:var(--text-xs);color:var(--fg-4);background:none;border:0;padding:2px 4px;cursor:pointer;border-radius:var(--r-sm)}
+.pjx-rdel:hover{color:var(--danger)}
 .project-studio-empty{border:1px dashed var(--border);border-radius:var(--r-md);padding:var(--sp-5);color:var(--fg-3);background:var(--bg-raised)}
 .project-studio-empty strong{display:block;color:var(--fg-2);margin-bottom:var(--sp-2)}
 @media(max-width:860px){.projects-page.project-studio{grid-template-columns:1fr}.project-studio .project-list-pane{padding:var(--sp-5);border-right:none;border-bottom:.5px solid var(--border-subtle)}.project-list-head{padding:0 0 var(--sp-4)}.project-studio .project-detail-pane{padding:var(--sp-5)}.project-studio-head,.hero-card{grid-template-columns:1fr}.project-studio-board,.project-workspace{grid-template-columns:1fr}}
@@ -26396,6 +26422,33 @@ function deleteProjectLog(project, log){
   });
 }
 
+function openProjectLogReply(project, log){
+  if(!project||!log)return;
+  openFormDialog('답글 달기', [
+    {key:'text', label:'답글', type:'textarea', value:''}
+  ], function(data){
+    var text=(data.text||'').trim();
+    if(!text)return;
+    log.replies=Array.isArray(log.replies)?log.replies:[];
+    log.replies.push({id:'rep_'+Date.now(),text:text,createdAt:Date.now()});
+    log.updatedAt=Date.now();
+    project.updatedAt=Date.now();
+    saveProjects();
+    renderProjects();
+  });
+}
+
+function deleteProjectLogReply(project, log, replyId){
+  if(!project||!log||!replyId)return;
+  openConfirmDialog('답글 삭제', '이 답글을 삭제할까요?', function(){
+    log.replies=(log.replies||[]).filter(function(x){return String(x.id)!==String(replyId);});
+    log.updatedAt=Date.now();
+    project.updatedAt=Date.now();
+    saveProjects();
+    renderProjects();
+  });
+}
+
 function projectLogsHtml(project){
   var logs=(project.logs||[]).slice().sort(function(a,b){return (b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0);});
   if(!logs.length)return '<div class="project-empty">아직 프로젝트 로그가 없어요. 생각, 진행 기록, 짧은 메모를 남길 수 있어요.</div>';
@@ -26558,7 +26611,12 @@ renderProjects=function(){
   detail.querySelector('#project-link-record').addEventListener('click',function(){openProjectRecordLinker(p);});
   detail.querySelector('#project-add-log').addEventListener('click',function(){openProjectLogEditor(p);});
   detail.querySelector('#project-add-resource').addEventListener('click',function(){openProjectResourceEditor(p);});
-  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(){var l=(p.logs||[]).find(function(x){return x.id===row.getAttribute('data-project-log');});if(l)openProjectLogEditor(p,l);});});
+  function _pjFindLog(id){return (p.logs||[]).find(function(x){return String(x.id)===String(id);});}
+  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('[data-log-reply],[data-log-edit],[data-log-del],[data-reply-del]'))return;var l=_pjFindLog(row.getAttribute('data-project-log'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-reply]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-reply'));if(l)openProjectLogReply(p,l);});});
+  detail.querySelectorAll('[data-log-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-edit'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-del'));if(l)deleteProjectLog(p,l);});});
+  detail.querySelectorAll('[data-reply-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-reply-log'));if(l)deleteProjectLogReply(p,l,b.getAttribute('data-reply-del'));});});
   detail.querySelectorAll('[data-project-unlink-task]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-project-unlink-task');});if(t){delete t.projectId;if(typeof saveTaskData==='function')saveTaskData();renderProjects();}});});
   detail.querySelectorAll('[data-task]').forEach(function(btn){btn.addEventListener('click',function(){var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-task');});if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);});});
   detail.querySelectorAll('[data-res]').forEach(function(card){card.addEventListener('click',function(e){if(e.target.closest('button'))return;var r=(p.resources||[]).find(function(x){return x.id===card.getAttribute('data-res');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
@@ -26624,7 +26682,12 @@ renderProjects=function(){
   bind('project-link-record',function(){openProjectRecordLinker(p);}); bind('project-link-record-empty',function(){openProjectRecordLinker(p);});
   bind('project-add-log',function(){openProjectLogEditor(p);}); bind('project-add-log-empty',function(){openProjectLogEditor(p);});
   bind('project-add-resource',function(){openProjectResourceEditor(p);}); bind('project-add-resource-empty',function(){openProjectResourceEditor(p);});
-  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(){var l=(p.logs||[]).find(function(x){return x.id===row.getAttribute('data-project-log');});if(l)openProjectLogEditor(p,l);});});
+  function _pjFindLog(id){return (p.logs||[]).find(function(x){return String(x.id)===String(id);});}
+  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('[data-log-reply],[data-log-edit],[data-log-del],[data-reply-del]'))return;var l=_pjFindLog(row.getAttribute('data-project-log'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-reply]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-reply'));if(l)openProjectLogReply(p,l);});});
+  detail.querySelectorAll('[data-log-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-edit'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-del'));if(l)deleteProjectLog(p,l);});});
+  detail.querySelectorAll('[data-reply-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-reply-log'));if(l)deleteProjectLogReply(p,l,b.getAttribute('data-reply-del'));});});
   detail.querySelectorAll('[data-project-unlink-task]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-project-unlink-task');});if(t){delete t.projectId;if(typeof saveTaskData==='function')saveTaskData();renderProjects();}});});
   detail.querySelectorAll('[data-task]').forEach(function(btn){btn.addEventListener('click',function(){var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-task');});if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);});});
   detail.querySelectorAll('[data-res]').forEach(function(card){card.addEventListener('click',function(e){if(e.target.closest('button'))return;var r=(p.resources||[]).find(function(x){return x.id===card.getAttribute('data-res');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
@@ -26638,17 +26701,43 @@ function projectStudioEmpty(title, body, actionId, actionText){
   return '<div class="project-studio-empty"><strong>'+projectEsc(title)+'</strong><span>'+projectEsc(body||'')+'</span>'
     +(actionId?'<div style="margin-top:var(--sp-4)"><button type="button" class="btn btn-ghost" id="'+actionId+'">'+projectEsc(actionText||'추가')+'</button></div>':'')+'</div>';
 }
+function projectLogTime(ts){
+  if(!ts)return '';
+  var diff=Date.now()-ts;
+  if(diff<7*86400000 && typeof timeAgo==='function')return timeAgo(ts);
+  try{return new Date(ts).toLocaleDateString('ko-KR',{month:'long',day:'numeric'});}catch(e){return '';}
+}
+/* X-style work-log feed: each log is a post; replies thread beneath it. */
 function projectLogsStudioHtml(project){
   var logs=(project.logs||[]).slice().sort(function(a,b){return (b.updatedAt||b.createdAt||0)-(a.updatedAt||a.createdAt||0);});
   if(!logs.length)return projectStudioEmpty('아직 남긴 기록이 없어요','결정, 깨달음, 다음 액션을 짧게 남기면 프로젝트 흐름을 다시 잡기 쉬워요.','project-add-log-empty','로그 추가');
-  return '<div class="project-log-flow">'+logs.map(function(l){
+  var color=project.color||'#BE727A';
+  var avatar=projectEsc(project.icon||(project.title?project.title.trim().charAt(0):'·'));
+  return '<div class="pjx-feed">'+logs.map(function(l){
     var date=l.updatedAt||l.createdAt;
-    var body=String(l.body||'').trim();
-    return '<button type="button" class="project-log-note" data-project-log="'+l.id+'">'
-      +'<div class="project-log-note-title">'+projectEsc(l.title||'Untitled')+'</div>'
-      +'<div class="project-log-note-meta">'+(date?projectEsc(new Date(date).toLocaleString('ko-KR')):'')+'</div>'
-      +(body?'<div class="project-log-note-body">'+projectEsc(body.length>180?body.slice(0,180)+'...':body)+'</div>':'')
-    +'</button>';
+    var text=String(l.text||l.body||'').trim();
+    var replies=Array.isArray(l.replies)?l.replies:[];
+    var repliesHtml=replies.length?('<div class="pjx-replies">'+replies.slice().sort(function(a,b){return (a.createdAt||0)-(b.createdAt||0);}).map(function(r){
+      return '<div class="pjx-reply" data-reply="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">'
+        +'<span class="pjx-ravatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
+        +'<div class="pjx-rmain"><div class="pjx-rtext">'+projectEsc(r.text||'')+'</div>'
+        +'<div class="pjx-rmeta"><span>'+projectEsc(projectLogTime(r.createdAt))+'</span>'
+        +'<button type="button" class="pjx-rdel" data-reply-del="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">삭제</button></div></div></div>';
+    }).join('')+'</div>'):'';
+    return '<article class="pjx-post" data-log="'+projectEsc(l.id)+'">'
+      +'<span class="pjx-avatar" style="background:'+projectEsc(color)+'">'+avatar+'</span>'
+      +'<div class="pjx-main">'
+        +'<div class="pjx-head"><span class="pjx-name">'+projectEsc(project.title||'프로젝트')+'</span>'
+        +'<span class="pjx-time">'+projectEsc(projectLogTime(date))+'</span></div>'
+        +(l.title?'<div class="pjx-title">'+projectEsc(l.title)+'</div>':'')
+        +(text?'<div class="pjx-text">'+projectEsc(text)+'</div>':'')
+        +'<div class="pjx-actions">'
+          +'<button type="button" class="pjx-act" data-log-reply="'+projectEsc(l.id)+'"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-8.5 8.5 8.5 8.5 0 0 1-3.8-.9L3 21l1.9-5.7A8.5 8.5 0 0 1 12.5 3 8.38 8.38 0 0 1 21 11.5z"/></svg>'+(replies.length?'<span>'+replies.length+'</span>':'답글')+'</button>'
+          +'<button type="button" class="pjx-act" data-log-edit="'+projectEsc(l.id)+'">편집</button>'
+          +'<button type="button" class="pjx-act pjx-act-del" data-log-del="'+projectEsc(l.id)+'">삭제</button>'
+        +'</div>'
+        +repliesHtml
+      +'</div></article>';
   }).join('')+'</div>';
 }
 renderProjects=function(){
@@ -26700,7 +26789,12 @@ renderProjects=function(){
   bind('project-link-record',function(){openProjectRecordLinker(p);}); bind('project-link-record-empty',function(){openProjectRecordLinker(p);});
   bind('project-add-log',function(){openProjectLogEditor(p);}); bind('project-add-log-empty',function(){openProjectLogEditor(p);});
   bind('project-add-resource',function(){openProjectResourceEditor(p);}); bind('project-add-resource-empty',function(){openProjectResourceEditor(p);});
-  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(){var l=(p.logs||[]).find(function(x){return x.id===row.getAttribute('data-project-log');});if(l)openProjectLogEditor(p,l);});});
+  function _pjFindLog(id){return (p.logs||[]).find(function(x){return String(x.id)===String(id);});}
+  detail.querySelectorAll('[data-project-log]').forEach(function(row){row.addEventListener('click',function(e){if(e.target.closest('[data-log-reply],[data-log-edit],[data-log-del],[data-reply-del]'))return;var l=_pjFindLog(row.getAttribute('data-project-log'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-reply]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-reply'));if(l)openProjectLogReply(p,l);});});
+  detail.querySelectorAll('[data-log-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-edit'));if(l)openProjectLogEditor(p,l);});});
+  detail.querySelectorAll('[data-log-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-log-del'));if(l)deleteProjectLog(p,l);});});
+  detail.querySelectorAll('[data-reply-del]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var l=_pjFindLog(b.getAttribute('data-reply-log'));if(l)deleteProjectLogReply(p,l,b.getAttribute('data-reply-del'));});});
   detail.querySelectorAll('[data-project-unlink-task]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-project-unlink-task');});if(t){delete t.projectId;if(typeof saveTaskData==='function')saveTaskData();renderProjects();}});});
   detail.querySelectorAll('[data-task]').forEach(function(btn){btn.addEventListener('click',function(){var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===btn.getAttribute('data-task');});if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);});});
   detail.querySelectorAll('[data-res]').forEach(function(card){card.addEventListener('click',function(e){if(e.target.closest('button'))return;var r=(p.resources||[]).find(function(x){return x.id===card.getAttribute('data-res');});if(r&&r.url)window.open(r.url,'_blank');else if(r)openProjectResourceEditor(p,r);});});
