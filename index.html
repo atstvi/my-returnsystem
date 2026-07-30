@@ -2082,6 +2082,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ib2-col{flex:0 0 260px;display:flex;flex-direction:column;min-height:0;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);transition:box-shadow var(--t-snap),border-color var(--t-snap)}
 .ib2-col.ib2-drop{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-light)}
 .ib2-col-head{display:flex;align-items:center;gap:7px;padding:var(--sp-4) var(--sp-4) var(--sp-2);flex:none}
+.ib2-col-grip{flex:none;width:10px;height:16px;cursor:grab;touch-action:none;background-image:radial-gradient(var(--fg-4) 1px,transparent 1px);background-size:4px 4px;opacity:.3;border-radius:2px}
+.ib2-col-grip:active{cursor:grabbing}
+.ib2-col.ib2-coldrop{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-light)}
+.ib2-col.ib2-dragsrc{opacity:.35}
 .ib2-col-emoji{font-size:var(--text-md)}
 .ib2-col-label{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-1)}
 .ib2-col-count{margin-left:auto;font-size:var(--text-xs);color:var(--fg-4);font-weight:var(--fw-semibold);background:var(--bg-raised);border-radius:var(--r-full);padding:1px 8px}
@@ -18470,7 +18474,7 @@ function _initInbox(){
         '</div>';
       }).join('');
       return '<div class="ib2-col" data-col="'+ibEsc(c.id)+'">'+
-        '<div class="ib2-col-head"><span class="ib2-col-emoji">'+ibEsc(c.emoji||'')+'</span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span><button type="button" class="ib2-col-edit" data-cat-edit="'+ibEsc(c.id)+'" title="카테고리 편집">✎</button></div>'+
+        '<div class="ib2-col-head"><span class="ib2-col-grip" data-colgrip="'+ibEsc(c.id)+'" title="드래그로 순서 변경"></span><span class="ib2-col-emoji">'+ibEsc(c.emoji||'')+'</span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span><button type="button" class="ib2-col-edit" data-cat-edit="'+ibEsc(c.id)+'" title="카테고리 편집">✎</button></div>'+
         '<div class="ib2-col-body">'+cards+'</div>'+
         '<div class="ib2-col-add"><input type="text" class="ib2-add-input" data-add="'+ibEsc(c.id)+'" placeholder="＋ 여기에 바로 추가"></div>'+
       '</div>';
@@ -18524,6 +18528,49 @@ function _initInbox(){
       else if(act==='del'){ var run=function(){ inboxItems=inboxItems.filter(function(x){return String(x.id)!==String(id);}); saveInboxItems(); renderFeed(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 삭제할까요?',run):run()); }
     });});
     bindCardDrag(host);
+    bindColDrag(host);
+  }
+  /* Drag a column header to reorder categories; persists INBOX_CATS order. */
+  function bindColDrag(host){
+    var drag=null;
+    host.querySelectorAll('.ib2-col-grip').forEach(function(grip){
+      var col=grip.closest('.ib2-col');
+      grip.addEventListener('pointerdown',function(e){
+        e.preventDefault();
+        drag={id:grip.getAttribute('data-colgrip'),col:col,sx:e.clientX,sy:e.clientY,ghost:null};
+        try{grip.setPointerCapture(e.pointerId);}catch(_){}
+      });
+      grip.addEventListener('pointermove',function(e){
+        if(!drag)return;
+        if(!drag.ghost){ if(Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)<6)return; var r=drag.col.getBoundingClientRect(); var g=drag.col.cloneNode(true); g.classList.add('ib2-ghost'); g.style.width=r.width+'px'; g.style.left=r.left+'px'; g.style.top=r.top+'px'; document.body.appendChild(g); drag.ghost=g; drag.offx=e.clientX-r.left; drag.offy=e.clientY-r.top; drag.col.classList.add('ib2-dragsrc'); }
+        drag.ghost.style.left=(e.clientX-drag.offx)+'px'; drag.ghost.style.top=(e.clientY-drag.offy)+'px';
+        drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); drag.ghost.style.display='';
+        var tcol=el&&el.closest?el.closest('.ib2-col'):null;
+        host.querySelectorAll('.ib2-col').forEach(function(c){c.classList.toggle('ib2-coldrop',c===tcol&&c!==drag.col);});
+      });
+      function end(e){
+        if(!drag)return;
+        if(drag.ghost){
+          drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); var tcol=el&&el.closest?el.closest('.ib2-col'):null; drag.ghost.remove();
+          host.querySelectorAll('.ib2-col').forEach(function(c){c.classList.remove('ib2-coldrop');});
+          if(tcol&&tcol!==drag.col){ reorderCat(drag.id, tcol.getAttribute('data-col')); drag=null; return; }
+        }
+        drag=null;
+      }
+      grip.addEventListener('pointerup',end);
+      grip.addEventListener('pointercancel',end);
+    });
+  }
+  function reorderCat(dragId, targetId){
+    if(!dragId||!targetId||dragId===targetId)return;
+    var from=INBOX_CATS.findIndex(function(c){return c.id===dragId;});
+    var to=INBOX_CATS.findIndex(function(c){return c.id===targetId;});
+    if(from<0||to<0)return;
+    var moved=INBOX_CATS.splice(from,1)[0];
+    to=INBOX_CATS.findIndex(function(c){return c.id===targetId;}); /* recompute after removal */
+    INBOX_CATS.splice(to,0,moved);
+    if(typeof saveCats==='function')saveCats();
+    renderFeed();
   }
   function bindCardDrag(host){
     var drag=null;
