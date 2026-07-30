@@ -92,3 +92,20 @@
 - **다음(2차)**: **연결선(커넥터)** — 항목 간 엣지 저장 + pan/zoom 추종 SVG 렌더(이번엔 보류).
 - 검증(헤드리스): 이관 2항목(link/note)·툴바 5·이관 영속화, 그립 드래그 이동 저장(40→140/120),
   휠 줌 transform·즐겨찾기 토글+필터, 5종 항목 전폭 렌더, pageerror 0, `npm test` 33스위트 통과.
+
+## F. 4단계 — 인박스 재설계(좌 카톡형 캡처 + 우 칸반)
+- 데이터·동기화 계층(`inboxItems`/`saveInboxItems`/`INBOX_CATS`, Stage6 `returnEntityPrepareForSave`)은
+  **그대로 두고** `renderFeed`를 오버라이드해 앞단만 2-pane로 교체(구 `.inbox-page` 숨김). 모든
+  `saveInboxItems(); renderFeed();` 호출이 새 UI를 갱신.
+- **좌: 빠른 담기(카톡형)** — 시간순 말풍선 스레드(최근 60개, 최신 하단) + 하단 컴포저(카테고리 칩 +
+  textarea + 전송). Enter=담기. 항목 shape는 기존 sendItem과 동일(`{id,text,cat,ts,done,unread,imgs,links}`).
+- **우: 정리 보드(칸반)** — `INBOX_CATS`별 컬럼(이모지·라벨·미완료 개수), 컬럼 하단 **“＋ 여기에 바로 추가”**
+  인풋(해당 카테고리로 즉시 추가). 카드 = 완료 체크 + 텍스트 + 그립 + ●(처리 필요 토글) + ×(삭제).
+- **카테고리 이동** — 그립 pointer 드래그(마우스·터치·펜), `elementFromPoint`로 대상 컬럼 히트테스트 +
+  드롭 하이라이트, 드롭 시 `item.cat` 변경·저장. 그립만 `touch-action:none`(컬럼 세로 스크롤 보존).
+- **처리 → 오늘 노출** — 기존 홈 서페이싱(`!done && unread`, line~11880/27743)을 그대로 사용. 새 캡처는
+  `unread:true`, 완료 토글 시 `unread=false`. 칸반 헤더에 “처리 필요 N” 배지.
+- 검증(헤드리스): 2-pane·구페이지 숨김·말풍선 4·컬럼 5(라벨)·처리 필요 2·컴포저 캡처(idea, unread)·
+  컬럼 퀵추가(buy)·완료/처리필요 토글·그립 드래그 task→idea(드롭 하이라이트), pageerror 0,
+  `npm test` 33스위트 통과.
+- **다음(보강)**: 카테고리 추가/이름변경 UI, 이미지 첨부·AI 자동분류(기존 컴포저 기능 이관), 스레드→카드 점프.
