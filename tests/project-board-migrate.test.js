@@ -49,6 +49,7 @@ const t = runner('projectBoardEnsure — legacy resource migration');
 
   t.ok('board object created', !!board && Array.isArray(board.items), board && typeof board);
   t.ok('view defaults present', board.view && board.view.scale === 1);
+  t.ok('edges array initialized', Array.isArray(board.edges));
   t.ok('_boardMigrated flag set', p._boardMigrated === true);
   t.ok('3 items migrated', board.items.length === 3, board.items.length);
   t.ok('image resource → image item', board.items[0].type === 'image' && board.items[0].src === 'data:img', board.items[0]);

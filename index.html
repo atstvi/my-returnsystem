@@ -1500,6 +1500,13 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-view{position:relative;height:480px;border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-sunken);overflow:hidden;touch-action:none;cursor:grab;background-image:radial-gradient(var(--border-subtle) 1px,transparent 1px);background-size:22px 22px}
 .pjb-view.panning{cursor:grabbing}
 .pjb-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+.pjb-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:0}
+.pjb-edge{stroke:var(--border-strong);stroke-width:2;fill:none;stroke-linecap:round}
+.pjb-edge-hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
+.pjb-view.pjb-linking{cursor:crosshair}
+.pjb-view.pjb-linking .pjb-item{cursor:crosshair}
+.pjb-item.pjb-linksrc{outline:2px solid var(--accent);outline-offset:2px}
+.pjb-item{position:absolute;z-index:1}
 .pjb-empty{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);max-width:280px;text-align:center;font-size:var(--text-sm);color:var(--fg-4);line-height:1.6;pointer-events:none}
 .pjb-view.pjb-favonly .pjb-item:not(.fav){display:none}
 .pjb-item{position:absolute;background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--bd-accent,var(--accent));border-radius:var(--r-md);box-shadow:var(--elev-1);overflow:hidden;display:flex;flex-direction:column;user-select:none}
@@ -27089,6 +27096,7 @@ function projectBoardEnsure(project){
   if(!project.board||typeof project.board!=='object')project.board={view:{tx:0,ty:0,scale:1},items:[]};
   if(!project.board.view)project.board.view={tx:0,ty:0,scale:1};
   if(!Array.isArray(project.board.items))project.board.items=[];
+  if(!Array.isArray(project.board.edges))project.board.edges=[]; /* connectors (2차) */
   if(!project._boardMigrated){
     project._boardMigrated=true;
     var res=Array.isArray(project.resources)?project.resources:[];
@@ -27219,10 +27227,11 @@ function projectBoardHtml(project){
     '<button type="button" class="pjb-tool" data-bd-add="link">＋ 링크</button>'+
     '<button type="button" class="pjb-tool" data-bd-add="image">＋ 이미지</button>'+
     '<span class="pjb-tsep"></span>'+
+    '<button type="button" class="pjb-tool" data-bd-link aria-pressed="false">🔗 연결</button>'+
     '<button type="button" class="pjb-tool" data-bd-favfilter aria-pressed="false">★ 즐겨찾기</button>'+
     '<button type="button" class="pjb-tool" data-bd-fit>맞춤</button>'+
-    '<span class="pjb-hint">드래그로 이동 · 휠/핀치로 확대</span></div>';
-  return tb+'<div class="pjb-view" id="pjb-view"><div class="pjb-world" id="pjb-world">'+items+'</div>'+
+    '<span class="pjb-hint">드래그로 이동 · 휠/핀치로 확대 · 🔗로 항목 잇기</span></div>';
+  return tb+'<div class="pjb-view" id="pjb-view"><div class="pjb-world" id="pjb-world"><svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+items+'</div>'+
     (b.items.length?'':'<div class="pjb-empty">메모·체크·이미지를 추가해 자유롭게 배치하세요. 빈 곳을 끌면 화면이 움직여요.</div>')+'</div>';
 }
 function projectBoardBind(detail,project){
@@ -27230,18 +27239,48 @@ function projectBoardBind(detail,project){
   var view=detail.querySelector('#pjb-view'), world=detail.querySelector('#pjb-world');
   if(!view||!world)return;
   var V=b.view;
+  var _linkMode=false, _linkSrc=null;   /* connector (엣지) 만들기 모드 */
   function clampScale(s){return Math.max(0.3,Math.min(3,s));}
   function apply(){world.style.transform='translate('+V.tx+'px,'+V.ty+'px) scale('+V.scale+')';}
   apply();
   projectBoardResolveMedia(world); /* resolve any return-media image refs already in the initial HTML */
   function save(){project.updatedAt=Date.now();saveProjects();}
   function findItem(id){return b.items.find(function(x){return String(x.id)===String(id);});}
+  function itemCenter(it){ return {x:(it.x||0)+((it.w||200)/2), y:(it.y||0)+((it.h||150)/2)}; }
+  /* Draw connector edges into the world-space SVG (transforms with pan/zoom).
+     Prunes edges whose endpoints no longer exist. A fat transparent hit-line
+     sits over each visible line so it's easy to click-to-delete. */
+  function paintEdges(){
+    var svg=world.querySelector('#pjb-edges'); if(!svg)return;
+    b.edges=(b.edges||[]).filter(function(ed){return ed&&findItem(ed.from)&&findItem(ed.to);});
+    svg.innerHTML=b.edges.map(function(ed){
+      var a=itemCenter(findItem(ed.from)), c=itemCenter(findItem(ed.to));
+      return '<line class="pjb-edge" x1="'+a.x+'" y1="'+a.y+'" x2="'+c.x+'" y2="'+c.y+'"/>'
+        +'<line class="pjb-edge-hit" data-edge="'+projectEsc(ed.id)+'" x1="'+a.x+'" y1="'+a.y+'" x2="'+c.x+'" y2="'+c.y+'"/>';
+    }).join('');
+  }
+  function markLinkSrc(){ world.querySelectorAll('.pjb-item').forEach(function(el){ el.classList.toggle('pjb-linksrc', _linkSrc!=null&&el.getAttribute('data-bd-item')===String(_linkSrc)); }); }
+  function addEdge(a,c){
+    if(String(a)===String(c))return;
+    var dup=(b.edges||[]).some(function(ed){ return (String(ed.from)===String(a)&&String(ed.to)===String(c))||(String(ed.from)===String(c)&&String(ed.to)===String(a)); });
+    if(dup)return;
+    b.edges=b.edges||[]; b.edges.push({id:'ed_'+Date.now()+'_'+Math.floor(Math.random()*1000),from:a,to:c});
+    save(); paintEdges();
+  }
+  function handleLinkPick(id){
+    if(_linkSrc==null){ _linkSrc=id; markLinkSrc(); return; }
+    if(String(_linkSrc)===String(id)){ _linkSrc=null; markLinkSrc(); return; }
+    addEdge(_linkSrc,id); _linkSrc=null; markLinkSrc();
+  }
   function repaint(){
-    world.innerHTML=b.items.map(projectBoardItemHtml).join('');
+    world.innerHTML='<svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+b.items.map(projectBoardItemHtml).join('');
     projectBoardResolveMedia(world);
+    paintEdges();
+    if(_linkSrc!=null)markLinkSrc();
     var em=view.querySelector('.pjb-empty'); if(em&&b.items.length)em.remove();
     if(!b.items.length&&!view.querySelector('.pjb-empty')){var e=document.createElement('div');e.className='pjb-empty';e.textContent='메모·체크·이미지를 추가해 자유롭게 배치하세요. 빈 곳을 끌면 화면이 움직여요.';view.appendChild(e);}
   }
+  paintEdges(); /* initial (world already has items + empty svg from projectBoardHtml) */
   function centerPos(w,h){ var vw=view.clientWidth||600,vh=view.clientHeight||460; return {x:Math.round((vw/2-V.tx)/V.scale-(w||200)/2),y:Math.round((vh/2-V.ty)/V.scale-(h||150)/2)}; }
   function addItem(extra){ var w=extra.w||200,h=extra.h||150,pos=centerPos(w,h); var it=Object.assign({id:'bd_'+Date.now(),x:pos.x,y:pos.y,w:w,h:h,fav:false,accent:''},extra); b.items.push(it); save(); repaint(); return it; }
   /* toolbar */
@@ -27257,8 +27296,15 @@ function projectBoardBind(detail,project){
   if(ff)ff.addEventListener('click',function(){ var on=view.classList.toggle('pjb-favonly'); ff.setAttribute('aria-pressed',on?'true':'false'); ff.classList.toggle('on',on); });
   var fit=detail.querySelector('[data-bd-fit]');
   if(fit)fit.addEventListener('click',function(){ V.tx=0;V.ty=0;V.scale=1; apply(); save(); });
+  var lk=detail.querySelector('[data-bd-link]');
+  if(lk)lk.addEventListener('click',function(){ _linkMode=!_linkMode; _linkSrc=null; markLinkSrc(); lk.setAttribute('aria-pressed',_linkMode?'true':'false'); lk.classList.toggle('on',_linkMode); view.classList.toggle('pjb-linking',_linkMode); });
   /* item controls (delegated) */
   world.addEventListener('click',function(e){
+    /* connector edge delete (normal mode) */
+    var eh=e.target.closest('[data-edge]');
+    if(eh&&!_linkMode){ var eid=eh.getAttribute('data-edge'); var run=function(){ b.edges=(b.edges||[]).filter(function(x){return String(x.id)!==String(eid);}); save(); paintEdges(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('연결 삭제','이 연결선을 지울까요?',run):run()); return; }
+    /* link mode: pick two items to connect */
+    if(_linkMode){ var itEl=e.target.closest('.pjb-item'); if(itEl)handleLinkPick(itEl.getAttribute('data-bd-item')); return; }
     var ctl=e.target.closest('[data-bd-ctl]'); if(!ctl)return;
     var kind=ctl.getAttribute('data-bd-ctl'), id=ctl.getAttribute('data-bd-id'), it=findItem(id);
     if(kind==='open')return; /* link anchor */
@@ -27266,7 +27312,7 @@ function projectBoardBind(detail,project){
     e.preventDefault();
     if(!it)return;
     if(kind==='fav'){ it.fav=!it.fav; save(); repaint(); }
-    else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); save(); repaint(); } }
+    else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); b.edges=(b.edges||[]).filter(function(ed){return String(ed.from)!==String(id)&&String(ed.to)!==String(id);}); save(); repaint(); } }
     else if(kind==='edit'){ projectBoardEditItem(project,it,repaint,save); }
   });
   /* pointer pan / drag / pinch */
@@ -27278,6 +27324,7 @@ function projectBoardBind(detail,project){
     var ids=Object.keys(ptrs);
     if(ids.length>=2){ drag=null; var p1=ptrs[ids[0]],p2=ptrs[ids[1]]; pinch={d:Math.hypot(p2.x-p1.x,p2.y-p1.y),scale:V.scale,mx:(p1.x+p2.x)/2,my:(p1.y+p2.y)/2,tx:V.tx,ty:V.ty}; return; }
     var itEl=e.target.closest('.pjb-item');
+    if(itEl&&_linkMode){ return; } /* link mode: let click pick items, don't drag */
     if(itEl){ var it=findItem(itEl.getAttribute('data-bd-item')); if(it){ drag={mode:'item',it:it,el:itEl,sx:e.clientX,sy:e.clientY,ox:it.x,oy:it.y}; itEl.classList.add('dragging'); } }
     else { drag={mode:'pan',sx:e.clientX,sy:e.clientY,tx:V.tx,ty:V.ty}; view.classList.add('panning'); }
   });
@@ -27286,7 +27333,7 @@ function projectBoardBind(detail,project){
     if(pinch){ var ids=Object.keys(ptrs); if(ids.length<2)return; var p1=ptrs[ids[0]],p2=ptrs[ids[1]]; var nd=Math.hypot(p2.x-p1.x,p2.y-p1.y); if(!pinch.d)return; var ns=clampScale(pinch.scale*(nd/pinch.d)); var r=view.getBoundingClientRect(); var wx=(pinch.mx-r.left-pinch.tx)/pinch.scale, wy=(pinch.my-r.top-pinch.ty)/pinch.scale; V.scale=ns; V.tx=(pinch.mx-r.left)-wx*ns; V.ty=(pinch.my-r.top)-wy*ns; apply(); return; }
     if(!drag)return;
     if(drag.mode==='pan'){ V.tx=drag.tx+(e.clientX-drag.sx); V.ty=drag.ty+(e.clientY-drag.sy); apply(); }
-    else if(drag.mode==='item'){ drag.it.x=Math.round(drag.ox+(e.clientX-drag.sx)/V.scale); drag.it.y=Math.round(drag.oy+(e.clientY-drag.sy)/V.scale); drag.el.style.left=drag.it.x+'px'; drag.el.style.top=drag.it.y+'px'; }
+    else if(drag.mode==='item'){ drag.it.x=Math.round(drag.ox+(e.clientX-drag.sx)/V.scale); drag.it.y=Math.round(drag.oy+(e.clientY-drag.sy)/V.scale); drag.el.style.left=drag.it.x+'px'; drag.el.style.top=drag.it.y+'px'; if(b.edges&&b.edges.length)paintEdges(); }
   });
   function endPtr(e){
     delete ptrs[e.pointerId];
