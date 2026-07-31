@@ -2095,6 +2095,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ib2-bub-img{width:100%;border-radius:12px;overflow:hidden;margin-bottom:7px;background:var(--bg-sunken)}
 .ib2-bub-img img{width:100%;display:block}
 .ib2-bub-meta{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:5px;font-size:11px;color:var(--fg-4)}
+.ib2-bub-cat{margin-right:auto;font-weight:var(--fw-bold)}
 /* composer */
 .ib2-composer{flex:none;padding:var(--sp-3) var(--sp-4) var(--sp-4);border-top:.5px solid var(--border-subtle);background:var(--bg-card)}
 .ib2-cap-cats{display:none;flex-wrap:wrap;gap:5px;margin-bottom:var(--sp-2)}
@@ -4496,6 +4497,10 @@ to{opacity:1;transform:translateY(0)}}
 .pjx-day::after{content:'';flex:1;height:.5px;background:var(--border-subtle)}
 .pjx-feed-all .pjx-post{cursor:pointer}
 .pjx-feed-all .pjx-post:hover{background:var(--bg-raised)}
+.pjx-viewtabs{display:inline-flex;gap:4px;padding:4px;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-full);margin-bottom:var(--sp-4)}
+.pjx-vtab{border:0;background:transparent;color:var(--fg-3);font-family:inherit;font-weight:var(--fw-bold);font-size:var(--text-sm);padding:6px 16px;border-radius:var(--r-full);cursor:pointer;transition:background var(--t-snap),color var(--t-snap)}
+.pjx-vtab.on{background:var(--bg-card);color:var(--accent);box-shadow:var(--elev-1)}
+.pjx-vtab:hover{color:var(--fg)}
 .project-studio-empty{border:1px dashed var(--border);border-radius:var(--r-md);padding:var(--sp-5);color:var(--fg-3);background:var(--bg-raised)}
 .project-studio-empty strong{display:block;color:var(--fg-2);margin-bottom:var(--sp-2)}
 @media(max-width:860px){.projects-page.project-studio{grid-template-columns:1fr}.project-studio .project-list-pane{padding:var(--sp-5);border-right:none;border-bottom:.5px solid var(--border-subtle)}.project-list-head{padding:0 0 var(--sp-4)}.project-studio .project-detail-pane{padding:var(--sp-5)}.project-studio-head,.hero-card{grid-template-columns:1fr}.project-studio-board,.project-workspace{grid-template-columns:1fr}}
@@ -18557,27 +18562,32 @@ function _initInbox(){
   }
   function paintThread(){
     var host=document.getElementById('ib2-thread'); if(!host)return;
-    var items=inboxItems.slice().sort(function(a,b){return (a.ts||0)-(b.ts||0);}).slice(-60);
+    function _ts(it){ return it.ts || (typeof it.id==='number'?it.id:0); } /* fall back to id (~ creation ms) so ts-less items don't get mis-sorted/dropped */
+    var items=inboxItems.slice().sort(function(a,b){return _ts(a)-_ts(b);}).slice(-80);
     if(!items.length){ host.innerHTML='<div class="ib2-thread-empty">아직 담은 게 없어요.<br>아래에 뭐든 툭 던져보세요.</div>'; return; }
     var lastDay='', html='';
     items.forEach(function(it){
-      var day=_ib2DayLabel(it.ts);
+      var ts=_ts(it);
+      var day=_ib2DayLabel(ts);
       if(day&&day!==lastDay){ html+='<div class="ib2-day">'+ibEsc(day)+'</div>'; lastDay=day; }
+      var c=catById(it.cat);
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
-      var meta='<div class="ib2-bub-meta"><span>'+ibEsc(_ib2Time(it.ts))+'</span></div>';
+      /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
+      var meta='<div class="ib2-bub-meta"><span class="ib2-bub-cat">'+ibEsc((c.emoji||'')+' '+c.label)+'</span><span>'+ibEsc(_ib2Time(ts))+'</span></div>';
+      var t=String(it.text||'').trim();
       var body;
       if(hasImg){
         body='<div class="ib2-bubble card'+(it.done?' done':'')+'" data-jump="'+ibEsc(it.id)+'">'+
           cardCoverHtml(it).replace('ib2-card-imgwrap','ib2-bub-img')+
-          (it.text?'<div class="ib2-bub-text">'+ibEsc(it.text)+'</div>':'')+meta+'</div>';
-      } else if(url&&url.trim()===String(it.text||'').trim()){
+          (t?'<div class="ib2-bub-text">'+ibEsc(t)+'</div>':'')+meta+'</div>';
+      } else if(url&&url.trim()===t){
         body='<div class="ib2-bubble card'+(it.done?' done':'')+'" data-jump="'+ibEsc(it.id)+'">'+
           '<div class="ib2-bub-link"><span class="ib2-lk-ic">'+IB2_LINK_SVG+'</span>'+
-          '<span class="ib2-lk-t"><b>'+ibEsc(ib2Host(url))+'</b></span></div>'+meta+'</div>';
+          '<span class="ib2-lk-t"><b>'+ibEsc(ib2Host(url))+'</b><small>'+ibEsc(url.slice(0,60))+'</small></span></div>'+meta+'</div>';
       } else {
         body='<div class="ib2-bubble text'+(it.done?' done':'')+'" data-jump="'+ibEsc(it.id)+'">'+
-          '<div class="ib2-bub-text">'+ibEsc(it.text||'')+'</div>'+meta+'</div>';
+          (t?'<div class="ib2-bub-text">'+ibEsc(t)+'</div>':'<div class="ib2-bub-text" style="opacity:.7">('+ibEsc(c.label)+')</div>')+meta+'</div>';
       }
       html+=body;
     });
@@ -18598,14 +18608,15 @@ function _initInbox(){
     var host=document.getElementById('ib2-cols'); if(!host)return;
     host.innerHTML=cats().map(function(c){
       var color=catColor(c);
-      var list=inboxItems.filter(function(i){return i.cat===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||((b.ts||0)-(a.ts||0));});
+      var _kts=function(i){ return i.ts || (typeof i.id==='number'?i.id:0); };
+      var list=inboxItems.filter(function(i){return i.cat===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||(_kts(b)-_kts(a));});
       var active=list.filter(function(i){return !i.done;}).length;
       var cards=list.map(function(it){
         var only=!it.text&&Array.isArray(it.imgs)&&it.imgs.length; /* image-only card */
         return '<div class="ib2-card'+(it.done?' done':'')+((it.unread&&!it.done)?' need':'')+'" data-card="'+ibEsc(it.id)+'">'+
           cardCoverHtml(it)+
           (it.text?'<div class="ib2-card-title">'+ibEsc(it.text)+'</div>':(only?'':''))+
-          '<div class="ib2-card-foot"><span class="ib2-chip" style="background:'+ibEsc(catTint(c))+';color:'+ibEsc(color)+'">'+ibEsc(c.label)+'</span><span class="ib2-card-time">'+ibEsc(typeof timeAgo==='function'?timeAgo(it.ts):'')+'</span></div>'+
+          '<div class="ib2-card-foot"><span class="ib2-card-time">'+ibEsc(typeof timeAgo==='function'?timeAgo(_kts(it)):'')+'</span></div>'+
           '<div class="ib2-card-ctls">'+
             '<button type="button" class="ib2-check" data-act="done" data-id="'+ibEsc(it.id)+'" aria-label="완료 토글"></button>'+
             '<button type="button" class="ib2-ct" data-act="need" data-id="'+ibEsc(it.id)+'" title="처리 필요 표시">●</button>'+
@@ -27892,7 +27903,7 @@ function projectXPostHtml(project, l, opts){
       +'<button type="button" class="pjx-rdel" data-reply-del="'+projectEsc(r.id)+'" data-reply-log="'+projectEsc(l.id)+'">삭제</button></div></div></div>';
   }).join('')+'</div>'):'';
   var pid=opts.withPid?(' data-log-pid="'+projectEsc(project.id)+'"'):'';
-  var liked=!!l.liked, pinned=!!l.pinned;
+  var liked=!!l.liked, pinned=!!(l.bookmarked||l.pinned);
   return '<article class="pjx-post" data-log="'+projectEsc(l.id)+'"'+pid+'>'
     +_pjxUserAvatar()
     +'<div class="pjx-main">'
@@ -27969,8 +27980,10 @@ function _pjxInstallActionDelegate(){
     var p=pid?projects.find(function(x){return String(x.id)===String(pid);}):(projects.find(function(x){return String(x.id)===String(activeProjectId);}));
     if(!p)return;
     var lid=art.getAttribute('data-log'); var l=(p.logs||[]).find(function(x){return String(x.id)===String(lid);}); if(!l)return;
-    if(b.hasAttribute('data-log-like')){ l.liked=!l.liked; l.likes=Math.max(0,(l.likes||0)+(l.liked?1:-1)); l.updatedAt=Date.now(); saveProjects(); if(typeof renderProjects==='function')renderProjects(); }
-    else if(b.hasAttribute('data-log-pin')){ l.pinned=!l.pinned; l.updatedAt=Date.now(); saveProjects(); if(typeof renderProjects==='function')renderProjects(); }
+    /* like/bookmark must NOT bump updatedAt — otherwise the post jumps to the top
+       of the feed. Bookmarks are collected in the 전체 기록 → 북마크 view instead. */
+    if(b.hasAttribute('data-log-like')){ l.liked=!l.liked; l.likes=Math.max(0,(l.likes||0)+(l.liked?1:-1)); saveProjects(); if(typeof renderProjects==='function')renderProjects(); }
+    else if(b.hasAttribute('data-log-pin')){ l.bookmarked=!(l.bookmarked||l.pinned); if(!l.bookmarked)delete l.pinned; saveProjects(); if(typeof renderProjects==='function')renderProjects(); }
     else if(b.hasAttribute('data-log-board')){ projectLogToBoard(p,l); }
   },true);
 }
@@ -28173,14 +28186,20 @@ renderProjects=function(){
     var all=[];
     active.forEach(function(p){ if(Array.isArray(p.logs)) p.logs.forEach(function(l){ if(l) all.push({p:p,l:l}); }); });
     all.sort(function(a,b){ return (b.l.updatedAt||b.l.createdAt||0)-(a.l.updatedAt||a.l.createdAt||0); });
-    /* X-style feed: composer on top (routes through quickAddLog's project
-       picker), then every project's logs merged newest-first as posts. */
-    var composer=projectLogComposerHtml('var(--accent)','＋',{placeholder:active.length?'작업 로그 남기기 — 어떤 프로젝트, 무엇을 했어?':'프로젝트를 먼저 만들어 주세요'});
+    var bkMode=(_pjLogsView==='bookmark');
+    var shown=bkMode?all.filter(function(o){return o.l&&(o.l.bookmarked||o.l.pinned);}):all;
+    var bkCount=all.filter(function(o){return o.l&&(o.l.bookmarked||o.l.pinned);}).length;
+    /* tabs: 전체 / 🔖 북마크 (X-style bookmarks collection) */
+    var tabs='<div class="pjx-viewtabs">'
+      +'<button type="button" class="pjx-vtab'+(bkMode?'':' on')+'" data-logview="all">전체</button>'
+      +'<button type="button" class="pjx-vtab'+(bkMode?' on':'')+'" data-logview="bookmark">🔖 북마크'+(bkCount?' '+bkCount:'')+'</button>'
+      +'</div>';
+    var composer=bkMode?'':projectLogComposerHtml('var(--accent)','＋',{placeholder:active.length?'작업 로그 남기기 — 어떤 프로젝트, 무엇을 했어?':'프로젝트를 먼저 만들어 주세요'});
     var feed;
-    if(!all.length){ feed='<div class="project-empty" style="padding:var(--sp-8) var(--sp-4)">아직 작업 로그가 없어요. 위에 한 줄 적어 남겨보세요.</div>'; }
+    if(!shown.length){ feed='<div class="project-empty" style="padding:var(--sp-8) var(--sp-4)">'+(bkMode?'북마크한 기록이 없어요. 포스트의 🔖를 눌러 모아보세요.':'아직 작업 로그가 없어요. 위에 한 줄 적어 남겨보세요.')+'</div>'; }
     else {
       var lastDay='';
-      feed=all.map(function(o){
+      feed=shown.map(function(o){
         var ts=o.l.updatedAt||o.l.createdAt, dl='';
         try{ var d=new Date(ts); d.setHours(0,0,0,0); var t=new Date(); t.setHours(0,0,0,0); var diff=Math.round((t-d)/86400000);
           dl=(diff===0?'오늘':diff===1?'어제':'')+((diff===0||diff===1)?' · ':'')+(d.getMonth()+1)+'월 '+d.getDate()+'일'; }catch(e){}
@@ -28188,8 +28207,9 @@ renderProjects=function(){
         return div+projectXPostHtml(o.p,o.l,{withPid:true});
       }).join('');
     }
-    host.innerHTML='<div class="pjx-feed pjx-feed-all">'+composer+feed+'</div>';
-    bindProjectLogComposer(host);
+    host.innerHTML=tabs+'<div class="pjx-feed pjx-feed-all">'+composer+feed+'</div>';
+    host.querySelectorAll('[data-logview]').forEach(function(b){b.addEventListener('click',function(){ _pjLogsView=b.getAttribute('data-logview'); renderAllLogs(); });});
+    if(!bkMode)bindProjectLogComposer(host);
     bindAllLogsFeed(host);
   }
   function _fmtFolderDeadline(d){
@@ -28223,6 +28243,7 @@ renderProjects=function(){
   }
   var _pjWeek=0;      /* week offset for the all-timeline strip */
   var _pjTlOpen={};   /* group open/closed state, keyed by group id */
+  var _pjLogsView='all';  /* 전체 기록: 'all' | 'bookmark' */
   function _pjWeekDays(off){
     var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7);
     var start=new Date(base); start.setDate(base.getDate()-base.getDay()); /* Sunday start */
