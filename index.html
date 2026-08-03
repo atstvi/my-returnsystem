@@ -27649,6 +27649,41 @@ function projectTaskTimelineHtml(list){
     }).join('')+'</div></div>';
   }).join('')+'</div>';
 }
+/* 프로젝트 상세 할일 타임라인 = 이 프로젝트 할일의 주간 그리드(비어도 뷰 표시). */
+var _pjdTlWeek=0;
+function _pjdWeekDays(off){ var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7); var start=new Date(base); start.setDate(base.getDate()-base.getDay()); var out=[]; for(var i=0;i<7;i++){var d=new Date(start);d.setDate(start.getDate()+i);out.push(d);} return out; }
+function _pjdDk(d){return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+function projectWeekTimelineHtml(project){
+  var color=project.color||'#BE727A';
+  var days=_pjdWeekDays(_pjdTlWeek), keys=days.map(_pjdDk), w0=keys[0], w6=keys[6];
+  var today=(typeof TK!=='undefined')?TK:_pjdDk(new Date());
+  var DOW=['일','월','화','수','목','금','토'];
+  var mine=projectTaskItems(project).filter(function(t){return t&&!t._travelOnly&&t.date;});
+  function placeable(t){ var s=t.date, e=(t.deadlineDate&&t.deadlineDate>=t.date)?t.deadlineDate:t.date; return !(e<w0||s>w6); }
+  function barSpan(t){ var s=t.date, e=(t.deadlineDate&&t.deadlineDate>=t.date)?t.deadlineDate:t.date; var si=0; if(s>=w0){for(var j=0;j<7;j++){if(keys[j]>=s){si=j;break;}}} var ei=6; if(e<=w6){for(var k=6;k>=0;k--){if(keys[k]<=e){ei=k;break;}}} if(ei<si)ei=si; return {si:si,ei:ei}; }
+  function tdone(t){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done; }
+  var monthLabel=days[0].getFullYear()+'년 '+(days[0].getMonth()+1)+'월';
+  var head='<div class="pj-tl-head">'+
+    '<span class="pj-tl-month">'+projectEsc(monthLabel)+'</span>'+
+    '<button type="button" class="pj-tl-nav" data-pjdtlnav="-1" aria-label="이전 주">‹</button>'+
+    '<button type="button" class="pj-tl-today" data-pjdtlnav="0">오늘</button>'+
+    '<button type="button" class="pj-tl-nav" data-pjdtlnav="1" aria-label="다음 주">›</button>'+
+  '</div>';
+  var colhead='<div class="pj-tl-colhead"><span class="pj-tl-cap">할일</span>'+
+    days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[i]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
+  var list=mine.filter(placeable).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  var rows=list.length?list.map(function(t){
+    var b=barSpan(t), done=tdone(t), span=(t.deadlineDate&&t.deadlineDate>=t.date&&t.deadlineDate!==t.date);
+    return '<div class="pj-tl-row"><span class="pj-tl-rowlabel">'+projectEsc(t.text)+'</span>'+
+      '<button type="button" class="pj-bar2'+(done?' done':'')+'" data-pjdtltask="'+projectEsc(t.id)+'" style="grid-column:'+(b.si+2)+' / '+(b.ei+3)+';background:linear-gradient(90deg,'+projectEsc(color)+','+projectEsc(color)+'bb)" title="'+projectEsc(t.text)+'">'+projectEsc(t.text)+(span?' →':'')+'</button></div>';
+  }).join(''):'<div class="pj-tl-empty">이번 주 일정이 없어요. 위 ＋ 할일 추가로 만들면 여기에 표시돼요.</div>';
+  return '<div class="pj-tl pjd-tl">'+head+'<div class="pj-tl-card">'+colhead+'<div class="pj-tl-groups"><div class="pj-tl-grp open"><div class="pj-tl-body">'+rows+'</div></div></div></div></div>';
+}
+function bindProjectWeekTimeline(detail){
+  if(!detail)return;
+  detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v); renderProjects(); });});
+  detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
+}
 openProjectTaskLinker=function(project){
   var old=document.getElementById('project-task-linker'); if(old)old.remove();
   var ov=document.createElement('div'); ov.className='overlay open'; ov.id='project-task-linker';
@@ -28124,8 +28159,7 @@ renderProjects=function(){
   if(!p){detail.innerHTML=projectStudioEmpty('프로젝트를 선택해 주세요','왼쪽에서 프로젝트를 고르거나 새 프로젝트를 만들어 주세요.',null,'');return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
   var logsHtml=projectLogsStudioHtml(p);
-  var tasksHtml=projectTaskTimelineHtml(linked);
-  if(tasksHtml.indexOf('project-empty')>=0)tasksHtml=projectStudioEmpty('아직 이 프로젝트의 할일이 없어요','＋ 할일 추가로 만들면 여기 타임라인과 할일 탭에 함께 올라와요. 할일 탭에서 이 프로젝트로 지정한 할일도 여기 모여요.','project-add-task-empty','＋ 할일 추가');
+  var tasksHtml=projectWeekTimelineHtml(p);
   var notesHtml=projectRecordAccessRows(p);
   if(notesHtml.indexOf('project-empty')>=0)notesHtml=projectStudioEmpty('연결된 기록이 없어요','메모, 일기, 체크 기록을 연결하면 프로젝트 안에서 바로 다시 볼 수 있어요.','project-link-record-empty','기록 연결');
   var resHtml=(p.resources||[]).map(function(r){return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+projectResourcePreview(r)+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div><div style="display:flex;gap:var(--sp-2);margin-top:auto"><button type="button" class="btn btn-ghost" data-res-open="'+r.id+'">'+(r.url?'열기':'보기')+'</button><button type="button" class="btn btn-ghost" data-res-edit="'+r.id+'">편집</button><button type="button" class="btn btn-danger" data-res-del="'+r.id+'">삭제</button></div></div>';}).join('') || projectStudioEmpty('참고 자료가 없어요','링크, 이미지, 짧은 자료 메모를 붙여두면 작업 공간처럼 쓸 수 있어요.','project-add-resource-empty','자료 추가');
@@ -28193,6 +28227,7 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
   if(typeof bindProjectLogComposer==='function')bindProjectLogComposer(detail);
   if(typeof projectBoardBind==='function')projectBoardBind(detail,p);
+  if(typeof bindProjectWeekTimeline==='function')bindProjectWeekTimeline(detail);
   bindProjectRecordRows(detail);
 };
 
