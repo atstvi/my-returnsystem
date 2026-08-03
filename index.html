@@ -2562,6 +2562,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .cat-chip.active{background:var(--accent-light);color:var(--a-600)}
 .cat-chip-swatch{width:8px;height:8px;border-radius:var(--r-full);flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
 .cat-chip-emoji{font-size:var(--text-xs);line-height:1}
+.cat-filter-sep{width:1px;align-self:stretch;margin:2px var(--sp-2);background:var(--border-subtle);flex:none}
+.cat-chip-proj{max-width:150px}
+.cat-chip-proj-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cat-chip-proj.active{background:var(--accent-light);color:var(--a-600)}
 .cat-chip.cat-chip-dot.active .cat-chip-swatch{box-shadow:inset 0 0 0 1px rgba(0,0,0,.12)}
 .task-cat-row{align-items:center;gap:var(--sp-3)}
 .cat-color-picker{display:flex;gap:var(--sp-2);align-items:center}
@@ -19328,6 +19332,15 @@ var calYear   = TODAY.getFullYear();
 var calMonth  = TODAY.getMonth();
 var activeCat = 'all';
 var activeView= 'list';
+/* Does task t match the current category filter? Handles 'all', the special
+   'schedule' bucket, and project filters ('proj:<projectId>'). */
+function _taskCatMatch(t,cat){
+  if(!t)return false;
+  if(!cat||cat==='all')return true;
+  if(cat==='schedule')return t.catId==='schedule'||t._isTt;
+  if(String(cat).slice(0,5)==='proj:')return String(t.projectId||'')===String(cat).slice(5);
+  return t.catId===cat;
+}
 var _twvDays  = 7;          /* timeblock view: days in viewport (0 = scroll/continuous) */
 var _twvAnchor = null;      /* timeblock view: Date of first column */
 var calFull   = false;      /* compact/full toggle */
@@ -19404,6 +19417,21 @@ function renderTaskCatFilter(){
     b.title=c.label;
     bar.appendChild(b);
   });
+  /* Project categories — each active project as a filter chip (filters by projectId). */
+  var _pjs=[]; try{ _pjs=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[]; }catch(_e){}
+  _pjs=_pjs.filter(function(p){return p&&p.status!=='archived';});
+  if(_pjs.length){
+    var sep=document.createElement('span'); sep.className='cat-filter-sep'; bar.appendChild(sep);
+    _pjs.forEach(function(p){
+      var pb=document.createElement('button');
+      pb.className='cat-chip cat-chip-dot cat-chip-proj'+(activeCat==='proj:'+p.id?' active':'');
+      pb.dataset.cat='proj:'+p.id;
+      var pdot=document.createElement('span'); pdot.className='cat-chip-swatch'; pdot.style.background=p.color||'#BE727A'; pb.appendChild(pdot);
+      var plabel=document.createElement('span'); plabel.className='cat-chip-proj-label'; plabel.textContent='📁 '+(p.title||'프로젝트'); pb.appendChild(plabel);
+      pb.title='프로젝트 · '+(p.title||'');
+      bar.appendChild(pb);
+    });
+  }
   var manage=document.createElement('button');
   manage.className='cat-chip';
   manage.type='button';
@@ -19593,9 +19621,7 @@ function visibleTasks(){
   return tasks.filter(function(t){
     if(t.date!==selDate)return false;
     if(t._travelOnly)return false;
-    if(activeCat==='schedule'){
-      if(t.catId!=='schedule'&&!t._isTt)return false;
-    } else if(activeCat!=='all'&&t.catId!==activeCat)return false;
+    if(!_taskCatMatch(t,activeCat))return false;
     return true;
     /* NOTE: hideTt (시간표 숨기기) is calendar-only — tasks always show in list */
   });
@@ -19633,9 +19659,9 @@ function filteredTaskList(base){
   var q=String(taskSearchQuery||'').trim().toLowerCase();
   var scope=taskSearchScope||'current';
   var src=base;
-  if(scope==='all')src=tasks.filter(function(t){return !t._travelOnly&&(activeCat==='all'||t.catId===activeCat);});
-  else if(scope==='undone')src=tasks.filter(function(t){return !t._travelOnly&&!t.done&&(activeCat==='all'||t.catId===activeCat);});
-  else if(scope==='done')src=tasks.filter(function(t){return !t._travelOnly&&t.done&&(activeCat==='all'||t.catId===activeCat);});
+  if(scope==='all')src=tasks.filter(function(t){return !t._travelOnly&&_taskCatMatch(t,activeCat);});
+  else if(scope==='undone')src=tasks.filter(function(t){return !t._travelOnly&&!t.done&&_taskCatMatch(t,activeCat);});
+  else if(scope==='done')src=tasks.filter(function(t){return !t._travelOnly&&t.done&&_taskCatMatch(t,activeCat);});
   src=(src||[]).filter(function(t){
     return taskMatchesSearch(t,q) && taskMatchesKind(t,taskSearchKind) && taskDateInRange(t,taskSearchDateFrom,taskSearchDateTo);
   });
@@ -19782,11 +19808,7 @@ function renderCal(){
 
   /* Lookup maps */
   var byDay={};
-  var calTasks = tasks.filter(function(t){
-    if(activeCat==='all')return true;
-    if(activeCat==='schedule')return t.catId==='schedule'||t._isTt;
-    return t.catId===activeCat;
-  });
+  var calTasks = tasks.filter(function(t){ return _taskCatMatch(t,activeCat); });
   calTasks.forEach(function(t){
     if(!byDay[t.date])byDay[t.date]=[];
     byDay[t.date].push(t);
@@ -20774,7 +20796,7 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
 function renderDueDateSection(container){
   var due=(tasks||[]).filter(function(t){
     if(!t||t.done||t._travelOnly)return false;
-    if(activeCat!=='all'&&t.catId!==activeCat)return false;
+    if(!_taskCatMatch(t,activeCat))return false;
     return t.deadlineDate===selDate&&t.date!==selDate;
   });
   if(!due.length)return;
@@ -21444,7 +21466,7 @@ function tasksOpenNewModal(seed){
   taskModalSnapshot=null;
   taskModalDraft={
     id:null,
-    projectId:seed.projectId||'',
+    projectId:seed.projectId||(String(activeCat||'').slice(0,5)==='proj:'?String(activeCat).slice(5):''),
     text:seed.text||'',
     catId:seed.catId||'etc',
     date:seed.date||selDate||TK,
