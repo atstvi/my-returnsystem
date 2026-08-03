@@ -4516,6 +4516,8 @@ to{opacity:1;transform:translateY(0)}}
 .pjx-act-mini{margin-left:0;font-weight:var(--fw-medium);color:var(--fg-4)}
 .pjx-day{margin:var(--sp-4) 0 var(--sp-2);display:flex;align-items:center;gap:var(--sp-3);font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4)}
 .pjx-day::after{content:'';flex:1;height:.5px;background:var(--border-subtle)}
+.pjx-feed-scroll{max-height:440px;overflow-y:auto;margin:0 calc(-1 * var(--sp-2));padding:0 var(--sp-2)}
+.pjx-feed-scroll .pjx-post:first-child{border-top:.5px solid var(--border-subtle)}
 .pjx-feed-all .pjx-post{cursor:pointer}
 .pjx-feed-all .pjx-post:hover{background:var(--bg-raised)}
 .pjx-viewtabs{display:inline-flex;gap:4px;padding:4px;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-full);margin-bottom:var(--sp-4)}
@@ -18406,10 +18408,23 @@ function _initInbox(){
   var _origFeed=renderFeed;
   var _capCat=null;
   var _capImgs=[];   /* pending image refs for the next captured item */
-  function cats(){ return (typeof INBOX_CATS!=='undefined'&&Array.isArray(INBOX_CATS)&&INBOX_CATS.length)?INBOX_CATS:[{id:'task',label:'할일',emoji:'📋'}]; }
+  /* 인박스 카테고리 = 프로젝트(활성) + 미분류. 항목은 projectId로 열에 배치되고,
+     프로젝트 없는(또는 보관된 프로젝트) 항목은 모두 "미분류"로 모인다. */
+  function pjList(){ try{ if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!projects))loadProjects(); }catch(_e){} return (typeof projects!=='undefined'&&Array.isArray(projects))?projects.filter(function(p){return p&&p.status!=='archived';}):[]; }
+  function cats(){
+    var out=pjList().map(function(p){ return {id:'p:'+p.id,label:p.title||'프로젝트',emoji:'📁',color:p.color||null,_pid:p.id}; });
+    out.push({id:'_uncat',label:'미분류',emoji:'📥',color:'#7C8AA0'});
+    return out;
+  }
   function catById(id){ return cats().find(function(c){return c.id===id;})||{id:id,label:String(id||''),emoji:'•'}; }
+  /* Resolve which inbox column an item belongs to: its (active) project, else 미분류. */
+  function colIdOf(it){
+    if(it&&it.projectId){ var pc='p:'+it.projectId; if(cats().some(function(c){return c.id===pc;}))return pc; }
+    if(it&&cats().some(function(c){return c.id===it.cat;}))return it.cat;
+    return '_uncat';
+  }
   function ibEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function newItem(text,cat){ return {id:Date.now()+Math.floor(Math.random()*1000),text:text,cat:cat,ts:Date.now(),done:false,unread:true,imgs:[],links:[]}; }
+  function newItem(text,colId){ colId=colId||'_uncat'; var pid=/^p:/.test(colId)?colId.slice(2):null; var o={id:Date.now()+Math.floor(Math.random()*1000),text:text,cat:colId,ts:Date.now(),done:false,unread:true,imgs:[],links:[]}; if(pid)o.projectId=pid; return o; }
   /* Resolve return-media refs in a just-rendered subtree to displayable URLs. */
   function ib2ResolveMedia(root){
     if(!root||!root.querySelectorAll||typeof MediaStore==='undefined')return;
@@ -18421,9 +18436,9 @@ function _initInbox(){
   /* Keyword auto-classify: guess a category id from the text (no network). */
   var _catHints={task:['해야','하기','todo','할','제출','예약','전화','확인','정리','신청','작성'],idea:['아이디어','생각','컨셉','해보면','어떨까','시안','브레인'],buy:['사기','구매','주문','살','결제','장바구니'],urgent:['긴급','급함','asap','바로','오늘까지','마감'],memo:['메모','기록','노트','참고']};
   function guessCat(text){
-    var t=String(text||'').toLowerCase(); var ids=cats().map(function(c){return c.id;});
-    for(var k in _catHints){ if(ids.indexOf(k)<0)continue; if(_catHints[k].some(function(w){return t.indexOf(w)>=0;}))return k; }
-    return null;
+    var t=String(text||'').toLowerCase();
+    var hit=pjList().find(function(p){ return String(p.title||'').toLowerCase().split(/\s+/).filter(function(x){return x.length>=2;}).some(function(x){return t.indexOf(x)>=0;}); });
+    return hit?'p:'+hit.id:'_uncat';
   }
   /* LLM classify via the shared callAI (Groq) helper; resolves to a category id.
      Falls back to the keyword heuristic when there's no API key, on error, or
@@ -18433,16 +18448,14 @@ function _initInbox(){
     var list=cats();
     var hasKey=false; try{ hasKey=!!localStorage.getItem('groq_api_key'); }catch(_e){}
     if(!text || !hasKey || typeof callAI!=='function') return Promise.resolve(guessCat(text));
-    var menu=list.map(function(c){return c.id+': '+c.label;}).join(', ');
-    var prompt='다음 메모를 아래 카테고리 중 하나로 분류해. 카테고리(id: 라벨) — '+menu+'.\n'
+    var menu=list.map(function(c){return c.label;}).join(', ');
+    var prompt='다음 메모를 아래 프로젝트/분류 중 가장 관련 있는 하나로 분류해. 목록 — '+menu+'. 애매하면 "미분류".\n'
       +'메모: "'+text.slice(0,400)+'"\n'
-      +'반드시 위 id 중 정확히 하나만, 다른 말 없이 소문자로 출력해.';
-    return Promise.resolve().then(function(){ return callAI(prompt,12); }).then(function(out){
+      +'반드시 위 목록 중 정확히 하나의 이름만, 다른 말 없이 출력해.';
+    return Promise.resolve().then(function(){ return callAI(prompt,16); }).then(function(out){
       var ans=String(out||'').toLowerCase();
-      var hit=list.find(function(c){ return new RegExp('(^|[^a-z0-9_])'+c.id.toLowerCase()+'([^a-z0-9_]|$)').test(ans); });
-      if(hit)return hit.id;
-      var byLabel=list.find(function(c){ return c.label && ans.indexOf(String(c.label).toLowerCase())>=0; });
-      return byLabel?byLabel.id:guessCat(text);
+      var hit=list.find(function(c){ return c.label && ans.indexOf(String(c.label).toLowerCase())>=0; });
+      return hit?hit.id:guessCat(text);
     }).catch(function(){ return guessCat(text); });
   }
   function imgsHtml(it,cls){
@@ -18544,7 +18557,7 @@ function _initInbox(){
   function doSend(){
     var ta=document.getElementById('ib2-ta'); if(!ta)return;
     var text=ta.value.trim(); if(!text&&!_capImgs.length)return;
-    var it=newItem(text,_capCat||cats()[0].id); it.imgs=_capImgs.slice();
+    var it=newItem(text,_capCat||'_uncat'); it.imgs=_capImgs.slice();
     inboxItems.unshift(it);
     saveInboxItems();
     ta.value=''; ta.style.height='auto'; _capImgs=[];
@@ -18553,7 +18566,7 @@ function _initInbox(){
   }
   function paintCapCats(){
     var host=document.getElementById('ib2-cap-cats'); if(!host)return;
-    if(!_capCat||!cats().some(function(c){return c.id===_capCat;}))_capCat=cats()[0].id;
+    if(!_capCat||!cats().some(function(c){return c.id===_capCat;}))_capCat='_uncat';
     host.innerHTML=cats().map(function(c){return '<button type="button" class="ib2-cchip'+(c.id===_capCat?' on':'')+'" data-cap="'+ibEsc(c.id)+'">'+ibEsc(c.emoji||'')+' '+ibEsc(c.label)+'</button>';}).join('')
       +'<button type="button" class="ib2-cchip ib2-cchip-auto" data-cap-auto="1" title="내용을 보고 카테고리 추천">✨ 자동</button>';
     if(!host.dataset.mdguard){ host.dataset.mdguard='1'; host.addEventListener('mousedown',function(e){ if(e.target.closest('.ib2-cchip'))e.preventDefault(); }); } /* keep textarea focused so chips stay visible */
@@ -18591,7 +18604,7 @@ function _initInbox(){
       var ts=_ts(it);
       var day=_ib2DayLabel(ts);
       if(day&&day!==lastDay){ html+='<div class="ib2-day">'+ibEsc(day)+'</div>'; lastDay=day; }
-      var c=catById(it.cat);
+      var c=catById(colIdOf(it));
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
       /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
@@ -18630,7 +18643,7 @@ function _initInbox(){
     host.innerHTML=cats().map(function(c){
       var color=catColor(c);
       var _kts=function(i){ return i.ts || (typeof i.id==='number'?i.id:0); };
-      var list=inboxItems.filter(function(i){return i.cat===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||(_kts(b)-_kts(a));});
+      var list=inboxItems.filter(function(i){return colIdOf(i)===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||(_kts(b)-_kts(a));});
       var active=list.filter(function(i){return !i.done;}).length;
       var cards=list.map(function(it){
         var only=!it.text&&Array.isArray(it.imgs)&&it.imgs.length; /* image-only card */
@@ -18646,16 +18659,18 @@ function _initInbox(){
           '</div>'+
         '</div>';
       }).join('');
+      var isProj=c.id!=='_uncat';
+      var openBtn=isProj?'<button type="button" class="ib2-col-edit" data-col-open="'+ibEsc(c._pid)+'" title="프로젝트 열기">›</button>':'';
       return '<div class="ib2-col" data-col="'+ibEsc(c.id)+'">'+
-        '<div class="ib2-col-head"><span class="ib2-col-grip" data-colgrip="'+ibEsc(c.id)+'" title="드래그로 순서 변경"></span><span class="ib2-col-dot" style="background:'+ibEsc(color)+'"></span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span><button type="button" class="ib2-col-edit" data-cat-edit="'+ibEsc(c.id)+'" title="카테고리 편집">✎</button></div>'+
+        '<div class="ib2-col-head"><span class="ib2-col-dot" style="background:'+ibEsc(color)+'"></span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span>'+openBtn+'</div>'+
         '<div class="ib2-col-add"><input type="text" class="ib2-add-input" data-add="'+ibEsc(c.id)+'" placeholder="＋ 여기에 추가"></div>'+
         '<div class="ib2-col-body">'+cards+'</div>'+
       '</div>';
     }).join('')+
-      '<button type="button" class="ib2-addcol" id="ib2-addcol"><span style="font-size:20px;line-height:1">＋</span>카테고리</button>';
+      '<button type="button" class="ib2-addcol" id="ib2-addcol"><span style="font-size:20px;line-height:1">＋</span>새 프로젝트</button>';
     ib2ResolveMedia(host);
-    host.querySelectorAll('[data-cat-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();openCatEditor(catById(b.getAttribute('data-cat-edit')));});});
-    var addcol=host.querySelector('#ib2-addcol'); if(addcol)addcol.addEventListener('click',function(){ openCatEditor(null); });
+    host.querySelectorAll('[data-col-open]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var id=b.getAttribute('data-col-open');if(typeof projectsOpenDetail==='function'){goPage('projects');projectsOpenDetail(id);}else if(typeof goPage==='function')goPage('projects');});});
+    var addcol=host.querySelector('#ib2-addcol'); if(addcol)addcol.addEventListener('click',function(){ if(typeof openProjectEditor==='function')openProjectEditor(null); });
     bindKanban(host);
   }
   /* 카테고리 추가/이름변경/삭제 (INBOX_CATS + saveCats). */
@@ -18769,7 +18784,7 @@ function _initInbox(){
         if(!drag)return;
         if(drag.ghost){
           drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); var col=el&&el.closest?el.closest('.ib2-col'):null; drag.ghost.remove();
-          if(col){ var cat=col.getAttribute('data-col'); var it=inboxItems.find(function(x){return String(x.id)===String(drag.id);}); if(it&&it.cat!==cat){ it.cat=cat; saveInboxItems(); } }
+          if(col){ var cat=col.getAttribute('data-col'); var it=inboxItems.find(function(x){return String(x.id)===String(drag.id);}); if(it){ it.cat=cat; var pid=/^p:/.test(cat)?cat.slice(2):null; if(pid)it.projectId=pid; else delete it.projectId; saveInboxItems(); } }
           host.querySelectorAll('.ib2-col').forEach(function(c){c.classList.remove('ib2-drop');});
           drag=null; renderFeed(); return;
         }
@@ -18782,6 +18797,7 @@ function _initInbox(){
   renderFeed=function(){
     var root=ensure();
     if(!root){ return _origFeed.apply(this,arguments); }
+    if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!projects||!projects.length)){ try{ loadProjects(); }catch(_e){} }
     try{ paintCapCats(); paintThumbs(); paintThread(); paintKanban(); }catch(e){ console.warn('inbox 2pane:',e); }
   };
 })();
@@ -21428,6 +21444,7 @@ function tasksOpenNewModal(seed){
   taskModalSnapshot=null;
   taskModalDraft={
     id:null,
+    projectId:seed.projectId||'',
     text:seed.text||'',
     catId:seed.catId||'etc',
     date:seed.date||selDate||TK,
@@ -27632,6 +27649,41 @@ function projectTaskTimelineHtml(list){
     }).join('')+'</div></div>';
   }).join('')+'</div>';
 }
+/* 프로젝트 상세 할일 타임라인 = 이 프로젝트 할일의 주간 그리드(비어도 뷰 표시). */
+var _pjdTlWeek=0;
+function _pjdWeekDays(off){ var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7); var start=new Date(base); start.setDate(base.getDate()-base.getDay()); var out=[]; for(var i=0;i<7;i++){var d=new Date(start);d.setDate(start.getDate()+i);out.push(d);} return out; }
+function _pjdDk(d){return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+function projectWeekTimelineHtml(project){
+  var color=project.color||'#BE727A';
+  var days=_pjdWeekDays(_pjdTlWeek), keys=days.map(_pjdDk), w0=keys[0], w6=keys[6];
+  var today=(typeof TK!=='undefined')?TK:_pjdDk(new Date());
+  var DOW=['일','월','화','수','목','금','토'];
+  var mine=projectTaskItems(project).filter(function(t){return t&&!t._travelOnly&&t.date;});
+  function placeable(t){ var s=t.date, e=(t.deadlineDate&&t.deadlineDate>=t.date)?t.deadlineDate:t.date; return !(e<w0||s>w6); }
+  function barSpan(t){ var s=t.date, e=(t.deadlineDate&&t.deadlineDate>=t.date)?t.deadlineDate:t.date; var si=0; if(s>=w0){for(var j=0;j<7;j++){if(keys[j]>=s){si=j;break;}}} var ei=6; if(e<=w6){for(var k=6;k>=0;k--){if(keys[k]<=e){ei=k;break;}}} if(ei<si)ei=si; return {si:si,ei:ei}; }
+  function tdone(t){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done; }
+  var monthLabel=days[0].getFullYear()+'년 '+(days[0].getMonth()+1)+'월';
+  var head='<div class="pj-tl-head">'+
+    '<span class="pj-tl-month">'+projectEsc(monthLabel)+'</span>'+
+    '<button type="button" class="pj-tl-nav" data-pjdtlnav="-1" aria-label="이전 주">‹</button>'+
+    '<button type="button" class="pj-tl-today" data-pjdtlnav="0">오늘</button>'+
+    '<button type="button" class="pj-tl-nav" data-pjdtlnav="1" aria-label="다음 주">›</button>'+
+  '</div>';
+  var colhead='<div class="pj-tl-colhead"><span class="pj-tl-cap">할일</span>'+
+    days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[i]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
+  var list=mine.filter(placeable).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
+  var rows=list.length?list.map(function(t){
+    var b=barSpan(t), done=tdone(t), span=(t.deadlineDate&&t.deadlineDate>=t.date&&t.deadlineDate!==t.date);
+    return '<div class="pj-tl-row"><span class="pj-tl-rowlabel">'+projectEsc(t.text)+'</span>'+
+      '<button type="button" class="pj-bar2'+(done?' done':'')+'" data-pjdtltask="'+projectEsc(t.id)+'" style="grid-column:'+(b.si+2)+' / '+(b.ei+3)+';background:linear-gradient(90deg,'+projectEsc(color)+','+projectEsc(color)+'bb)" title="'+projectEsc(t.text)+'">'+projectEsc(t.text)+(span?' →':'')+'</button></div>';
+  }).join(''):'<div class="pj-tl-empty">이번 주 일정이 없어요. 위 ＋ 할일 추가로 만들면 여기에 표시돼요.</div>';
+  return '<div class="pj-tl pjd-tl">'+head+'<div class="pj-tl-card">'+colhead+'<div class="pj-tl-groups"><div class="pj-tl-grp open"><div class="pj-tl-body">'+rows+'</div></div></div></div></div>';
+}
+function bindProjectWeekTimeline(detail){
+  if(!detail)return;
+  detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v); renderProjects(); });});
+  detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
+}
 openProjectTaskLinker=function(project){
   var old=document.getElementById('project-task-linker'); if(old)old.remove();
   var ov=document.createElement('div'); ov.className='overlay open'; ov.id='project-task-linker';
@@ -27828,6 +27880,8 @@ renderProjects=function(){
   bind('project-capture',function(){openProjectLogEditor(p);});
   bind('project-archive',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   bind('project-delete',function(){deleteProjectSafely(p);});
+  bind('project-add-task',function(){ if(typeof tasksOpenNewModal==='function')tasksOpenNewModal({projectId:p.id,date:(typeof TK!=='undefined'?TK:'')}); else if(typeof goPage==='function')goPage('tasks'); });
+  bind('project-add-task-empty',function(){ if(typeof tasksOpenNewModal==='function')tasksOpenNewModal({projectId:p.id,date:(typeof TK!=='undefined'?TK:'')}); else if(typeof goPage==='function')goPage('tasks'); });
   bind('project-link-task',function(){openProjectTaskLinker(p);}); bind('project-link-task-empty',function(){openProjectTaskLinker(p);});
   bind('project-link-record',function(){openProjectRecordLinker(p);}); bind('project-link-record-empty',function(){openProjectRecordLinker(p);});
   bind('project-add-log',function(){openProjectLogEditor(p);}); bind('project-add-log-empty',function(){openProjectLogEditor(p);});
@@ -28066,7 +28120,7 @@ function projectLogsStudioHtml(project){
   var avatar=projectXAvatar(project);
   var composer=projectLogComposerHtml(color, avatar, {pid:project.id, projectName:project.title, hidePill:true, placeholder:(project.title||'프로젝트')+' 작업, 방금 뭐 했어?'});
   if(!logs.length)return '<div class="pjx-feed">'+composer+'</div>'+projectStudioEmpty('아직 남긴 기록이 없어요','결정, 깨달음, 다음 액션을 짧게 남기면 프로젝트 흐름을 다시 잡기 쉬워요.',null,'');
-  return '<div class="pjx-feed">'+composer+logs.map(function(l){return projectXPostHtml(project,l,{hidePill:true});}).join('')+'</div>';
+  return '<div class="pjx-feed">'+composer+'<div class="pjx-feed-scroll">'+logs.map(function(l){return projectXPostHtml(project,l,{hidePill:true});}).join('')+'</div></div>';
 }
 /* 처리할 인박스 — inbox items 담긴(projectId) to this project, still needing action. */
 function projectInboxItems(project){
@@ -28105,8 +28159,7 @@ renderProjects=function(){
   if(!p){detail.innerHTML=projectStudioEmpty('프로젝트를 선택해 주세요','왼쪽에서 프로젝트를 고르거나 새 프로젝트를 만들어 주세요.',null,'');return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
   var logsHtml=projectLogsStudioHtml(p);
-  var tasksHtml=projectTaskTimelineHtml(linked);
-  if(tasksHtml.indexOf('project-empty')>=0)tasksHtml=projectStudioEmpty('연결된 할일이 없어요','이 프로젝트와 관련된 할일을 연결하면 타임라인과 진행률이 함께 정리돼요.','project-link-task-empty','할일 연결');
+  var tasksHtml=projectWeekTimelineHtml(p);
   var notesHtml=projectRecordAccessRows(p);
   if(notesHtml.indexOf('project-empty')>=0)notesHtml=projectStudioEmpty('연결된 기록이 없어요','메모, 일기, 체크 기록을 연결하면 프로젝트 안에서 바로 다시 볼 수 있어요.','project-link-record-empty','기록 연결');
   var resHtml=(p.resources||[]).map(function(r){return '<div class="resource-card" data-res="'+r.id+'"><div class="resource-preview">'+projectResourcePreview(r)+'</div><div class="project-title">'+projectEsc(r.title)+'</div><div class="project-meta">'+projectEsc(r.note||r.url||'')+'</div><div style="display:flex;gap:var(--sp-2);margin-top:auto"><button type="button" class="btn btn-ghost" data-res-open="'+r.id+'">'+(r.url?'열기':'보기')+'</button><button type="button" class="btn btn-ghost" data-res-edit="'+r.id+'">편집</button><button type="button" class="btn btn-danger" data-res-del="'+r.id+'">삭제</button></div></div>';}).join('') || projectStudioEmpty('참고 자료가 없어요','링크, 이미지, 짧은 자료 메모를 붙여두면 작업 공간처럼 쓸 수 있어요.','project-add-resource-empty','자료 추가');
@@ -28130,10 +28183,8 @@ renderProjects=function(){
       +'<div class="pjd-actions"><button class="btn btn-ghost" id="project-edit">✏ 편집</button><button class="btn btn-primary" id="project-capture">＋ 담기</button></div>'
     +'</section>'
     +'<section class="section-card"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">이 프로젝트의 기록 · '+logN+'</span></div>'+logsHtml+'</section>'
-    +'<div class="pjd-2col">'
-      +'<section class="section-card"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
-      +'<section class="section-card"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-ghost" id="project-link-task">할일 연결</button></div>'+tasksHtml+'</section>'
-    +'</div>'
+    +'<section class="section-card"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
+    +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
     +'<section class="section-card pjb-section"><div class="project-section-head">'+_sl('board','자료 보드')+'</div>'+projectBoardHtml(p)+'</section>'
   +'</div>';
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
@@ -28141,6 +28192,8 @@ renderProjects=function(){
   bind('project-capture',function(){openProjectLogEditor(p);});
   bind('project-archive',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   bind('project-delete',function(){deleteProjectSafely(p);});
+  bind('project-add-task',function(){ if(typeof tasksOpenNewModal==='function')tasksOpenNewModal({projectId:p.id,date:(typeof TK!=='undefined'?TK:'')}); else if(typeof goPage==='function')goPage('tasks'); });
+  bind('project-add-task-empty',function(){ if(typeof tasksOpenNewModal==='function')tasksOpenNewModal({projectId:p.id,date:(typeof TK!=='undefined'?TK:'')}); else if(typeof goPage==='function')goPage('tasks'); });
   bind('project-link-task',function(){openProjectTaskLinker(p);}); bind('project-link-task-empty',function(){openProjectTaskLinker(p);});
   bind('project-link-record',function(){openProjectRecordLinker(p);}); bind('project-link-record-empty',function(){openProjectRecordLinker(p);});
   bind('project-add-log',function(){openProjectLogEditor(p);}); bind('project-add-log-empty',function(){openProjectLogEditor(p);});
@@ -28174,6 +28227,7 @@ renderProjects=function(){
   detail.querySelectorAll('[data-res-del]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var r=(p.resources||[]).find(function(x){return x.id===btn.getAttribute('data-res-del');});if(r)deleteProjectResource(p,r);});});
   if(typeof bindProjectLogComposer==='function')bindProjectLogComposer(detail);
   if(typeof projectBoardBind==='function')projectBoardBind(detail,p);
+  if(typeof bindProjectWeekTimeline==='function')bindProjectWeekTimeline(detail);
   bindProjectRecordRows(detail);
 };
 
