@@ -28429,6 +28429,7 @@ renderProjects=function(){
     projects.filter(function(p){return p&&p.status!=='archived';}).forEach(function(p){
       groups.push({gid:'p_'+p.id,name:p.title,color:p.color||'#BE727A',pid:p.id});
     });
+    groups.push({gid:'hobby',name:'취미',color:'#B0863F',hobby:true});
     var allTasks=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t._travelOnly&&t.date;});
     function placeable(t){
       var s=t.date, e=(t.deadlineDate&&t.deadlineDate>=t.date)?t.deadlineDate:t.date;
@@ -28454,23 +28455,32 @@ renderProjects=function(){
     var legend='<div class="pj-tl-legend">'+groups.map(function(g){
       return '<span class="pj-tl-leg"><span class="pj-tl-legdot" style="background:'+projectEsc(g.color)+'"></span>'+projectEsc(g.gid==='base'?'기본(할일 탭)':g.name)+'</span>';
     }).join('')+'</div>';
-    var note='<div class="pj-tl-note"><span>✓</span><span>맨 위 "기본" 묶음 = 할일 탭의 프로젝트 없는 할일 · 그 아래는 프로젝트별 토글 그룹</span></div>';
+    var note='<div class="pj-tl-note"><span>✓</span><span>맨 위 "기본" = 할일 탭의 프로젝트 없는 할일 · 가운데는 프로젝트별 그룹 · 맨 아래 "취미"는 취미 탭 일정</span></div>';
     var colhead='<div class="pj-tl-colhead"><span class="pj-tl-cap">묶음 · 프로젝트</span>'+
       days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[i]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
     var body=groups.map(function(g){
-      var allList=allTasks.filter(function(t){ return g.gid==='base'?!t.projectId:String(t.projectId||'')===String(g.pid); });
-      var list=allList.filter(placeable);
-      var doneN=allList.filter(tdone).length, actN=allList.length-doneN;
-      var status=g.gid==='base'?('프로젝트 없는 할일 · '+allList.length):('진행 '+actN+(doneN?' · 완료 '+doneN:''));
+      var allList,list,doneN,actN,status;
+      if(g.hobby){
+        allList=(typeof items!=='undefined'&&Array.isArray(items))?items.filter(function(it){return it&&it.date;}):[];
+        list=allList.filter(placeable);
+        doneN=allList.filter(function(it){return it.done;}).length; actN=allList.length-doneN;
+        status='취미 계획 · '+allList.length;
+      } else {
+        allList=allTasks.filter(function(t){ return g.gid==='base'?!t.projectId:String(t.projectId||'')===String(g.pid); });
+        list=allList.filter(placeable);
+        doneN=allList.filter(tdone).length; actN=allList.length-doneN;
+        status=g.gid==='base'?('프로젝트 없는 할일 · '+allList.length):('진행 '+actN+(doneN?' · 완료 '+doneN:''));
+      }
       var open=_pjTlOpen[g.gid]!==false;
       var rows;
       if(!list.length){ rows='<div class="pj-tl-empty">이번 주 일정이 없어요.</div>'; }
       else {
         rows=list.map(function(t){
-          var b=barSpan(t), done=tdone(t), span=(t.deadlineDate&&t.deadlineDate>=t.date&&t.deadlineDate!==t.date);
+          var b=barSpan(t), done=g.hobby?!!t.done:tdone(t), span=(t.deadlineDate&&t.deadlineDate>=t.date&&t.deadlineDate!==t.date);
+          var tapAttr=g.hobby?('data-tlhobby="'+projectEsc(t.id)+'"'):('data-tltask="'+projectEsc(t.id)+'"');
           return '<div class="pj-tl-row">'+
             '<span class="pj-tl-rowlabel">'+projectEsc(t.text)+'</span>'+
-            '<button type="button" class="pj-bar2'+(done?' done':'')+'" data-tltask="'+projectEsc(t.id)+'" style="grid-column:'+(b.si+2)+' / '+(b.ei+3)+';background:linear-gradient(90deg,'+projectEsc(g.color)+','+projectEsc(g.color)+'bb)" title="'+projectEsc(t.text)+'">'+
+            '<button type="button" class="pj-bar2'+(done?' done':'')+'" '+tapAttr+' style="grid-column:'+(b.si+2)+' / '+(b.ei+3)+';background:linear-gradient(90deg,'+projectEsc(g.color)+','+projectEsc(g.color)+'bb)" title="'+projectEsc(t.text)+'">'+
             projectEsc(t.text)+(span?' →':'')+'</button></div>';
         }).join('');
       }
@@ -28493,6 +28503,7 @@ renderProjects=function(){
       var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-tltask'));});
       if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
     });});
+    host.querySelectorAll('[data-tlhobby]').forEach(function(b){b.addEventListener('click',function(){ if(typeof goPage==='function')goPage('hobby'); });});
   }
   function ensureBackBtn(){
     var head=document.querySelector('#page-projects .project-list-head'); if(!head)return;
