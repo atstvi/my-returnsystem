@@ -18408,10 +18408,23 @@ function _initInbox(){
   var _origFeed=renderFeed;
   var _capCat=null;
   var _capImgs=[];   /* pending image refs for the next captured item */
-  function cats(){ return (typeof INBOX_CATS!=='undefined'&&Array.isArray(INBOX_CATS)&&INBOX_CATS.length)?INBOX_CATS:[{id:'task',label:'할일',emoji:'📋'}]; }
+  /* 인박스 카테고리 = 프로젝트(활성) + 미분류. 항목은 projectId로 열에 배치되고,
+     프로젝트 없는(또는 보관된 프로젝트) 항목은 모두 "미분류"로 모인다. */
+  function pjList(){ try{ if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!projects))loadProjects(); }catch(_e){} return (typeof projects!=='undefined'&&Array.isArray(projects))?projects.filter(function(p){return p&&p.status!=='archived';}):[]; }
+  function cats(){
+    var out=pjList().map(function(p){ return {id:'p:'+p.id,label:p.title||'프로젝트',emoji:'📁',color:p.color||null,_pid:p.id}; });
+    out.push({id:'_uncat',label:'미분류',emoji:'📥',color:'#7C8AA0'});
+    return out;
+  }
   function catById(id){ return cats().find(function(c){return c.id===id;})||{id:id,label:String(id||''),emoji:'•'}; }
+  /* Resolve which inbox column an item belongs to: its (active) project, else 미분류. */
+  function colIdOf(it){
+    if(it&&it.projectId){ var pc='p:'+it.projectId; if(cats().some(function(c){return c.id===pc;}))return pc; }
+    if(it&&cats().some(function(c){return c.id===it.cat;}))return it.cat;
+    return '_uncat';
+  }
   function ibEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function newItem(text,cat){ return {id:Date.now()+Math.floor(Math.random()*1000),text:text,cat:cat,ts:Date.now(),done:false,unread:true,imgs:[],links:[]}; }
+  function newItem(text,colId){ colId=colId||'_uncat'; var pid=/^p:/.test(colId)?colId.slice(2):null; var o={id:Date.now()+Math.floor(Math.random()*1000),text:text,cat:colId,ts:Date.now(),done:false,unread:true,imgs:[],links:[]}; if(pid)o.projectId=pid; return o; }
   /* Resolve return-media refs in a just-rendered subtree to displayable URLs. */
   function ib2ResolveMedia(root){
     if(!root||!root.querySelectorAll||typeof MediaStore==='undefined')return;
@@ -18423,9 +18436,9 @@ function _initInbox(){
   /* Keyword auto-classify: guess a category id from the text (no network). */
   var _catHints={task:['해야','하기','todo','할','제출','예약','전화','확인','정리','신청','작성'],idea:['아이디어','생각','컨셉','해보면','어떨까','시안','브레인'],buy:['사기','구매','주문','살','결제','장바구니'],urgent:['긴급','급함','asap','바로','오늘까지','마감'],memo:['메모','기록','노트','참고']};
   function guessCat(text){
-    var t=String(text||'').toLowerCase(); var ids=cats().map(function(c){return c.id;});
-    for(var k in _catHints){ if(ids.indexOf(k)<0)continue; if(_catHints[k].some(function(w){return t.indexOf(w)>=0;}))return k; }
-    return null;
+    var t=String(text||'').toLowerCase();
+    var hit=pjList().find(function(p){ return String(p.title||'').toLowerCase().split(/\s+/).filter(function(x){return x.length>=2;}).some(function(x){return t.indexOf(x)>=0;}); });
+    return hit?'p:'+hit.id:'_uncat';
   }
   /* LLM classify via the shared callAI (Groq) helper; resolves to a category id.
      Falls back to the keyword heuristic when there's no API key, on error, or
@@ -18435,16 +18448,14 @@ function _initInbox(){
     var list=cats();
     var hasKey=false; try{ hasKey=!!localStorage.getItem('groq_api_key'); }catch(_e){}
     if(!text || !hasKey || typeof callAI!=='function') return Promise.resolve(guessCat(text));
-    var menu=list.map(function(c){return c.id+': '+c.label;}).join(', ');
-    var prompt='다음 메모를 아래 카테고리 중 하나로 분류해. 카테고리(id: 라벨) — '+menu+'.\n'
+    var menu=list.map(function(c){return c.label;}).join(', ');
+    var prompt='다음 메모를 아래 프로젝트/분류 중 가장 관련 있는 하나로 분류해. 목록 — '+menu+'. 애매하면 "미분류".\n'
       +'메모: "'+text.slice(0,400)+'"\n'
-      +'반드시 위 id 중 정확히 하나만, 다른 말 없이 소문자로 출력해.';
-    return Promise.resolve().then(function(){ return callAI(prompt,12); }).then(function(out){
+      +'반드시 위 목록 중 정확히 하나의 이름만, 다른 말 없이 출력해.';
+    return Promise.resolve().then(function(){ return callAI(prompt,16); }).then(function(out){
       var ans=String(out||'').toLowerCase();
-      var hit=list.find(function(c){ return new RegExp('(^|[^a-z0-9_])'+c.id.toLowerCase()+'([^a-z0-9_]|$)').test(ans); });
-      if(hit)return hit.id;
-      var byLabel=list.find(function(c){ return c.label && ans.indexOf(String(c.label).toLowerCase())>=0; });
-      return byLabel?byLabel.id:guessCat(text);
+      var hit=list.find(function(c){ return c.label && ans.indexOf(String(c.label).toLowerCase())>=0; });
+      return hit?hit.id:guessCat(text);
     }).catch(function(){ return guessCat(text); });
   }
   function imgsHtml(it,cls){
@@ -18546,7 +18557,7 @@ function _initInbox(){
   function doSend(){
     var ta=document.getElementById('ib2-ta'); if(!ta)return;
     var text=ta.value.trim(); if(!text&&!_capImgs.length)return;
-    var it=newItem(text,_capCat||cats()[0].id); it.imgs=_capImgs.slice();
+    var it=newItem(text,_capCat||'_uncat'); it.imgs=_capImgs.slice();
     inboxItems.unshift(it);
     saveInboxItems();
     ta.value=''; ta.style.height='auto'; _capImgs=[];
@@ -18555,7 +18566,7 @@ function _initInbox(){
   }
   function paintCapCats(){
     var host=document.getElementById('ib2-cap-cats'); if(!host)return;
-    if(!_capCat||!cats().some(function(c){return c.id===_capCat;}))_capCat=cats()[0].id;
+    if(!_capCat||!cats().some(function(c){return c.id===_capCat;}))_capCat='_uncat';
     host.innerHTML=cats().map(function(c){return '<button type="button" class="ib2-cchip'+(c.id===_capCat?' on':'')+'" data-cap="'+ibEsc(c.id)+'">'+ibEsc(c.emoji||'')+' '+ibEsc(c.label)+'</button>';}).join('')
       +'<button type="button" class="ib2-cchip ib2-cchip-auto" data-cap-auto="1" title="내용을 보고 카테고리 추천">✨ 자동</button>';
     if(!host.dataset.mdguard){ host.dataset.mdguard='1'; host.addEventListener('mousedown',function(e){ if(e.target.closest('.ib2-cchip'))e.preventDefault(); }); } /* keep textarea focused so chips stay visible */
@@ -18593,7 +18604,7 @@ function _initInbox(){
       var ts=_ts(it);
       var day=_ib2DayLabel(ts);
       if(day&&day!==lastDay){ html+='<div class="ib2-day">'+ibEsc(day)+'</div>'; lastDay=day; }
-      var c=catById(it.cat);
+      var c=catById(colIdOf(it));
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
       /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
@@ -18632,7 +18643,7 @@ function _initInbox(){
     host.innerHTML=cats().map(function(c){
       var color=catColor(c);
       var _kts=function(i){ return i.ts || (typeof i.id==='number'?i.id:0); };
-      var list=inboxItems.filter(function(i){return i.cat===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||(_kts(b)-_kts(a));});
+      var list=inboxItems.filter(function(i){return colIdOf(i)===c.id;}).sort(function(a,b){return ((a.done?1:0)-(b.done?1:0))||(_kts(b)-_kts(a));});
       var active=list.filter(function(i){return !i.done;}).length;
       var cards=list.map(function(it){
         var only=!it.text&&Array.isArray(it.imgs)&&it.imgs.length; /* image-only card */
@@ -18648,16 +18659,18 @@ function _initInbox(){
           '</div>'+
         '</div>';
       }).join('');
+      var isProj=c.id!=='_uncat';
+      var openBtn=isProj?'<button type="button" class="ib2-col-edit" data-col-open="'+ibEsc(c._pid)+'" title="프로젝트 열기">›</button>':'';
       return '<div class="ib2-col" data-col="'+ibEsc(c.id)+'">'+
-        '<div class="ib2-col-head"><span class="ib2-col-grip" data-colgrip="'+ibEsc(c.id)+'" title="드래그로 순서 변경"></span><span class="ib2-col-dot" style="background:'+ibEsc(color)+'"></span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span><button type="button" class="ib2-col-edit" data-cat-edit="'+ibEsc(c.id)+'" title="카테고리 편집">✎</button></div>'+
+        '<div class="ib2-col-head"><span class="ib2-col-dot" style="background:'+ibEsc(color)+'"></span><span class="ib2-col-label">'+ibEsc(c.label)+'</span><span class="ib2-col-count">'+active+'</span>'+openBtn+'</div>'+
         '<div class="ib2-col-add"><input type="text" class="ib2-add-input" data-add="'+ibEsc(c.id)+'" placeholder="＋ 여기에 추가"></div>'+
         '<div class="ib2-col-body">'+cards+'</div>'+
       '</div>';
     }).join('')+
-      '<button type="button" class="ib2-addcol" id="ib2-addcol"><span style="font-size:20px;line-height:1">＋</span>카테고리</button>';
+      '<button type="button" class="ib2-addcol" id="ib2-addcol"><span style="font-size:20px;line-height:1">＋</span>새 프로젝트</button>';
     ib2ResolveMedia(host);
-    host.querySelectorAll('[data-cat-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();openCatEditor(catById(b.getAttribute('data-cat-edit')));});});
-    var addcol=host.querySelector('#ib2-addcol'); if(addcol)addcol.addEventListener('click',function(){ openCatEditor(null); });
+    host.querySelectorAll('[data-col-open]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var id=b.getAttribute('data-col-open');if(typeof projectsOpenDetail==='function'){goPage('projects');projectsOpenDetail(id);}else if(typeof goPage==='function')goPage('projects');});});
+    var addcol=host.querySelector('#ib2-addcol'); if(addcol)addcol.addEventListener('click',function(){ if(typeof openProjectEditor==='function')openProjectEditor(null); });
     bindKanban(host);
   }
   /* 카테고리 추가/이름변경/삭제 (INBOX_CATS + saveCats). */
@@ -18771,7 +18784,7 @@ function _initInbox(){
         if(!drag)return;
         if(drag.ghost){
           drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); var col=el&&el.closest?el.closest('.ib2-col'):null; drag.ghost.remove();
-          if(col){ var cat=col.getAttribute('data-col'); var it=inboxItems.find(function(x){return String(x.id)===String(drag.id);}); if(it&&it.cat!==cat){ it.cat=cat; saveInboxItems(); } }
+          if(col){ var cat=col.getAttribute('data-col'); var it=inboxItems.find(function(x){return String(x.id)===String(drag.id);}); if(it){ it.cat=cat; var pid=/^p:/.test(cat)?cat.slice(2):null; if(pid)it.projectId=pid; else delete it.projectId; saveInboxItems(); } }
           host.querySelectorAll('.ib2-col').forEach(function(c){c.classList.remove('ib2-drop');});
           drag=null; renderFeed(); return;
         }
@@ -18784,6 +18797,7 @@ function _initInbox(){
   renderFeed=function(){
     var root=ensure();
     if(!root){ return _origFeed.apply(this,arguments); }
+    if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!projects||!projects.length)){ try{ loadProjects(); }catch(_e){} }
     try{ paintCapCats(); paintThumbs(); paintThread(); paintKanban(); }catch(e){ console.warn('inbox 2pane:',e); }
   };
 })();
