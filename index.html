@@ -18658,6 +18658,7 @@ function _initInbox(){
           '<div class="ib2-card-ctls">'+
             '<button type="button" class="ib2-check" data-act="done" data-id="'+ibEsc(it.id)+'" aria-label="완료 토글"></button>'+
             '<button type="button" class="ib2-ct" data-act="need" data-id="'+ibEsc(it.id)+'" title="처리 필요 표시">●</button>'+
+            '<button type="button" class="ib2-ct" data-act="edit" data-id="'+ibEsc(it.id)+'" title="편집">✎</button>'+
             '<button type="button" class="ib2-ct ib2-ct-del" data-act="del" data-id="'+ibEsc(it.id)+'" title="삭제">×</button>'+
             '<span class="ib2-grip" data-grip="'+ibEsc(it.id)+'" title="드래그로 카테고리 이동"></span>'+
           '</div>'+
@@ -18709,6 +18710,21 @@ function _initInbox(){
     };
     (typeof openConfirmDialog==='function')?openConfirmDialog('카테고리 삭제','“'+cat.label+'” 카테고리를 삭제할까요? 항목은 “'+cats().filter(function(c){return c.id!==cat.id;})[0].label+'”으로 옮겨져요.',run):run();
   }
+  /* 인박스 항목 편집 — 내용 + 분류(프로젝트/미분류) 변경. */
+  function openInboxEdit(id){
+    var it=inboxItems.find(function(x){return String(x.id)===String(id);});
+    if(!it||typeof openFormDialog!=='function')return;
+    var opts=cats().map(function(c){return {value:c.id,label:(c.emoji||'')+' '+c.label};});
+    openFormDialog('항목 편집',[
+      {key:'text',label:'내용',type:'textarea',value:it.text||''},
+      {key:'col',label:'분류',type:'select',value:colIdOf(it),options:opts}
+    ],function(d){
+      it.text=(d.text||'').trim();
+      var col=d.col||'_uncat'; it.cat=col;
+      var pid=/^p:/.test(col)?col.slice(2):null; if(pid)it.projectId=pid; else delete it.projectId;
+      saveInboxItems(); renderFeed();
+    });
+  }
   function bindKanban(host){
     host.querySelectorAll('[data-add]').forEach(function(inp){
       inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ var t=inp.value.trim(); if(!t)return; inboxItems.unshift(newItem(t,inp.getAttribute('data-add'))); saveInboxItems(); renderFeed(); var f=document.querySelector('[data-add="'+inp.getAttribute('data-add')+'"]'); if(f)f.focus(); } });
@@ -18719,6 +18735,7 @@ function _initInbox(){
       var it=inboxItems.find(function(x){return String(x.id)===String(id);}); if(!it)return;
       if(act==='done'){ it.done=!it.done; if(it.done)it.unread=false; saveInboxItems(); renderFeed(); }
       else if(act==='need'){ it.unread=!it.unread; saveInboxItems(); renderFeed(); }
+      else if(act==='edit'){ openInboxEdit(id); }
       else if(act==='del'){ var run=function(){ inboxItems=inboxItems.filter(function(x){return String(x.id)!==String(id);}); saveInboxItems(); renderFeed(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 삭제할까요?',run):run()); }
     });});
     bindCardDrag(host);
@@ -18768,6 +18785,17 @@ function _initInbox(){
   }
   function bindCardDrag(host){
     var drag=null;
+    var board=(host.closest&&host.closest('.ib2-board'))||document.querySelector('.ib2-board');
+    var scrollRAF=null;
+    function autoScroll(){
+      scrollRAF=null;
+      if(!drag||!drag.ghost||!board)return;
+      var r=board.getBoundingClientRect(), x=drag.lastX==null?-1:drag.lastX, edge=70, step=0;
+      if(x<r.left+edge) step=-Math.max(6,(r.left+edge-x)/2.5);
+      else if(x>r.right-edge) step=Math.max(6,(x-(r.right-edge))/2.5);
+      if(step) board.scrollLeft+=step;
+      scrollRAF=requestAnimationFrame(autoScroll);
+    }
     host.querySelectorAll('.ib2-grip').forEach(function(grip){
       var card=grip.closest('.ib2-card');
       grip.addEventListener('pointerdown',function(e){
@@ -18778,7 +18806,8 @@ function _initInbox(){
       });
       grip.addEventListener('pointermove',function(e){
         if(!drag)return;
-        if(!drag.ghost){ if(Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)<6)return; var g=drag.card.cloneNode(true); g.classList.add('ib2-ghost'); g.style.width=drag.w+'px'; document.body.appendChild(g); drag.ghost=g; drag.card.classList.add('ib2-dragsrc'); }
+        if(!drag.ghost){ if(Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)<6)return; var g=drag.card.cloneNode(true); g.classList.add('ib2-ghost'); g.style.width=drag.w+'px'; document.body.appendChild(g); drag.ghost=g; drag.card.classList.add('ib2-dragsrc'); if(!scrollRAF)scrollRAF=requestAnimationFrame(autoScroll); }
+        drag.lastX=e.clientX;
         drag.ghost.style.left=(e.clientX-drag.offx)+'px'; drag.ghost.style.top=(e.clientY-drag.offy)+'px';
         drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); drag.ghost.style.display='';
         var col=el&&el.closest?el.closest('.ib2-col'):null;
@@ -18786,6 +18815,7 @@ function _initInbox(){
       });
       function end(e){
         if(!drag)return;
+        if(scrollRAF){cancelAnimationFrame(scrollRAF);scrollRAF=null;}
         if(drag.ghost){
           drag.ghost.style.display='none'; var el=document.elementFromPoint(e.clientX,e.clientY); var col=el&&el.closest?el.closest('.ib2-col'):null; drag.ghost.remove();
           if(col){ var cat=col.getAttribute('data-col'); var it=inboxItems.find(function(x){return String(x.id)===String(drag.id);}); if(it){ it.cat=cat; var pid=/^p:/.test(cat)?cat.slice(2):null; if(pid)it.projectId=pid; else delete it.projectId; saveInboxItems(); } }
