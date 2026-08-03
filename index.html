@@ -7804,7 +7804,7 @@ to{opacity:1;transform:translateY(0)}}
 
       <section class="task-modal-section" aria-label="분류">
         <div class="task-modal-section-head"><span class="task-modal-section-kicker">Organize</span></div>
-        <div class="modal-row" style="cursor:default">
+        <div class="modal-row" id="modal-project-row" style="cursor:default">
           <div class="mr-icon ic-accent"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
           <span class="mr-label">프로젝트</span>
           <select class="modal-select" id="modal-project-sel"></select>
@@ -18820,6 +18820,7 @@ if (window.innerWidth >= 640) { ta.focus(); }
 
 var CATS = [
   {id:'schedule',label:'일정',  emoji:'📅', color:'#BE727A', defaultPriority:''},
+  {id:'project', label:'프로젝트',emoji:'📁',color:'#8296C8', defaultPriority:''},
   {id:'uni',     label:'대학',  emoji:'🎓', color:'#7E7BC0', defaultPriority:'high'},
   {id:'work',    label:'작업',  emoji:'💻', color:'#4E9A84', defaultPriority:'mid'},
   {id:'health',  label:'건강',  emoji:'💪', color:'#B0863F', defaultPriority:'low'},
@@ -18837,6 +18838,15 @@ try {
     });
   }
 } catch(e) {}
+/* Ensure the non-deletable special categories exist even for users whose stored
+   task_cats_v1 predates them (일정 always, 프로젝트 inserted right after it). */
+(function(){
+  if(!CATS.some(function(c){return c.id==='schedule';})) CATS.unshift({id:'schedule',label:'일정',emoji:'📅',color:'#BE727A',defaultPriority:''});
+  if(!CATS.some(function(c){return c.id==='project';})){
+    var si=CATS.findIndex(function(c){return c.id==='schedule';});
+    CATS.splice(si>=0?si+1:0,0,{id:'project',label:'프로젝트',emoji:'📁',color:'#8296C8',defaultPriority:''});
+  }
+})();
 function saveTaskCatsData(){ return setReturnStorageItem('task_cats_v1', JSON.stringify(CATS)); }
 
 /* Return the default priority for a catId, '' if none set */
@@ -18984,6 +18994,14 @@ function normalizeTimetableTaskCategories(){
   return changed;
 }
 try{if(normalizeTimetableTaskCategories())setReturnStorageItem('task_items_v1',JSON.stringify(tasks));}catch(e){}
+/* 프로젝트가 지정된 할일은 '프로젝트' 특수 카테고리로 정규화(기타로 흩어지지 않게). */
+function normalizeProjectTaskCategories(){
+  if(!Array.isArray(tasks))return false;
+  var changed=false;
+  tasks.forEach(function(t){ if(t&&t.projectId&&t.catId!=='project'){t.catId='project';changed=true;} });
+  return changed;
+}
+try{if(normalizeProjectTaskCategories())setReturnStorageItem('task_items_v1',JSON.stringify(tasks));}catch(e){}
 function timetableTaskHash(str){
   str=String(str||'');
   var h=0;
@@ -19403,6 +19421,7 @@ function renderTaskCatFilter(){
   all.dataset.cat='all'; all.textContent='전체';
   bar.appendChild(all);
   CATS.forEach(function(c){
+    if(c.id==='project')return; /* 프로젝트는 아래 프로젝트별 칩으로 대체 */
     var b=document.createElement('button');
     b.className='cat-chip cat-chip-dot'+(activeCat===c.id?' active':'');
     b.dataset.cat=c.id;
@@ -19544,13 +19563,13 @@ function openTaskCatManager(){
       .map(function(o){return '<option value="'+o[0]+'"'+(o[0]===(val||'')?'selected':'')+'>'+o[1]+'</option>';}).join('');
   }
   var rows=CATS.map(function(c){
-    var locked=c.id==='schedule';
+    var locked=c.id==='schedule'||c.id==='project';
     return '<div class="modal-row task-cat-row" data-id="'+tEscHtml(c.id)+'" data-color="'+normalizeTaskCatColor(c.color)+'">'
       + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:48px;text-align:center">'
       + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1;min-width:80px">'
       + '<div class="cat-color-picker">'+swatches(c.color)+'</div>'
       + '<label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)">'+prioOpts(c.defaultPriority)+'</select></label>'
-      + '<button class="btn btn-ghost task-cat-del" style="flex-shrink:0" '+(locked?'disabled title="일정 카테고리는 삭제할 수 없어요."':'')+'>삭제</button>'
+      + '<button class="btn btn-ghost task-cat-del" style="flex-shrink:0" '+(locked?'disabled title="일정·프로젝트 카테고리는 삭제할 수 없어요."':'')+'>삭제</button>'
       + '</div>';
   }).join('');
   ov.innerHTML='<div class="modal" style="max-width:800px"><div class="modal-head"><div class="modal-title">할일 카테고리</div></div><div class="modal-body"><div class="field-help">기본 우선순위를 설정하면 해당 카테고리로 새 할일 추가 시 자동 적용돼요. 일정 카테고리는 시스템 카테고리라 삭제할 수 없어요.</div><div id="task-cat-manager-body">'+rows+'</div></div><div class="modal-foot"><button class="btn btn-ghost" id="task-cat-add">+ 새 카테고리</button><button class="btn btn-ghost" id="task-cat-cancel">취소</button><button class="btn btn-primary" id="task-cat-save">저장</button></div></div>';
@@ -21297,7 +21316,13 @@ var taskModalDraft=null;
 (function(){
   var sel=document.getElementById('modal-cat-sel');
   CATS.forEach(function(c){var o=document.createElement('option');o.value=c.id;o.textContent=c.emoji+' '+c.label;sel.appendChild(o);});
+  if(sel)sel.addEventListener('change',function(){ if(typeof _syncProjectRow==='function')_syncProjectRow(); });
 })();
+/* 프로젝트 하위 선택(어떤 프로젝트인지)은 카테고리가 '프로젝트'일 때만 노출. */
+function _syncProjectRow(){
+  var row=document.getElementById('modal-project-row'), sel=document.getElementById('modal-cat-sel');
+  if(!row||!sel)return; row.style.display=(sel.value==='project')?'':'none';
+}
 function fillTaskProjectSelect(task){
   var sel=document.getElementById('modal-project-sel');
   if(!sel)return;
@@ -21464,11 +21489,12 @@ function syncTaskRepeatItem(task){
 function tasksOpenNewModal(seed){
   seed=seed||{};
   taskModalSnapshot=null;
+  var _seedPid=seed.projectId||(String(activeCat||'').slice(0,5)==='proj:'?String(activeCat).slice(5):'');
   taskModalDraft={
     id:null,
-    projectId:seed.projectId||(String(activeCat||'').slice(0,5)==='proj:'?String(activeCat).slice(5):''),
+    projectId:_seedPid,
     text:seed.text||'',
-    catId:seed.catId||'etc',
+    catId:seed.catId||(_seedPid?'project':'etc'),
     date:seed.date||selDate||TK,
     priority:seed.priority||(typeof getCatDefaultPriority==='function'?getCatDefaultPriority(seed.catId||'etc'):''),
     done:!!seed.done,
@@ -21496,6 +21522,7 @@ function tasksOpenNewModal(seed){
   var _blRow=document.getElementById('modal-backlink-row');if(_blRow)_blRow.style.display='none';
   document.getElementById('modal-cat-sel').value=taskModalDraft.catId;
   fillTaskProjectSelect(taskModalDraft);
+  _syncProjectRow();
   document.getElementById('modal-repeat-val').textContent=taskModalDraft._repeat?'설정됨':'없음';
   document.getElementById('modal-ts').value=taskModalDraft.timeStart||'';
   document.getElementById('modal-te').value=taskModalDraft.timeEnd||'';
@@ -21535,6 +21562,7 @@ function tasksOpenModal(task){
   if(typeof updateTaskBacklinkRow==='function')updateTaskBacklinkRow(task);
   document.getElementById('modal-cat-sel').value=task.catId;
   fillTaskProjectSelect(task);
+  _syncProjectRow();
   document.getElementById('modal-repeat-val').textContent=task._ruleGen?'활성 규칙 생성':(task._repeat||task._ruleId)?'설정됨':'없음';
   document.getElementById('modal-ts').value=task.timeStart||'';
   document.getElementById('modal-te').value=task.timeEnd||'';
@@ -21709,7 +21737,7 @@ function saveModal(){
     taskModalDraft.isSpecial=!!document.getElementById('modal-special-toggle').checked && !!taskModalDraft.deadlineDate;
     taskModalDraft.catId=document.getElementById('modal-cat-sel').value;
     var projectSel2=document.getElementById('modal-project-sel');
-    if(projectSel2&&projectSel2.value) taskModalDraft.projectId=projectSel2.value;
+    if(taskModalDraft.catId==='project'&&projectSel2&&projectSel2.value) taskModalDraft.projectId=projectSel2.value;
     else delete taskModalDraft.projectId;
     taskModalDraft.timeStart=document.getElementById('modal-ts').value;
     taskModalDraft.timeEnd=document.getElementById('modal-te').value;
@@ -21736,7 +21764,9 @@ function _writeTaskFromModal(task,fields){
   task.deadlineDate=fields.deadlineDate;
   task.deadlineTime=fields.deadlineTime;
   task.catId=fields.catId;
-  if(fields.projectId) task.projectId=fields.projectId; else delete task.projectId;
+  /* projectId is a sub-attribute of the 프로젝트 special category only. */
+  var _pid=(fields.catId==='project')?(fields.projectId||null):null;
+  if(_pid) task.projectId=_pid; else delete task.projectId;
   task.timeStart=fields.timeStart;
   task.timeEnd=fields.timeEnd;
   task.travelMin=fields.travelMin;
