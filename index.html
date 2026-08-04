@@ -4080,7 +4080,23 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .hob-days{display:grid;grid-template-columns:repeat(7,1fr);gap:var(--sp-1)}
 .hob-days.full-view .hob-day{min-height:96px;align-items:flex-start;justify-content:flex-start;padding:var(--sp-2)}
 .hob-event-list{display:flex;flex-direction:column;gap:var(--sp-1);width:100%;margin-top:var(--sp-2)}
-.hob-event-chip{font-size:var(--text-2xs);line-height:var(--lh-tight);border-radius:var(--r-sm);padding:2px var(--sp-2);background:var(--bg-raised);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hob-event-chip{font-size:var(--text-2xs);line-height:var(--lh-tight);border-radius:var(--r-sm);padding:2px var(--sp-2);background:var(--bg-raised);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.hob-days.full-view .hob-event-chip[draggable]{cursor:grab}
+.hob-days.full-view .hob-event-chip[draggable]:active{cursor:grabbing}
+
+/* 언젠가(날짜 미정) strip above the calendar */
+.hob-someday{margin-bottom:var(--sp-4);padding:var(--sp-3) var(--sp-4);background:var(--bg-raised);border:1px solid var(--border-subtle);border-radius:var(--r-lg);transition:box-shadow var(--t-snap),border-color var(--t-snap)}
+.hob-someday.drag-target{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
+.hob-someday-head{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2)}
+.hob-someday-title{font-size:var(--text-xs);font-weight:var(--fw-bold);color:var(--fg-2)}
+.hob-someday-add{margin-left:auto;height:24px;padding:0 10px;border-radius:var(--r-full);font-size:var(--text-2xs);font-weight:var(--fw-semibold);color:var(--accent);background:var(--accent-light);border:none;cursor:pointer}
+.hob-someday-list{display:flex;flex-wrap:wrap;gap:6px}
+.hob-someday-empty{font-size:var(--text-2xs);color:var(--fg-4);line-height:1.6}
+.hob-someday-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 10px;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-full);font-size:var(--text-2xs);font-weight:var(--fw-medium);color:var(--fg);cursor:grab;box-shadow:var(--elev-1)}
+.hob-someday-chip:active{cursor:grabbing}
+.hob-someday-chip.done{opacity:.5;text-decoration:line-through}
+.hob-someday-chip .hob-sd-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px}
+.ii-someday-btn.active{background:var(--accent-light);color:var(--accent);border-color:transparent}
 
 .hob-day{
   min-height:40px;display:flex;flex-direction:column;align-items:center;
@@ -7934,6 +7950,14 @@ to{opacity:1;transform:translateY(0)}}
         <select class="field-select" id="ii-cat"></select>
       </div>
       <div class="field">
+        <div class="field-label">날짜</div>
+        <div class="time-row">
+          <input class="field-inp" id="ii-date" type="date">
+          <button type="button" class="btn btn-ghost ii-someday-btn" id="ii-someday-btn" onclick="hobToggleSomeday()">🗓️ 언젠가</button>
+        </div>
+        <div class="field-help" id="ii-date-help" style="display:none">날짜 미정 — ‘언젠가’ 목록에 담겨요.</div>
+      </div>
+      <div class="field">
         <div class="field-label">유형</div>
         <div class="type-toggle">
           <button class="type-btn active" data-type="event" onclick="selType('event')">📅 일정</button>
@@ -7970,7 +7994,7 @@ to{opacity:1;transform:translateY(0)}}
       </div>
     </div>
     <div class="modal-foot">
-      <button class="btn btn-danger" id="ii-del-btn" style="margin-right:auto;display:none" onclick="deleteItem()">삭제</button>
+      <button class="btn btn-danger" id="ii-del-btn" style="margin-right:auto;display:none" onclick="hobDeleteItem()">삭제</button>
       <button class="btn btn-ghost" onclick="closeItemModal()">취소</button>
       <button class="btn btn-primary" onclick="saveItem()">저장</button>
     </div>
@@ -8702,6 +8726,15 @@ to{opacity:1;transform:translateY(0)}}
             <button class="hob-today-btn" id="hob-today">오늘</button>
             <button class="hob-today-btn" id="hob-full-toggle">풀뷰</button>
           </div>
+        </div>
+
+        <!-- Someday (undated) items -->
+        <div class="hob-someday" id="hob-someday">
+          <div class="hob-someday-head">
+            <span class="hob-someday-title">🗓️ 언젠가 · 날짜 미정</span>
+            <button class="hob-someday-add" id="hob-someday-add" type="button" onclick="openItemModal(null,{someday:true})">＋ 추가</button>
+          </div>
+          <div class="hob-someday-list" id="hob-someday-list"></div>
         </div>
 
         <!-- Calendar -->
@@ -23096,6 +23129,11 @@ function hobRenderCal() {
         chip.className='hob-event-chip';
         chip.style.borderLeft='3px solid '+hobGetCat(it.catId).color;
         chip.textContent=(it.done?'✓ ':'')+it.text;
+        /* Drag a chip straight on the calendar to another day; click to edit. */
+        chip.setAttribute('draggable','true');
+        chip.setAttribute('data-id',it.id);
+        chip.addEventListener('dragstart',function(e){ e.stopPropagation(); e.dataTransfer.setData('text/plain',it.id); e.dataTransfer.effectAllowed='move'; });
+        chip.addEventListener('click',function(e){ e.stopPropagation(); openItemModal(it.id); });
         evList.appendChild(chip);
       });
       if(dayItems.length>5){
@@ -23136,7 +23174,55 @@ function hobRenderCal() {
 
     grid.appendChild(cell);
   }
+  hobRenderSomeday();
 }
+
+/* ── SOMEDAY (날짜 미정) ── */
+/* Undated items live in a strip above the calendar. Drag one onto a day to
+   schedule it; drag a dated item onto the strip to un-schedule it. */
+function hobRenderSomeday(){
+  var wrap=document.getElementById('hob-someday');
+  var listEl=document.getElementById('hob-someday-list');
+  if(!wrap||!listEl)return;
+  var someday=items.filter(function(it){
+    if(it.date) return false;
+    if(filterCatId && it.catId!==filterCatId) return false;
+    return true;
+  });
+  listEl.innerHTML='';
+  if(!someday.length){
+    listEl.innerHTML='<div class="hob-someday-empty">날짜를 아직 모르는 활동을 여기에 담아두고, 정해지면 달력으로 끌어다 놓으세요.</div>';
+  } else {
+    someday.forEach(function(it){
+      var cat=hobGetCat(it.catId);
+      var chip=document.createElement('div');
+      chip.className='hob-someday-chip'+(it.done?' done':'');
+      chip.style.borderLeft='3px solid '+cat.color;
+      chip.setAttribute('draggable','true');
+      chip.setAttribute('data-id',it.id);
+      chip.innerHTML='<span class="hob-sd-ic">'+cat.icon+'</span><span class="hob-sd-t">'+(it.done?'✓ ':'')+_hobEsc(it.text)+'</span>';
+      chip.addEventListener('dragstart',function(e){ e.dataTransfer.setData('text/plain',it.id); e.dataTransfer.effectAllowed='move'; });
+      chip.addEventListener('click',function(){ openItemModal(it.id); });
+      listEl.appendChild(chip);
+    });
+  }
+  /* Strip is also a drop target: dropping a dated item here clears its date. */
+  if(!wrap.dataset.dropBound){
+    wrap.dataset.dropBound='1';
+    wrap.addEventListener('dragover',function(e){ e.preventDefault(); wrap.classList.add('drag-target'); });
+    wrap.addEventListener('dragleave',function(e){ if(e.target===wrap)wrap.classList.remove('drag-target'); });
+    wrap.addEventListener('drop',function(e){
+      e.preventDefault(); wrap.classList.remove('drag-target');
+      var id=e.dataTransfer.getData('text/plain');
+      var it=items.find(function(x){return x.id===id;});
+      if(!it||!it.date)return;
+      it.date='';
+      saveItemsData(items);
+      hobRenderCal(); renderDayDetail();
+    });
+  }
+}
+function _hobEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 /* ── DAY DETAIL ── */
 function renderDayDetail() {
@@ -23380,7 +23466,7 @@ function hobRenderCats() {
 function renderSummary() {
   var year=hobMonth.getFullYear(), month=hobMonth.getMonth();
   var monthStr=year+'-'+hobPad(month+1);
-  var monthItems=items.filter(function(it){return it.date.startsWith(monthStr);});
+  var monthItems=items.filter(function(it){return (it.date||'').startsWith(monthStr);});
   var done=monthItems.filter(function(it){return it.done;}).length;
   var activeDays=new Set(monthItems.map(function(it){return it.date;})).size;
 
@@ -23392,11 +23478,36 @@ function renderSummary() {
 }
 
 /* ── ITEM MODAL ── */
-function openItemModal(itemId) {
+/* Toggle the '언젠가'(날짜 미정) state on the item modal's date field. */
+function _hobSetSomeday(on){
+  var btn=document.getElementById('ii-someday-btn');
+  var inp=document.getElementById('ii-date');
+  var help=document.getElementById('ii-date-help');
+  if(!btn||!inp)return;
+  btn.classList.toggle('active',!!on);
+  inp.disabled=!!on;
+  inp.style.opacity=on?'.45':'';
+  if(help)help.style.display=on?'':'none';
+}
+function hobToggleSomeday(){
+  var btn=document.getElementById('ii-someday-btn');
+  var inp=document.getElementById('ii-date');
+  var turningOn=!btn.classList.contains('active');
+  _hobSetSomeday(turningOn);
+  if(!turningOn && !inp.value){ inp.value=hobSelDate||HOB_TODAY; }
+}
+function openItemModal(itemId, opts) {
+  opts=opts||{};
   editItemId=itemId||null;
   var it=itemId?items.find(function(x){return x.id===itemId;}):null;
   document.getElementById('itemModalTitle').textContent=it?'항목 편집':'새 항목';
   document.getElementById('ii-text').value=it?it.text:'';
+
+  /* Date + 언젠가(날짜 미정) */
+  var dateInp=document.getElementById('ii-date');
+  var isSomeday = it ? !it.date : !!opts.someday;
+  dateInp.value = it ? (it.date||'') : (opts.someday ? '' : (hobSelDate||HOB_TODAY));
+  _hobSetSomeday(isSomeday);
   document.getElementById('ii-ts').value=it?(it.timeStart||''):'';
   document.getElementById('ii-te').value=it?(it.timeEnd||''):'';
   document.getElementById('ii-note').value=it?(it.note||''):'';
@@ -23480,13 +23591,16 @@ function saveItem(){
   var note=document.getElementById('ii-note').value.trim();
   var until=document.getElementById('ii-until').value||'';
   var repObj=draftRepeat?{kind:draftRepeat,weekdays:draftWeekdays.slice(),until:until}:null;
-  var date=editItemId?(items.find(function(x){return x.id===editItemId;})||{}).date:hobSelDate;
-  if(!date){alert('날짜 오류');return;}
+  /* Date is now editable; empty (or 언젠가 toggled) = 날짜 미정(someday). */
+  var somedayOn=document.getElementById('ii-someday-btn').classList.contains('active');
+  var date=somedayOn?'':(document.getElementById('ii-date').value||'');
+  /* Repeat needs a concrete start date; a dateless repeat makes no sense. */
+  if(!date) repObj=null;
 
   if(editItemId){
     var it=items.find(function(x){return x.id===editItemId;});
     if(it){
-      it.text=text;it.catId=catId;it.type=draftType;
+      it.text=text;it.catId=catId;it.type=draftType;it.date=date;
       it.timeStart=ts;it.timeEnd=te;it.note=note;
       if(repObj) it._repeat=repObj; else delete it._repeat;
     }
@@ -23498,7 +23612,7 @@ function saveItem(){
     items.push(newIt);
 
     /* Expand repeat instances (mirrors original logic) */
-    if(repObj&&repObj.kind){
+    if(repObj&&repObj.kind&&date){
       expandRepeat(newIt,repObj);
     }
   }
