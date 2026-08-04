@@ -767,10 +767,23 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
    state). Touch devices (hover:none) keep it in-flow and always visible. */
 @media (hover:hover) and (pointer:fine){
   .home-widget-card{position:relative}
-  .hw-foot{position:absolute;left:0;right:0;bottom:0;margin-top:0;padding:var(--sp-3) var(--sp-6);background:var(--bg-card);opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity var(--t-snap),transform var(--t-snap)}
+  /* Both the top title bar and the bottom type-picker float as translucent
+     overlays that only appear on hover — so the content (특히 사진) fills the
+     card with no reserved gaps at rest. */
+  .home-widget-card>.card-head{position:absolute;left:0;right:0;top:0;z-index:3;padding:var(--sp-3) var(--sp-5);background:linear-gradient(to bottom,color-mix(in srgb,var(--bg-card) 82%,transparent),transparent);opacity:0;transform:translateY(-4px);pointer-events:none;transition:opacity var(--t-snap),transform var(--t-snap)}
+  .hw-foot{position:absolute;left:0;right:0;bottom:0;margin-top:0;border-top:none;padding:var(--sp-3) var(--sp-6);background:linear-gradient(to top,color-mix(in srgb,var(--bg-card) 86%,transparent),transparent);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px);opacity:0;transform:translateY(4px);pointer-events:none;transition:opacity var(--t-snap),transform var(--t-snap)}
+  .home-widget-card:hover>.card-head,.home-widget-card:focus-within>.card-head,
   .home-widget-card:hover .hw-foot,.home-widget-card:focus-within .hw-foot{opacity:1;transform:none;pointer-events:auto}
-  .home-widget-card .hw-body{padding-bottom:44px}
+  .home-widget-card .hw-body{padding-bottom:0}
+  /* 사진 위젯은 카드 전체를 가득 채우도록 여백 제거 */
+  .home-widget-card.hw-photo-mode .hw-body{padding:0}
+  .home-widget-card.hw-photo-mode .hw-photo{border-radius:0;border:none;min-height:100%}
 }
+.home-widget-card{min-height:240px}
+/* Home 위젯 안의 음악 추천 카드 — 좁은 폭에서 버튼이 아래로 */
+.hw-music-reco{padding:var(--sp-2) 0}
+.hw-music-reco .music-reco-card{grid-template-columns:64px minmax(0,1fr);align-items:start}
+.hw-music-reco .music-reco-card>.set-btn{grid-column:1/-1;justify-self:start;margin-top:var(--sp-2)}
 .hw-memo{width:100%;flex:1;min-height:96px;resize:vertical;border:none;background:transparent;color:var(--fg);font:inherit;font-size:var(--text-sm);line-height:var(--lh-snug);padding:var(--sp-2) 0}
 .hw-memo:focus{outline:none}
 .hw-memo::placeholder{color:var(--fg-4)}
@@ -807,6 +820,20 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .sig-now { background:var(--accent-light); color:var(--accent); border-color:var(--a-200); font-weight:var(--fw-semibold); }
 .sit-card[data-sit-state="rest"] .sit-avatar{background:var(--t-50);border-color:var(--t-200)}
 .sit-card[data-sit-state="focus"] .sit-avatar{background:var(--w-50);border-color:var(--w-200)}
+
+/* 오늘 상황을 큰 사진 헤더(배너) 위에 반투명 오버레이로 */
+.home-banner.has-sit{height:auto;min-height:320px;pointer-events:auto}
+.home-banner .sit-card.sit-on-banner{
+  position:absolute;left:0;right:0;bottom:0;z-index:2;pointer-events:auto;
+  margin:0;border:none;border-radius:0;box-shadow:none;
+  padding:var(--sp-6) var(--sp-8) var(--sp-7);
+  background:color-mix(in srgb,var(--bg-card) 72%,transparent);
+  -webkit-backdrop-filter:blur(8px) saturate(1.1);backdrop-filter:blur(8px) saturate(1.1);
+  border-top:.5px solid color-mix(in srgb,var(--bg-card) 40%,transparent);
+}
+.home-banner .sit-on-banner .sit-avatar{background:color-mix(in srgb,var(--bg-card) 80%,transparent)}
+.home-banner .sit-on-banner .sit-upcoming{border-top-color:color-mix(in srgb,var(--fg) 12%,transparent)}
+.home-content .home-banner.has-sit{border-color:transparent}
 
 /* ── D-DAY TRACKER (특별 일정) ── */
 .home-dday-card{display:flex;gap:var(--sp-3);padding:var(--sp-4);overflow-x:auto}
@@ -8267,9 +8294,8 @@ to{opacity:1;transform:translateY(0)}}
         <div class="hw-foot">
           <span class="hw-foot-label">이 자리:</span>
           <div class="hw-switch" id="hw-switch" role="tablist" aria-label="위젯 종류">
-            <button class="hw-tab" data-hw="memo" type="button" role="tab" aria-controls="hw-body">메모</button>
-            <button class="hw-tab" data-hw="values" type="button" role="tab" aria-controls="hw-body">가치관</button>
             <button class="hw-tab" data-hw="photo" type="button" role="tab" aria-controls="hw-body">사진</button>
+            <button class="hw-tab" data-hw="values" type="button" role="tab" aria-controls="hw-body">가치관</button>
             <button class="hw-tab" data-hw="music" type="button" role="tab" aria-controls="hw-body">음악</button>
           </div>
         </div>
@@ -10586,10 +10612,12 @@ function normalizeHomeLayoutOrder(){
   if(!colR){ colR=document.createElement('div'); colR.className='home-col'; colR.id='home-col-r'; }
   root.insertBefore(colL, root.firstChild);
   root.insertBefore(colR, colL.nextSibling);
-  /* left: 날짜 → 배너 → 오늘 할일 → 타임블록 */
+  /* left: 날짜 → 배너(오늘 상황 오버레이 포함) → 오늘 할일 → 타임블록 */
   [ctx,banner,tasksCard,timeBlock].forEach(function(n){ if(n)colL.appendChild(n); });
-  /* right: 오늘 상황 → 오늘 습관 → 처리 필요 → 빠른 메모 */
-  [sit,habits,inbox,widget].forEach(function(n){ if(n)colR.appendChild(n); });
+  /* 오늘 상황 카드는 큰 사진 헤더(배너) 위에 반투명 오버레이로 얹는다. */
+  if(sit&&banner){ banner.appendChild(sit); banner.classList.add('has-sit'); sit.classList.add('sit-on-banner'); }
+  /* right: 오늘 습관 → 처리 필요 → 위젯(사진/가치관/음악) */
+  [habits,inbox,widget].forEach(function(n){ if(n)colR.appendChild(n); });
   /* full-width below the columns */
   [dday,timeGrid].forEach(function(n){ if(n)root.appendChild(n); });
 }
@@ -10598,14 +10626,15 @@ function normalizeHomeLayoutOrder(){
    Fills the desktop dashboard gap with something *useful*, not decoration.
    Default 빠른 메모 (autosaved + synced); switchable to 가치관 / 사진 데코 / 음악 추천.
    Chosen type + memo + photo persist through setReturnStorageItem so they sync. */
-var HOME_WIDGET_TYPES=['memo','values','photo','music'];
+var HOME_WIDGET_TYPES=['photo','values','music'];
 var _hwMemoTimer=null, _hwValIdx=0;
 function getHomeWidgetType(){
-  var t=localStorage.getItem('home_widget_type')||'memo';
-  return HOME_WIDGET_TYPES.indexOf(t)>=0?t:'memo';
+  var t=localStorage.getItem('home_widget_type')||'photo';
+  if(t==='memo')t='photo'; /* 메모 위젯 제거 — 사진으로 폴백 */
+  return HOME_WIDGET_TYPES.indexOf(t)>=0?t:'photo';
 }
 function setHomeWidgetType(t){
-  if(HOME_WIDGET_TYPES.indexOf(t)<0)t='memo';
+  if(HOME_WIDGET_TYPES.indexOf(t)<0)t='photo';
   setReturnStorageItem('home_widget_type',t);
   renderHomeWidget();
 }
@@ -10617,12 +10646,13 @@ function renderHomeWidget(){
     var on=b.dataset.hw===type; b.classList.toggle('active',on); b.setAttribute('aria-selected',on?'true':'false');
   });
   var titleEl=document.getElementById('hw-title');
-  if(titleEl)titleEl.textContent={memo:'빠른 메모',values:'가치관',photo:'사진 데코',music:'음악 추천'}[type]||'빠른 메모';
+  if(titleEl)titleEl.textContent={values:'가치관',photo:'사진 데코',music:'음악 추천'}[type]||'사진 데코';
+  var card=document.getElementById('home-widget-card');
+  if(card)card.classList.toggle('hw-photo-mode',type==='photo');
   try{
     if(type==='values')renderHomeWidgetValues(body);
-    else if(type==='photo')renderHomeWidgetPhoto(body);
     else if(type==='music')renderHomeWidgetMusic(body);
-    else renderHomeWidgetMemo(body);
+    else renderHomeWidgetPhoto(body);
   }catch(e){ console.error('[home] renderHomeWidget failed:',e); }
 }
 function renderHomeWidgetMemo(body){
@@ -10682,23 +10712,25 @@ function renderHomeWidgetPhoto(body){
   body.appendChild(slot);
 }
 function renderHomeWidgetMusic(body){
-  var n=0;
-  try{ if(typeof musicLoad==='function')musicLoad(); if(typeof musicPlaylists!=='undefined'&&Array.isArray(musicPlaylists))n=musicPlaylists.length; }catch(e){}
+  try{ if(typeof musicLoad==='function')musicLoad(); }catch(e){}
   body.innerHTML='';
-  if(!n){
-    /* Empty state uses the shared .hw-empty pattern (icon + message + CTA) so
-       switching widgets reads as one component (audit C2). */
-    body.innerHTML='<div class="hw-empty"><span class="hw-empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span><span>플레이리스트가 아직 없어요.</span><button class="hw-cta" type="button" onclick="goPage(\'music\')">음악 만들러 가기</button></div>';
+  var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+  if(!rec||!rec.song){
+    /* Empty state uses the shared .hw-empty pattern (icon + message + CTA). */
+    body.innerHTML='<div class="hw-empty"><span class="hw-empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span><span>저장된 노래가 아직 없어요.</span><button class="hw-cta" type="button" onclick="goPage(\'music\')">음악 추가하러 가기</button></div>';
     return;
   }
-  var wrap=document.createElement('div'); wrap.className='hw-music';
-  var line=document.createElement('p'); line.className='hw-music-line';
-  line.textContent='플레이리스트 '+n+'개 · 지금 상황에 맞는 음악을 들어보세요';
-  var btn=document.createElement('button'); btn.className='hw-cta'; btn.type='button';
-  btn.textContent='음악 들으러 가기';
-  btn.addEventListener('click',function(){if(typeof goPage==='function')goPage('music');});
-  wrap.appendChild(line); wrap.appendChild(btn);
+  /* 음악 탭의 추천 카드를 거의 그대로 재사용(.music-reco-card, rec.song). */
+  var s=rec.song;
+  var wrap=document.createElement('div'); wrap.className='hw-music-reco';
+  wrap.innerHTML='<div class="music-reco-card"><div class="music-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div>'+
+    '<div class="music-reco-main"><div class="music-reco-title">'+musicEsc(s.title)+'</div>'+
+    '<div class="music-reco-reason">'+musicEsc(rec.reason)+'</div>'+
+    '<div class="music-meta" style="margin-top:var(--sp-2)">'+musicTagsHtml(s)+'</div></div>'+
+    '<button class="set-btn btn-primary" type="button" data-hw-music-play="'+musicEsc(s.id)+'">재생</button></div>';
   body.appendChild(wrap);
+  var btn=wrap.querySelector('[data-hw-music-play]');
+  if(btn)btn.addEventListener('click',function(){ if(typeof musicPlaySong==='function')musicPlaySong(btn.getAttribute('data-hw-music-play')); else if(typeof goPage==='function')goPage('music'); });
 }
 
 var MUSIC_KEY='music_playlists_v1';
