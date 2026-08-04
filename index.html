@@ -18902,14 +18902,19 @@ try {
   }
 } catch(e) {}
 /* Ensure the non-deletable special categories exist even for users whose stored
-   task_cats_v1 predates them (일정 always, 프로젝트 inserted right after it). */
-(function(){
+   task_cats_v1 predates them (일정 always, 프로젝트 inserted right after it).
+   MUST be called after EVERY CATS (re)load — including the Firebase apply path,
+   which reassigns CATS from the synced task_cats_v1 that may still lack them
+   (the same "poisoning" pattern as catId). */
+function ensureSpecialTaskCats(){
+  if(!Array.isArray(CATS))CATS=[];
   if(!CATS.some(function(c){return c.id==='schedule';})) CATS.unshift({id:'schedule',label:'일정',emoji:'📅',color:'#BE727A',defaultPriority:''});
   if(!CATS.some(function(c){return c.id==='project';})){
     var si=CATS.findIndex(function(c){return c.id==='schedule';});
     CATS.splice(si>=0?si+1:0,0,{id:'project',label:'프로젝트',emoji:'📁',color:'#8296C8',defaultPriority:''});
   }
-})();
+}
+ensureSpecialTaskCats();
 function saveTaskCatsData(){ return setReturnStorageItem('task_cats_v1', JSON.stringify(CATS)); }
 
 /* Return the default priority for a catId, '' if none set */
@@ -19485,6 +19490,7 @@ function renderCalDowHeader(){
   });
 }
 function renderTaskCatFilter(){
+  if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); /* self-heal if a sync clobbered CATS */
   var bar=document.getElementById('cat-filter');
   if(!bar)return;
   bar.innerHTML='';
@@ -20881,6 +20887,7 @@ function renderDueDateSection(container){
 function renderByCategory(container,vt){
   /* Always render every category bar (even 0-count) — the user prefers adding
      via each category's + button, so the bars stay visible on empty days too. */
+  if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); /* self-heal if a sync clobbered CATS */
   var cg={};
   vt.forEach(function(t){var k=taskEffectiveCatId(t);if(!cg[k])cg[k]=[];cg[k].push(t);});
   CATS.forEach(function(catDef){
@@ -32437,6 +32444,7 @@ function fbApplyData(data){
       if(typeof CATS!=='undefined'){
         var remoteCats=JSON.parse(localStorage.getItem('task_cats_v1')||'null');
         if(Array.isArray(remoteCats) && remoteCats.length) CATS=remoteCats;
+        if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); /* re-inject 일정/프로젝트 the synced list may lack */
       }
     } catch(e) {}
     /* inbox categories (this is the actual loadCats function — inbox only) */
