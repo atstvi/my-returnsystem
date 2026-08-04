@@ -828,7 +828,7 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   position:absolute;inset:0;z-index:2;pointer-events:auto;
   margin:0;border:none;border-radius:inherit;box-shadow:none;
   align-items:flex-start;
-  padding:var(--sp-7) var(--sp-8);
+  padding:var(--sp-12) var(--sp-12);
   background:color-mix(in srgb,var(--bg-card) 48%,transparent);
   -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
 }
@@ -27566,6 +27566,9 @@ function openProjectEditor(project){
     else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:data.status||'active',deadline:data.deadline||'',icon:data.icon||'🗂️',color:data.color||'#BE727A',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
     saveProjects();
     renderProjects();
+    /* 인박스 등 프로젝트 열을 쓰는 화면도 새 프로젝트가 바로 보이도록 갱신
+       (인박스 '새 프로젝트' 버튼에서 만들면 새로고침해야 보이던 문제). */
+    if(typeof renderFeed==='function')try{renderFeed();}catch(_e){}
   });
 }
 function openProjectTaskLinker(project){
@@ -31395,7 +31398,10 @@ var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY',authDoma
    device-local only (DEFAULT_FB_CONFIG is the source of truth). */
 var CLOUD_SETTING_KEYS=['return_theme_color','return_theme_mode','return_theme_palette','focus_mode','notif_interval','global_sticker_edit_visible','task_prefs','home_task_view','groq_api_key','widget_prefs_v1','habit_notion_cfg'];
 var MOVED_CLOUD_SETTING_KEYS=['return_theme_studio_state_v1','return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1','return_theme_studio_assets_v1','theme_palette_presets_v1'];
-var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy']).filter(function(k){
+var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy',
+  /* 타이머 설정 동기화: 카테고리·프리셋·설정은 저빈도 단일값이라 blob LWW로 안전.
+     세션 로그(focus_timer_log_v1)는 병합 위험 때문에 계속 기기-로컬 + per-doc(widget_focus_sessions) 방식 유지. */
+  'focus_categories_v1','focus_presets_v1','focus_timer_cfg_v1']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;
 });
 /* SyncManager v1 is the clean boundary in front of the legacy Firebase
@@ -32939,6 +32945,13 @@ function fbApplyData(data){
     try { if(typeof loadNotifSettings==='function') loadNotifSettings(); } catch(e){}
     try { if(typeof loadProfile==='function') loadProfile(); } catch(e){}
     try { if(typeof loadCalendarPrefs==='function') loadCalendarPrefs(); } catch(e){}
+    /* focus timer settings (카테고리·프리셋·설정 blob 동기화) — 인메모리 상태를
+       다시 읽어 실시간 반영. 로그는 별도 per-doc 경로라 여기서 건드리지 않음. */
+    try { if(typeof focusCatLoad==='function') focusCatLoad(); } catch(e){}
+    try { if(typeof focusPresetLoad==='function') focusPresetLoad(); } catch(e){}
+    try { if(typeof focusTimerLoadCfg==='function') focusTimerLoadCfg(); } catch(e){}
+    try { if(typeof _currentPage!=='undefined'&&_currentPage==='timer'&&typeof renderFocusTimer==='function') renderFocusTimer(); } catch(e){}
+    try { if(typeof renderFocusTimerMini==='function') renderFocusTimerMini(); } catch(e){}
     /* Seed this device's IndexedDB from any asset syncDataUrls that arrived
        via Firebase. Allows return-media: refs to resolve locally going forward,
        even if this device never uploaded the original file. Fire-and-forget. */
@@ -33149,14 +33162,15 @@ async function fbLoadAll(){
         if(Object.keys(split.keys||{}).length){
           split.updatedAtMs = Number(d.updatedAtMs||0) || Date.now();
           fbApplyData(split);
-          /* If the write came from the desktop widget, apply its timer state to the
-             main app's focus timer so both sides stay in lockstep. clientId starts
-             with "widget_" (WIDGET_CLIENT_ID = "widget_<ts>_<rand>"). */
+          /* Live focus-timer state from ANY other device (desktop widget OR another
+             main-app device) so all devices stay in lockstep — LWW guarded inside
+             focusTimerApplyWidgetState. (Was widget-only, which is why phone↔데스크탑
+             메인앱 간 실시간 타이머가 안 됐음.) */
+          try{
+            var _wts=split.keys&&split.keys['widget_timer_state_v1'];
+            if(_wts){var _wtsObj=JSON.parse(_wts);if(_wtsObj&&typeof focusTimerApplyWidgetState==='function')focusTimerApplyWidgetState(_wtsObj);}
+          }catch(_we){}
           if(d.clientId&&String(d.clientId).indexOf('widget_')===0){
-            try{
-              var _wts=split.keys&&split.keys['widget_timer_state_v1'];
-              if(_wts){var _wtsObj=JSON.parse(_wts);if(_wtsObj&&typeof focusTimerApplyWidgetState==='function')focusTimerApplyWidgetState(_wtsObj);}
-            }catch(_we){}
             /* A widget root-doc bump may signal a fresh quick-capture queue item
                (capture writes don't touch any data/* doc, so the split read above
                won't surface them). Drain the queue now. */
@@ -33168,6 +33182,10 @@ async function fbLoadAll(){
         console.warn('snapshot split read failed:', splitErr&&splitErr.message);
         try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('err','onSnapshot split read failed: '+splitErr.message); }catch(_e){}
       }
+      /* Realtime focus-session log sync: fold any newly-pushed sessions from other
+         devices (main app OR widget) into the local timer log. Guarded/deduped
+         internally; safe to call on every remote snapshot. */
+      try{ if(typeof pullWidgetFocusSessions==='function')pullWidgetFocusSessions(ref); }catch(_e){}
       /* Stage 6d: on a remote change, re-merge the per-entity mirror (flag-gated). */
       if(RETURN_SYNC_MODEL==='entity'){
         try{
@@ -42815,7 +42833,7 @@ var FOCUS_CAT_DEFAULTS=[
 var FOCUS_CAT_PALETTE=['#BE727A','#4E9A84','#7E7BC0','#B0863F','#6E9463','#9985C2','#897E74','#C77F9B','#5F8FB0','#C08552'];
 var focusCategories=[];
 function focusCatLoad(){try{var s=JSON.parse(localStorage.getItem(FOCUS_CAT_KEY)||'null');focusCategories=(Array.isArray(s)&&s.length)?s:FOCUS_CAT_DEFAULTS.slice();}catch(e){focusCategories=FOCUS_CAT_DEFAULTS.slice();}}
-function focusCatSave(){try{localStorage.setItem(FOCUS_CAT_KEY,JSON.stringify(focusCategories));}catch(e){}}
+function focusCatSave(){try{(typeof setReturnStorageItem==='function'?setReturnStorageItem:function(k,v){localStorage.setItem(k,v);})(FOCUS_CAT_KEY,JSON.stringify(focusCategories));}catch(e){}}
 function focusCatById(id){if(!id)return null;for(var i=0;i<focusCategories.length;i++)if(focusCategories[i].id===id)return focusCategories[i];return null;}
 function focusCatNewId(){return 'fc_'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);}
 function focusCatNextColor(){var used=focusCategories.map(function(c){return c.color;});for(var i=0;i<FOCUS_CAT_PALETTE.length;i++){if(used.indexOf(FOCUS_CAT_PALETTE[i])<0)return FOCUS_CAT_PALETTE[i];}return FOCUS_CAT_PALETTE[focusCategories.length%FOCUS_CAT_PALETTE.length];}
@@ -42824,7 +42842,7 @@ function focusCatNextColor(){var used=focusCategories.map(function(c){return c.c
 var FOCUS_PRESET_KEY='focus_presets_v1';
 var focusPresets=[];
 function focusPresetLoad(){try{var s=JSON.parse(localStorage.getItem(FOCUS_PRESET_KEY)||'null');focusPresets=Array.isArray(s)?s:[];}catch(e){focusPresets=[];}}
-function focusPresetSave(){try{localStorage.setItem(FOCUS_PRESET_KEY,JSON.stringify(focusPresets.slice(0,30)));}catch(e){}}
+function focusPresetSave(){try{(typeof setReturnStorageItem==='function'?setReturnStorageItem:function(k,v){localStorage.setItem(k,v);})(FOCUS_PRESET_KEY,JSON.stringify(focusPresets.slice(0,30)));}catch(e){}}
 function focusPresetNewId(){return 'fp_'+Date.now().toString(36)+Math.floor(Math.random()*1296).toString(36);}
 function focusPresetAddCurrent(){
   var cat=focusCatById(focusTimerState.categoryId);
@@ -42877,7 +42895,7 @@ function focusTimerLoadCfg(){
   }catch(e){}
 }
 function focusTimerSaveCfg(){
-  try{localStorage.setItem(FOCUS_TIMER_CFG_KEY,JSON.stringify(focusTimerCfg));}catch(e){}
+  try{(typeof setReturnStorageItem==='function'?setReturnStorageItem:function(k,v){localStorage.setItem(k,v);})(FOCUS_TIMER_CFG_KEY,JSON.stringify(focusTimerCfg));}catch(e){}
 }
 function focusTimerLoadLog(){
   try{var s=JSON.parse(localStorage.getItem(FOCUS_TIMER_LOG_KEY)||'null');if(Array.isArray(s))focusTimerLog=s;}catch(e){}
@@ -43183,12 +43201,31 @@ function focusTimerLinkedTask(){
   try{if(typeof tasks!=='undefined'&&Array.isArray(tasks))return tasks.find(function(t){return String(t.id)===String(focusTimerState.linkedTaskId);})||null;}
   catch(e){}return null;
 }
+/* Cross-device session sync: push one completed session to the shared,
+   append-only widget_focus_sessions collection (per-doc → no blob merge hazard).
+   Other devices fold it into their local log via pullWidgetFocusSessions. Our own
+   id is pre-added to the consumed set so pulling it back never double-counts. */
+function focusTimerCloudPushSession(entry){
+  try{
+    if(typeof fbDb==='undefined'||!fbDb||typeof fbUser==='undefined'||!fbUser)return;
+    if(!entry||!entry.id)return;
+    try{ var cs=widgetFocusConsumedSet(); if(cs.indexOf(entry.id)<0){cs.push(entry.id);widgetFocusSaveConsumed(cs);} }catch(_e){}
+    var doc={id:String(entry.id),mode:entry.mode||'pomodoro',phase:entry.phase||'work',durationMs:Math.round(Number(entry.durationMs)||0),taskId:entry.taskId||'',taskText:entry.taskText||'',categoryName:entry.categoryName||'',categoryColor:entry.categoryColor||'',completedAt:Number(entry.completedAt)||Date.now(),source:'app'};
+    var ref=fbDb.collection('users').doc(fbUser.uid);
+    var now=Date.now();
+    ref.collection('widget_focus_sessions').doc(String(entry.id)).set(doc)
+      .then(function(){ return ref.set({updatedAtMs:now,clientId:FB_CLIENT_ID,split:true},{merge:true}); })
+      .catch(function(e){ try{console.warn('[timer] session push ERR:',e&&e.message||e);}catch(_){} });
+  }catch(e){ try{console.warn('[timer] session push ERR:',e);}catch(_){} }
+}
 function focusTimerLogSession(ms){
   var task=focusTimerLinkedTask();
   var cat=focusCatById(focusTimerState.categoryId);
   var text=task?task.text:(focusTimerState.customText||'');
-  focusTimerLog.push({id:focusTimerNewId(),mode:focusTimerState.mode,phase:focusTimerState.phase,durationMs:Math.round(ms||0),taskId:focusTimerState.linkedTaskId||'',taskText:text,categoryId:cat?cat.id:'',categoryName:cat?cat.name:'',categoryColor:cat?cat.color:'',completedAt:Date.now()});
+  var entry={id:focusTimerNewId(),mode:focusTimerState.mode,phase:focusTimerState.phase,durationMs:Math.round(ms||0),taskId:focusTimerState.linkedTaskId||'',taskText:text,categoryId:cat?cat.id:'',categoryName:cat?cat.name:'',categoryColor:cat?cat.color:'',completedAt:Date.now()};
+  focusTimerLog.push(entry);
   focusTimerSaveLog();
+  focusTimerCloudPushSession(entry);
 }
 /* 중단: log whatever's been measured so far, then return to a fresh idle state
    (NO phase advance — unlike pomodoro 건너뛰기). Works for all three modes. */
@@ -43346,6 +43383,9 @@ function focusTimerApplyWidgetState(ts){
     if(focusTimerState.timer)clearInterval(focusTimerState.timer);
     focusTimerState.timer=setInterval(focusTimerTick,1000);
   }
+  /* Remember the applied stamp so a later unrelated snapshot (which re-reads the
+     same widget_timer_state doc) doesn't re-apply this same/older state. */
+  _focusTimerLastSyncAt=Math.max(_focusTimerLastSyncAt||0,tsAt);
   try{if(typeof renderFocusTimer==='function')renderFocusTimer();}catch(_){}
   try{if(typeof renderFocusTimerMini==='function')renderFocusTimerMini();}catch(_){}
 }
@@ -43522,6 +43562,7 @@ function focusTimerOpenTargetPicker(opts){
         if(!rec){if(typeof showToast==='function')showToast('시간을 확인해 주세요');return;}
         rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';rec.source='manual';
         focusTimerLog.push(rec);focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});focusTimerSaveLog();
+        focusTimerCloudPushSession(rec);
         if(_ftlAnchor&&typeof focusWeekStart==='function')_ftlAnchor=focusWeekStart(new Date(rec.completedAt),weekStart);
         close();renderFocusTimer();if(typeof showToast==='function')showToast('기록 추가됨 ✓');
       }else{
@@ -43980,6 +44021,7 @@ function focusTimerManualAdd(){
     focusTimerLog.push(rec);
     focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});
     focusTimerSaveLog();
+    focusTimerCloudPushSession(rec);
     _ftlAnchor=focusWeekStart(new Date(rec.completedAt),weekStart);
     close();renderFocusTimer();
     if(typeof showToast==='function')showToast('기록 추가됨 ✓');
