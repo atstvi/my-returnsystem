@@ -2121,6 +2121,12 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ib2-bub-img img{width:100%;min-height:120px;max-height:260px;object-fit:cover;display:block}
 .ib2-bub-meta{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:5px;font-size:11px;color:var(--fg-4)}
 .ib2-bub-cat{margin-right:auto;font-weight:var(--fw-bold)}
+.ib2-bub-more{flex:none;width:22px;height:22px;border-radius:var(--r-full);display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;color:var(--fg-4);background:transparent;border:none;cursor:pointer;opacity:.65;transition:background var(--t-snap),opacity var(--t-snap),color var(--t-snap)}
+.ib2-bub-more:hover{opacity:1;color:var(--fg-2);background:var(--bg-raised)}
+/* 완료 비우기 */
+.ib2-clear-done{margin-left:auto;height:26px;padding:0 10px;border-radius:var(--r-full);font-size:var(--text-2xs);font-weight:var(--fw-semibold);color:var(--fg-3);background:var(--bg-card);border:.5px solid var(--border);cursor:pointer;transition:background var(--t-snap),color var(--t-snap)}
+.ib2-clear-done:hover{color:var(--danger);border-color:var(--danger)}
+.ib2-cap-head .ib2-cap-to{margin-left:var(--sp-3)}
 /* composer */
 .ib2-composer{flex:none;padding:var(--sp-3) var(--sp-4) var(--sp-4);border-top:.5px solid var(--border-subtle);background:transparent}
 .ib2-cap-cats{display:none;flex-wrap:wrap;gap:5px;margin-bottom:var(--sp-2)}
@@ -4481,6 +4487,11 @@ to{opacity:1;transform:translateY(0)}}
 .pjd-badge.zero{background:var(--bg-raised);color:var(--fg-4)}
 .pjd-2col{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:var(--sp-5);align-items:start}
 @media(max-width:900px){.pjd-2col{grid-template-columns:1fr}}
+/* 작업 로그 ↔ 처리할 인박스 나란히 (로그쪽을 더 넓고 길게). */
+.pjd-split{display:grid;grid-template-columns:1.7fr 1fr;gap:var(--sp-4);align-items:start}
+.pjd-split>.section-card{min-width:0}
+.pjd-inboxcol .pji-list{max-height:340px;overflow-y:auto}
+@media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}}
 .pji-list{display:flex;flex-direction:column;gap:6px}
 .pji-item{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;font-family:inherit;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:11px 13px;cursor:pointer;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
 .pji-item:hover{border-color:var(--accent);box-shadow:var(--elev-1)}
@@ -14315,15 +14326,24 @@ generateRepeatTasks=function(rep,fromDate,days){return reconcileGeneratedTasks({
 applyActiveTaskRules=function(){return reconcileGeneratedTasks({source:'applyActiveTaskRules'});};
 
 var homeCaptureType = 'inbox';
-/* null = 자동(내용으로 카테고리 추론). Otherwise a specific INBOX_CATS id. */
+/* null = 자동(내용으로 카테고리 추론). Otherwise an inbox column id — a project
+   ('p:<id>') or '_uncat' (미분류), matching the inbox board's own categories. */
 var homeCaptureInboxCat = null;
-/* Render the inbox-category chooser under the top capture bar. Rebuilt from the
-   live INBOX_CATS each time it's shown so custom/renamed cats stay in sync. */
+/* The inbox now sorts items into 프로젝트 + 미분류 columns (window.ib2Cats), NOT the
+   legacy INBOX_CATS. Build the chooser from those live columns so a picked
+   category actually lands there; fall back to INBOX_CATS only if the inbox
+   module hasn't exposed its columns yet. */
+function _captureInboxCatList(){
+  /* Make sure the projects global is populated — on the home page it may not be
+     loaded yet, which would hide every project column from the chooser. */
+  if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!Array.isArray(projects)||!projects.length)){ try{ loadProjects(); }catch(_e){} }
+  if(typeof window.ib2Cats==='function'){ try{ var c=window.ib2Cats(); if(Array.isArray(c)&&c.length)return c; }catch(_e){} }
+  return (typeof INBOX_CATS!=='undefined'&&Array.isArray(INBOX_CATS))?INBOX_CATS:[];
+}
 function renderCaptureInboxCats(){
   var row = document.getElementById('capture-cats');
   if(!row) return;
-  var cats = (typeof INBOX_CATS !== 'undefined' && Array.isArray(INBOX_CATS)) ? INBOX_CATS : [];
-  var chips = [{id:null,label:'자동',emoji:'✨'}].concat(cats);
+  var chips = [{id:null,label:'자동',emoji:'✨'}].concat(_captureInboxCatList());
   row.innerHTML = chips.map(function(c){
     var active = (homeCaptureInboxCat===c.id) || (homeCaptureInboxCat==null && c.id==null);
     return '<button type="button" class="capture-cat'+(active?' active':'')+'" role="tab" data-capcat="'+(c.id==null?'':c.id)+'" onmousedown="event.preventDefault()">'+
@@ -15059,14 +15079,25 @@ function homeCapture(raw){
     homeToast('할일로 추가했어요');
   } else if (homeCaptureType === 'log') {
     quickAddLog(text);
+  } else if (typeof window.ib2QuickCapture === 'function') {
+    /* Route through the inbox module so the item lands in the SAME column the
+       chooser shows (project or 미분류), with projectId set correctly. */
+    var list = _captureInboxCatList();
+    var colId = homeCaptureInboxCat;
+    if (!colId || !list.some(function(c){return c.id===colId;})) {
+      colId = (typeof window.ib2GuessCat==='function') ? window.ib2GuessCat(text) : '_uncat';
+    }
+    var made = window.ib2QuickCapture(text, colId);
+    var lbl = (list.find(function(c){return c.id===(made?made.cat:colId);})||{}).label || '';
+    homeToast('인박스' + (lbl ? ' · ' + lbl : '') + '에 담았어요');
   } else if (typeof inboxItems !== 'undefined') {
+    /* Legacy fallback (inbox module not loaded): keep old INBOX_CATS behavior. */
     var validCat = homeCaptureInboxCat && (typeof INBOX_CATS==='undefined' || INBOX_CATS.some(function(c){return c.id===homeCaptureInboxCat;})) ? homeCaptureInboxCat : null;
     var cat = validCat || (typeof inferInboxCat === 'function' ? inferInboxCat(text) : 'memo');
     inboxItems.unshift({id:Date.now(),text:text,cat:cat,ts:Date.now(),done:false,unread:true});
     if (typeof saveInboxItems === 'function') saveInboxItems();
     if (typeof renderFeed === 'function') renderFeed();
-    var _cm = (typeof getCatMeta==='function') ? getCatMeta(cat) : null;
-    homeToast('인박스' + (_cm ? ' · ' + (_cm.emoji?_cm.emoji+' ':'') + _cm.label : '') + '에 담았어요');
+    homeToast('인박스에 담았어요');
   }
 }
 
@@ -18572,7 +18603,7 @@ function _initInbox(){
       root.innerHTML=
         '<div class="ib2-board">'+
           '<section class="ib2-capture">'+
-            '<div class="ib2-cap-head"><span class="ib2-cap-title">💬 빠른 담기</span><span class="ib2-cap-to">나에게</span></div>'+
+            '<div class="ib2-cap-head"><span class="ib2-cap-title">💬 빠른 담기</span><button type="button" class="ib2-clear-done" id="ib2-clear-done" title="완료된 항목 모두 삭제">🗑 완료 비우기</button><span class="ib2-cap-to">나에게</span></div>'+
             '<div class="ib2-thread" id="ib2-thread"></div>'+
             '<div class="ib2-composer" id="ib2-composer">'+
               '<div class="ib2-cap-cats" id="ib2-cap-cats"></div>'+
@@ -18595,6 +18626,12 @@ function _initInbox(){
       ta.addEventListener('blur',function(){ if(composer&&!ta.value.trim())composer.classList.remove('focused'); });
       send.addEventListener('click',doSend);
       if(attach)attach.addEventListener('click',pickImages);
+      var clr=root.querySelector('#ib2-clear-done');
+      if(clr)clr.addEventListener('click',function(){
+        if(!inboxItems.some(function(i){return i.done;})){ if(typeof showToast==='function')showToast('완료된 항목이 없어요'); return; }
+        var run=function(){ inboxItems=inboxItems.filter(function(i){return !i.done;}); saveInboxItems(); renderFeed(); if(typeof showToast==='function')showToast('완료된 항목을 비웠어요'); };
+        (typeof openConfirmDialog==='function')?openConfirmDialog('완료 비우기','완료된 인박스 항목을 모두 삭제할까요?',run):run();
+      });
       /* Ctrl/Cmd+V anywhere in the inbox → paste image into quick-capture. */
       root.addEventListener('paste',handleImagePaste);
     }
@@ -18689,7 +18726,7 @@ function _initInbox(){
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
       /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
-      var meta='<div class="ib2-bub-meta"><span class="ib2-bub-cat">'+ibEsc((c.emoji||'')+' '+c.label)+'</span><span>'+ibEsc(_ib2Time(ts))+'</span></div>';
+      var meta='<div class="ib2-bub-meta"><span class="ib2-bub-cat">'+ibEsc((c.emoji||'')+' '+c.label)+'</span><span>'+ibEsc(_ib2Time(ts))+'</span><button type="button" class="ib2-bub-more" data-more="'+ibEsc(it.id)+'" title="편집 · 완료 · 삭제" aria-label="항목 편집">⋯</button></div>';
       var t=String(it.text||'').trim();
       var imgHtml=hasImg?cardCoverHtml(it).replace('ib2-card-imgwrap','ib2-bub-img'):'';
       /* Strip the raw URL out of the shown text (a link chip renders it nicely). */
@@ -18708,7 +18745,8 @@ function _initInbox(){
     });
     host.innerHTML=html;
     ib2ResolveMedia(host);
-    host.querySelectorAll('[data-jump]').forEach(function(b){b.addEventListener('click',function(){ jumpToCard(b.getAttribute('data-jump')); });});
+    host.querySelectorAll('[data-more]').forEach(function(b){b.addEventListener('click',function(e){ e.stopPropagation(); var it=inboxItems.find(function(x){return String(x.id)===String(b.getAttribute('data-more'));}); if(it)openInboxItemSheet(it); });});
+    host.querySelectorAll('[data-jump]').forEach(function(b){b.addEventListener('click',function(e){ if(e.target.closest('[data-more]'))return; jumpToCard(b.getAttribute('data-jump')); });});
     host.scrollTop=host.scrollHeight;
   }
   /* Thread → 정리 보드 카드로 점프(스크롤 + 하이라이트). */
@@ -18806,6 +18844,35 @@ function _initInbox(){
   }
   /* Expose so the 프로젝트 상세 처리할 인박스 can reuse the exact same editor. */
   window.ib2OpenInboxEdit=openInboxEdit;
+  /* Expose the live inbox columns (프로젝트 + 미분류) and a capture entry point so
+     the 상단 빠른 입력창 can drop items into the SAME categories the board uses. */
+  window.ib2Cats=cats;
+  window.ib2GuessCat=guessCat;
+  window.ib2QuickCapture=function(text,colId){
+    text=String(text||'').trim(); if(!text)return null;
+    if(!colId||!cats().some(function(c){return c.id===colId;}))colId='_uncat';
+    var it=newItem(text,colId); inboxItems.unshift(it); saveInboxItems(); renderFeed(); return it;
+  };
+  /* 빠른 담기 스레드 항목 편집 시트 — 정리 보드 카드와 동일한 조작을 챗 버블에서도. */
+  function openInboxItemSheet(it){
+    if(!it)return;
+    var old=document.getElementById('ib2-item-sheet'); if(old)old.remove();
+    var ov=document.createElement('div'); ov.className='overlay open'; ov.id='ib2-item-sheet';
+    var acts=[['edit','✎ 편집 · 분류 이동',''],['done',(it.done?'↩︎ 완료 취소':'✓ 완료'),''],['need',(it.unread?'☆ 처리 필요 해제':'★ 처리 필요'),''],['jump','↳ 보드 카드로 이동',''],['del','🗑 삭제','danger']];
+    ov.innerHTML='<div class="modal" style="max-width:380px"><div class="modal-head"><div class="modal-title">'+ibEsc((it.text||'인박스 항목').slice(0,42))+'</div></div><div class="modal-body pji-sheet-body">'+acts.map(function(a){return '<button type="button" class="pji-sheet-btn '+a[2]+'" data-k="'+a[0]+'">'+ibEsc(a[1])+'</button>';}).join('')+'</div><div class="modal-foot"><button class="btn btn-ghost" id="ib2-item-sheet-close">닫기</button></div></div>';
+    document.body.appendChild(ov);
+    function close(){ov.remove();}
+    ov.addEventListener('click',function(e){if(e.target===ov)close();});
+    ov.querySelector('#ib2-item-sheet-close').onclick=close;
+    ov.querySelectorAll('[data-k]').forEach(function(b){b.addEventListener('click',function(){
+      var k=b.getAttribute('data-k'); close();
+      if(k==='edit')openInboxEdit(it.id);
+      else if(k==='done'){ it.done=!it.done; if(it.done)it.unread=false; saveInboxItems(); renderFeed(); }
+      else if(k==='need'){ it.unread=!it.unread; saveInboxItems(); renderFeed(); }
+      else if(k==='jump'){ jumpToCard(it.id); }
+      else if(k==='del'){ var run=function(){ inboxItems=inboxItems.filter(function(x){return String(x.id)!==String(it.id);}); saveInboxItems(); renderFeed(); }; (typeof openConfirmDialog==='function')?openConfirmDialog('삭제','이 항목을 삭제할까요?',run):run(); }
+    });});
+  }
   function bindKanban(host){
     host.querySelectorAll('[data-add]').forEach(function(inp){
       inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ var t=inp.value.trim(); if(!t)return; inboxItems.unshift(newItem(t,inp.getAttribute('data-add'))); saveInboxItems(); renderFeed(); var f=document.querySelector('[data-add="'+inp.getAttribute('data-add')+'"]'); if(f)f.focus(); } });
@@ -18919,6 +18986,7 @@ function _initInbox(){
     var thTop=thEl?thEl.scrollTop:null, thBottom=thEl?(thEl.scrollHeight-thEl.scrollTop-thEl.clientHeight<8):false;
     var colTops={}; root.querySelectorAll('.ib2-col').forEach(function(c){ var bdy=c.querySelector('.ib2-col-body'); if(bdy)colTops[c.getAttribute('data-col')]=bdy.scrollTop; });
     try{ paintCapCats(); paintThumbs(); paintThread(); paintKanban(); }catch(e){ console.warn('inbox 2pane:',e); }
+    var clr=document.getElementById('ib2-clear-done'); if(clr)clr.style.display=inboxItems.some(function(i){return i.done;})?'':'none';
     var th2=document.getElementById('ib2-thread'); if(th2){ if(thBottom)th2.scrollTop=th2.scrollHeight; else if(thTop!=null)th2.scrollTop=thTop; }
     root.querySelectorAll('.ib2-col').forEach(function(c){ var id=c.getAttribute('data-col'), bdy=c.querySelector('.ib2-col-body'); if(bdy&&colTops[id]!=null)bdy.scrollTop=colTops[id]; });
   };
@@ -28510,8 +28578,10 @@ renderProjects=function(){
         +'<div class="pjd-meta"><span>📥 인박스 '+inboxN+'</span><span>✔ 할일 '+linked.length+'</span><span>완료 '+doneN+'</span><span>🖼 자료 '+resN+'</span></div></div>'
       +'<div class="pjd-actions"><button class="btn btn-ghost" id="project-delete" title="프로젝트 삭제">🗑</button><button class="btn btn-ghost" id="project-edit">✏ 편집</button><button class="btn btn-primary" id="project-capture">＋ 담기</button></div>'
     +'</section>'
-    +'<section class="section-card"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">이 프로젝트의 기록 · '+logN+'</span></div>'+logsHtml+'</section>'
-    +'<section class="section-card"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
+    +'<div class="pjd-split">'
+      +'<section class="section-card pjd-logcol"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">이 프로젝트의 기록 · '+logN+'</span></div>'+logsHtml+'</section>'
+      +'<section class="section-card pjd-inboxcol"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
+    +'</div>'
     +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
     +'<section class="section-card pjb-section"><div class="project-section-head">'+_sl('board','자료 보드')+'</div>'+projectBoardHtml(p)+'</section>'
   +'</div>';
