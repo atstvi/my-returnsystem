@@ -19415,12 +19415,21 @@ var activeCat = 'all';
 var activeView= 'list';
 /* Does task t match the current category filter? Handles 'all', the special
    'schedule' bucket, and project filters ('proj:<projectId>'). */
+/* Effective category at READ time: any task with a projectId belongs to the
+   '프로젝트' 특수 카테고리 regardless of its stored catId. This is a
+   read-chokepoint (not a data rewrite) so it survives Firebase round-trips
+   that would otherwise re-poison catId back to its old value. */
+function taskEffectiveCatId(t){
+  if(t&&t.projectId)return 'project';
+  if(t&&t._isTt)return 'schedule';
+  return (t&&t.catId)||'etc';
+}
 function _taskCatMatch(t,cat){
   if(!t)return false;
   if(!cat||cat==='all')return true;
-  if(cat==='schedule')return t.catId==='schedule'||t._isTt;
+  if(cat==='schedule')return taskEffectiveCatId(t)==='schedule';
   if(String(cat).slice(0,5)==='proj:')return String(t.projectId||'')===String(cat).slice(5);
-  return t.catId===cat;
+  return taskEffectiveCatId(t)===cat;
 }
 var _twvDays  = 7;          /* timeblock view: days in viewport (0 = scroll/continuous) */
 var _twvAnchor = null;      /* timeblock view: Date of first column */
@@ -20873,14 +20882,14 @@ function renderByCategory(container,vt){
   /* Always render every category bar (even 0-count) — the user prefers adding
      via each category's + button, so the bars stay visible on empty days too. */
   var cg={};
-  vt.forEach(function(t){if(!cg[t.catId])cg[t.catId]=[];cg[t.catId].push(t);});
+  vt.forEach(function(t){var k=taskEffectiveCatId(t);if(!cg[k])cg[k]=[];cg[k].push(t);});
   CATS.forEach(function(catDef){
     var cid = catDef.id;
     if(cid==='project'){ renderProjectSection(container, cg['project'] || []); return; }
     var cat=getCat(cid);
     var items=orderTaskSubset(cg[cid] || []);
     var overdueCnt=(selDate===TK&&(activeCat==='all'||activeCat===cid))?tasks.filter(function(t){
-      return t&&!t.done&&!t._travelOnly&&t.catId===cid&&t.date&&t.date<TK;
+      return t&&!t.done&&!t._travelOnly&&taskEffectiveCatId(t)===cid&&t.date&&t.date<TK;
     }).length:0;
     renderSection(container,cat.emoji+' '+cat.label,items,false,cid,overdueCnt);
   });
