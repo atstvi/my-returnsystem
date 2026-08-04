@@ -1746,6 +1746,14 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .capture-inner:focus-within .capture-send { width:32px; opacity:1; transform:scale(1); pointer-events:auto; margin-left:0; }
 .capture-send:hover { background:var(--accent-hover); }
 .capture-send:active { transform:scale(.92); }
+/* Inbox category picker — a popover that drops under the capture field while
+   capturing in Inbox mode. Absolutely positioned so it never grows the
+   fixed-height topbar. */
+.capture-cats { display:none; position:absolute; top:calc(100% + 6px); left:0; width:min(560px,100%); z-index:30; flex-wrap:wrap; gap:6px; margin:0; padding:8px 10px; background:var(--bg-card); border:1px solid var(--border-subtle); border-radius:var(--r-lg); box-shadow:var(--elev-2); pointer-events:all; }
+.capture-bar.cap-inbox .capture-inner:focus-within ~ .capture-cats { display:flex; }
+.capture-cat { height:26px; padding:0 10px; border-radius:var(--r-full); font-size:var(--text-2xs); font-weight:var(--fw-semibold); color:var(--fg-3); background:var(--bg-raised); border:1px solid var(--border-subtle); cursor:pointer; display:inline-flex; align-items:center; gap:3px; transition:background var(--t-snap), color var(--t-snap), border-color var(--t-snap); }
+.capture-cat:hover { color:var(--fg-2); }
+.capture-cat.active { color:var(--accent); background:var(--accent-light); border-color:transparent; }
 
 /* ── RESPONSIVE ── */
 @media (max-width:639px) {
@@ -8124,7 +8132,7 @@ to{opacity:1;transform:translateY(0)}}
          The capture input/type/send here reuse the ids/classes their
          listeners were already bound to, so capture works app-wide. -->
     <header class="app-topbar" aria-label="상단 바">
-      <div class="capture-bar topbar-capture">
+      <div class="capture-bar topbar-capture cap-inbox">
         <div class="capture-inner">
           <span class="capture-lead" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
           <input class="capture-inp" id="capture-inp" type="text" aria-label="빠른 캡처" placeholder="">
@@ -8135,6 +8143,7 @@ to{opacity:1;transform:translateY(0)}}
           </div>
           <button class="capture-send" aria-label="전송" onmousedown="event.preventDefault()">↑</button>
         </div>
+        <div class="capture-cats" id="capture-cats" role="tablist" aria-label="인박스 카테고리"></div>
       </div>
       <div class="topbar-actions">
         <button class="topbar-icon-btn" id="topbar-notif-btn" type="button" title="알림" aria-label="알림">
@@ -14306,6 +14315,29 @@ generateRepeatTasks=function(rep,fromDate,days){return reconcileGeneratedTasks({
 applyActiveTaskRules=function(){return reconcileGeneratedTasks({source:'applyActiveTaskRules'});};
 
 var homeCaptureType = 'inbox';
+/* null = 자동(내용으로 카테고리 추론). Otherwise a specific INBOX_CATS id. */
+var homeCaptureInboxCat = null;
+/* Render the inbox-category chooser under the top capture bar. Rebuilt from the
+   live INBOX_CATS each time it's shown so custom/renamed cats stay in sync. */
+function renderCaptureInboxCats(){
+  var row = document.getElementById('capture-cats');
+  if(!row) return;
+  var cats = (typeof INBOX_CATS !== 'undefined' && Array.isArray(INBOX_CATS)) ? INBOX_CATS : [];
+  var chips = [{id:null,label:'자동',emoji:'✨'}].concat(cats);
+  row.innerHTML = chips.map(function(c){
+    var active = (homeCaptureInboxCat===c.id) || (homeCaptureInboxCat==null && c.id==null);
+    return '<button type="button" class="capture-cat'+(active?' active':'')+'" role="tab" data-capcat="'+(c.id==null?'':c.id)+'" onmousedown="event.preventDefault()">'+
+      (c.emoji?c.emoji+' ':'')+(c.label||c.id||'')+'</button>';
+  }).join('');
+  row.querySelectorAll('[data-capcat]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var v = b.getAttribute('data-capcat');
+      homeCaptureInboxCat = v ? v : null;
+      renderCaptureInboxCats();
+      var inp = document.getElementById('capture-inp'); if(inp) inp.focus();
+    });
+  });
+}
 function setHomeCaptureType(type){
   homeCaptureType = type === 'task' ? 'task' : (type === 'log' ? 'log' : 'inbox');
   var ib = document.getElementById('capture-inbox-btn');
@@ -14314,10 +14346,16 @@ function setHomeCaptureType(type){
   if (ib) ib.classList.toggle('active', homeCaptureType === 'inbox');
   if (tb) tb.classList.toggle('active', homeCaptureType === 'task');
   if (lb) lb.classList.toggle('active', homeCaptureType === 'log');
+  var bar = document.querySelector('.topbar-capture');
+  if (bar) bar.classList.toggle('cap-inbox', homeCaptureType === 'inbox');
+  if (homeCaptureType === 'inbox') renderCaptureInboxCats();
 }
 document.getElementById('capture-inbox-btn') && document.getElementById('capture-inbox-btn').addEventListener('click', function(){ setHomeCaptureType('inbox'); });
 document.getElementById('capture-task-btn') && document.getElementById('capture-task-btn').addEventListener('click', function(){ setHomeCaptureType('task'); });
 document.getElementById('capture-log-btn') && document.getElementById('capture-log-btn').addEventListener('click', function(){ setHomeCaptureType('log'); });
+/* Refresh the chip row whenever the field is focused so it reflects the latest
+   categories (the row itself is CSS-shown on focus in inbox mode). */
+document.getElementById('capture-inp') && document.getElementById('capture-inp').addEventListener('focus', function(){ if(homeCaptureType==='inbox') renderCaptureInboxCats(); });
 function scrollHomeTimeBlockToNow(force){
   var body=document.getElementById('htb-body');
   if(!body)return;
@@ -15022,10 +15060,13 @@ function homeCapture(raw){
   } else if (homeCaptureType === 'log') {
     quickAddLog(text);
   } else if (typeof inboxItems !== 'undefined') {
-    inboxItems.unshift({id:Date.now(),text:text,cat:'memo',ts:Date.now(),done:false,unread:true});
+    var validCat = homeCaptureInboxCat && (typeof INBOX_CATS==='undefined' || INBOX_CATS.some(function(c){return c.id===homeCaptureInboxCat;})) ? homeCaptureInboxCat : null;
+    var cat = validCat || (typeof inferInboxCat === 'function' ? inferInboxCat(text) : 'memo');
+    inboxItems.unshift({id:Date.now(),text:text,cat:cat,ts:Date.now(),done:false,unread:true});
     if (typeof saveInboxItems === 'function') saveInboxItems();
     if (typeof renderFeed === 'function') renderFeed();
-    homeToast('인박스에 담았어요');
+    var _cm = (typeof getCatMeta==='function') ? getCatMeta(cat) : null;
+    homeToast('인박스' + (_cm ? ' · ' + (_cm.emoji?_cm.emoji+' ':'') + _cm.label : '') + '에 담았어요');
   }
 }
 
