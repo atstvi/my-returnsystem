@@ -1399,6 +1399,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pj-bar2{grid-row:1;font-family:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:var(--fw-bold);color:#fff;border:0;border-radius:var(--r-full);padding:6px 12px;cursor:pointer;text-align:left;box-shadow:var(--elev-1);transition:filter var(--t-snap)}
 .pj-bar2:hover{filter:brightness(1.05)}
 .pj-bar2.done{opacity:.45;text-decoration:line-through}
+.pj-bar2[data-tltask],.pj-bar2[data-pjdtltask]{touch-action:none}
+.pj-bar-dragging{opacity:.6;filter:brightness(1.1);box-shadow:var(--elev-3);z-index:5}
 .pj-tl-empty{grid-column:1/-1;font-size:var(--text-xs);color:var(--fg-4);padding:2px 0 var(--sp-2)}
 .pj-tl-datanote{max-width:960px;margin-top:var(--sp-5);font-size:var(--text-xs);color:var(--fg-3);line-height:1.6;background:var(--accent-light);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:12px 16px}
 .pj-tl-datanote b{color:var(--fg-2)}
@@ -27849,9 +27851,50 @@ function projectTaskTimelineHtml(list){
 var _pjdTlWeek=0;
 function _pjdWeekDays(off){ var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7); var start=new Date(base); start.setDate(base.getDate()-base.getDay()); var out=[]; for(var i=0;i<7;i++){var d=new Date(start);d.setDate(start.getDate()+i);out.push(d);} return out; }
 function _pjdDk(d){return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+var _pjdTlKeys=[];
+/* Shared: drag a timeline task bar horizontally to reschedule it to another day.
+   Works for the dashboard 전체 타임라인(data-tltask) and the project detail
+   주간 타임라인(data-pjdtltask). Sets window._pjTlDragged so the bar's click
+   handler skips opening the modal right after a drag. */
+window.bindProjectTimelineDrag=function(host,keys,findTask,commit){
+  if(!host||!Array.isArray(keys)||keys.length<7)return;
+  var dayCells=host.querySelectorAll('.pj-tl-colhead .pj-tl-day');
+  if(dayCells.length<7)return;
+  function xToIndex(x){
+    for(var i=0;i<7;i++){ var r=dayCells[i].getBoundingClientRect(); if(x<r.right){ return x<r.left&&i>0?i-1:i; } }
+    return 6;
+  }
+  function _dk(d){return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
+  function shift(dstr,delta){ var p=String(dstr).split('-'); var d=new Date(+p[0],+p[1]-1,+p[2]); d.setDate(d.getDate()+delta); return _dk(d); }
+  host.querySelectorAll('[data-tltask],[data-pjdtltask]').forEach(function(bar){
+    var id=bar.getAttribute('data-tltask')||bar.getAttribute('data-pjdtltask');
+    var drag=null;
+    bar.addEventListener('pointerdown',function(e){ if(e.button&&e.button!==0)return; drag={sx:e.clientX,sy:e.clientY,moved:false}; try{bar.setPointerCapture(e.pointerId);}catch(_){} });
+    bar.addEventListener('pointermove',function(e){ if(!drag)return; if(!drag.moved&&Math.hypot(e.clientX-drag.sx,e.clientY-drag.sy)>5){drag.moved=true;bar.classList.add('pj-bar-dragging');} });
+    function end(e){
+      if(!drag)return; var moved=drag.moved; drag=null;
+      if(!moved)return; /* plain click → let the existing click handler open the modal */
+      bar.classList.remove('pj-bar-dragging');
+      window._pjTlDragged=true; setTimeout(function(){window._pjTlDragged=false;},80);
+      var di=xToIndex(e.clientX); var t=findTask(id); if(!t||!t.date)return;
+      var newKey=keys[di]; if(!newKey||t.date===newKey)return;
+      var op=String(t.date).split('-'), np=newKey.split('-');
+      var delta=Math.round((new Date(+np[0],+np[1]-1,+np[2])-new Date(+op[0],+op[1]-1,+op[2]))/86400000);
+      if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,newKey);
+      t.date=newKey;
+      if(t.deadlineDate){ try{ t.deadlineDate=shift(t.deadlineDate,delta); }catch(_e){} }
+      if(t._repeatId||t.repeatRuleId||t._ruleGen||t._ruleId||t.sourceType==='repeat'||t.sourceType==='activeRule')t.userModifiedDate=true;
+      t.updatedAt=Date.now();
+      commit(t);
+    }
+    bar.addEventListener('pointerup',end);
+    bar.addEventListener('pointercancel',function(){ if(drag){bar.classList.remove('pj-bar-dragging');drag=null;} });
+  });
+};
 function projectWeekTimelineHtml(project){
   var color=project.color||'#BE727A';
   var days=_pjdWeekDays(_pjdTlWeek), keys=days.map(_pjdDk), w0=keys[0], w6=keys[6];
+  _pjdTlKeys=keys;
   var today=(typeof TK!=='undefined')?TK:_pjdDk(new Date());
   var DOW=['일','월','화','수','목','금','토'];
   var mine=projectTaskItems(project).filter(function(t){return t&&!t._travelOnly&&t.date;});
@@ -27878,7 +27921,8 @@ function projectWeekTimelineHtml(project){
 function bindProjectWeekTimeline(detail){
   if(!detail)return;
   detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v); renderProjects(); });});
-  detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
+  detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ if(window._pjTlDragged)return; var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
+  if(typeof window.bindProjectTimelineDrag==='function')window.bindProjectTimelineDrag(detail,_pjdTlKeys,function(id){return (typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});},function(){ if(typeof saveTaskData==='function')saveTaskData(); renderProjects(); });
 }
 openProjectTaskLinker=function(project){
   var old=document.getElementById('project-task-linker'); if(old)old.remove();
@@ -28656,10 +28700,12 @@ renderProjects=function(){
       var g=b.getAttribute('data-tltoggle'); _pjTlOpen[g]=(_pjTlOpen[g]===false); renderAllTimeline();
     });});
     host.querySelectorAll('[data-tltask]').forEach(function(b){b.addEventListener('click',function(){
+      if(window._pjTlDragged)return;
       var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-tltask'));});
       if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
     });});
     host.querySelectorAll('[data-tlhobby]').forEach(function(b){b.addEventListener('click',function(){ if(typeof goPage==='function')goPage('hobby'); });});
+    if(typeof window.bindProjectTimelineDrag==='function')window.bindProjectTimelineDrag(host,keys,function(id){return (typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});},function(){ if(typeof saveTaskData==='function')saveTaskData(); renderAllTimeline(); });
   }
   function ensureBackBtn(){
     var head=document.querySelector('#page-projects .project-list-head'); if(!head)return;
