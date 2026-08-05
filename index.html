@@ -4548,14 +4548,16 @@ to{opacity:1;transform:translateY(0)}}
 .pjd-inboxcol .pji-list{max-height:340px;overflow-y:auto}
 @media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}}
 .pji-list{display:flex;flex-direction:column;gap:6px}
-.pji-item{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;font-family:inherit;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:11px 13px;cursor:pointer;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
+.pji-item{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;font-family:inherit;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:11px 13px;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
 .pji-item:hover{border-color:var(--accent);box-shadow:var(--elev-1)}
 .pji-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--accent)}
-.pji-main{flex:1;min-width:0;cursor:pointer}
+/* 본문 텍스트는 자유롭게 선택·복사 가능하게 */
+.pji-main{flex:1;min-width:0;-webkit-user-select:text;user-select:text}
 .pji-t{font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pji-s{font-size:11px;color:var(--fg-4);margin-top:1px}
-.pji-go{flex:none;color:var(--fg-4);font-size:var(--text-md)}
-.pji-go{font-weight:var(--fw-bold);letter-spacing:1px}
+/* ⋯ 만 메뉴 버튼 */
+.pji-go{flex:none;color:var(--fg-4);font-size:var(--text-md);font-weight:var(--fw-bold);letter-spacing:1px;background:transparent;border:none;cursor:pointer;width:32px;height:32px;border-radius:var(--r-full);display:inline-flex;align-items:center;justify-content:center;transition:background var(--t-snap),color var(--t-snap)}
+.pji-go:hover{background:var(--bg-card);color:var(--fg-2)}
 .pji-sheet-body{display:flex;flex-direction:column;gap:var(--sp-2)}
 .pji-sheet-btn{display:flex;align-items:center;gap:var(--sp-2);width:100%;text-align:left;font-family:inherit;font-size:var(--text-sm);font-weight:var(--fw-medium);color:var(--fg-1);background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:12px 14px;cursor:pointer;transition:background var(--t-snap),border-color var(--t-snap)}
 .pji-sheet-btn:hover{background:var(--bg-sunken);border-color:var(--accent)}
@@ -8209,7 +8211,7 @@ to{opacity:1;transform:translateY(0)}}
       <div class="capture-bar topbar-capture cap-inbox">
         <div class="capture-inner">
           <span class="capture-lead" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
-          <input class="capture-inp" id="capture-inp" type="text" aria-label="빠른 캡처" placeholder="">
+          <input class="capture-inp" id="capture-inp" type="text" aria-label="빠른 캡처" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="return-capture-noac">
           <div class="capture-modes" role="tablist" aria-label="캡처 대상">
             <button class="capture-type active" id="capture-inbox-btn" type="button" role="tab">Inbox</button>
             <button class="capture-type" id="capture-task-btn" type="button" role="tab">Task</button>
@@ -28628,6 +28630,20 @@ function _projectPostLog(p, text, imgs){
   p.updatedAt=Date.now(); saveProjects();
   if(typeof renderProjects==='function')renderProjects();
 }
+/* 전체(대쉬보드) 작업 로그 컴포저에서 사진(붙여넣기 포함)이 있을 때, 프로젝트를
+   골라 그 프로젝트 로그로 남긴다 — 이미지 있으면 무조건 거절하던 동작 대체. */
+function _projectPostLogPick(text, imgs){
+  var all=(typeof projects!=='undefined'&&Array.isArray(projects))?projects.filter(function(p){return p&&p.status!=='archived';}):[];
+  if(!all.length){ if(typeof showToast==='function')showToast('먼저 프로젝트를 만들어 주세요'); return false; }
+  var active=(typeof activeProjectId!=='undefined'&&activeProjectId)?all.find(function(p){return String(p.id)===String(activeProjectId);}):null;
+  if(active){ _projectPostLog(active,text,imgs); return true; }
+  if(all.length===1){ _projectPostLog(all[0],text,imgs); return true; }
+  if(typeof openFormDialog==='function'){
+    openFormDialog('어느 프로젝트 로그에?', [{key:'pid',label:'프로젝트',type:'select',value:all[0].id,options:all.map(function(p){return {value:p.id,label:p.title||'프로젝트'};})}], function(d){ _projectPostLog(all.find(function(x){return String(x.id)===String(d.pid);})||all[0], text, imgs); });
+    return true;
+  }
+  _projectPostLog(all[0],text,imgs); return true;
+}
 /* Copy a log into the project's 자료 보드 (자료로 action). */
 function projectLogToBoard(p, l){
   if(!p||!l)return;
@@ -28694,7 +28710,7 @@ function bindProjectLogComposer(root){
       var text=(ta.value||'').trim(); var imgs=c._imgs.slice(); if(!text&&!imgs.length)return;
       var pid=c.getAttribute('data-composer-pid');
       if(pid){ var p=projects.find(function(x){return String(x.id)===String(pid);}); _projectPostLog(p,text,imgs); }
-      else if(imgs.length){ if(typeof showToast==='function')showToast('이미지가 있는 기록은 프로젝트 상세에서 남겨주세요'); return; }
+      else if(imgs.length){ if(!_projectPostLogPick(text,imgs))return; }
       else if(typeof quickAddLog==='function'){ quickAddLog(text); }
       ta.value=''; c._imgs=[]; paintThumbs(); grow();
     }
@@ -28779,9 +28795,10 @@ function projectInboxHtml(project){
     var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
     var sub=(hasImg?'이미지 · ':'')+(when||'방금');
     var id=projectEsc(it.id);
-    return '<button type="button" class="pji-item" data-pji-sheet="'+id+'"><span class="pji-dot"></span>'
+    /* 항목 본문은 클릭해도 시트가 안 뜨게(텍스트 선택·복사 편하게) — 시트는 ⋯ 버튼에서만. */
+    return '<div class="pji-item"><span class="pji-dot"></span>'
       +'<div class="pji-main"><div class="pji-t">'+projectEsc(it.text||(hasImg?'(이미지)':''))+'</div><div class="pji-s">'+projectEsc(sub)+'</div></div>'
-      +'<span class="pji-go" title="편집 · 할일/로그/보드로 전환 · 완료 · 삭제">⋯</span></button>';
+      +'<button type="button" class="pji-go" data-pji-sheet="'+id+'" title="편집 · 할일/로그/보드로 전환 · 완료 · 삭제">⋯</button></div>';
   }).join(''):'<div class="pji-empty">이 프로젝트로 담긴 인박스가 없어요.</div>';
   return '<div class="pji-list">'+rows+'</div><button type="button" class="pji-add" id="project-inbox-add">＋ 이 프로젝트에 담기</button>';
 }
