@@ -10712,7 +10712,7 @@ function renderHomeWidgetPhoto(body){
 function renderHomeWidgetMusic(body){
   try{ if(typeof musicLoad==='function')musicLoad(); }catch(e){}
   body.innerHTML='';
-  var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+  var rec=(typeof musicGetReco==='function')?musicGetReco():((typeof musicRecommend==='function')?musicRecommend():null);
   if(!rec||!rec.song){
     /* Empty state uses the shared .hw-empty pattern (icon + message + CTA). */
     body.innerHTML='<div class="hw-empty"><span class="hw-empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg></span><span>저장된 노래가 아직 없어요.</span><button class="hw-cta" type="button" onclick="goPage(\'music\')">음악 추가하러 가기</button></div>';
@@ -10756,7 +10756,8 @@ function musicCurrentPlaylist(){return musicPlaylists.find(function(p){return St
 function musicCurrentItem(){var p=musicCurrentPlaylist();if(!p)return null;var items=(p.items&&p.items.length?p.items:[{youtubeUrl:p.url,title:p.title,thumbnail:p.thumbnail,startTime:0,endTime:0,volume:80}]);return items[Math.max(0,Math.min(items.length-1,musicCurrent.itemIndex||0))]||null;}
 function musicTagsHtml(p){var tags=[p.mood,p.useCase].concat(p.tags||[]).filter(Boolean).slice(0,5);return tags.map(function(t){return '<span class="music-tag">'+musicEsc(t)+'</span>';}).join('');}
 function musicRecommend(){if(!musicPlaylists.length)return null;var mode=String(musicMode||'Study').toLowerCase(),hour=(new Date()).getHours(),taskCount=0,inboxCount=0,routineDue=false;try{taskCount=(TASKS||[]).filter(function(t){return !t.done&&((t.date||t.dueDate||'')===(currentDate||TK));}).length;}catch(e){}try{inboxCount=(INBOX||[]).filter(function(x){return x&&x.needsAction;}).length;}catch(e){}try{routineDue=!!(document.getElementById('home-routine-quick')||{}).textContent;}catch(e){}var context=[mode];if(taskCount>3)context.push('focus','study','deadline','no lyrics');if(inboxCount>0)context.push('planning','calm');if(routineDue||mode==='routine')context.push('routine','morning','upbeat');if(hour>=21||mode==='rest')context.push('rest','calm','chill','cozy');var best=null,bestScore=-999;musicPlaylists.forEach(function(p){var hay=[p.title,p.mood,p.useCase,p.notes].concat(p.tags||[]).join(' ').toLowerCase(),score=0;context.forEach(function(k){if(hay.indexOf(k)>=0)score+=3;});if(hay.indexOf(mode)>=0)score+=4;score+=Math.min(2,((p.items||[]).length||1));if(score>bestScore){bestScore=score;best=p;}});return {playlist:best,reason:bestScore>0?'오늘 상황과 '+musicMode+' 모드 태그가 가장 잘 맞아요.':'저장한 음악 중 먼저 들을 만한 항목이에요.'};}
-function musicRenderModes(){var row=document.getElementById('music-mode-row');if(!row)return;row.innerHTML=musicModes.map(function(m){return '<button class="music-chip '+(musicMode===m?'active':'')+'" type="button" data-music-mode="'+musicEsc(m)+'">'+musicEsc(m)+'</button>';}).join('');row.querySelectorAll('[data-music-mode]').forEach(function(btn){btn.addEventListener('click',function(){musicMode=btn.dataset.musicMode;musicRender();});});}
+/* 모드/키워드 칩 제거 — 이제 AI가 상황을 종합해 자동 추천한다. 빈 행은 CSS로 숨김. */
+function musicRenderModes(){var row=document.getElementById('music-mode-row');if(row)row.innerHTML='';}
 function musicRenderRecommended(){var host=document.getElementById('music-recommended');if(!host)return;var rec=musicRecommend();if(!rec||!rec.playlist){host.innerHTML='<div class="music-empty">아직 저장된 음악이 없어요. YouTube URL을 하나 추가하면 여기서 추천해드릴게요.</div>';return;}var p=rec.playlist;host.innerHTML='<div class="music-reco-card"><div class="music-cover">'+(p.thumbnail?'<img src="'+musicEsc(p.thumbnail)+'" alt="">':'')+'</div><div class="music-reco-main"><div class="music-reco-title">'+musicEsc(p.title)+'</div><div class="music-reco-reason">'+musicEsc(rec.reason)+'</div><div class="music-meta" style="margin-top:var(--sp-2)">'+musicTagsHtml(p)+'</div></div><button class="set-btn btn-primary" type="button" data-music-play="'+musicEsc(p.id)+'">재생</button></div>';var btn=host.querySelector('[data-music-play]');if(btn)btn.addEventListener('click',function(){musicPlayPlaylist(btn.dataset.musicPlay,0);});}
 function musicRenderGrid(){var grid=document.getElementById('music-grid');if(!grid)return;var count=document.getElementById('music-count');if(count)count.textContent=musicPlaylists.length+'개 저장됨';if(!musicPlaylists.length){grid.innerHTML='<div class="music-empty" style="grid-column:1/-1">플레이리스트를 추가하면 공부, 루틴, 계획, 휴식 모드별로 골라 쓸 수 있어요.</div>';return;}grid.innerHTML=musicPlaylists.map(function(p){return '<article class="music-card"><div class="music-cover">'+(p.thumbnail?'<img src="'+musicEsc(p.thumbnail)+'" alt="">':'')+'</div><div class="music-card-title">'+musicEsc(p.title||'Untitled')+'</div><div class="music-meta">'+musicTagsHtml(p)+'</div><div class="music-card-actions"><button class="set-btn btn-primary" type="button" data-music-play="'+musicEsc(p.id)+'">Play</button><button class="set-btn btn-ghost" type="button" data-music-delete="'+musicEsc(p.id)+'">Delete</button></div></article>';}).join('');grid.querySelectorAll('[data-music-play]').forEach(function(btn){btn.addEventListener('click',function(){musicPlayPlaylist(btn.dataset.musicPlay,0);});});grid.querySelectorAll('[data-music-delete]').forEach(function(btn){btn.addEventListener('click',function(){musicDeletePlaylist(btn.dataset.musicDelete);});});}
 function musicRender(){musicLoad();musicRenderModes();musicRenderRecommended();musicRenderGrid();musicBindMini();}
@@ -10949,7 +10950,7 @@ function musicEnsureLibrarySections(){
 }
 musicRenderRecommended=function(){
   var host=document.getElementById('music-recommended');if(!host)return;
-  var rec=musicRecommend();
+  var rec=musicGetReco();
   if(!rec||!rec.song){host.innerHTML='<div class="music-empty">아직 저장된 노래가 없어요. YouTube 영상 URL을 하나 추가하면 여기서 추천해드릴게요.</div>';return;}
   var s=rec.song;
   host.innerHTML='<div class="music-reco-card"><div class="music-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div><div class="music-reco-main"><div class="music-reco-title">'+musicEsc(s.title)+'</div><div class="music-reco-reason">'+musicEsc(rec.reason)+'</div><div class="music-meta" style="margin-top:var(--sp-2)">'+musicTagsHtml(s)+'</div></div><button class="set-btn btn-primary" type="button" data-music-song-play="'+musicEsc(s.id)+'">재생</button></div>';
@@ -10965,8 +10966,61 @@ musicRecommend=function(){
   if(hour>=21||mode==='rest')context.push('rest','calm','chill','cozy');
   var best=null,bestScore=-999;
   musicLibrary.songs.forEach(function(s){var hay=[s.title,s.artist,s.mood,s.useCase,s.notes].concat(s.tags||[]).join(' ').toLowerCase(),score=0;context.forEach(function(k){if(hay.indexOf(k)>=0)score+=3;});if(hay.indexOf(mode)>=0)score+=4;if(score>bestScore){bestScore=score;best=s;}});
-  return {song:best,reason:bestScore>0?'오늘 상황과 '+musicMode+' 모드 태그가 가장 잘 맞아요.':'저장한 노래 중 먼저 들을 만한 항목이에요.'};
+  return {song:best,reason:bestScore>0?'저장한 노래의 태그와 지금 상황이 잘 맞아요.':'저장한 노래 중 먼저 들을 만한 항목이에요.'};
 };
+/* ── AI 음악 추천 ──────────────────────────────────────────────────────────
+   모드/키워드를 직접 고르지 않고, 지금의 시간·요일·할일·마감·인박스·집중량·
+   (있으면) 오늘 기분/날씨를 종합하고 저장된 노래의 제목/아티스트/태그/무드/
+   메모까지 분석해 AI가 한 곡을 자동으로 고른다. 결과는 캐시(라이브러리 서명 +
+   시(hour) 기준, 30분 TTL)해 매 렌더마다 호출하지 않는다. AI 키가 없거나 실패
+   하면 기존 휴리스틱(musicRecommend)으로 조용히 폴백한다. */
+var _musicAiReco=null;          /* {songId, reason, at, sig} */
+var _musicAiRecoPending=false;
+function _musicRecoSig(){ return (musicLibrary.songs||[]).map(function(s){return s.id;}).join(',')+'|'+(new Date()).getHours(); }
+function _musicRecoFresh(){ return !!(_musicAiReco && _musicAiReco.sig===_musicRecoSig() && (Date.now()-_musicAiReco.at)<30*60000 && musicSongById(_musicAiReco.songId)); }
+function musicBuildAiPrompt(){
+  var songs=musicLibrary.songs||[];
+  var lines=songs.map(function(s,i){
+    var meta=[].concat(s.mood?['무드:'+s.mood]:[], s.useCase?['용도:'+s.useCase]:[], (s.tags||[])).join(', ');
+    return (i+1)+'. '+(s.title||'제목없음')+(s.artist?(' — '+s.artist):'')+(meta?(' ['+meta+']'):'')+(s.notes?(' ('+String(s.notes).slice(0,60)+')'):'');
+  }).join('\n');
+  var now=new Date(), dow=['일','월','화','수','목','금','토'][now.getDay()], hour=now.getHours();
+  var tod=hour<6?'새벽':hour<12?'오전':hour<18?'오후':hour<21?'저녁':'밤';
+  var ctx=['현재: '+(now.getMonth()+1)+'월 '+now.getDate()+'일 '+dow+'요일 '+tod+' '+hour+'시'];
+  try{ var td=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t.done&&((t.date||'')===TK||(t.deadlineDate||'')===TK);}).length;
+       var dl=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t.done&&t.deadlineDate&&t.deadlineDate>=TK;}).length;
+       ctx.push('오늘 남은 할일/일정: '+td+'개, 다가오는 마감: '+dl+'개'); }catch(e){}
+  try{ var ib=(typeof inboxItems!=='undefined'?inboxItems:[]).filter(function(i){return i&&!i.done&&i.unread;}).length; ctx.push('처리 필요한 인박스: '+ib+'개'); }catch(e){}
+  try{ var t0=new Date();t0.setHours(0,0,0,0); var fm=(typeof focusTimerLog!=='undefined'?focusTimerLog:[]).filter(function(l){return l&&(l.completedAt||0)>=t0.getTime();}).reduce(function(a,l){return a+(l.durationMs||0);},0); ctx.push('오늘 집중 시간: '+Math.round(fm/60000)+'분'); }catch(e){}
+  try{ var e=(typeof entries!=='undefined'&&entries)?entries[TK]:null; if(e&&(e._mood||e._weather))ctx.push('오늘 기분/날씨: '+[e._mood,e._weather].filter(Boolean).join(' / ')); }catch(e){}
+  return '너는 사용자의 개인 음악 큐레이터야. 아래 [현재 상황]을 종합적으로 판단하고 [저장된 노래]의 제목·아티스트·태그·무드·메모를 분석해서, 지금 이 순간 듣기 가장 좋은 노래 하나를 골라줘.\n\n[현재 상황]\n'+ctx.join('\n')+'\n\n[저장된 노래]\n'+lines+'\n\n반드시 아래 형식으로만, 다른 설명 없이 답해:\nPICK: <번호>\nREASON: <왜 지금 이 노래인지 한국어 한 문장>';
+}
+function _musicParseAiPick(out){ var m=/PICK\s*[:：]\s*(\d+)/i.exec(String(out||'')); if(!m)return null; var s=(musicLibrary.songs||[])[parseInt(m[1],10)-1]; return s?s.id:null; }
+function _musicParseAiReason(out){ var m=/REASON\s*[:：]\s*(.+)/i.exec(String(out||'')); return m?m[1].trim().replace(/^["'“”]|["'“”]$/g,'').slice(0,120):''; }
+function musicRecommendAIRefresh(){
+  if(_musicAiRecoPending)return;
+  if(!(musicLibrary.songs||[]).length)return;
+  if(_musicRecoFresh())return;
+  var hasKey=false; try{hasKey=!!localStorage.getItem('groq_api_key');}catch(e){}
+  if(!hasKey||typeof callAI!=='function')return; /* AI 없으면 휴리스틱 유지 */
+  _musicAiRecoPending=true;
+  var sig=_musicRecoSig();
+  Promise.resolve().then(function(){return callAI(musicBuildAiPrompt(),60);}).then(function(out){
+    var id=_musicParseAiPick(out);
+    if(id&&musicSongById(id)){ _musicAiReco={songId:id,reason:_musicParseAiReason(out)||'지금 상황을 종합해 AI가 골랐어요.',at:Date.now(),sig:sig}; }
+    _musicAiRecoPending=false;
+    try{ if(typeof musicV9RenderReco==='function')musicV9RenderReco(); }catch(e){}
+    try{ if(typeof musicRenderRecommended==='function')musicRenderRecommended(); }catch(e){}
+    try{ if(typeof renderHomeWidget==='function'&&typeof getHomeWidgetType==='function'&&getHomeWidgetType()==='music')renderHomeWidget(); }catch(e){}
+  }).catch(function(){ _musicAiRecoPending=false; });
+}
+/* 렌더가 동기적으로 쓰는 통합 추천: 신선한 AI 결과가 있으면 그걸, 없으면 즉시
+   휴리스틱을 돌려주고 백그라운드로 AI 새로고침을 건다. */
+function musicGetReco(){
+  if(_musicRecoFresh()){ var s=musicSongById(_musicAiReco.songId); if(s)return {song:s,reason:_musicAiReco.reason,ai:true}; }
+  try{ musicRecommendAIRefresh(); }catch(e){}
+  return (typeof musicRecommend==='function')?musicRecommend():null;
+}
 musicRenderGrid=function(){
   musicEnsureLibrarySections();
   var grid=document.getElementById('music-grid');if(!grid)return;
@@ -41967,7 +42021,7 @@ function musicV9InjectCD(){
        "is anything loaded" check) is non-empty for both playlist and
        single-song playback. */
     if(!musicQueue||!musicQueue.length){
-      var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+      var rec=(typeof musicGetReco==='function')?musicGetReco():((typeof musicRecommend==='function')?musicRecommend():null);
       if(rec&&rec.playlist)musicPlayPlaylist(rec.playlist.id,0);
       else if(rec&&rec.song&&typeof musicPlaySong==='function')musicPlaySong(rec.song.id);
     }
@@ -41989,7 +42043,7 @@ function musicV9RenderReco(){
   var wrap=document.getElementById('music-v9-reco-wrap');
   if(!wrap)return;
 
-  var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+  var rec=(typeof musicGetReco==='function')?musicGetReco():((typeof musicRecommend==='function')?musicRecommend():null);
   var item=rec&&(rec.song||rec.playlist);
   if(!item){wrap.classList.remove('has-reco');return;}
   wrap.classList.add('has-reco');
@@ -41998,15 +42052,7 @@ function musicV9RenderReco(){
   var isPlaylist=!!(rec&&rec.playlist&&!rec.song);
   var hour=new Date().getHours();
   var timeLabel=hour<6?'새벽':hour<12?'오전':hour<18?'오후':hour<21?'저녁':'밤';
-  var mode=(typeof musicMode!=='undefined')?musicMode:'Study';
-  var modeLabels={Study:'공부',Rest:'휴식',Routine:'루틴',Focus:'집중'};
-  var modeKr=modeLabels[mode]||mode;
-
-  var modes=['Study','Rest','Routine','Focus'];
-  var chips=modes.map(function(m){
-    return '<button type="button" class="music-v9-chip'+(m===mode?' active':'')+'" data-v9mode="'+m+'">'+
-      (modeLabels[m]||m)+'</button>';
-  }).join('');
+  var ctxLabel=timeLabel+' · '+((rec&&rec.ai)?'AI 자동 추천':'상황 기반 추천');
 
   wrap.innerHTML=
     '<div class="music-v9-reco">'+
@@ -42016,28 +42062,16 @@ function musicV9RenderReco(){
         '<div class="music-v9-reco-info">'+
           '<div class="music-v9-reco-title">'+musicEsc(item.title||'')+'</div>'+
           '<div class="music-v9-reco-reason">'+musicEsc((rec&&rec.reason)||'')+'</div>'+
-          '<div class="music-v9-reco-ctx">'+timeLabel+' · '+modeKr+'</div>'+
+          '<div class="music-v9-reco-ctx">'+musicEsc(ctxLabel)+'</div>'+
         '</div>'+
       '</div>'+
       '<button type="button" class="music-v9-reco-play-btn" id="music-v9-reco-btn">▶ 재생</button>'+
-      '<div class="music-v9-mode-chips">'+chips+'</div>'+
     '</div>';
 
   /* Wire play button */
   wrap.querySelector('#music-v9-reco-btn').addEventListener('click',function(){
     if(isPlaylist&&typeof musicPlayPlaylist==='function')musicPlayPlaylist(item.id,0);
     else if(typeof musicPlaySong==='function')musicPlaySong(item.id);
-  });
-
-  /* Wire mode chips */
-  wrap.querySelectorAll('[data-v9mode]').forEach(function(btn){
-    btn.addEventListener('click',function(){
-      if(typeof musicMode!=='undefined')musicMode=btn.dataset.v9mode;
-      /* Also trigger existing mode change if it exists */
-      var modeBtn=document.querySelector('[data-music-mode="'+btn.dataset.v9mode+'"]');
-      if(modeBtn)modeBtn.click();
-      musicV9RenderReco();
-    });
   });
 }
 
@@ -42140,7 +42174,7 @@ setTimeout(function(){
        so check musicQueue (used by musicPlayPause for the same "is anything
        loaded" check) instead - otherwise this always restarted playback. */
     if(!musicQueue||!musicQueue.length){
-      var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+      var rec=(typeof musicGetReco==='function')?musicGetReco():((typeof musicRecommend==='function')?musicRecommend():null);
       if(rec&&rec.playlist&&typeof musicPlayPlaylist==='function')
         musicPlayPlaylist(rec.playlist.id,0);
       else if(rec&&rec.song&&typeof musicPlaySong==='function')
@@ -42253,7 +42287,7 @@ setTimeout(function(){
        v11 removes/replaces the v9/v10 buttons) and always restarted the
        currently playing song from 0:00 on open. */
     if(!musicQueue||!musicQueue.length){
-      var rec=(typeof musicRecommend==='function')?musicRecommend():null;
+      var rec=(typeof musicGetReco==='function')?musicGetReco():((typeof musicRecommend==='function')?musicRecommend():null);
       if(rec&&rec.playlist&&typeof musicPlayPlaylist==='function')
         musicPlayPlaylist(rec.playlist.id,0);
       else if(rec&&rec.song&&typeof musicPlaySong==='function')
