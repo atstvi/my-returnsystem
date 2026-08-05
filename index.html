@@ -36264,7 +36264,9 @@ async function syncDiaryToNotion(dateKey, opts){
      (the "동기화" button, opts.auto falsy) keep pull-first so that button stays
      fully bidirectional. Notion-side images survive either way because
      _syncDiaryPageBody absorbs unknown Notion images before archiving. */
-  if(opts.pullFirst==null) opts.pullFirst = !opts.auto;
+  /* 타임라인만 전송 모드: pull(가져오기)·본문 재작성·기타 속성 쓰기를 모두
+     제거했다. pull은 로컬을 Notion으로 덮어 되돌릴 수 있어 항상 끈다. */
+  opts.pullFirst = false;
   /* Auto-triggered syncs (from typing / queueDiaryNotionSave) must NOT call
      saveNotionConfig: the settings form may not be open, so reading the DOM
      could silently save autoSync:false (unchecked default) and permanently
@@ -36357,25 +36359,22 @@ async function syncDiaryToNotion(dateKey, opts){
       return String(entry[key]==null?'':entry[key]) !== String(entry._nbase[key]); /* changed locally */
     }
 
-    /* Timeline: regular sync preserves the diary's own timeline text.
-       AI formatting is reserved for the scheduled daily summary. */
+    /* 타임라인만 전송 — 오직 '타임라인' 속성 하나만 쓴다. 다른 6개 섹션 속성과
+       페이지 본문(_syncDiaryPageBody)은 절대 건드리지 않는다(빈 값 덮어쓰기·본문
+       재작성으로 인한 삭제 방지). 단일 속성 PATCH라 이름 없는 다른 속성/본문은
+       Notion이 그대로 유지한다. */
     try {
-      if(cfg.timelineProp && entryHas('timeline') && _shouldPushSection('timeline')){
-        addProp(cfg.timelineProp, entry.timeline || '');
-      } else if(cfg.timelineProp && opts.withAI && !opts.skipAI){
-        var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));
-        addProp(cfg.timelineProp, formatted);
+      if(cfg.timelineProp){
+        if(opts.withAI && !opts.skipAI){
+          var formatted=await _formatTimelineWithAI(_buildTodayTasksText(dateKey));
+          addProp(cfg.timelineProp, formatted);
+        } else {
+          addProp(cfg.timelineProp, entry.timeline || '');
+        }
       }
     } catch(e){
       console.warn('timeline format failed:', e&&e.message);
     }
-    /* Per-section properties — only push sections changed locally (see guard). */
-    [['sleep','sleepProp'],['morning','morningProp'],['resolution','resolutionProp'],
-     ['accomplishment','accomplishmentProp'],['night','nightProp'],['recap','recapProp']
-    ].forEach(function(pair){
-      var key=pair[0], prop=cfg[pair[1]];
-      if(prop && entryHas(key) && _shouldPushSection(key)) addProp(prop, entry[key] || '');
-    });
     if(Object.keys(props).length){
       try {
         await _diaryNotionApi('PATCH','/pages/'+pageId, {properties:props});
@@ -36386,20 +36385,7 @@ async function syncDiaryToNotion(dateKey, opts){
     if(skipped.length){
       console.warn('Notion sync — skipped read-only props:', skipped);
     }
-
-    /* 4. Push body blocks. force=true on MANUAL sync so the user can always
-       overwrite if they think something's stale. AUTO edit-pushes pass force=false
-       so the body is only archived+rewritten when the LOCAL body actually changed
-       (bodyHashes signature differs). Otherwise an auto-push would archive any
-       block added directly in Notion (text blocks aren't absorbed like images),
-       clobbering Notion-side body edits before the pull can adopt them. */
-    setStatus('본문 보내는 중...');
-    var bodyCount=0;
-    try {
-      bodyCount=await _syncDiaryPageBody(pageId, entry, dateKey, !opts.auto);
-    } catch(e){
-      throw new Error('본문 업데이트 실패: '+e.message);
-    }
+    var bodyCount=0; /* 본문은 전송하지 않음 */
 
     _diaryNotionCfg.lastSync=Date.now();
     setReturnStorageItem('diary_notion_cfg', JSON.stringify(_diaryNotionCfg));
