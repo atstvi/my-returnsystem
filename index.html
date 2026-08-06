@@ -633,7 +633,7 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 /* First-use / empty state: the edit icons live in the (hover-revealed) date
    row, so an empty banner shows a discoverable inline CTA to add a photo. */
 .home-banner-add{
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  position:absolute;top:var(--sp-4);right:var(--sp-4);
   display:inline-flex;align-items:center;gap:var(--sp-2);
   padding:var(--sp-3) var(--sp-5);border-radius:var(--r-full);
   background:color-mix(in srgb,var(--bg-card) 82%,transparent);
@@ -675,10 +675,11 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 .gs-add-btn{
   position:fixed;right:var(--sp-8);bottom:var(--sp-8);z-index:120;
   width:44px;height:44px;border-radius:var(--r-full);background:var(--accent);color:var(--n-0);
-  box-shadow:var(--elev-3);display:none;align-items:center;justify-content:center;
+  box-shadow:var(--elev-3);display:flex;align-items:center;justify-content:center;opacity:.65;
 }
+.gs-add-btn:hover{opacity:1}
 .gs-layer.editing{pointer-events:none}
-.gs-layer.editing .gs-add-btn{display:flex}
+.gs-layer.editing .gs-add-btn{display:flex;opacity:1}
 .gs-page-sticker{
   position:absolute;width:72px;height:72px;border-radius:var(--r-lg);overflow:hidden;
   background:transparent;box-shadow:var(--elev-2);cursor:move;pointer-events:auto;
@@ -687,7 +688,8 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 }
 .gs-page-sticker img{width:100%;height:100%;object-fit:contain;background:transparent}
 body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
-.gs-layer:not(.editing) .gs-page-sticker{pointer-events:none}
+/* 잠금 상태에서도 스티커는 포인터를 받아야 길게 누르기(편집 진입)를 감지할 수 있다 */
+.gs-layer:not(.editing) .gs-page-sticker{pointer-events:auto;cursor:default}
 .gs-add-btn{pointer-events:auto}
 .gs-page-sticker-del{
   position:absolute;top:var(--sp-1);right:var(--sp-1);width:20px;height:20px;
@@ -9783,13 +9785,10 @@ to{opacity:1;transform:translateY(0)}}
           <div class="set-row">
             <div class="set-row-icon" style="background:var(--w-50)">✨</div>
             <div class="set-row-body">
-              <div class="set-row-label">스티커 편집 버튼</div>
-              <div class="set-row-desc">숨기면 실수로 스티커가 움직이는 걸 방지해요</div>
+              <div class="set-row-label">스티커 편집</div>
+              <div class="set-row-desc">스티커를 <b>길게 누르면</b> 편집이 켜져요(옮기기·크기·회전·삭제). <b>바깥을 누르면</b> 편집이 꺼져 실수로 움직이지 않아요. 추가는 우측 하단 <b>＋</b> 버튼.</div>
             </div>
             <div class="set-row-ctrl">
-              <div class="toggle-wrap" onclick="toggleStickerHandle(this)">
-                <div class="toggle-track on" id="sticker-toggle"><div class="toggle-thumb"></div></div>
-              </div>
               <button class="set-btn btn-ghost" type="button" onclick="clearCurrentPageStickers()">Remove page stickers</button>
               <button class="set-btn btn-ghost" type="button" onclick="clearAllGlobalStickers()">Remove all stickers</button>
             </div>
@@ -17243,8 +17242,51 @@ function globalStickerEnsureMediaFallbacks(){
     }
   }).finally(function(){ _globalStickerFallbackRepairRunning=false; });
 }
-function stickerEditingEnabled(){
-  return localStorage.getItem('global_sticker_edit_visible') !== '0';
+/* 스티커 편집은 이제 "설정 토글"이 아니라 런타임 상태다: 스티커를 길게 누르면
+   켜지고(다른 스티커를 누르면 그 스티커 선택), 스티커 바깥을 누르면 꺼진다. */
+var _gsEditActive=false;
+function stickerEditingEnabled(){ return _gsEditActive; }
+function _gsSelectSticker(el){
+  document.querySelectorAll('.gs-page-sticker.is-editing').forEach(function(x){ if(x!==el)x.classList.remove('is-editing'); });
+  if(el)el.classList.add('is-editing');
+}
+function _gsSetStickerEdit(on){
+  _gsEditActive=!!on;
+  document.querySelectorAll('.gs-layer').forEach(function(l){ l.classList.toggle('editing',_gsEditActive); });
+  if(!_gsEditActive)document.querySelectorAll('.gs-page-sticker.is-editing').forEach(function(x){ x.classList.remove('is-editing'); });
+}
+/* 스티커 위 포인터다운: 편집 중이면 선택+드래그, 아니면 길게 눌러 편집 진입 */
+function _gsStickerPointerDown(e,s,el){
+  if(e.target.closest('button'))return; /* del/resize/rotate 핸들은 각자 처리 */
+  if(_gsEditActive){ _gsSelectSticker(el); dragGlobalSticker(e,s,el); return; }
+  var p=e.touches?e.touches[0]:e, sx=p.clientX, sy=p.clientY;
+  var timer=setTimeout(function(){
+    cleanup();
+    _gsSetStickerEdit(true); _gsSelectSticker(el);
+    try{ if(navigator.vibrate)navigator.vibrate(15); }catch(_e){}
+    if(typeof showToast==='function')showToast('스티커 편집 — 옮기거나 크기·회전, 바깥을 누르면 끝나요');
+  },480);
+  function mv(ev){ var q=ev.touches?ev.touches[0]:ev; if(Math.abs(q.clientX-sx)>8||Math.abs(q.clientY-sy)>8)cleanup(); }
+  function cleanup(){
+    clearTimeout(timer);
+    document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',cleanup);
+    document.removeEventListener('touchmove',mv);document.removeEventListener('touchend',cleanup);document.removeEventListener('touchcancel',cleanup);
+  }
+  document.addEventListener('mousemove',mv);document.addEventListener('mouseup',cleanup);
+  document.addEventListener('touchmove',mv,{passive:true});document.addEventListener('touchend',cleanup);document.addEventListener('touchcancel',cleanup);
+}
+/* 스티커/추가버튼/보드 바깥을 누르면 편집 해제 (Esc도) */
+function _gsMaybeExitEdit(e){
+  if(!_gsEditActive)return;
+  var t=e.target;
+  if(t&&t.closest&&(t.closest('.gs-page-sticker')||t.closest('.gs-add-btn')||t.closest('.sticker-board-modal')))return;
+  _gsSetStickerEdit(false);
+}
+function _gsBindClickAway(){
+  if(window._gsClickAwayBound)return; window._gsClickAwayBound=1;
+  document.addEventListener('mousedown',_gsMaybeExitEdit,true);
+  document.addEventListener('touchstart',_gsMaybeExitEdit,true);
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&_gsEditActive)_gsSetStickerEdit(false); });
 }
 function stickerShadowEnabled(){
   return localStorage.getItem('global_sticker_shadow') !== '0';
@@ -17278,6 +17320,7 @@ function _findStickerHost(page){
 }
 function renderGlobalStickers(){
   if (!_currentPage) return;
+  _gsBindClickAway();
   loadGlobalStickers();
   /* Backfill missing syncDataUrls from the assets list so stickers received
      via Firebase (which may have no inline syncDataUrl) can display on this
@@ -17350,11 +17393,10 @@ function renderGlobalStickers(){
     el.querySelector('.gs-sticker-resize').addEventListener('touchstart', function(e){ resizeGlobalSticker(e, s, el); }, {passive:false});
     el.querySelector('.gs-sticker-rotate').addEventListener('mousedown', function(e){ rotateGlobalSticker(e, s, el); });
     el.querySelector('.gs-sticker-rotate').addEventListener('touchstart', function(e){ rotateGlobalSticker(e, s, el); }, {passive:false});
-    el.addEventListener('mouseenter', function(){ if (stickerEditingEnabled()) el.classList.add('is-editing'); });
-    el.addEventListener('click', function(){ if (stickerEditingEnabled()) el.classList.add('is-editing'); });
-    el.addEventListener('mouseleave', function(){ el.classList.remove('is-editing'); });
-    el.addEventListener('mousedown', function(e){ dragGlobalSticker(e, s, el); });
-    el.addEventListener('touchstart', function(e){ dragGlobalSticker(e, s, el); }, {passive:false});
+    /* 편집은 "길게 누르기"로 켠다: 잠금 상태에서 스티커를 꾹 누르면 편집 활성화 →
+       핸들이 뜨고 드래그/리사이즈/회전 가능. 이미 편집 중이면 바로 선택+드래그. */
+    el.addEventListener('mousedown', function(e){ _gsStickerPointerDown(e, s, el); });
+    el.addEventListener('touchstart', function(e){ _gsStickerPointerDown(e, s, el); }, {passive:true});
     layer.appendChild(el);
   });
   // Attach the layer inside the scrolling host so stickers move with the page content.
@@ -17368,7 +17410,7 @@ function placeGlobalStickerFromUrl(url,syncDataUrl){
   loadGlobalStickers();
   var key=_currentPage;
   if(!globalStickerState[key])globalStickerState[key]=[];
-  setReturnStorageItem('global_sticker_edit_visible','1');
+  _gsEditActive=true; /* 새로 붙인 스티커는 바로 옮길 수 있게 편집 상태로 */
   var fallback = syncDataUrl||themeStudioMediaFallbackForUrl(url)||'';
   globalStickerState[key].push({id:'gs_'+Date.now()+'_'+Math.floor(Math.random()*999),url:url,syncDataUrl:fallback,x:48,y:140,w:72,r:0,opacity:1});
   if(!saveGlobalStickers() && typeof showToast==='function')showToast('스티커 저장 공간이 부족해요. 사용하지 않는 에셋을 정리해 주세요.');
@@ -43543,7 +43585,7 @@ function focusTimerStop(){
   var elapsed=focusTimerElapsedMs();
   if(focusTimerState.timer)clearInterval(focusTimerState.timer);
   focusTimerState.timer=null;focusTimerState.running=false;
-  if(elapsed>=1000)focusTimerLogSession(elapsed);
+  if(elapsed>=1000&&!(focusTimerState.mode==='pomodoro'&&focusTimerState.phase!=='work'))focusTimerLogSession(elapsed);
   focusTimerState.elapsed=0;focusTimerState.startedAt=0;
   if(focusTimerState.mode==='pomodoro'){focusTimerState.phase='work';}
   focusTimerSetTarget();focusAudioStop();
@@ -43608,7 +43650,10 @@ function focusTimerFinish(auto){
   var elapsed=focusTimerElapsedMs();
   if(focusTimerState.timer)clearInterval(focusTimerState.timer);
   focusTimerState.timer=null;focusTimerState.running=false;
-  focusTimerLogSession(elapsed);
+  /* 휴식(포모도로 short/long break)은 집중 기록으로 저장하지 않는다 — 저장하면
+     작업명이 휴식 블록에 그대로 붙어 "작업명이 바뀐 것처럼" 보이고 집중 시간도
+     부풀려진다. 집중(work) 단계만 기록. 스톱워치/카운트다운은 항상 work. */
+  if(!(focusTimerState.mode==='pomodoro'&&focusTimerState.phase!=='work'))focusTimerLogSession(elapsed);
   try{if(typeof Notification!=='undefined'&&Notification.permission==='granted'){new Notification('Return 타이머',{body:focusTimerPhaseLabel()+' 완료! ('+focusTimerFormatMs(elapsed)+')',silent:false});}}catch(e){}
   if(focusTimerState.mode==='pomodoro'){
     focusTimerNextPhase();
@@ -44293,10 +44338,7 @@ function wireFocusToday(root){
   root.querySelectorAll('.ftu-today [data-ftl-id]').forEach(function(el){
     el.addEventListener('click',function(){
       var id=el.getAttribute('data-ftl-id');if(!id)return;
-      var durEl=el.querySelector('.d, .ftu-rec-dur');
-      var msg='이 집중 기록을 삭제할까요?'+(durEl?' ('+durEl.textContent.trim()+')':'');
-      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
-      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+      focusTimerRecordMenu(id);
     });
   });
 }
@@ -44384,6 +44426,54 @@ function focusTimerDeleteRecord(id){
   focusTimerLog=focusTimerLog.filter(function(l){return l&&l.id!==id;});
   if(focusTimerLog.length!==before){focusTimerSaveLog();renderFocusTimer();if(typeof showToast==='function')showToast('기록 삭제됨');}
 }
+/* 타임라인/기록 블록 클릭 → 바로 삭제하지 않고 편집·삭제를 고르는 메뉴를 연다. */
+function focusTimerRecordMenu(id){
+  var rec=focusTimerLog.find(function(l){return l&&String(l.id)===String(id);});
+  if(!rec)return;
+  var old=document.getElementById('ft-rec-menu');if(old)old.remove();
+  var title=(rec.taskText||'').trim()||(rec.categoryName||'집중 기록');
+  var ov=document.createElement('div');ov.className='overlay open';ov.id='ft-rec-menu';
+  ov.innerHTML='<div class="modal" style="max-width:320px"><div class="modal-head"><div class="modal-title">'+_fte(title)+'</div><div class="field-help" style="margin-top:2px">'+_fte(focusFmtDur(rec.durationMs))+'</div></div>'
+    +'<div class="modal-body" style="display:flex;flex-direction:column;gap:var(--sp-2)">'
+    +'<button class="btn btn-ghost" type="button" data-act="edit" style="justify-content:flex-start">✏️ 편집</button>'
+    +'<button class="btn btn-ghost" type="button" data-act="del" style="justify-content:flex-start;color:var(--danger)">🗑 삭제</button>'
+    +'</div><div class="modal-foot"><button class="btn btn-ghost" type="button" data-act="cancel">닫기</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){
+    if(e.target===ov){close();return;}
+    var b=e.target.closest('[data-act]');if(!b)return;
+    var a=b.getAttribute('data-act');
+    if(a==='cancel'){close();return;}
+    if(a==='edit'){close();focusTimerEditRecord(id);return;}
+    if(a==='del'){
+      close();
+      var msg='이 집중 기록을 삭제할까요? ('+focusFmtDur(rec.durationMs)+')';
+      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
+      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+    }
+  });
+}
+/* 기록 편집: 작업명·카테고리·시간(분)을 고쳐 저장(클라우드 세션 문서도 갱신). */
+function focusTimerEditRecord(id){
+  var rec=focusTimerLog.find(function(l){return l&&String(l.id)===String(id);});
+  if(!rec)return;
+  var catOpts=[{value:'',label:'(카테고리 없음)'}].concat((focusCategories||[]).map(function(c){return {value:c.id,label:c.name};}));
+  openFormDialog('집중 기록 편집',[
+    {key:'taskText',label:'작업명',type:'text',value:rec.taskText||''},
+    {key:'categoryId',label:'카테고리',type:'select',value:rec.categoryId||'',options:catOpts},
+    {key:'minutes',label:'시간(분)',type:'number',value:String(Math.max(1,Math.round((rec.durationMs||0)/60000)))}
+  ],function(data){
+    rec.taskText=(data.taskText||'').trim();
+    var c=focusCatById(data.categoryId);
+    rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';
+    var mins=Math.max(1,parseInt(data.minutes,10)||1);rec.durationMs=mins*60000;
+    focusTimerSaveLog();
+    try{if(typeof focusTimerCloudPushSession==='function')focusTimerCloudPushSession(rec);}catch(e){}
+    renderFocusTimer();
+    if(typeof showToast==='function')showToast('기록을 수정했어요');
+  });
+}
 function focusTimerManualAdd(){
   var overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
@@ -44429,10 +44519,7 @@ function wireFocusLog(root){
   root.querySelectorAll('[data-ftl-id]').forEach(function(b){
     b.addEventListener('click',function(){
       var id=b.getAttribute('data-ftl-id');if(!id)return;
-      var dur=b.querySelector('.ftl-block-dur');
-      var msg='이 집중 기록을 삭제할까요?'+(dur?' ('+dur.textContent.trim()+')':'');
-      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
-      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+      focusTimerRecordMenu(id);
     });
   });
 }
