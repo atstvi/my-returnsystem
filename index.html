@@ -638,7 +638,7 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
   padding:var(--sp-3) var(--sp-5);border-radius:var(--r-full);
   background:color-mix(in srgb,var(--bg-card) 82%,transparent);
   color:var(--fg-3);font-size:var(--text-sm);font-weight:var(--fw-semibold);
-  box-shadow:var(--elev-1);pointer-events:auto;white-space:nowrap;
+  box-shadow:var(--elev-1);pointer-events:auto;white-space:nowrap;z-index:3;
   transition:background var(--t-snap),color var(--t-snap);
 }
 .home-banner-add .hba-plus{font-size:var(--text-md);line-height:1}
@@ -903,6 +903,9 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   background:color-mix(in srgb,var(--bg-card) 48%,transparent);
   -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
 }
+/* 배너 위치/스티커 편집 중엔 오늘 상황 오버레이가 배너 드래그를 가로막지 않게 */
+.home-banner[data-mode="position"] .sit-on-banner,
+.home-banner[data-mode="edit"] .sit-on-banner{pointer-events:none}
 .home-banner .sit-on-banner .sit-avatar{background:color-mix(in srgb,var(--bg-card) 70%,transparent)}
 .home-banner .sit-on-banner .sit-upcoming{border-top-color:color-mix(in srgb,var(--fg) 12%,transparent)}
 .home-content .home-banner.has-sit{border-color:transparent}
@@ -9763,6 +9766,7 @@ to{opacity:1;transform:translateY(0)}}
               </div>
               <div class="theme-studio-panel" id="theme-panel-import">
                 <div class="theme-import-drop"><div><strong>Import Kakao theme or image assets</strong><div class="field-hint">Files are treated as untrusted assets. Images are previewed and stored as reusable library items.</div></div><div><input id="theme-import-file" type="file" accept="image/png,image/jpeg,image/webp,image/gif,.zip,.ktheme,.apk,application/zip,application/vnd.android.package-archive" multiple hidden><button class="set-btn btn-primary" type="button" onclick="themeStudioOpenImport()">Import assets</button></div></div>
+                <div class="theme-import-drop"><div><strong>사진으로 팔레트 만들기</strong><div class="field-hint">사진을 분석해 어울리는 강조색·전체 톤과 분위기 이름을 자동으로 뽑아 테마 팔레트/프리셋으로 만들어요.</div></div><div><input id="theme-photo-preset-file" type="file" accept="image/*" hidden onchange="themeStudioPhotoPresetFromFile(this.files&&this.files[0]);this.value='';"><button class="set-btn btn-primary" type="button" onclick="document.getElementById('theme-photo-preset-file').click()">사진 분석</button></div></div>
                 <div class="theme-asset-grid" id="theme-import-preview"></div>
               </div>
               <div class="theme-studio-panel" id="theme-panel-advanced">
@@ -10685,9 +10689,13 @@ function normalizeHomeLayoutOrder(){
   root.insertBefore(colL, root.firstChild);
   root.insertBefore(colR, colL.nextSibling);
   /* left: 날짜 → 배너(오늘 상황 오버레이 포함) → 오늘 할일 → 타임블록 */
-  [ctx,banner,tasksCard,timeBlock].forEach(function(n){ if(n)colL.appendChild(n); });
-  /* 오늘 상황 카드는 큰 사진 헤더(배너) 위에 반투명 오버레이로 얹는다. */
-  if(sit&&banner){ banner.appendChild(sit); banner.classList.add('has-sit'); sit.classList.add('sit-on-banner'); }
+  [ctx,banner].forEach(function(n){ if(n)colL.appendChild(n); });
+  /* 오늘 상황은 배너에 "사진이 있을 때만" 반투명 오버레이로 얹는다. 사진이 없으면
+     배너 추가/위치 버튼을 덮어 클릭을 막으므로, 일반 카드로 배너 아래에 둔다. */
+  var _hasBannerImg=!!(banner&&(banner.classList.contains('has-image')||(typeof hbState==='object'&&hbState&&hbState.imgUrl)));
+  if(sit&&banner&&_hasBannerImg){ banner.appendChild(sit); banner.classList.add('has-sit'); sit.classList.add('sit-on-banner'); }
+  else { if(banner)banner.classList.remove('has-sit'); if(sit){ sit.classList.remove('sit-on-banner'); colL.appendChild(sit); } }
+  [tasksCard,timeBlock].forEach(function(n){ if(n)colL.appendChild(n); });
   /* right: 오늘 습관 → 처리 필요 → 위젯(사진/가치관/음악) */
   [habits,inbox,widget].forEach(function(n){ if(n)colR.appendChild(n); });
   /* full-width below the columns */
@@ -17067,7 +17075,7 @@ document.getElementById('home-banner-file') && document.getElementById('home-ban
   fileToBannerDataUrl(file, function(url){
     returnMediaStoreDataUrl(url,{role:'homeBanner',name:file.name,type:file.type}).then(function(ref){
       loadHomeBanner();
-      hbState.imgUrl = ref; hbState.syncDataUrl = url; hbState.bgPos = hbState.bgPos || {x:50,y:50}; var saved=saveHomeBanner(); bannerDebugLog('home-upload:storage',{saved:saved,ref:ref,urlLength:url.length}); if(!saved)return; renderHomeBanner();
+      hbState.imgUrl = ref; hbState.syncDataUrl = url; hbState.bgPos = hbState.bgPos || {x:50,y:50}; var saved=saveHomeBanner(); bannerDebugLog('home-upload:storage',{saved:saved,ref:ref,urlLength:url.length}); if(!saved)return; renderHomeBanner(); try{normalizeHomeLayoutOrder();}catch(e){}
       try{ if(typeof themeStudioAddMediaAssetRef==='function')themeStudioAddMediaAssetRef(ref,file.name||'Home banner','Background','pageBanner','Banner Upload'); }catch(e){}
       try {
         if (typeof themeStudioGet === 'function' && typeof themeStudioSet === 'function') {
@@ -38843,6 +38851,109 @@ function themeStudioPaletteFromAccent(accent){
     themeStudioMix(accent,'#e2b067',.72),
     themeStudioMix(accent,'#8e94d6',.72)
   ];
+}
+/* ── 사진 → 팔레트·분위기 프리셋 ─────────────────────────────────────────
+   카톡 테마 임포트 흐름 옆에 "사진 분석" 방식을 더한다. 이미지에서 대표 강조색과
+   전체 밝기를 뽑아 어울리는 라이트 팔레트(page/card/text/border/sidebar…)와
+   한국어 분위기 이름을 자동 생성하고, 적용 + 프리셋 저장까지 한다. */
+function _tsRgbToHsl(r,g,b){
+  r/=255;g/=255;b/=255;var mx=Math.max(r,g,b),mn=Math.min(r,g,b),h,s,l=(mx+mn)/2;
+  if(mx===mn){h=s=0;}else{var d=mx-mn;s=l>.5?d/(2-mx-mn):d/(mx+mn);
+    if(mx===r)h=(g-b)/d+(g<b?6:0);else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;h/=6;}
+  return {h:h*360,s:s,l:l};
+}
+function _tsHslToHex(h,s,l){
+  h=(((h%360)+360)%360)/360;s=Math.max(0,Math.min(1,s));l=Math.max(0,Math.min(1,l));
+  function hue(p,q,t){if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;}
+  var r,g,b;if(s===0){r=g=b=l;}else{var q=l<.5?l*(1+s):l+s-l*s,p=2*l-q;r=hue(p,q,h+1/3);g=hue(p,q,h);b=hue(p,q,h-1/3);}
+  return themeStudioRgbToHex(r*255,g*255,b*255);
+}
+function _tsMoodName(h,s,avgL){
+  var hue;
+  if(h<15||h>=345)hue='로즈';else if(h<40)hue='살구';else if(h<65)hue='허니';
+  else if(h<90)hue='라임';else if(h<160)hue='세이지';else if(h<200)hue='민트';
+  else if(h<250)hue='스카이';else if(h<290)hue='라벤더';else hue='플럼';
+  var tone=avgL<0.34?'깊은':(avgL>0.72?'화사한':'');
+  var vivid=s<0.26?'차분한':(s>0.55?'생기있는':'은은한');
+  return [tone,vivid,hue+'빛'].filter(Boolean).join(' ');
+}
+function themeStudioPaletteFromImage(url){
+  return new Promise(function(resolve){
+    var img=new Image();
+    img.onload=function(){
+      try{
+        var c=document.createElement('canvas'),W=40,H=40;c.width=W;c.height=H;
+        var ctx=c.getContext('2d');ctx.drawImage(img,0,0,W,H);
+        var data=ctx.getImageData(0,0,W,H).data,sumL=0,cntL=0,best=null,bestScore=-1;
+        for(var i=0;i<data.length;i+=4){
+          if(data[i+3]<40)continue;
+          var hsl=_tsRgbToHsl(data[i],data[i+1],data[i+2]);
+          sumL+=hsl.l;cntL++;
+          var score=hsl.s*(1-Math.abs(hsl.l-0.5)*1.2); /* 선명하고 중간 밝기일수록 대표색 */
+          if(score>bestScore){bestScore=score;best=hsl;}
+        }
+        var avgL=cntL?sumL/cntL:0.5;
+        if(!best)best={h:12,s:0.3,l:0.5};
+        var ah=best.h, as=Math.max(0.32,Math.min(0.66,best.s||0.4)), al=Math.max(0.42,Math.min(0.58,best.l||0.5));
+        var colors={
+          accent:_tsHslToHex(ah,as,al),
+          page:_tsHslToHex(ah,Math.min(0.16,as*0.32),0.975),
+          card:_tsHslToHex(ah,Math.min(0.06,as*0.12),0.995),
+          text:_tsHslToHex(ah,0.16,0.15),
+          border:_tsHslToHex(ah,Math.min(0.14,as*0.30),0.90),
+          sidebar:_tsHslToHex(ah,Math.min(0.18,as*0.36),0.955),
+          sidebarText:_tsHslToHex(ah,0.10,0.42),
+          sidebarActive:_tsHslToHex(ah,Math.min(0.30,as*0.50),0.90)
+        };
+        resolve({colors:colors,mood:_tsMoodName(ah,as,avgL),accent:colors.accent});
+      }catch(e){resolve(null);}
+    };
+    img.onerror=function(){resolve(null);};
+    img.src=url;
+  });
+}
+function themeStudioPhotoPresetFromFile(file){
+  if(!file){return;}
+  if(typeof themeStudioBlobToDataUrl!=='function'){if(typeof showToast==='function')showToast('사진을 읽을 수 없어요');return;}
+  themeStudioBlobToDataUrl(file).then(function(url){
+    themeStudioPaletteFromImage(url).then(function(res){
+      if(!res){if(typeof showToast==='function')showToast('사진을 분석하지 못했어요');return;}
+      themeStudioShowPhotoPreset(res,url);
+    });
+  });
+}
+function themeStudioShowPhotoPreset(res,url){
+  var old=document.getElementById('theme-photo-preset-modal');if(old)old.remove();
+  var cols=res.colors;
+  var keys=['accent','page','card','text','border','sidebar','sidebarActive'];
+  var sw=keys.map(function(k){return '<span title="'+k+'" style="flex:1;height:26px;border-radius:6px;border:.5px solid rgba(0,0,0,.08);background:'+cols[k]+'"></span>';}).join('');
+  var modal=document.createElement('div');modal.id='theme-photo-preset-modal';modal.className='sticker-board-modal';
+  modal.innerHTML='<div class="sticker-board-sheet" style="max-width:420px">'
+    +'<div class="theme-tools"><strong>사진으로 만든 팔레트</strong><button class="set-btn btn-ghost" type="button" data-pp-close>닫기</button></div>'
+    +'<div style="display:flex;gap:12px;align-items:center">'
+      +'<img src="'+themeStudioEsc(url)+'" alt="" style="width:76px;height:76px;object-fit:cover;border-radius:12px;flex-shrink:0">'
+      +'<div style="flex:1;min-width:0"><div class="field-hint" style="margin-bottom:4px">분위기 이름</div>'
+      +'<input class="set-inp" id="theme-pp-name" value="'+themeStudioEsc(res.mood)+'"></div></div>'
+    +'<div style="display:flex;gap:6px;margin-top:14px">'+sw+'</div>'
+    +'<div class="theme-tools" style="margin-top:16px"><button class="set-btn btn-ghost" type="button" data-pp-apply>이 테마 적용</button><button class="set-btn btn-primary" type="button" data-pp-save>프리셋으로 저장</button></div>'
+    +'</div>';
+  function applyColors(){try{var st=themeStudioGet();st.colors=Object.assign({},st.colors||{},cols);themeStudioSet(st);}catch(e){}}
+  modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
+  modal.querySelector('[data-pp-close]').addEventListener('click',function(){modal.remove();});
+  modal.querySelector('[data-pp-apply]').addEventListener('click',function(){applyColors();if(typeof showToast==='function')showToast('사진 팔레트를 적용했어요');modal.remove();});
+  modal.querySelector('[data-pp-save]').addEventListener('click',function(){
+    applyColors();
+    var name=((document.getElementById('theme-pp-name')||{}).value||res.mood||'사진 테마').trim()||'사진 테마';
+    try{
+      var list=themeStudioUserPresets();
+      list.push({id:themeStudioUid('preset'),type:'user',name:name,mood:res.mood||'사진 팔레트',include:['colors'],includedCategories:['colors'],snapshot:{colors:Object.assign({},cols)},createdAt:new Date().toISOString()});
+      themeStudioWriteJSON(THEME_STUDIO_PRESETS_KEY,list);
+      themeStudioRender();
+      if(typeof showToast==='function')showToast('프리셋으로 저장했어요');
+    }catch(e){if(typeof showToast==='function')showToast('프리셋 저장에 실패했어요');}
+    modal.remove();
+  });
+  document.body.appendChild(modal);
 }
 function themeStudioTaskPaletteFromAccent(accent){
   accent=themeStudioCleanHex(accent,THEME_STUDIO_DEFAULT.colors.accent);
