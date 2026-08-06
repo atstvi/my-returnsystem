@@ -38877,38 +38877,81 @@ function _tsMoodName(h,s,avgL){
   var vivid=s<0.26?'차분한':(s>0.55?'생기있는':'은은한');
   return [tone,vivid,hue+'빛'].filter(Boolean).join(' ');
 }
-function themeStudioPaletteFromImage(url){
+function _tsHueDist(a,b){var d=Math.abs(a-b)%360;return d>180?360-d:d;}
+/* 강조색 HSL → 앱 라이트 팔레트 8색 */
+function _tsColorsFromAccent(h,s,l){
+  return {
+    accent:_tsHslToHex(h,s,l),
+    page:_tsHslToHex(h,Math.min(0.16,s*0.32),0.975),
+    card:_tsHslToHex(h,Math.min(0.06,s*0.12),0.995),
+    text:_tsHslToHex(h,0.16,0.15),
+    border:_tsHslToHex(h,Math.min(0.14,s*0.30),0.90),
+    sidebar:_tsHslToHex(h,Math.min(0.18,s*0.36),0.955),
+    sidebarText:_tsHslToHex(h,0.10,0.42),
+    sidebarActive:_tsHslToHex(h,Math.min(0.30,s*0.50),0.90)
+  };
+}
+/* 채도·전체 밝기로 모서리/밀도/카드 스킨까지 결정(카톡 프리셋처럼 다양한 설정). */
+function _tsSettingsForVibe(s,avgL){
+  var radius,density,skin,enabled,intensity;
+  if(s<0.32){ radius='sharp'; density='compact'; skin='minimal'; enabled=false; intensity='minimal'; }
+  else if(s>0.58){ radius='bubble'; density='comfortable'; skin='bubble'; enabled=true; intensity='balanced'; }
+  else { radius='soft'; density='comfortable'; skin='bubble'; enabled=true; intensity='minimal'; }
+  if(avgL<0.32){ if(radius==='bubble')radius='soft'; density='compact'; }
+  else if(avgL>0.75){ density='airy'; if(radius==='sharp')radius='soft'; }
+  return {radius:radius,density:density,componentSkins:{enabled:enabled,card:skin,intensity:intensity,resources:{card:{background:'',frame:'',cornerTopLeft:'',cornerTopRight:'',cornerBottomLeft:'',cornerBottomRight:'',pattern:'',bgOpacity:.04}}}};
+}
+function _tsStyleLabel(st){
+  var rad={sharp:'각진',soft:'기본 모서리',bubble:'둥근'}[st.radius]||'기본';
+  var den={compact:'촘촘',comfortable:'기본 여백',airy:'넉넉'}[st.density]||'기본';
+  var card=(st.componentSkins&&st.componentSkins.enabled)?'버블 카드':'심플 카드';
+  return rad+' · '+den+' · '+card;
+}
+function _tsBuildCandidate(h,s,l,avgL){
+  var as=Math.max(0.28,Math.min(0.66,s)),al=Math.max(0.42,Math.min(0.58,l));
+  var colors=_tsColorsFromAccent(h,as,al),st=_tsSettingsForVibe(as,avgL);
+  return {accent:colors.accent,colors:colors,mood:_tsMoodName(h,as,avgL),radius:st.radius,density:st.density,componentSkins:st.componentSkins,styleLabel:_tsStyleLabel(st)};
+}
+/* 이미지에서 여러 대표색(색상환 버킷) + 톤 변주로 후보 팔레트를 여러 개 뽑는다. */
+function themeStudioPalettesFromImage(url){
   return new Promise(function(resolve){
     var img=new Image();
     img.onload=function(){
       try{
-        var c=document.createElement('canvas'),W=40,H=40;c.width=W;c.height=H;
+        var c=document.createElement('canvas'),W=48,H=48;c.width=W;c.height=H;
         var ctx=c.getContext('2d');ctx.drawImage(img,0,0,W,H);
-        var data=ctx.getImageData(0,0,W,H).data,sumL=0,cntL=0,best=null,bestScore=-1;
+        var data=ctx.getImageData(0,0,W,H).data;
+        var B=24,buckets=[];for(var k=0;k<B;k++)buckets.push({c:0,s:0,l:0});
+        var sumL=0,cntL=0,greyL=0,greyC=0;
         for(var i=0;i<data.length;i+=4){
           if(data[i+3]<40)continue;
           var hsl=_tsRgbToHsl(data[i],data[i+1],data[i+2]);
           sumL+=hsl.l;cntL++;
-          var score=hsl.s*(1-Math.abs(hsl.l-0.5)*1.2); /* 선명하고 중간 밝기일수록 대표색 */
-          if(score>bestScore){bestScore=score;best=hsl;}
+          if(hsl.s<0.12||hsl.l<0.08||hsl.l>0.95){greyL+=hsl.l;greyC++;continue;}
+          var bi=Math.floor(hsl.h/(360/B))%B,bk=buckets[bi];bk.c++;bk.s+=hsl.s;bk.l+=hsl.l;
         }
         var avgL=cntL?sumL/cntL:0.5;
-        if(!best)best={h:12,s:0.3,l:0.5};
-        var ah=best.h, as=Math.max(0.32,Math.min(0.66,best.s||0.4)), al=Math.max(0.42,Math.min(0.58,best.l||0.5));
-        var colors={
-          accent:_tsHslToHex(ah,as,al),
-          page:_tsHslToHex(ah,Math.min(0.16,as*0.32),0.975),
-          card:_tsHslToHex(ah,Math.min(0.06,as*0.12),0.995),
-          text:_tsHslToHex(ah,0.16,0.15),
-          border:_tsHslToHex(ah,Math.min(0.14,as*0.30),0.90),
-          sidebar:_tsHslToHex(ah,Math.min(0.18,as*0.36),0.955),
-          sidebarText:_tsHslToHex(ah,0.10,0.42),
-          sidebarActive:_tsHslToHex(ah,Math.min(0.30,as*0.50),0.90)
-        };
-        resolve({colors:colors,mood:_tsMoodName(ah,as,avgL),accent:colors.accent});
-      }catch(e){resolve(null);}
+        var ranked=buckets.map(function(b,idx){var cc=b.c||0;return {h:idx*(360/B)+(360/B)/2,c:cc,s:cc?b.s/cc:0,l:cc?b.l/cc:0.5,w:cc*(0.4+(cc?b.s/cc:0))};})
+          .filter(function(b){return b.c>0;}).sort(function(a,b){return b.w-a.w;});
+        var picks=[];
+        ranked.forEach(function(b){if(picks.length>=4)return;var ok=picks.every(function(p){return _tsHueDist(p.h,b.h)>=32;});if(ok)picks.push(b);});
+        var cands=[];
+        if(!picks.length){ /* 무채색 사진 — 은은한 뉴트럴 후보 */
+          var nl=greyC?greyL/greyC:0.5;
+          cands.push(_tsBuildCandidate(222,0.10,Math.max(0.42,Math.min(0.56,nl)),avgL));
+          cands.push(_tsBuildCandidate(28,0.14,0.5,avgL));
+        } else {
+          picks.forEach(function(p){cands.push(_tsBuildCandidate(p.h,p.s,p.l,avgL));});
+          var t=picks[0]; /* 대표색 톤 변주로 후보 추가 */
+          cands.push(_tsBuildCandidate(t.h,Math.min(0.72,(t.s||0.4)+0.2),0.46,avgL));   /* 선명·깊은 */
+          cands.push(_tsBuildCandidate(t.h,Math.max(0.22,(t.s||0.4)-0.18),0.6,avgL));   /* 부드러운 파스텔 */
+        }
+        var seen={},out=[];
+        cands.forEach(function(cd){if(cd&&!seen[cd.accent]){seen[cd.accent]=1;out.push(cd);}});
+        resolve(out.slice(0,6));
+      }catch(e){resolve([]);}
     };
-    img.onerror=function(){resolve(null);};
+    img.onerror=function(){resolve([]);};
     img.src=url;
   });
 }
@@ -38916,37 +38959,61 @@ function themeStudioPhotoPresetFromFile(file){
   if(!file){return;}
   if(typeof themeStudioBlobToDataUrl!=='function'){if(typeof showToast==='function')showToast('사진을 읽을 수 없어요');return;}
   themeStudioBlobToDataUrl(file).then(function(url){
-    themeStudioPaletteFromImage(url).then(function(res){
-      if(!res){if(typeof showToast==='function')showToast('사진을 분석하지 못했어요');return;}
-      themeStudioShowPhotoPreset(res,url);
+    themeStudioPalettesFromImage(url).then(function(cands){
+      if(!cands||!cands.length){if(typeof showToast==='function')showToast('사진을 분석하지 못했어요');return;}
+      themeStudioShowPhotoPreset(cands,url);
     });
   });
 }
-function themeStudioShowPhotoPreset(res,url){
+function _tsApplyCandidate(cd){
+  try{var st=themeStudioGet();
+    st.colors=Object.assign({},st.colors||{},cd.colors);
+    st.radius=cd.radius;st.density=cd.density;
+    st.componentSkins=themeStudioMerge(st.componentSkins||{},cd.componentSkins||{});
+    themeStudioSet(st);
+  }catch(e){}
+}
+function themeStudioShowPhotoPreset(cands,url){
   var old=document.getElementById('theme-photo-preset-modal');if(old)old.remove();
-  var cols=res.colors;
+  var sel=0;
   var keys=['accent','page','card','text','border','sidebar','sidebarActive'];
-  var sw=keys.map(function(k){return '<span title="'+k+'" style="flex:1;height:26px;border-radius:6px;border:.5px solid rgba(0,0,0,.08);background:'+cols[k]+'"></span>';}).join('');
+  function cardHtml(cd,idx){
+    var sw=keys.map(function(k){return '<span title="'+k+'" style="flex:1;height:20px;border-radius:5px;border:.5px solid rgba(0,0,0,.08);background:'+cd.colors[k]+'"></span>';}).join('');
+    return '<button class="theme-preset-card'+(idx===sel?' active':'')+'" type="button" data-cand="'+idx+'" style="cursor:pointer">'
+      +'<div style="display:flex;gap:4px">'+sw+'</div>'
+      +'<strong style="margin-top:6px">'+themeStudioEsc(cd.mood)+'</strong>'
+      +'<span class="theme-choice-note">'+themeStudioEsc(cd.styleLabel)+'</span></button>';
+  }
   var modal=document.createElement('div');modal.id='theme-photo-preset-modal';modal.className='sticker-board-modal';
-  modal.innerHTML='<div class="sticker-board-sheet" style="max-width:420px">'
-    +'<div class="theme-tools"><strong>사진으로 만든 팔레트</strong><button class="set-btn btn-ghost" type="button" data-pp-close>닫기</button></div>'
-    +'<div style="display:flex;gap:12px;align-items:center">'
-      +'<img src="'+themeStudioEsc(url)+'" alt="" style="width:76px;height:76px;object-fit:cover;border-radius:12px;flex-shrink:0">'
-      +'<div style="flex:1;min-width:0"><div class="field-hint" style="margin-bottom:4px">분위기 이름</div>'
-      +'<input class="set-inp" id="theme-pp-name" value="'+themeStudioEsc(res.mood)+'"></div></div>'
-    +'<div style="display:flex;gap:6px;margin-top:14px">'+sw+'</div>'
-    +'<div class="theme-tools" style="margin-top:16px"><button class="set-btn btn-ghost" type="button" data-pp-apply>이 테마 적용</button><button class="set-btn btn-primary" type="button" data-pp-save>프리셋으로 저장</button></div>'
+  modal.innerHTML='<div class="sticker-board-sheet" style="max-width:560px">'
+    +'<div class="theme-tools"><strong>사진으로 만든 테마 후보</strong><button class="set-btn btn-ghost" type="button" data-pp-close>닫기</button></div>'
+    +'<div style="display:flex;gap:12px;align-items:center;margin-bottom:4px">'
+      +'<img src="'+themeStudioEsc(url)+'" alt="" style="width:64px;height:64px;object-fit:cover;border-radius:12px;flex-shrink:0">'
+      +'<div class="field-hint">사진에서 뽑은 강조색·톤으로 만든 후보예요. 색뿐 아니라 모서리·여백·카드 스킨까지 함께 적용돼요. 하나 고른 뒤 적용하거나 프리셋으로 저장하세요.</div></div>'
+    +'<div class="theme-preset-grid" id="theme-pp-grid">'+cands.map(cardHtml).join('')+'</div>'
+    +'<div style="margin-top:12px"><div class="field-hint" style="margin-bottom:4px">프리셋 이름</div><input class="set-inp" id="theme-pp-name" value="'+themeStudioEsc(cands[0].mood)+'"></div>'
+    +'<div class="theme-tools" style="margin-top:14px"><button class="set-btn btn-ghost" type="button" data-pp-apply>이 테마 적용</button><button class="set-btn btn-primary" type="button" data-pp-save>프리셋으로 저장</button></div>'
     +'</div>';
-  function applyColors(){try{var st=themeStudioGet();st.colors=Object.assign({},st.colors||{},cols);themeStudioSet(st);}catch(e){}}
+  var grid=modal.querySelector('#theme-pp-grid'), nameInp=modal.querySelector('#theme-pp-name');
+  grid.addEventListener('click',function(e){
+    var btn=e.target.closest('[data-cand]');if(!btn)return;
+    sel=parseInt(btn.getAttribute('data-cand'),10)||0;
+    grid.querySelectorAll('.theme-preset-card').forEach(function(el,i){el.classList.toggle('active',i===sel);});
+    if(nameInp&&(!nameInp.value||nameInp.dataset.touched!=='1'))nameInp.value=cands[sel].mood;
+  });
+  if(nameInp)nameInp.addEventListener('input',function(){nameInp.dataset.touched='1';});
   modal.addEventListener('click',function(e){if(e.target===modal)modal.remove();});
   modal.querySelector('[data-pp-close]').addEventListener('click',function(){modal.remove();});
-  modal.querySelector('[data-pp-apply]').addEventListener('click',function(){applyColors();if(typeof showToast==='function')showToast('사진 팔레트를 적용했어요');modal.remove();});
+  modal.querySelector('[data-pp-apply]').addEventListener('click',function(){_tsApplyCandidate(cands[sel]);if(typeof showToast==='function')showToast('사진 테마를 적용했어요');modal.remove();});
   modal.querySelector('[data-pp-save]').addEventListener('click',function(){
-    applyColors();
-    var name=((document.getElementById('theme-pp-name')||{}).value||res.mood||'사진 테마').trim()||'사진 테마';
+    var cd=cands[sel];_tsApplyCandidate(cd);
+    var name=((nameInp&&nameInp.value)||cd.mood||'사진 테마').trim()||'사진 테마';
     try{
       var list=themeStudioUserPresets();
-      list.push({id:themeStudioUid('preset'),type:'user',name:name,mood:res.mood||'사진 팔레트',include:['colors'],includedCategories:['colors'],snapshot:{colors:Object.assign({},cols)},createdAt:new Date().toISOString()});
+      list.push({id:themeStudioUid('preset'),type:'user',name:name,mood:cd.mood||'사진 팔레트',
+        include:['colors','radius','density','componentSkins'],includedCategories:['colors','radius','density','componentSkins'],
+        snapshot:{colors:Object.assign({},cd.colors),radius:cd.radius,density:cd.density,componentSkins:themeStudioClone(cd.componentSkins)},
+        createdAt:new Date().toISOString()});
       themeStudioWriteJSON(THEME_STUDIO_PRESETS_KEY,list);
       themeStudioRender();
       if(typeof showToast==='function')showToast('프리셋으로 저장했어요');
