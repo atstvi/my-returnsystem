@@ -998,9 +998,10 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
   box-shadow:var(--elev-1);
 }
 .cpill:hover { opacity:.85; box-shadow:var(--elev-2); }
-.cpill--deadline { background:var(--d-50); color:var(--a-700); border:.5px solid var(--a-200); }
-.cpill--schedule { background:var(--t-50); color:var(--t-600); border:.5px solid var(--t-200); }
-.cpill--task { background:var(--p-50); color:var(--p-600); border:.5px solid var(--p-200); }
+/* 타임그리드 알약 색은 범례 도트와 동일한 --task-pal-* 토큰에서 파생시켜 항상 일치시킨다 */
+.cpill--deadline { background:color-mix(in srgb,var(--task-pal-deadline,var(--d-400)) 14%,var(--bg-card)); color:color-mix(in srgb,var(--task-pal-deadline,var(--d-400)) 72%,var(--fg)); border:.5px solid color-mix(in srgb,var(--task-pal-deadline,var(--d-400)) 34%,var(--border)); }
+.cpill--schedule { background:color-mix(in srgb,var(--task-pal-schedule,var(--t-400)) 14%,var(--bg-card)); color:color-mix(in srgb,var(--task-pal-schedule,var(--t-400)) 72%,var(--fg)); border:.5px solid color-mix(in srgb,var(--task-pal-schedule,var(--t-400)) 34%,var(--border)); }
+.cpill--task { background:color-mix(in srgb,var(--task-pal-task,var(--accent)) 14%,var(--bg-card)); color:color-mix(in srgb,var(--task-pal-task,var(--accent)) 72%,var(--fg)); border:.5px solid color-mix(in srgb,var(--task-pal-task,var(--accent)) 34%,var(--border)); }
 .cpill--done { background:var(--bg-raised); color:var(--fg-4); border:.5px solid var(--border); text-decoration:line-through; }
 
 /* ── TIMEBLOCK CARD — vertical layout ── */
@@ -12262,6 +12263,9 @@ function homeRefreshCards(opts){
     try{if(typeof window.homeRenderTimeGrid==='function')window.homeRenderTimeGrid();}catch(e){}
     try{renderHomeTimeBlocks();}catch(e){}
     try{renderHomeOpsPanel();}catch(e){}
+    /* 처리 필요(인박스)·오늘 습관 카드도 함께 새로고침해 나탭 정보가 항상 최신이 되게 */
+    try{if(typeof renderHomeInbox==='function')renderHomeInbox();}catch(e){}
+    try{if(typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick();}catch(e){}
   });
 }
 function homeTaskUrgent(t){
@@ -12567,50 +12571,59 @@ function openHomeSignalList(title, entries){
   if(isInboxList){
     var inboxRows=(entries||[]).map(function(e,i){
       var item=e.inbox||{};
+      var need=!!(item.unread&&!item.done);
       return '<div class="ops-row home-inbox-dialog-row" data-idx="'+i+'">'
         +'<div><div class="ops-title">'+tEscHtml(item.text||e.label||'Inbox item')+'</div><div class="ops-meta">'+tEscHtml(item.cat||'inbox')+'</div></div>'
-        +'<div class="ops-actions">'
-        +'<button class="inbox-act-btn inbox-act-done" data-inbox-done="'+i+'" title="완료" aria-label="완료"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>'
-        +'<button class="inbox-act-btn inbox-act-clear" data-inbox-clear="'+i+'" title="해제" aria-label="해제"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>'
-        +'<button class="inbox-act-btn inbox-act-open" data-open="'+i+'" title="열기" aria-label="열기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17 17 7M8 7h9v9"/></svg></button>'
+        +'<div class="ops-actions pji-acts">'
+        +'<button type="button" class="ib2-donebtn" data-inbox-done="'+i+'" title="처리 완료"><span class="ib2-donebox"></span><span class="ib2-donelbl">완료</span></button>'
+        +'<button type="button" class="ib2-needbtn'+(need?' on':'')+'" data-inbox-need="'+i+'">'+(need?'★ 처리 필요':'☆ 처리 필요')+'</button>'
+        +'<button type="button" class="pji-go" data-open="'+i+'" title="열기">↗</button>'
         +'</div></div>';
     }).join('') || '<div class="ops-row"><div><div class="ops-title">처리 필요 인박스가 없어요.</div></div><div></div></div>';
     ov.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title)+'</div></div><div class="modal-body">'+inboxRows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="home-signal-close">닫기</button></div></div>';
     document.body.appendChild(ov);
     function closeInboxDialog(){ov.remove();}
-    function refreshAndClose(){
+    /* 인박스 탭과 동일하게: 완료=아예 완료 처리(목록에서 사라짐), ★ 처리 필요=플래그
+       토글. 여러 개를 이어서 처리할 수 있게 창은 닫지 않고 카드만 새로고침한다. */
+    function saveAndRefresh(){
       if(typeof saveInboxItems==='function')saveInboxItems();
       if(typeof renderFeed==='function')renderFeed();
       if(typeof renderFilterBar==='function')renderFilterBar();
       if(typeof homeRefreshCards==='function')homeRefreshCards({force:true});
       else if(typeof renderHomeSituation==='function')renderHomeSituation();
-      closeInboxDialog();
+    }
+    /* saveInboxItems가 inboxItems를 제자리에서 갱신하지만, 혹시 배열이 재로딩돼
+       entry.inbox 참조가 끊겨도 안전하게 id로 라이브 항목을 다시 찾아 수정한다. */
+    function liveInboxItem(entry){
+      var it=entry&&entry.inbox; if(!it)return null;
+      try{ if(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems)){ var m=inboxItems.find(function(x){return x&&String(x.id)===String(it.id);}); if(m)return m; } }catch(e){}
+      return it;
     }
     ov.addEventListener('click',function(e){if(e.target===ov)closeInboxDialog();});
     ov.querySelector('#home-signal-close').addEventListener('click',closeInboxDialog);
     ov.querySelectorAll('[data-inbox-done]').forEach(function(btn){
       btn.addEventListener('click',function(){
         var idx=parseInt(btn.getAttribute('data-inbox-done'),10);
-        var entry=entries[idx];
-        if(entry&&entry.inbox){
-          entry.inbox.done=true;
-          entry.inbox.unread=false;
+        var it=liveInboxItem(entries[idx]);
+        if(it){
+          it.done=true;it.unread=false;
           var row=ov.querySelector('.home-inbox-dialog-row[data-idx="'+idx+'"]');
           if(row){row.style.opacity='.4';row.style.pointerEvents='none';}
         }
-        refreshAndClose();
+        saveAndRefresh();
       });
     });
-    ov.querySelectorAll('[data-inbox-clear]').forEach(function(btn){
+    ov.querySelectorAll('[data-inbox-need]').forEach(function(btn){
       btn.addEventListener('click',function(){
-        var idx=parseInt(btn.getAttribute('data-inbox-clear'),10);
-        var entry=entries[idx];
-        if(entry&&entry.inbox){
-          entry.inbox.unread=false;
-          var row=ov.querySelector('.home-inbox-dialog-row[data-idx="'+idx+'"]');
-          if(row){row.style.opacity='.4';row.style.pointerEvents='none';}
+        var idx=parseInt(btn.getAttribute('data-inbox-need'),10);
+        var it=liveInboxItem(entries[idx]);
+        if(it){
+          it.unread=!it.unread;
+          var on=!!(it.unread&&!it.done);
+          btn.classList.toggle('on',on);
+          btn.textContent=on?'★ 처리 필요':'☆ 처리 필요';
         }
-        refreshAndClose();
+        saveAndRefresh();
       });
     });
     ov.querySelectorAll('[data-open]').forEach(function(btn){
