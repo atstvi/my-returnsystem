@@ -633,7 +633,7 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 /* First-use / empty state: the edit icons live in the (hover-revealed) date
    row, so an empty banner shows a discoverable inline CTA to add a photo. */
 .home-banner-add{
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  position:absolute;top:var(--sp-4);right:var(--sp-4);
   display:inline-flex;align-items:center;gap:var(--sp-2);
   padding:var(--sp-3) var(--sp-5);border-radius:var(--r-full);
   background:color-mix(in srgb,var(--bg-card) 82%,transparent);
@@ -43543,7 +43543,7 @@ function focusTimerStop(){
   var elapsed=focusTimerElapsedMs();
   if(focusTimerState.timer)clearInterval(focusTimerState.timer);
   focusTimerState.timer=null;focusTimerState.running=false;
-  if(elapsed>=1000)focusTimerLogSession(elapsed);
+  if(elapsed>=1000&&!(focusTimerState.mode==='pomodoro'&&focusTimerState.phase!=='work'))focusTimerLogSession(elapsed);
   focusTimerState.elapsed=0;focusTimerState.startedAt=0;
   if(focusTimerState.mode==='pomodoro'){focusTimerState.phase='work';}
   focusTimerSetTarget();focusAudioStop();
@@ -43608,7 +43608,10 @@ function focusTimerFinish(auto){
   var elapsed=focusTimerElapsedMs();
   if(focusTimerState.timer)clearInterval(focusTimerState.timer);
   focusTimerState.timer=null;focusTimerState.running=false;
-  focusTimerLogSession(elapsed);
+  /* 휴식(포모도로 short/long break)은 집중 기록으로 저장하지 않는다 — 저장하면
+     작업명이 휴식 블록에 그대로 붙어 "작업명이 바뀐 것처럼" 보이고 집중 시간도
+     부풀려진다. 집중(work) 단계만 기록. 스톱워치/카운트다운은 항상 work. */
+  if(!(focusTimerState.mode==='pomodoro'&&focusTimerState.phase!=='work'))focusTimerLogSession(elapsed);
   try{if(typeof Notification!=='undefined'&&Notification.permission==='granted'){new Notification('Return 타이머',{body:focusTimerPhaseLabel()+' 완료! ('+focusTimerFormatMs(elapsed)+')',silent:false});}}catch(e){}
   if(focusTimerState.mode==='pomodoro'){
     focusTimerNextPhase();
@@ -44293,10 +44296,7 @@ function wireFocusToday(root){
   root.querySelectorAll('.ftu-today [data-ftl-id]').forEach(function(el){
     el.addEventListener('click',function(){
       var id=el.getAttribute('data-ftl-id');if(!id)return;
-      var durEl=el.querySelector('.d, .ftu-rec-dur');
-      var msg='이 집중 기록을 삭제할까요?'+(durEl?' ('+durEl.textContent.trim()+')':'');
-      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
-      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+      focusTimerRecordMenu(id);
     });
   });
 }
@@ -44384,6 +44384,54 @@ function focusTimerDeleteRecord(id){
   focusTimerLog=focusTimerLog.filter(function(l){return l&&l.id!==id;});
   if(focusTimerLog.length!==before){focusTimerSaveLog();renderFocusTimer();if(typeof showToast==='function')showToast('기록 삭제됨');}
 }
+/* 타임라인/기록 블록 클릭 → 바로 삭제하지 않고 편집·삭제를 고르는 메뉴를 연다. */
+function focusTimerRecordMenu(id){
+  var rec=focusTimerLog.find(function(l){return l&&String(l.id)===String(id);});
+  if(!rec)return;
+  var old=document.getElementById('ft-rec-menu');if(old)old.remove();
+  var title=(rec.taskText||'').trim()||(rec.categoryName||'집중 기록');
+  var ov=document.createElement('div');ov.className='overlay open';ov.id='ft-rec-menu';
+  ov.innerHTML='<div class="modal" style="max-width:320px"><div class="modal-head"><div class="modal-title">'+_fte(title)+'</div><div class="field-help" style="margin-top:2px">'+_fte(focusFmtDur(rec.durationMs))+'</div></div>'
+    +'<div class="modal-body" style="display:flex;flex-direction:column;gap:var(--sp-2)">'
+    +'<button class="btn btn-ghost" type="button" data-act="edit" style="justify-content:flex-start">✏️ 편집</button>'
+    +'<button class="btn btn-ghost" type="button" data-act="del" style="justify-content:flex-start;color:var(--danger)">🗑 삭제</button>'
+    +'</div><div class="modal-foot"><button class="btn btn-ghost" type="button" data-act="cancel">닫기</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){
+    if(e.target===ov){close();return;}
+    var b=e.target.closest('[data-act]');if(!b)return;
+    var a=b.getAttribute('data-act');
+    if(a==='cancel'){close();return;}
+    if(a==='edit'){close();focusTimerEditRecord(id);return;}
+    if(a==='del'){
+      close();
+      var msg='이 집중 기록을 삭제할까요? ('+focusFmtDur(rec.durationMs)+')';
+      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
+      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+    }
+  });
+}
+/* 기록 편집: 작업명·카테고리·시간(분)을 고쳐 저장(클라우드 세션 문서도 갱신). */
+function focusTimerEditRecord(id){
+  var rec=focusTimerLog.find(function(l){return l&&String(l.id)===String(id);});
+  if(!rec)return;
+  var catOpts=[{value:'',label:'(카테고리 없음)'}].concat((focusCategories||[]).map(function(c){return {value:c.id,label:c.name};}));
+  openFormDialog('집중 기록 편집',[
+    {key:'taskText',label:'작업명',type:'text',value:rec.taskText||''},
+    {key:'categoryId',label:'카테고리',type:'select',value:rec.categoryId||'',options:catOpts},
+    {key:'minutes',label:'시간(분)',type:'number',value:String(Math.max(1,Math.round((rec.durationMs||0)/60000)))}
+  ],function(data){
+    rec.taskText=(data.taskText||'').trim();
+    var c=focusCatById(data.categoryId);
+    rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';
+    var mins=Math.max(1,parseInt(data.minutes,10)||1);rec.durationMs=mins*60000;
+    focusTimerSaveLog();
+    try{if(typeof focusTimerCloudPushSession==='function')focusTimerCloudPushSession(rec);}catch(e){}
+    renderFocusTimer();
+    if(typeof showToast==='function')showToast('기록을 수정했어요');
+  });
+}
 function focusTimerManualAdd(){
   var overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center';
@@ -44429,10 +44477,7 @@ function wireFocusLog(root){
   root.querySelectorAll('[data-ftl-id]').forEach(function(b){
     b.addEventListener('click',function(){
       var id=b.getAttribute('data-ftl-id');if(!id)return;
-      var dur=b.querySelector('.ftl-block-dur');
-      var msg='이 집중 기록을 삭제할까요?'+(dur?' ('+dur.textContent.trim()+')':'');
-      if(typeof openConfirmDialog==='function')openConfirmDialog('집중 기록 삭제',msg,function(){focusTimerDeleteRecord(id);});
-      else if(window.confirm(msg))focusTimerDeleteRecord(id);
+      focusTimerRecordMenu(id);
     });
   });
 }
