@@ -44455,22 +44455,79 @@ function focusTimerRecordMenu(id){
   });
 }
 /* 기록 편집: 작업명·카테고리·시간(분)을 고쳐 저장(클라우드 세션 문서도 갱신). */
+/* 기록 편집(전문 버전): 할일 재연결/직접입력 + 카테고리 + 정확한 시작·종료 시각.
+   시간은 날짜+시작+종료로 정확히 지정하고, 길이는 실시간 표시 + 15/25/50분 퀵버튼. */
 function focusTimerEditRecord(id){
   var rec=focusTimerLog.find(function(l){return l&&String(l.id)===String(id);});
   if(!rec)return;
-  var catOpts=[{value:'',label:'(카테고리 없음)'}].concat((focusCategories||[]).map(function(c){return {value:c.id,label:c.name};}));
-  openFormDialog('집중 기록 편집',[
-    {key:'taskText',label:'작업명',type:'text',value:rec.taskText||''},
-    {key:'categoryId',label:'카테고리',type:'select',value:rec.categoryId||'',options:catOpts},
-    {key:'minutes',label:'시간(분)',type:'number',value:String(Math.max(1,Math.round((rec.durationMs||0)/60000)))}
-  ],function(data){
-    rec.taskText=(data.taskText||'').trim();
-    var c=focusCatById(data.categoryId);
-    rec.categoryId=c?c.id:'';rec.categoryName=c?c.name:'';rec.categoryColor=c?c.color:'';
-    var mins=Math.max(1,parseInt(data.minutes,10)||1);rec.durationMs=mins*60000;
+  var oldOv=document.getElementById('ft-rec-edit');if(oldOv)oldOv.remove();
+  function pad(n){return String(n).padStart(2,'0');}
+  function dstr(ms){var d=new Date(ms);return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+  function tstr(ms){var d=new Date(ms);return pad(d.getHours())+':'+pad(d.getMinutes());}
+  var end=Number(rec.completedAt)||Date.now(), start=end-Math.max(0,Number(rec.durationMs)||0);
+  var openTasks=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.filter(function(t){return !t.done;}).slice(0,80):[];
+  var curTaskId=rec.taskId?String(rec.taskId):'';
+  var taskOpts='<option value="">직접 입력 · 연결 없음</option>'+openTasks.map(function(t){return '<option value="'+_fte(String(t.id))+'"'+(String(t.id)===curTaskId?' selected':'')+'>'+_fte(t.text)+'</option>';}).join('');
+  if(curTaskId&&!openTasks.some(function(t){return String(t.id)===curTaskId;}))taskOpts+='<option value="'+_fte(curTaskId)+'" selected>'+_fte(rec.taskText||'(연결된 할일)')+'</option>';
+  var catOpts='<option value="">카테고리 없음</option>'+(focusCategories||[]).map(function(c){return '<option value="'+_fte(c.id)+'"'+(c.id===rec.categoryId?' selected':'')+'>'+_fte(c.name)+'</option>';}).join('');
+  var ov=document.createElement('div');ov.className='overlay open';ov.id='ft-rec-edit';
+  ov.innerHTML='<div class="modal" style="max-width:440px">'
+    +'<div class="modal-head"><div class="modal-title">집중 기록 편집</div></div>'
+    +'<div class="modal-body" style="display:flex;flex-direction:column;gap:var(--sp-4)">'
+      +'<div class="field"><label class="field-label">작업 연결</label><select class="field-select" id="ftre-task">'+taskOpts+'</select></div>'
+      +'<div class="field" id="ftre-text-field"><label class="field-label">작업명 (직접 입력)</label><input class="field-inp" id="ftre-text" type="text" placeholder="예: 리포트 작성" value="'+_fte(rec.taskText||'')+'"></div>'
+      +'<div class="field"><label class="field-label">카테고리</label><select class="field-select" id="ftre-cat">'+catOpts+'</select></div>'
+      +'<div class="field"><label class="field-label">날짜</label><input class="field-inp" id="ftre-date" type="date" value="'+dstr(start)+'"></div>'
+      +'<div style="display:flex;gap:var(--sp-3)">'
+        +'<div class="field" style="flex:1;margin:0"><label class="field-label">시작</label><input class="field-inp" id="ftre-start" type="time" value="'+tstr(start)+'"></div>'
+        +'<div class="field" style="flex:1;margin:0"><label class="field-label">종료</label><input class="field-inp" id="ftre-end" type="time" value="'+tstr(end)+'"></div>'
+      +'</div>'
+      +'<div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap">'
+        +'<span class="field-help" id="ftre-dur" style="font-weight:var(--fw-semibold);color:var(--accent)">길이 —</span>'
+        +'<span style="flex:1"></span>'
+        +'<button class="btn btn-ghost" type="button" data-quick="15">15분</button>'
+        +'<button class="btn btn-ghost" type="button" data-quick="25">25분</button>'
+        +'<button class="btn btn-ghost" type="button" data-quick="50">50분</button>'
+      +'</div>'
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" id="ftre-cancel">취소</button><button class="btn btn-primary" id="ftre-save">저장</button></div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  var q=function(s){return ov.querySelector(s);};
+  var taskSel=q('#ftre-task'),textField=q('#ftre-text-field'),textInp=q('#ftre-text'),dateInp=q('#ftre-date'),startInp=q('#ftre-start'),endInp=q('#ftre-end'),durEl=q('#ftre-dur');
+  function parseMs(dStr,tStr){var p=(dStr||'').split('-'),t=(tStr||'00:00').split(':');if(p.length<3)return null;return new Date(Number(p[0]),Number(p[1])-1,Number(p[2]),Number(t[0])||0,Number(t[1])||0,0,0).getTime();}
+  function calc(){
+    var s=parseMs(dateInp.value,startInp.value),e=parseMs(dateInp.value,endInp.value);
+    if(s==null||e==null){durEl.textContent='길이 —';return null;}
+    if(e<=s)e+=86400000; /* 자정 넘김 허용 */
+    durEl.textContent='길이 '+focusFmtDur(e-s);
+    return {startMs:s,endMs:e,durMs:e-s};
+  }
+  function syncTaskMode(){textField.style.display=taskSel.value?'none':'';}
+  taskSel.addEventListener('change',syncTaskMode);
+  [dateInp,startInp,endInp].forEach(function(el){el.addEventListener('input',calc);el.addEventListener('change',calc);});
+  ov.querySelectorAll('[data-quick]').forEach(function(btn){btn.addEventListener('click',function(){
+    var mins=parseInt(btn.getAttribute('data-quick'),10)||25;
+    var s=parseMs(dateInp.value,startInp.value)||Date.now();
+    endInp.value=tstr(s+mins*60000);calc();
+  });});
+  syncTaskMode();calc();
+  function close(){ov.remove();}
+  ov.addEventListener('click',function(e){if(e.target===ov)close();});
+  q('#ftre-cancel').addEventListener('click',close);
+  q('#ftre-save').addEventListener('click',function(){
+    var c=calc();if(!c){if(typeof showToast==='function')showToast('시간을 확인해 주세요');return;}
+    var tid=taskSel.value||'';
+    if(tid){var t=openTasks.find(function(x){return String(x.id)===String(tid);});rec.taskId=tid;rec.taskText=(t&&t.text)||rec.taskText||'';}
+    else{rec.taskId='';rec.taskText=(textInp.value||'').trim();}
+    var cat=focusCatById(q('#ftre-cat').value);
+    rec.categoryId=cat?cat.id:'';rec.categoryName=cat?cat.name:'';rec.categoryColor=cat?cat.color:'';
+    rec.durationMs=Math.max(1000,c.durMs);rec.completedAt=c.endMs;
+    focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});
     focusTimerSaveLog();
     try{if(typeof focusTimerCloudPushSession==='function')focusTimerCloudPushSession(rec);}catch(e){}
-    renderFocusTimer();
+    try{if(typeof _ftlAnchor!=='undefined'&&_ftlAnchor&&typeof focusWeekStart==='function')_ftlAnchor=focusWeekStart(new Date(rec.completedAt),weekStart);}catch(e){}
+    close();renderFocusTimer();
     if(typeof showToast==='function')showToast('기록을 수정했어요');
   });
 }
