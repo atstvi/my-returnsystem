@@ -3105,6 +3105,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .modal-check.done::after{content:'';display:block;width:12px;height:7px;border-left:2px solid var(--n-0);border-bottom:2px solid var(--n-0);transform:translateY(-1px) rotate(-45deg)}
 .modal-title-inp{flex:1;font-size:var(--text-md);font-weight:var(--fw-medium);color:var(--fg);background:transparent;width:100%;line-height:var(--lh-snug)}
 .modal-memo{width:100%;font-size:var(--text-sm);color:var(--fg-2);background:transparent;padding-left:calc(20px + var(--sp-5));line-height:var(--lh-normal)}
+.modal-memo-imgs{display:flex;flex-wrap:wrap;gap:var(--sp-3);padding-left:calc(20px + var(--sp-5));margin-top:var(--sp-3)}
+.modal-memo-imgs .mmi-thumb{position:relative;width:64px;height:64px;border-radius:var(--r-md,12px);overflow:hidden;background:color-mix(in srgb,var(--fg) 6%,transparent);cursor:zoom-in;flex:0 0 auto}
+.modal-memo-imgs .mmi-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.modal-memo-imgs .mmi-del{position:absolute;top:3px;right:3px;width:18px;height:18px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .modal-row{display:flex;align-items:center;gap:var(--sp-5);min-height:38px;padding:0 var(--sp-10);cursor:pointer;transition:background var(--t-snap)}
 .modal-row:hover{background:var(--bg-hover)}
 .mr-icon{width:26px;height:24px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
@@ -8005,6 +8009,7 @@ to{opacity:1;transform:translateY(0)}}
         <input class="modal-title-inp" id="modalTitle" type="text" placeholder="할일 제목">
       </div>
       <textarea class="modal-memo" id="modalMemo" rows="2" placeholder="메모 추가..."></textarea>
+      <div class="modal-memo-imgs" id="modalMemoImgs" hidden></div>
     </div>
     <div class="modal-body task-edit-body">
       <section class="task-modal-section task-modal-section-primary" aria-label="일정">
@@ -18428,7 +18433,9 @@ function convertToTask(item, el) {
     if(!CATS.some(function(c){return c.id===catId;})) catId='etc';
     var prio = item.cat==='urgent' ? 'high'
              : (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(catId) : '');
-    tasks.unshift({id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    var _t={id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+    if(Array.isArray(item.imgs)&&item.imgs.length)_t.imgs=item.imgs.slice();
+    tasks.unshift(_t);
     if (typeof saveTaskData === 'function') saveTaskData();
   }
   item.done = true;
@@ -22237,12 +22244,70 @@ function tasksOpenNewModal(seed){
   setTimeout(function(){document.getElementById('modalTitle').focus();},50);
 }
 
+/* Full-screen viewer for a single image (resolves return-media refs). Reused by
+   the task-memo photo strip; safe no-op-free lightweight overlay. */
+function openReturnImageOverlay(ref){
+  if(!ref)return;
+  var ov=document.createElement('div');
+  ov.className='overlay open';
+  ov.style.cssText='z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.86);padding:24px';
+  ov.innerHTML='<img alt="" style="max-width:96vw;max-height:92vh;border-radius:10px;object-fit:contain">';
+  var img=ov.querySelector('img');
+  var disp=(typeof isReturnDisplayableImageUrl==='function'&&isReturnDisplayableImageUrl(ref))?ref
+    :(typeof MediaStore!=='undefined'&&MediaStore.resolveSync?MediaStore.resolveSync(ref):'');
+  if(disp)img.src=disp;
+  if(!disp&&typeof MediaStore!=='undefined'&&MediaStore.resolve){
+    MediaStore.resolve(ref,'').then(function(u){if(u)img.src=u;}).catch(function(){});
+  }
+  ov.addEventListener('click',function(){ov.remove();});
+  document.body.appendChild(ov);
+}
+/* Render the photo strip under the task memo from task.imgs (carried over from
+   inbox → 할일 conversion). Thumbnails open full-screen; × removes one. */
+function renderTaskModalImgs(task){
+  var host=document.getElementById('modalMemoImgs'); if(!host)return;
+  var _e=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});};
+  var imgs=Array.isArray(task.imgs)?task.imgs:[];
+  if(!imgs.length){ host.hidden=true; host.innerHTML=''; return; }
+  host.hidden=false;
+  host.innerHTML=imgs.map(function(ref,i){
+    var disp=(typeof isReturnDisplayableImageUrl==='function'&&isReturnDisplayableImageUrl(ref))?ref
+      :(typeof MediaStore!=='undefined'&&MediaStore.resolveSync?MediaStore.resolveSync(ref):'');
+    var src=disp?('src="'+_e(disp)+'"'):('data-media="'+_e(ref)+'"');
+    return '<div class="mmi-thumb" data-mmi="'+i+'"><img '+src+' alt=""><button type="button" class="mmi-del" data-mmi-del="'+i+'" title="사진 제거">×</button></div>';
+  }).join('');
+  /* Resolve any return-media refs to displayable URLs. */
+  if(typeof MediaStore!=='undefined'&&MediaStore.resolve){
+    host.querySelectorAll('img[data-media]').forEach(function(im){
+      var r=im.getAttribute('data-media'); im.removeAttribute('data-media'); if(!r)return;
+      MediaStore.resolve(r,'').then(function(u){if(u)im.src=u;}).catch(function(){});
+    });
+  }
+  host.querySelectorAll('[data-mmi]').forEach(function(t){
+    t.addEventListener('click',function(e){
+      if(e.target&&e.target.hasAttribute&&e.target.hasAttribute('data-mmi-del'))return;
+      openReturnImageOverlay(imgs[parseInt(t.getAttribute('data-mmi'),10)]);
+    });
+  });
+  host.querySelectorAll('[data-mmi-del]').forEach(function(btn){
+    btn.addEventListener('click',function(e){
+      e.stopPropagation();
+      var idx=parseInt(btn.getAttribute('data-mmi-del'),10);
+      if(!Array.isArray(task.imgs))return;
+      task.imgs.splice(idx,1);
+      task.updatedAt=Date.now();
+      if(typeof saveTaskData==='function')saveTaskData();
+      renderTaskModalImgs(task);
+    });
+  });
+}
 function tasksOpenModal(task){
   taskModalDraft=null;
   editId=task.id;editPrio=task.priority||'';
   try{taskModalSnapshot=JSON.parse(JSON.stringify(task));}catch(e){taskModalSnapshot=null;}
   document.getElementById('modalTitle').value=task.text;
   document.getElementById('modalMemo').value=task.note||'';
+  renderTaskModalImgs(task);
   document.getElementById('modal-date-input').value=task.date||selDate||TK;
   document.getElementById('modal-dl-input').value=task.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=task.deadlineTime||'';
@@ -29054,7 +29119,9 @@ function projectInboxItems(project){
 function _pjInboxProcessed(it){ if(!it)return; it.done=true; it.unread=false; if(typeof saveInboxItems==='function')saveInboxItems(); if(typeof renderProjects==='function')renderProjects(); }
 function projectInboxToTask(p,it){
   if(typeof tasks==='undefined')return;
-  tasks.unshift({id:Date.now()+Math.floor(Math.random()*1000),text:it.text||'(인박스)',catId:'project',projectId:p.id,date:(typeof TK!=='undefined'?TK:''),done:false,priority:'',subs:[],createdAt:Date.now(),updatedAt:Date.now()});
+  var _t={id:Date.now()+Math.floor(Math.random()*1000),text:it.text||'(인박스)',catId:'project',projectId:p.id,date:(typeof TK!=='undefined'?TK:''),done:false,priority:'',subs:[],createdAt:Date.now(),updatedAt:Date.now()};
+  if(Array.isArray(it.imgs)&&it.imgs.length)_t.imgs=it.imgs.slice();
+  tasks.unshift(_t);
   if(typeof saveTaskData==='function')saveTaskData();
   _pjInboxProcessed(it);
   if(typeof showToast==='function')showToast('할일로 옮겼어요');
