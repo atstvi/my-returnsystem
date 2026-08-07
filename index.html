@@ -2204,12 +2204,12 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
   .home-content .home-banner{order:1}
   .home-content .sit-card{order:2}
   .home-content .home-tasks-card{order:3}
-  .home-content .home-habits-card{order:4}
-  .home-content .home-inbox-card{order:5}
-  .home-content .home-timeblock-card{order:6}
-  .home-content .home-widget-card{order:7}
-  .home-content .home-timegrid-card{order:8}
-  .home-content .home-dday-card{order:9}
+  .home-content .home-dday-card{order:4}
+  .home-content .home-habits-card{order:5}
+  .home-content .home-inbox-card{order:6}
+  .home-content .home-timeblock-card{order:7}
+  .home-content .home-widget-card{order:8}
+  .home-content .home-timegrid-card{order:9}
 }
 
 @keyframes slide-up {
@@ -10811,10 +10811,10 @@ function normalizeHomeLayoutOrder(){
      (배너가 없을 때도 위치는 그대로 두고, "배너 추가" 버튼만 오버레이 위로
      올려서 눌리게 한다 — .home-banner-add{z-index:3}) */
   if(sit&&banner){ banner.appendChild(sit); banner.classList.add('has-sit'); sit.classList.add('sit-on-banner'); }
-  /* right: 오늘 습관 → 처리 필요 → 위젯(사진/가치관/음악) */
-  [habits,inbox,widget].forEach(function(n){ if(n)colR.appendChild(n); });
+  /* right: 디데이(특별 일정) → 오늘 습관 → 처리 필요 → 위젯(사진/가치관/음악) */
+  [dday,habits,inbox,widget].forEach(function(n){ if(n)colR.appendChild(n); });
   /* full-width below the columns */
-  [dday,timeGrid].forEach(function(n){ if(n)root.appendChild(n); });
+  [timeGrid].forEach(function(n){ if(n)root.appendChild(n); });
 }
 
 /* ── HOME FLEX WIDGET ──
@@ -22570,11 +22570,27 @@ function _syncSpecialToggle(deadlineDate,isSpecial){
   var dl=document.getElementById('modal-dl-input');
   if(!toggle||!dl)return;
   toggle.checked=!!isSpecial && !!deadlineDate;
-  toggle.disabled=!deadlineDate;
-  dl.oninput=function(){
-    if(!dl.value){toggle.checked=false;toggle.disabled=true;}
-    else{toggle.disabled=false;}
+  /* 예전엔 마감이 없으면 체크박스를 disabled로 뒀는데, 모바일 네이티브 날짜
+     피커가 input 대신 change만 쏘는 경우 토글이 계속 비활성으로 남아 "체크가
+     안 되는" 문제가 있었다. 항상 조작 가능하게 두고, 마감이 없으면 안내 + 마감
+     입력으로 유도한다. 저장 시 isSpecial은 마감이 있을 때만 유지된다. */
+  toggle.disabled=false;
+  var clearIfNoDeadline=function(){ if(!dl.value){ toggle.checked=false; } };
+  dl.oninput=clearIfNoDeadline; dl.onchange=clearIfNoDeadline;
+  var hint=function(){
+    if(typeof showToast==='function')showToast('마감일을 먼저 정하면 특별 일정(디데이)으로 표시돼요');
+    try{ dl.focus(); if(dl.showPicker)dl.showPicker(); }catch(_e){}
   };
+  toggle.onclick=function(){ if(toggle.checked && !dl.value){ toggle.checked=false; hint(); } };
+  var row=toggle.closest('.modal-row');
+  if(row && !row._specialBound){
+    row._specialBound=true; row.style.cursor='pointer';
+    row.addEventListener('click',function(e){
+      if(e.target===toggle) return; /* 체크박스 자체 클릭은 onclick이 처리 */
+      if(!dl.value){ toggle.checked=false; hint(); return; }
+      toggle.checked=!toggle.checked;
+    });
+  }
 }
 
 /* Called after the scope picker choice; writes the edit to the task and
@@ -29475,14 +29491,15 @@ renderProjects=function(){
       return (dt.getMonth()+1)+'/'+dt.getDate()+' · '+tag;
     }catch(e){ return String(d); }
   }
-  function _pjFolderTile(p){
+  function _pjFolderTile(p, showChip){
     var linked=projectTaskItems(p), color=p.color||'#BE727A';
     var inboxN=(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))?inboxItems.filter(function(it){return it&&String(it.projectId||'')===String(p.id);}).length:0;
     var matN=(p.board&&Array.isArray(p.board.items))?p.board.items.length:(Array.isArray(p.resources)?p.resources.length:0);
     var log=(p.logs&&p.logs.length&&p.logs[0]&&p.logs[0].text)?('최근 로그: “'+projectEsc(String(p.logs[0].text).replace(/\s+/g,' ').slice(0,30))+'”'):(p.description?projectEsc(String(p.description).slice(0,34)):'');
     var dl=p.deadline?('<span class="pj-fdl">· 마감 '+projectEsc(_fmtFolderDeadline(p.deadline))+'</span>'):'';
     var sm=projectStageMeta(projectStageOf(p));
-    var chip='<span class="pj-fstage" data-stage-pick="'+projectEsc(p.id)+'" style="--stc:'+sm.color+'" title="상태 변경"><span class="pj-fstage-dot"></span>'+projectEsc(sm.label)+'</span>';
+    /* 상태 칩은 '전체 한눈에 보기'에서만 — 상태별 묶어보기에선 섹션 헤더가 상태를 나타내므로 생략. */
+    var chip=showChip?('<span class="pj-fstage" data-stage-pick="'+projectEsc(p.id)+'" style="--stc:'+sm.color+'" title="상태 변경"><span class="pj-fstage-dot"></span>'+projectEsc(sm.label)+'</span>'):'';
     return '<button class="pj-folder" type="button" data-open="'+projectEsc(p.id)+'" style="--pjc:'+projectEsc(color)+'">'+
       '<span class="pj-fic" style="background:'+projectEsc(color)+'">'+_folderSvg+'</span>'+
       chip+
@@ -29502,7 +29519,7 @@ renderProjects=function(){
       +'<span class="pj-fgroup-ico">'+(_pjFolderGroup?'▤':'▦')+'</span>'+(_pjFolderGroup?'상태별로 묶어 보기':'전체 한눈에 보기')+'</button></div>';
     var body;
     if(!_pjFolderGroup){
-      body='<div class="pj-folders-grid">'+vis.map(_pjFolderTile).join('')+_pjNewFolderBtn+'</div>';
+      body='<div class="pj-folders-grid">'+vis.map(function(p){return _pjFolderTile(p,true);}).join('')+_pjNewFolderBtn+'</div>';
     } else {
       var byStage={}; PROJECT_STAGES.forEach(function(s){byStage[s.id]=[];});
       vis.forEach(function(p){ var st=projectStageOf(p); (byStage[st]||byStage.inprogress).push(p); });
@@ -29512,7 +29529,7 @@ renderProjects=function(){
           +'<button type="button" class="pj-stage-shead" data-stagetoggle="'+s.id+'" aria-expanded="'+(open?'true':'false')+'">'
             +'<span class="pj-stage-caret">▸</span><span class="pj-stage-dot" style="background:'+s.color+'"></span>'
             +'<span class="pj-stage-sname">'+projectEsc(s.label)+'</span><span class="pj-stage-scount">'+byStage[s.id].length+'</span></button>'
-          +'<div class="pj-folders-grid pj-stage-grid">'+byStage[s.id].map(_pjFolderTile).join('')+'</div>'
+          +'<div class="pj-folders-grid pj-stage-grid">'+byStage[s.id].map(function(p){return _pjFolderTile(p,false);}).join('')+'</div>'
         +'</section>';
       }).join('');
       body=(sections||'')+'<div class="pj-folders-grid pj-folders-newrow">'+_pjNewFolderBtn+'</div>';
