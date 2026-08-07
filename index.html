@@ -6075,6 +6075,16 @@ to{opacity:1;transform:translateY(0)}}
 }
 .trend-add-btn:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent)}
 
+/* 감정 흐름 패널 — 돌아보기와 같은 파스텔 카드(ov-*) 재사용 + 최근 기록 리스트 */
+#mood-panel{display:flex;flex-direction:column;gap:var(--sp-4)}
+.emo-row{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) 0}
+.emo-row+.emo-row{border-top:.5px solid var(--border-subtle)}
+.emo-face{width:34px;height:34px;border-radius:var(--r-full);display:flex;align-items:center;justify-content:center;font-size:17px;background:color-mix(in srgb,var(--accent) 8%,var(--bg-raised));flex-shrink:0}
+.emo-main{flex:1;min-width:0}
+.emo-day{font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg);font-variant-numeric:tabular-nums}
+.emo-sub{font-size:var(--text-2xs);color:var(--fg-4)}
+.emo-val{font-size:var(--text-md);font-weight:var(--fw-bold);color:var(--accent);font-variant-numeric:tabular-nums}
+
 /* Emotional trend bar chart */
 .mood-chart-wrap{background:var(--bg-card);border-radius:var(--r-xl);box-shadow:var(--elev-1);padding:var(--sp-6) var(--sp-8);margin-bottom:var(--sp-6)}
 .mood-bars{display:flex;gap:var(--sp-2);align-items:flex-end;height:60px;margin-top:var(--sp-5)}
@@ -9505,7 +9515,7 @@ to{opacity:1;transform:translateY(0)}}
       <div class="rec-panel" id="panel-moods">
         <div class="panel-header">
           <div class="panel-title">감정 흐름</div>
-          <div class="panel-sub">체크인과 일기에서 수집된 기분 변화예요.</div>
+          <div class="panel-sub">매일 에너지 슬라이더와 체크인 기분을 모은 감정 흐름이에요.</div>
         </div>
         <div id="mood-panel"></div>
       </div>
@@ -27708,81 +27718,62 @@ function addMetric() {
   renderTrends();
 }
 
-/* ── MOODS (감정 흐름) ── */
+/* ── MOODS (감정 흐름) ──
+   "지금 상태"가 매일 0–100 에너지 슬라이더(stamina_level_v1)로 바뀌었으므로,
+   그 일별 값을 주 흐름으로 쓰고 체크인 기분(이모지)도 같은 날 값으로 합쳐
+   하나의 0–100 감정 흐름으로 보여준다. 값이 없는 날은 체크인 기분으로 채운다. */
 function renderMoods() {
   var container = document.getElementById('mood-panel');
+  if(!container)return;
   container.innerHTML = '';
-
-  /* Build mood history from check logs */
-  var moodMap = { '😊 좋아':5,'좋아':5,'😐 보통':3,'보통':3,'😔 별로':1,'별로':1 };
-  var moodHistory = checkLogs.filter(function(l){ return l.answers && l.answers.mood; })
-    .map(function(l){ return { ts:l.ts, mood:l.answers.mood, energy:l.answers.energy }; })
-    .sort(function(a,b){ return a.ts-b.ts; })
-    .slice(-28); /* last 28 entries */
-
-  if (!moodHistory.length) {
-    container.innerHTML = '<div class="rec-empty"><span class="rec-empty-icon">🌡</span>아직 기분 데이터가 없어요.<br>체크 탭을 매일 사용하면 여기에 패턴이 보여요.</div>';
+  var moodMap = { '😊 좋아':5,'좋아':5,'😐 보통':3,'보통':3,'😔 별로':1,'별로':1,'🤷 모르겠어':3 };
+  function ymd(ts){var d=new Date(ts);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+  var byDay={};
+  try{ var sm=JSON.parse(localStorage.getItem('stamina_level_v1')||'{}')||{}; Object.keys(sm).forEach(function(d){ if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&typeof sm[d]==='number')byDay[d]=Math.max(0,Math.min(100,sm[d])); }); }catch(e){}
+  try{ var ev=JSON.parse(localStorage.getItem('recharge_energy')||'{}')||{}; Object.keys(ev).forEach(function(d){ if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&byDay[d]==null&&ev[d])byDay[d]=(ev[d]-1)*20+10; }); }catch(e){}
+  var checks=(typeof checkLogs!=='undefined'?checkLogs:[]).filter(function(l){return l&&l.answers&&l.answers.mood;})
+    .map(function(l){return {ts:l.ts,mood:l.answers.mood,energy:l.answers.energy};}).sort(function(a,b){return a.ts-b.ts;});
+  var checkByDay={};
+  checks.forEach(function(c){ var d=ymd(c.ts); checkByDay[d]=c; if(byDay[d]==null)byDay[d]=(moodMap[c.mood]||3)/5*100; });
+  var days=Object.keys(byDay).sort();
+  if(!days.length){
+    container.innerHTML = '<div class="rec-empty"><span class="rec-empty-icon">🌡</span>아직 감정 데이터가 없어요.<br>충전 탭의 에너지 슬라이더나 체크 탭을 매일 쓰면<br>여기에 흐름이 쌓여요.</div>';
     return;
   }
+  var series=days.map(function(d){return {date:d,val:byDay[d],raw:Math.round(byDay[d])};}).slice(-28);
+  var vals=series.map(function(s){return s.val;});
+  var avg=Math.round(vals.reduce(function(a,b){return a+b;},0)/vals.length);
+  function face(v){return v>=70?'😊':v>=45?'😐':'😔';}
+  function band(v){return v>=70?'좋음':v>=45?'보통':'낮음';}
+  var trend='→ 비슷', tcol='var(--fg-4)';
+  if(vals.length>=4){ var h=Math.floor(vals.length/2), a1=vals.slice(0,h), a2=vals.slice(h);
+    var m1=a1.reduce(function(x,y){return x+y;},0)/a1.length, m2=a2.reduce(function(x,y){return x+y;},0)/a2.length;
+    if(m2-m1>6){trend='▲ 좋아지는 중';tcol='var(--success)';} else if(m1-m2>6){trend='▼ 가라앉는 중';tcol='var(--danger)';} }
 
-  /* Monthly bar chart */
-  var chartCard = document.createElement('div');
-  chartCard.className = 'mood-chart-wrap';
-  var chartTitle = document.createElement('div');
-  chartTitle.style.cssText = 'font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);letter-spacing:.5px;text-transform:uppercase';
-  chartTitle.textContent = '최근 기분 흐름 (최근 ' + moodHistory.length + '회)';
-  chartCard.appendChild(chartTitle);
+  /* 요약 통계(돌아보기 카드와 동일 톤) */
+  var stats=document.createElement('div'); stats.className='ov-stats'; stats.style.gridTemplateColumns='repeat(3,minmax(0,1fr))';
+  stats.innerHTML='<div class="ov-stat"><div class="ov-stat-ico">'+face(avg)+'</div><div class="ov-stat-v">'+avg+'</div><div class="ov-stat-l">평균 · '+band(avg)+'</div></div>'
+    +'<div class="ov-stat"><div class="ov-stat-ico">🗓️</div><div class="ov-stat-v">'+series.length+'</div><div class="ov-stat-l">기록한 날</div></div>'
+    +'<div class="ov-stat"><div class="ov-stat-ico">📈</div><div class="ov-stat-v" style="font-size:var(--text-sm);color:'+tcol+'">'+trend+'</div><div class="ov-stat-l">최근 흐름</div></div>';
+  container.appendChild(stats);
 
-  var bars = document.createElement('div');
-  bars.className = 'mood-bars';
-
-  moodHistory.forEach(function(entry) {
-    var score = moodMap[entry.mood] || 3;
-    var pct = (score / 5) * 100;
-    var color = score >= 4 ? 'var(--success)' : score <= 1 ? 'var(--danger)' : 'var(--warning)';
-    var wrap = document.createElement('div');
-    wrap.className = 'mood-bar-wrap';
-    var bar = document.createElement('div');
-    bar.className = 'mood-bar';
-    bar.style.cssText = 'height:' + pct + '%;background:' + color + ';border-radius:var(--r-sm) var(--r-sm) 0 0;min-height:4px;transition:height .3s';
-    var label = document.createElement('div');
-    label.className = 'mood-bar-label';
-    label.textContent = new Date(entry.ts).getDate();
-    wrap.appendChild(bar);
-    wrap.appendChild(label);
-    bars.appendChild(wrap);
-  });
-
-  chartCard.appendChild(bars);
+  /* 감정·에너지 라인 차트(0–100 고정 축) */
+  var chartCard=document.createElement('div'); chartCard.className='ov-card';
+  chartCard.innerHTML='<div class="ov-card-h">🌡 감정·에너지 흐름 (최근 '+series.length+'일)</div>';
+  if(typeof buildChart==='function'){ chartCard.appendChild(buildChart(series,'line',0,{axisMin:0,axisMax:100})); }
   container.appendChild(chartCard);
 
-  /* Recent entries as text */
-  moodHistory.slice().reverse().slice(0,10).forEach(function(entry) {
-    var card = document.createElement('div');
-    card.className = 'memo-card';
-    card.style.marginBottom = 'var(--sp-2)';
-    var dot = document.createElement('div');
-    dot.className = 'memo-dot';
-    var score = moodMap[entry.mood] || 3;
-    dot.style.background = score >= 4 ? 'var(--success)' : score <= 1 ? 'var(--danger)' : 'var(--warning)';
-    var body = document.createElement('div');
-    body.className = 'memo-body';
-    var text = document.createElement('div');
-    text.className = 'memo-text';
-    text.style.fontSize = 'var(--text-sm)';
-    text.textContent = entry.mood + (entry.energy ? ' · ' + entry.energy : '');
-    var meta = document.createElement('div');
-    meta.className = 'memo-meta';
-    var dateEl = document.createElement('span');
-    dateEl.className = 'memo-date';
-    dateEl.textContent = tsToDate(entry.ts);
-    meta.appendChild(dateEl);
-    body.appendChild(text);
-    body.appendChild(meta);
-    card.appendChild(dot);
-    card.appendChild(body);
-    container.appendChild(card);
-  });
+  /* 최근 기록 리스트 */
+  var listCard=document.createElement('div'); listCard.className='ov-card';
+  var rows=series.slice(-10).reverse().map(function(s){
+    var c=checkByDay[s.date];
+    var sub=band(s.val)+(c&&c.mood?' · '+c.mood:'')+(c&&c.energy?' · '+c.energy:'');
+    return '<div class="emo-row"><span class="emo-face">'+face(s.val)+'</span>'
+      +'<div class="emo-main"><div class="emo-day">'+_fte(s.date.slice(5).replace('-','/'))+'</div><div class="emo-sub">'+_fte(sub)+'</div></div>'
+      +'<div class="emo-val">'+Math.round(s.val)+'</div></div>';
+  }).join('');
+  listCard.innerHTML='<div class="ov-card-h">최근 기록</div>'+rows;
+  container.appendChild(listCard);
 }
 
 /* ── VALUES (가치관 카드) ── */
