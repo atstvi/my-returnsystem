@@ -675,11 +675,11 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 .gs-add-btn{
   position:fixed;right:var(--sp-8);bottom:var(--sp-8);z-index:120;
   width:44px;height:44px;border-radius:var(--r-full);background:var(--accent);color:var(--n-0);
-  box-shadow:var(--elev-3);display:flex;align-items:center;justify-content:center;opacity:.65;
+  box-shadow:var(--elev-3);display:none;align-items:center;justify-content:center;
 }
-.gs-add-btn:hover{opacity:1}
 .gs-layer.editing{pointer-events:none}
-.gs-layer.editing .gs-add-btn{display:flex;opacity:1}
+/* + 추가 버튼은 스티커 추가 모드(길게 눌러 편집 / 설정·단축키 토글)일 때만 뜬다 */
+.gs-layer.editing .gs-add-btn{display:flex}
 .gs-page-sticker{
   position:absolute;width:72px;height:72px;border-radius:var(--r-lg);overflow:hidden;
   background:transparent;box-shadow:var(--elev-2);cursor:move;pointer-events:auto;
@@ -2241,7 +2241,12 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .ib2-bub-img{width:100%;min-height:120px;border-radius:12px;overflow:hidden;margin-bottom:7px;background:var(--bg-card);border:.5px solid var(--border-subtle);box-shadow:var(--elev-1)}
 .ib2-bub-img img{width:100%;min-height:120px;max-height:260px;object-fit:cover;display:block}
 .ib2-bub-meta{display:flex;align-items:center;gap:8px;justify-content:flex-end;margin-top:5px;font-size:11px;color:var(--fg-4)}
-.ib2-bub-cat{margin-right:auto;font-weight:var(--fw-bold)}
+.ib2-bub-cat{margin-right:auto;font-weight:var(--fw-bold);border:none;background:none;cursor:pointer;padding:2px 7px;border-radius:var(--r-full);font-size:11px;transition:background var(--t-snap)}
+.ib2-bub-cat:hover{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+.ib2-catpick{position:absolute;z-index:400;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:var(--sp-2);display:flex;flex-direction:column;gap:2px;max-height:52vh;overflow:auto;min-width:150px}
+.ib2-catpick-opt{text-align:left;border:none;background:none;cursor:pointer;padding:8px 12px;border-radius:var(--r-md);font-size:var(--text-sm);color:var(--fg-2);white-space:nowrap}
+.ib2-catpick-opt:hover{background:var(--bg-raised)}
+.ib2-catpick-opt.on{background:var(--accent-light);color:var(--accent);font-weight:var(--fw-semibold)}
 .ib2-bub-more{flex:none;width:22px;height:22px;border-radius:var(--r-full);display:inline-flex;align-items:center;justify-content:center;font-size:15px;line-height:1;color:var(--fg-4);background:transparent;border:none;cursor:pointer;opacity:.65;transition:background var(--t-snap),opacity var(--t-snap),color var(--t-snap)}
 .ib2-bub-more:hover{opacity:1;color:var(--fg-2);background:var(--bg-raised)}
 /* 완료 비우기 */
@@ -9834,10 +9839,13 @@ to{opacity:1;transform:translateY(0)}}
           <div class="set-row">
             <div class="set-row-icon" style="background:var(--w-50)">✨</div>
             <div class="set-row-body">
-              <div class="set-row-label">스티커 편집</div>
-              <div class="set-row-desc">스티커를 <b>길게 누르면</b> 편집이 켜져요(옮기기·크기·회전·삭제). <b>바깥을 누르면</b> 편집이 꺼져 실수로 움직이지 않아요. 추가는 우측 하단 <b>＋</b> 버튼.</div>
+              <div class="set-row-label">스티커 추가 모드</div>
+              <div class="set-row-desc">켜면 우측 하단 <b>＋</b> 버튼으로 스티커를 추가할 수 있어요. 단축키 <b>Alt+S</b>로도 켜고 끌 수 있어요. (기존 스티커는 <b>길게 눌러</b> 편집, 바깥을 누르면 편집 종료)</div>
             </div>
             <div class="set-row-ctrl">
+              <div class="toggle-wrap" onclick="toggleStickerAddMode()">
+                <div class="toggle-track" id="sticker-addmode-toggle"><div class="toggle-thumb"></div></div>
+              </div>
               <button class="set-btn btn-ghost" type="button" onclick="clearCurrentPageStickers()">Remove page stickers</button>
               <button class="set-btn btn-ghost" type="button" onclick="clearAllGlobalStickers()">Remove all stickers</button>
             </div>
@@ -17303,19 +17311,33 @@ function globalStickerEnsureMediaFallbacks(){
     }
   }).finally(function(){ _globalStickerFallbackRepairRunning=false; });
 }
-/* 스티커 편집은 이제 "설정 토글"이 아니라 런타임 상태다: 스티커를 길게 누르면
-   켜지고(다른 스티커를 누르면 그 스티커 선택), 스티커 바깥을 누르면 꺼진다. */
+/* 스티커 편집 상태(런타임):
+   - 스티커를 "길게 누르면" 잠깐 편집이 켜지고(_gsEditActive), 바깥을 누르면 꺼짐.
+   - "스티커 추가 모드"(_gsAddMode)는 설정 토글/단축키로 켜는 지속 모드로, + 추가
+     버튼이 뜨고 편집이 유지된다(바깥 클릭에도 안 꺼짐). */
 var _gsEditActive=false;
-function stickerEditingEnabled(){ return _gsEditActive; }
+var _gsAddMode=(function(){ try{ return localStorage.getItem('gs_add_mode')==='1'; }catch(e){ return false; } })();
+function _gsLayerEditing(){ return _gsEditActive||_gsAddMode; }
+function stickerEditingEnabled(){ return _gsLayerEditing(); }
+function _gsApplyLayers(){
+  var on=_gsLayerEditing();
+  document.querySelectorAll('.gs-layer').forEach(function(l){ l.classList.toggle('editing',on); });
+  if(!on)document.querySelectorAll('.gs-page-sticker.is-editing').forEach(function(x){ x.classList.remove('is-editing'); });
+}
 function _gsSelectSticker(el){
   document.querySelectorAll('.gs-page-sticker.is-editing').forEach(function(x){ if(x!==el)x.classList.remove('is-editing'); });
   if(el)el.classList.add('is-editing');
 }
-function _gsSetStickerEdit(on){
-  _gsEditActive=!!on;
-  document.querySelectorAll('.gs-layer').forEach(function(l){ l.classList.toggle('editing',_gsEditActive); });
-  if(!_gsEditActive)document.querySelectorAll('.gs-page-sticker.is-editing').forEach(function(x){ x.classList.remove('is-editing'); });
+function _gsSetStickerEdit(on){ _gsEditActive=!!on; _gsApplyLayers(); }
+/* 설정/단축키에서 부르는 스티커 추가 모드 토글 */
+function toggleStickerAddMode(force){
+  _gsAddMode=(typeof force==='boolean')?force:!_gsAddMode;
+  try{ localStorage.setItem('gs_add_mode',_gsAddMode?'1':'0'); }catch(e){}
+  _gsApplyLayers();
+  var tr=document.getElementById('sticker-addmode-toggle'); if(tr)tr.classList.toggle('on',_gsAddMode);
+  if(typeof showToast==='function')showToast(_gsAddMode?'스티커 추가 모드 켜짐 — 우측 하단 +로 추가, 길게 눌러 편집':'스티커 추가 모드 꺼짐');
 }
+window.toggleStickerAddMode=toggleStickerAddMode;
 /* 스티커 위 포인터다운: 편집 중이면 선택+드래그, 아니면 길게 눌러 편집 진입 */
 function _gsStickerPointerDown(e,s,el){
   if(e.target.closest('button'))return; /* del/resize/rotate 핸들은 각자 처리 */
@@ -17347,7 +17369,15 @@ function _gsBindClickAway(){
   if(window._gsClickAwayBound)return; window._gsClickAwayBound=1;
   document.addEventListener('mousedown',_gsMaybeExitEdit,true);
   document.addEventListener('touchstart',_gsMaybeExitEdit,true);
-  document.addEventListener('keydown',function(e){ if(e.key==='Escape'&&_gsEditActive)_gsSetStickerEdit(false); });
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'&&_gsEditActive){ _gsSetStickerEdit(false); return; }
+    /* Alt+S: 스티커 추가 모드 토글(입력 중이 아닐 때만) */
+    if(e.altKey&&!e.ctrlKey&&!e.metaKey&&(e.key==='s'||e.key==='S'||e.key==='ㄴ')){
+      var t=e.target, tag=(t&&t.tagName||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'||(t&&t.isContentEditable))return;
+      e.preventDefault(); toggleStickerAddMode();
+    }
+  });
 }
 function stickerShadowEnabled(){
   return localStorage.getItem('global_sticker_shadow') !== '0';
@@ -17382,6 +17412,7 @@ function _findStickerHost(page){
 function renderGlobalStickers(){
   if (!_currentPage) return;
   _gsBindClickAway();
+  var _amt=document.getElementById('sticker-addmode-toggle'); if(_amt)_amt.classList.toggle('on',_gsAddMode);
   loadGlobalStickers();
   /* Backfill missing syncDataUrls from the assets list so stickers received
      via Firebase (which may have no inline syncDataUrl) can display on this
@@ -19086,7 +19117,7 @@ function _initInbox(){
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
       /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
-      var meta='<div class="ib2-bub-meta"><span class="ib2-bub-cat">'+ibEsc((c.emoji||'')+' '+c.label)+'</span><span>'+ibEsc(_ib2Time(ts))+'</span><button type="button" class="ib2-bub-more" data-more="'+ibEsc(it.id)+'" title="편집 · 완료 · 삭제" aria-label="항목 편집">⋯</button></div>';
+      var meta='<div class="ib2-bub-meta"><button type="button" class="ib2-bub-cat" data-catpick="'+ibEsc(it.id)+'" title="분류 바꾸기">'+ibEsc((c.emoji||'')+' '+c.label)+'</button><span>'+ibEsc(_ib2Time(ts))+'</span><button type="button" class="ib2-bub-more" data-more="'+ibEsc(it.id)+'" title="편집 · 완료 · 삭제" aria-label="항목 편집">⋯</button></div>';
       var t=String(it.text||'').trim();
       var imgHtml=hasImg?cardCoverHtml(it).replace('ib2-card-imgwrap','ib2-bub-img'):'';
       /* Strip the raw URL out of the shown text (a link chip renders it nicely). */
@@ -19106,8 +19137,29 @@ function _initInbox(){
     host.innerHTML=html;
     ib2ResolveMedia(host);
     host.querySelectorAll('[data-more]').forEach(function(b){b.addEventListener('click',function(e){ e.stopPropagation(); var it=inboxItems.find(function(x){return String(x.id)===String(b.getAttribute('data-more'));}); if(it)openInboxItemSheet(it); });});
-    host.querySelectorAll('[data-jump]').forEach(function(b){b.addEventListener('click',function(e){ if(e.target.closest('[data-more]'))return; jumpToCard(b.getAttribute('data-jump')); });});
+    /* 분류 라벨 클릭 → 바로 카테고리 다시 선택 */
+    host.querySelectorAll('[data-catpick]').forEach(function(b){b.addEventListener('click',function(e){ e.stopPropagation(); ib2QuickCatPick(b.getAttribute('data-catpick'), b); });});
+    /* 말풍선 본문 클릭은 더 이상 보드로 점프하지 않는다(글자 복사·선택을 위해). 편집은 ⋯ */
     host.scrollTop=host.scrollHeight;
+  }
+  /* 말풍선 분류 라벨 클릭 시 뜨는 간단 카테고리 선택 팝오버. */
+  function ib2QuickCatPick(id, anchor){
+    var it=inboxItems.find(function(x){return String(x.id)===String(id);}); if(!it)return;
+    var old=document.getElementById('ib2-catpick'); if(old)old.remove();
+    var cur=colIdOf(it);
+    var pop=document.createElement('div'); pop.id='ib2-catpick'; pop.className='ib2-catpick';
+    pop.innerHTML=cats().map(function(c){return '<button type="button" class="ib2-catpick-opt'+(c.id===cur?' on':'')+'" data-cid="'+ibEsc(c.id)+'">'+ibEsc((c.emoji||'')+' '+c.label)+'</button>';}).join('');
+    document.body.appendChild(pop);
+    var r=anchor.getBoundingClientRect();
+    pop.style.left=Math.max(8,Math.min(window.innerWidth-pop.offsetWidth-8, r.left))+'px';
+    pop.style.top=(r.bottom+6+window.scrollY)+'px';
+    pop.querySelectorAll('[data-cid]').forEach(function(b){b.addEventListener('click',function(){
+      var cid=b.getAttribute('data-cid');
+      if(/^p:/.test(cid)){ it.projectId=cid.slice(2); it.cat=cid; } else { it.cat=cid; delete it.projectId; }
+      saveInboxItems(); pop.remove(); renderFeed();
+      if(typeof showToast==='function')showToast('“'+catById(cid).label+'”로 옮겼어요');
+    });});
+    setTimeout(function(){ document.addEventListener('mousedown', function _c(e){ if(!pop.contains(e.target)){ pop.remove(); document.removeEventListener('mousedown',_c); } }); },40);
   }
   /* Thread → 정리 보드 카드로 점프(스크롤 + 하이라이트). */
   function jumpToCard(id){
