@@ -12417,26 +12417,33 @@ function homeUnskipDeadlineLink(task){
 function renderHomeDdayCard(){
   var card = document.getElementById('home-dday-card');
   if(!card) return;
+  /* 특별 일정은 "다가오는 것"을 추적하는 용도라 마감일이 꼭 필요하진 않다.
+     카운트다운 대상 날짜 = 마감일이 있으면 마감일, 없으면 그 할일의 날짜. */
+  var _tgt=function(t){ return t.deadlineDate || t.date || ''; };
+  var _tgtTime=function(t){ return t.deadlineDate ? (t.deadlineTime||'') : (t.timeStart||''); };
   var list = (typeof tasks!=='undefined'?tasks:[]).filter(function(t){
-    if(!t.isSpecial || !t.deadlineDate) return false;
+    var tg=_tgt(t);
+    if(!t.isSpecial || !tg) return false;
     if(typeof taskEffectiveDone==='function' && taskEffectiveDone(t)) return false;
-    var s = dlState(t.deadlineDate);
+    var s = dlState(tg);
     if(s==='overdue'){
-      var overdueDays = Math.round((TODAY - new Date(t.deadlineDate+'T00:00')) / 86400000);
+      var overdueDays = Math.round((TODAY - new Date(tg+'T00:00')) / 86400000);
       if(overdueDays > 7) return false;
     }
     return true;
   });
-  list.sort(function(a,b){ return a.deadlineDate < b.deadlineDate ? -1 : a.deadlineDate > b.deadlineDate ? 1 : 0; });
+  list.sort(function(a,b){ var da=_tgt(a),db=_tgt(b); return da < db ? -1 : da > db ? 1 : 0; });
   if(!list.length){ card.style.display='none'; card.innerHTML=''; return; }
   card.style.display='';
   card.innerHTML = list.map(function(t){
-    var s = dlState(t.deadlineDate) || 'safe';
+    var tg=_tgt(t);
+    var s = dlState(tg) || 'safe';
     var cat = getCat(t.catId);
+    var tm=_tgtTime(t);
     return '<div class="dday-chip '+s+'" data-task-id="'+t.id+'">'
-      +'<div class="dday-chip-num">'+tEscHtml(dlText(t.deadlineDate))+'</div>'
+      +'<div class="dday-chip-num">'+tEscHtml(dlText(tg))+'</div>'
       +'<div class="dday-chip-title">'+(cat.emoji?cat.emoji+' ':'')+tEscHtml(t.text)+'</div>'
-      +'<div class="dday-chip-date">'+tEscHtml(t.deadlineDate)+(t.deadlineTime?' '+tEscHtml(t.deadlineTime):'')+'</div>'
+      +'<div class="dday-chip-date">'+tEscHtml(tg)+(tm?' '+tEscHtml(tm):'')+'</div>'
       +'</div>';
   }).join('');
   card.querySelectorAll('.dday-chip').forEach(function(el){
@@ -22523,7 +22530,7 @@ function saveModal(){
     taskModalDraft.date=document.getElementById('modal-date-input').value||taskModalDraft.date||selDate||TK;
     taskModalDraft.deadlineDate=document.getElementById('modal-dl-input').value||'';
     taskModalDraft.deadlineTime=document.getElementById('modal-dl-time-input').value||'';
-    taskModalDraft.isSpecial=!!document.getElementById('modal-special-toggle').checked && !!taskModalDraft.deadlineDate;
+    taskModalDraft.isSpecial=!!document.getElementById('modal-special-toggle').checked;
     taskModalDraft.catId=document.getElementById('modal-cat-sel').value;
     var projectSel2=document.getElementById('modal-project-sel');
     if(taskModalDraft.catId==='project'&&projectSel2&&projectSel2.value) taskModalDraft.projectId=projectSel2.value;
@@ -22559,35 +22566,25 @@ function _writeTaskFromModal(task,fields){
   task.timeStart=fields.timeStart;
   task.timeEnd=fields.timeEnd;
   task.travelMin=fields.travelMin;
-  task.isSpecial=!!fields.isSpecial && !!fields.deadlineDate;
+  /* 특별 일정은 마감일 없이도 가능 — 카운트다운은 마감일 또는 할일 날짜 기준. */
+  task.isSpecial=!!fields.isSpecial;
   task.updatedAt=Date.now();
 }
 
-/* Sync the "특별 일정" toggle with the deadline field: a special (D-day) task
-   must have a deadline, so clearing the deadline auto-disables/unchecks it. */
+/* "특별 일정" 토글 — 다가오는 일정을 홈 디데이 카드로 추적하는 표시.
+   마감일에 의존하지 않는다(카운트다운은 마감일이 있으면 마감일, 없으면 그
+   할일의 날짜 기준). 그냥 켜고 끌 수 있으며, 행 전체를 눌러도 토글된다. */
 function _syncSpecialToggle(deadlineDate,isSpecial){
   var toggle=document.getElementById('modal-special-toggle');
-  var dl=document.getElementById('modal-dl-input');
-  if(!toggle||!dl)return;
-  toggle.checked=!!isSpecial && !!deadlineDate;
-  /* 예전엔 마감이 없으면 체크박스를 disabled로 뒀는데, 모바일 네이티브 날짜
-     피커가 input 대신 change만 쏘는 경우 토글이 계속 비활성으로 남아 "체크가
-     안 되는" 문제가 있었다. 항상 조작 가능하게 두고, 마감이 없으면 안내 + 마감
-     입력으로 유도한다. 저장 시 isSpecial은 마감이 있을 때만 유지된다. */
+  if(!toggle)return;
+  toggle.checked=!!isSpecial;
   toggle.disabled=false;
-  var clearIfNoDeadline=function(){ if(!dl.value){ toggle.checked=false; } };
-  dl.oninput=clearIfNoDeadline; dl.onchange=clearIfNoDeadline;
-  var hint=function(){
-    if(typeof showToast==='function')showToast('마감일을 먼저 정하면 특별 일정(디데이)으로 표시돼요');
-    try{ dl.focus(); if(dl.showPicker)dl.showPicker(); }catch(_e){}
-  };
-  toggle.onclick=function(){ if(toggle.checked && !dl.value){ toggle.checked=false; hint(); } };
+  toggle.onclick=null;
   var row=toggle.closest('.modal-row');
   if(row && !row._specialBound){
     row._specialBound=true; row.style.cursor='pointer';
     row.addEventListener('click',function(e){
-      if(e.target===toggle) return; /* 체크박스 자체 클릭은 onclick이 처리 */
-      if(!dl.value){ toggle.checked=false; hint(); return; }
+      if(e.target===toggle) return; /* 체크박스 자체 클릭은 기본 동작 */
       toggle.checked=!toggle.checked;
     });
   }
