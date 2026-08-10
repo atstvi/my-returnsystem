@@ -3075,6 +3075,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .task-goalsub{margin:2px 0 2px var(--sp-3);border-left:2px solid color-mix(in srgb,var(--fg) 8%,transparent);padding-left:var(--sp-2)}
 .task-goalsub-head .task-projsub-name{color:var(--fg-1)}
 .task-goalsub-range{font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums;margin-left:var(--sp-1)}
+.goal-daysuffix{color:var(--fg-3);font-weight:var(--fw-medium)}
+.goal-daylabel-btn{border:0;background:none;color:var(--fg-4);cursor:pointer;font-size:11px;padding:2px 4px;flex:none;opacity:.7}
+.goal-daylabel-btn:hover{color:var(--accent);opacity:1}
 
 /* ── TASK ITEM ── */
 .task-item{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-3);border-radius:var(--r-lg);cursor:pointer;position:relative;transition:background var(--t-snap);user-select:none}
@@ -3176,6 +3179,26 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .modal-memo-imgs .mmi-thumb{position:relative;width:64px;height:64px;border-radius:var(--r-md,12px);overflow:hidden;background:color-mix(in srgb,var(--fg) 6%,transparent);cursor:zoom-in;flex:0 0 auto}
 .modal-memo-imgs .mmi-thumb img{width:100%;height:100%;object-fit:cover;display:block}
 .modal-memo-imgs .mmi-del{position:absolute;top:3px;right:3px;width:18px;height:18px;border:none;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+/* 하위 항목(체크리스트) editor in the task modal */
+.modal-subs-edit{padding-left:calc(20px + var(--sp-5));margin-top:var(--sp-3)}
+.modal-subs-edit:empty{display:none}
+.msub-head{display:flex;align-items:center;gap:var(--sp-2);margin-bottom:var(--sp-2)}
+.msub-title{font-size:var(--text-xs);font-weight:var(--fw-bold);color:var(--fg-3);letter-spacing:.02em}
+.msub-count{font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums}
+.msub-list{display:flex;flex-direction:column;gap:2px}
+.msub-row{display:flex;align-items:center;gap:var(--sp-2)}
+.msub-check{width:17px;height:17px;flex:none;border:1.6px solid var(--border);border-radius:5px;background:transparent;cursor:pointer;padding:0;position:relative;transition:background var(--t-snap),border-color var(--t-snap)}
+.msub-check.done{background:var(--accent);border-color:var(--accent)}
+.msub-check.done::after{content:'✓';position:absolute;inset:0;color:#fff;font-size:11px;line-height:15px;text-align:center}
+.msub-text{flex:1;min-width:0;border:0;border-bottom:1px solid transparent;background:transparent;color:var(--fg-1);font-family:inherit;font-size:var(--text-sm);padding:3px 2px}
+.msub-text:focus{outline:none;border-bottom-color:var(--border)}
+.msub-row.done .msub-text{text-decoration:line-through;color:var(--fg-4)}
+.msub-del{border:0;background:none;color:var(--fg-4);cursor:pointer;font-size:15px;line-height:1;padding:0 4px;flex:none}
+.msub-del:hover{color:var(--danger)}
+.msub-add{margin-top:var(--sp-1)}
+.msub-addinp{width:100%;border:0;background:transparent;color:var(--fg-2);font-family:inherit;font-size:var(--text-sm);padding:4px 2px}
+.msub-addinp:focus{outline:none}
+.msub-addinp::placeholder{color:var(--fg-4)}
 .modal-row{display:flex;align-items:center;gap:var(--sp-5);min-height:38px;padding:0 var(--sp-10);cursor:pointer;transition:background var(--t-snap)}
 .modal-row:hover{background:var(--bg-hover)}
 .mr-icon{width:26px;height:24px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
@@ -8083,6 +8106,7 @@ to{opacity:1;transform:translateY(0)}}
       </div>
       <textarea class="modal-memo" id="modalMemo" rows="2" placeholder="메모 추가..."></textarea>
       <div class="modal-memo-imgs" id="modalMemoImgs" hidden></div>
+      <div class="modal-subs-edit" id="modalSubs"></div>
     </div>
     <div class="modal-body task-edit-body">
       <section class="task-modal-section task-modal-section-primary" aria-label="일정">
@@ -21667,14 +21691,39 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
 /* Goal sub-group inside a project group — 목표로 묶인 할일들, 기본 접힘.
    Expand state is remembered per goal across re-renders (default collapsed). */
 var _goalTaskGroupOpen={};
+/* 오늘 날짜(selDate)에 대해 목표 이름 뒤에 덧붙일 말 — 날마다 다르게 쓸 수 있게
+   goal.dayLabels[date]에 저장. 비우면 목표 이름만. */
+function _editGoalDayLabel(goal){
+  if(typeof openFormDialog!=='function'||!goal)return;
+  var dstr=selDate;
+  var cur=(goal.dayLabels&&goal.dayLabels[dstr])?String(goal.dayLabels[dstr]):'';
+  openFormDialog(goal.title+' — 이름 덧붙이기',[
+    {key:'label',label:'"'+goal.title+'" 뒤에 붙일 말',value:cur,help:(dstr||'오늘')+' 이 날짜에만 적용돼요. 비우면 목표 이름만 표시해요.'}
+  ],function(d){
+    var v=(d.label||'').trim();
+    if(!goal.dayLabels)goal.dayLabels={};
+    if(v)goal.dayLabels[dstr]=v; else delete goal.dayLabels[dstr];
+    goal.updatedAt=Date.now();
+    var gg=(typeof findGoal==='function')?findGoal(goal.id):null; if(gg)gg.project.updatedAt=Date.now();
+    if(typeof saveProjects==='function')saveProjects();
+    if(typeof renderList==='function')renderList();
+  });
+}
 function _goalSubGroup(goal,list){
   var g=document.createElement('div'); g.className='task-projsub task-goalsub'+(_goalTaskGroupOpen[goal.id]?'':' collapsed');
   var col=goal.color||'#BE727A';
   var sp=(typeof goalSpan==='function')?goalSpan(goal):{start:'',end:''};
   var rangeTxt=sp.start?((typeof _goalFmt==='function'?_goalFmt(sp.start):sp.start)+'~'+(typeof _goalFmt==='function'?_goalFmt(sp.end):sp.end)):'';
+  var doneN=list.filter(function(t){return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done;}).length;
+  var daySuffix=(goal.dayLabels&&goal.dayLabels[selDate])?String(goal.dayLabels[selDate]):'';
   var gh=document.createElement('div'); gh.className='task-projsub-head task-goalsub-head';
-  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+col+'"></span><span class="task-projsub-name">🎯 '+tEscHtml(goal.title)+'</span>'+(rangeTxt?'<span class="task-goalsub-range">'+tEscHtml(rangeTxt)+'</span>':'')+'<span class="task-projsub-count">'+list.length+'</span>';
-  gh.addEventListener('click',function(){ g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
+  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+col+'"></span>'
+    +'<span class="task-projsub-name">🎯 '+tEscHtml(goal.title)+(daySuffix?'<span class="goal-daysuffix"> · '+tEscHtml(daySuffix)+'</span>':'')+'</span>'
+    +'<button type="button" class="goal-daylabel-btn" title="오늘 이름 덧붙이기">✎</button>'
+    +(rangeTxt?'<span class="task-goalsub-range">'+tEscHtml(rangeTxt)+'</span>':'')
+    +'<span class="task-projsub-count">'+doneN+'/'+list.length+'</span>';
+  gh.addEventListener('click',function(e){ if(e.target.closest('.goal-daylabel-btn'))return; g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
+  var eb=gh.querySelector('.goal-daylabel-btn'); if(eb)eb.addEventListener('click',function(e){ e.stopPropagation(); _editGoalDayLabel(goal); });
   var gb=document.createElement('div'); gb.className='task-projsub-body';
   orderTaskSubset(list).forEach(function(t){ gb.appendChild(buildTaskEl(t)); });
   g.appendChild(gh); g.appendChild(gb);
@@ -22316,6 +22365,7 @@ function tasksOpenNewModal(seed){
   document.getElementById('modalTitle').value=taskModalDraft.text;
   document.getElementById('modalMemo').value=taskModalDraft.note||'';
   renderTaskModalImgs(taskModalDraft);
+  renderTaskModalSubs(taskModalDraft,function(){});
   document.getElementById('modal-date-input').value=taskModalDraft.date||selDate||TK;
   document.getElementById('modal-dl-input').value=taskModalDraft.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=taskModalDraft.deadlineTime||'';
@@ -22369,6 +22419,33 @@ function openReturnImageOverlay(ref){
 }
 /* Render the photo strip under the task memo from task.imgs (carried over from
    inbox → 할일 conversion). Thumbnails open full-screen; × removes one. */
+/* 하위 항목(체크리스트) editor for any task — reads/writes obj.subs
+   ([{text,done}]). `commit` persists (existing task → saveTaskData; new draft →
+   no-op, saved when the modal is submitted). Works for 일반 할일 and 목표 할일 모두. */
+function renderTaskModalSubs(obj, commit){
+  var host=document.getElementById('modalSubs'); if(!host)return;
+  var _e=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});};
+  if(!Array.isArray(obj.subs))obj.subs=[];
+  var subs=obj.subs;
+  var doneN=subs.filter(function(s){return s&&s.done;}).length;
+  host.innerHTML='<div class="msub-head"><span class="msub-title">체크리스트</span>'+(subs.length?'<span class="msub-count">'+doneN+'/'+subs.length+'</span>':'')+'</div>'
+    +'<div class="msub-list">'+subs.map(function(s,i){
+      return '<div class="msub-row'+(s.done?' done':'')+'"><button type="button" class="msub-check'+(s.done?' done':'')+'" data-sub-toggle="'+i+'" aria-label="완료 토글"></button>'
+        +'<input class="msub-text" data-sub-text="'+i+'" type="text" value="'+_e(s.text||'')+'" placeholder="항목">'
+        +'<button type="button" class="msub-del" data-sub-del="'+i+'" aria-label="삭제">×</button></div>';
+    }).join('')+'</div>'
+    +'<div class="msub-add"><input class="msub-addinp" id="msub-addinp" type="text" placeholder="＋ 하위 항목 추가"></div>';
+  host.querySelectorAll('[data-sub-toggle]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-toggle'); if(subs[i]){subs[i].done=!subs[i].done; obj.updatedAt=Date.now(); commit(); renderTaskModalSubs(obj,commit);} });});
+  host.querySelectorAll('[data-sub-del]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-del'); subs.splice(i,1); obj.updatedAt=Date.now(); commit(); renderTaskModalSubs(obj,commit); });});
+  host.querySelectorAll('[data-sub-text]').forEach(function(inp){
+    inp.addEventListener('change',function(){ var i=+inp.getAttribute('data-sub-text'); if(subs[i]){subs[i].text=inp.value; obj.updatedAt=Date.now(); commit();} });
+    inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault(); var add=document.getElementById('msub-addinp'); if(add)add.focus();} });
+  });
+  var addInp=document.getElementById('msub-addinp');
+  if(addInp)addInp.addEventListener('keydown',function(e){
+    if(e.key==='Enter'){ e.preventDefault(); var t=(addInp.value||'').trim(); if(!t)return; subs.push({text:t,done:false}); obj.updatedAt=Date.now(); commit(); renderTaskModalSubs(obj,commit); var ni=document.getElementById('msub-addinp'); if(ni)ni.focus(); }
+  });
+}
 function renderTaskModalImgs(task){
   var host=document.getElementById('modalMemoImgs'); if(!host)return;
   var _e=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});};
@@ -22413,6 +22490,7 @@ function tasksOpenModal(task){
   document.getElementById('modalTitle').value=task.text;
   document.getElementById('modalMemo').value=task.note||'';
   renderTaskModalImgs(task);
+  renderTaskModalSubs(task,function(){ if(typeof saveTaskData==='function')saveTaskData(); if(typeof renderCal==='function')renderCal(); });
   document.getElementById('modal-date-input').value=task.date||selDate||TK;
   document.getElementById('modal-dl-input').value=task.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=task.deadlineTime||'';
@@ -28184,6 +28262,7 @@ function openGoalEditor(project,goal){
     project.updatedAt=Date.now();
     if(typeof saveProjects==='function')saveProjects();
     if(typeof renderProjects==='function')renderProjects();
+    if(typeof showToast==='function')showToast(goal?'목표를 수정했어요':'목표 "'+title+'"를 추가했어요');
   });
 }
 function deleteProjectSafely(project){
@@ -28887,7 +28966,8 @@ function _goalFmt(ds){ try{ var p=String(ds).split('-'); return (+p[1])+'/'+(+p[
 function projectGoalsHtml(project){
   var goals=projectGoals(project);
   if(!goals.length){
-    return projectStudioEmpty('아직 목표가 없어요','목표를 만들고 아래 프로젝트 할일을 목표로 드래그해 담아보세요. 기간을 정하면 타임라인에 기간 막대로 표시돼요.','project-add-goal-empty','목표 추가');
+    /* 상단 '＋ 목표' 버튼과 중복되지 않도록 빈 상태엔 버튼을 두지 않는다. */
+    return projectStudioEmpty('아직 목표가 없어요','오른쪽 위 ＋ 목표로 만들고, 아래 프로젝트 할일을 목표로 드래그해 담아보세요. 기간을 정하면 타임라인에 기간 막대로 표시돼요.',null,'');
   }
   var cards=goals.map(function(g){
     var sp=goalSpan(g), ts=goalTasks(g.id), pct=goalProgress(g.id), col=g.color||GOAL_COLORS[0];
