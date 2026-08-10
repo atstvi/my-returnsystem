@@ -3075,6 +3075,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .task-goalsub{margin:2px 0 2px var(--sp-3);border-left:2px solid color-mix(in srgb,var(--fg) 8%,transparent);padding-left:var(--sp-2)}
 .task-goalsub-head .task-projsub-name{color:var(--fg-1)}
 .task-goalsub-range{font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums;margin-left:var(--sp-1)}
+.goal-daysuffix{color:var(--fg-3);font-weight:var(--fw-medium)}
+.goal-daylabel-btn{border:0;background:none;color:var(--fg-4);cursor:pointer;font-size:11px;padding:2px 4px;flex:none;opacity:.7}
+.goal-daylabel-btn:hover{color:var(--accent);opacity:1}
 
 /* ── TASK ITEM ── */
 .task-item{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-3);border-radius:var(--r-lg);cursor:pointer;position:relative;transition:background var(--t-snap);user-select:none}
@@ -21667,14 +21670,39 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
 /* Goal sub-group inside a project group — 목표로 묶인 할일들, 기본 접힘.
    Expand state is remembered per goal across re-renders (default collapsed). */
 var _goalTaskGroupOpen={};
+/* 오늘 날짜(selDate)에 대해 목표 이름 뒤에 덧붙일 말 — 날마다 다르게 쓸 수 있게
+   goal.dayLabels[date]에 저장. 비우면 목표 이름만. */
+function _editGoalDayLabel(goal){
+  if(typeof openFormDialog!=='function'||!goal)return;
+  var dstr=selDate;
+  var cur=(goal.dayLabels&&goal.dayLabels[dstr])?String(goal.dayLabels[dstr]):'';
+  openFormDialog(goal.title+' — 이름 덧붙이기',[
+    {key:'label',label:'"'+goal.title+'" 뒤에 붙일 말',value:cur,help:(dstr||'오늘')+' 이 날짜에만 적용돼요. 비우면 목표 이름만 표시해요.'}
+  ],function(d){
+    var v=(d.label||'').trim();
+    if(!goal.dayLabels)goal.dayLabels={};
+    if(v)goal.dayLabels[dstr]=v; else delete goal.dayLabels[dstr];
+    goal.updatedAt=Date.now();
+    var gg=(typeof findGoal==='function')?findGoal(goal.id):null; if(gg)gg.project.updatedAt=Date.now();
+    if(typeof saveProjects==='function')saveProjects();
+    if(typeof renderList==='function')renderList();
+  });
+}
 function _goalSubGroup(goal,list){
   var g=document.createElement('div'); g.className='task-projsub task-goalsub'+(_goalTaskGroupOpen[goal.id]?'':' collapsed');
   var col=goal.color||'#BE727A';
   var sp=(typeof goalSpan==='function')?goalSpan(goal):{start:'',end:''};
   var rangeTxt=sp.start?((typeof _goalFmt==='function'?_goalFmt(sp.start):sp.start)+'~'+(typeof _goalFmt==='function'?_goalFmt(sp.end):sp.end)):'';
+  var doneN=list.filter(function(t){return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done;}).length;
+  var daySuffix=(goal.dayLabels&&goal.dayLabels[selDate])?String(goal.dayLabels[selDate]):'';
   var gh=document.createElement('div'); gh.className='task-projsub-head task-goalsub-head';
-  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+col+'"></span><span class="task-projsub-name">🎯 '+tEscHtml(goal.title)+'</span>'+(rangeTxt?'<span class="task-goalsub-range">'+tEscHtml(rangeTxt)+'</span>':'')+'<span class="task-projsub-count">'+list.length+'</span>';
-  gh.addEventListener('click',function(){ g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
+  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+col+'"></span>'
+    +'<span class="task-projsub-name">🎯 '+tEscHtml(goal.title)+(daySuffix?'<span class="goal-daysuffix"> · '+tEscHtml(daySuffix)+'</span>':'')+'</span>'
+    +'<button type="button" class="goal-daylabel-btn" title="오늘 이름 덧붙이기">✎</button>'
+    +(rangeTxt?'<span class="task-goalsub-range">'+tEscHtml(rangeTxt)+'</span>':'')
+    +'<span class="task-projsub-count">'+doneN+'/'+list.length+'</span>';
+  gh.addEventListener('click',function(e){ if(e.target.closest('.goal-daylabel-btn'))return; g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
+  var eb=gh.querySelector('.goal-daylabel-btn'); if(eb)eb.addEventListener('click',function(e){ e.stopPropagation(); _editGoalDayLabel(goal); });
   var gb=document.createElement('div'); gb.className='task-projsub-body';
   orderTaskSubset(list).forEach(function(t){ gb.appendChild(buildTaskEl(t)); });
   g.appendChild(gh); g.appendChild(gb);
