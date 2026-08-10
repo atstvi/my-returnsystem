@@ -3071,13 +3071,31 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .task-projsub-count{margin-left:auto;font-size:var(--text-xs);color:var(--fg-4);font-variant-numeric:tabular-nums}
 .task-projsub-body{padding-left:var(--sp-5)}
 .task-projsub.collapsed .task-projsub-body{display:none}
-/* 목표 하위 그룹 (할일 탭) */
-.task-goalsub{margin:2px 0 2px var(--sp-3);border-left:2px solid color-mix(in srgb,var(--fg) 8%,transparent);padding-left:var(--sp-2)}
-.task-goalsub-head .task-projsub-name{color:var(--fg-1)}
-.task-goalsub-range{font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums;margin-left:var(--sp-1)}
+/* 목표 = 하나의 할일 항목 + 담긴 할일이 체크리스트 하위 항목 (할일 탭) */
+.task-goalitem{background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--r-lg);margin:var(--sp-2) 0;overflow:hidden;box-shadow:var(--elev-1)}
+.task-goalitem.done{opacity:.72}
+.task-goalitem-head{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-3) var(--sp-4);cursor:pointer}
+.gti-caret{font-size:10px;color:var(--fg-4);transition:transform var(--t-snap);flex:none}
+.task-goalitem:not(.collapsed) .gti-caret{transform:rotate(90deg)}
+.gti-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.gti-name{flex:1;min-width:0;font-size:var(--text-base);font-weight:var(--fw-bold);color:var(--fg-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-goalitem.done .gti-name{text-decoration:line-through;color:var(--fg-4)}
 .goal-daysuffix{color:var(--fg-3);font-weight:var(--fw-medium)}
 .goal-daylabel-btn{border:0;background:none;color:var(--fg-4);cursor:pointer;font-size:11px;padding:2px 4px;flex:none;opacity:.7}
 .goal-daylabel-btn:hover{color:var(--accent);opacity:1}
+.gti-count{flex:none;border:0;background:color-mix(in srgb,var(--gc,var(--accent)) 14%,transparent);color:var(--gc,var(--accent));font-size:var(--text-2xs);font-weight:var(--fw-bold);border-radius:var(--r-full);padding:2px 9px;cursor:pointer;font-variant-numeric:tabular-nums}
+.gti-prog{height:3px;background:color-mix(in srgb,var(--fg) 7%,transparent)}
+.gti-prog>span{display:block;height:100%}
+.task-goalitem-subs{padding:var(--sp-2) var(--sp-4) var(--sp-3) calc(var(--sp-4) + 15px)}
+.task-goalitem.collapsed .task-goalitem-subs,.task-goalitem.collapsed .gti-prog{display:none}
+.gti-sub{display:flex;align-items:center;gap:var(--sp-3);padding:3px 0}
+.gti-subcheck{width:18px;height:18px;flex:none;border:1.6px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;padding:0;position:relative}
+.gti-subcheck.done{background:var(--gc,var(--accent));border-color:var(--gc,var(--accent))}
+.gti-subcheck.done::after{content:'✓';position:absolute;inset:0;color:#fff;font-size:12px;line-height:16px;text-align:center}
+.gti-subtext{flex:1;min-width:0;font-size:var(--text-sm);color:var(--fg-1);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gti-sub.done .gti-subtext{text-decoration:line-through;color:var(--fg-4)}
+.gti-subbadge{flex:none;font-size:var(--text-2xs);color:var(--fg-4);background:var(--bg-sunken);border-radius:var(--r-full);padding:1px 6px}
+.gti-submeta{flex:none;font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums}
 
 /* ── TASK ITEM ── */
 .task-item{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) var(--sp-3);border-radius:var(--r-lg);cursor:pointer;position:relative;transition:background var(--t-snap);user-select:none}
@@ -21709,24 +21727,46 @@ function _editGoalDayLabel(goal){
     if(typeof renderList==='function')renderList();
   });
 }
+/* 목표 = 하나의 '할일'로 렌더(이름=목표명 + 날짜별 덧붙임), 담긴 할일들은 그
+   할일의 하위 항목(체크리스트)으로 들어간다. 종속 목표가 없는 할일은 개별
+   할일로 그대로 렌더(_projSubGroup에서 buildTaskEl). 기본 접힘. */
+function _goalTaskDone(t){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; }
 function _goalSubGroup(goal,list){
-  var g=document.createElement('div'); g.className='task-projsub task-goalsub'+(_goalTaskGroupOpen[goal.id]?'':' collapsed');
   var col=goal.color||'#BE727A';
-  var sp=(typeof goalSpan==='function')?goalSpan(goal):{start:'',end:''};
-  var rangeTxt=sp.start?((typeof _goalFmt==='function'?_goalFmt(sp.start):sp.start)+'~'+(typeof _goalFmt==='function'?_goalFmt(sp.end):sp.end)):'';
-  var doneN=list.filter(function(t){return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done;}).length;
+  var open=!!_goalTaskGroupOpen[goal.id];
+  var doneN=list.filter(_goalTaskDone).length, tot=list.length;
+  var pct=tot?Math.round(doneN/tot*100):0, allDone=tot>0&&doneN===tot;
   var daySuffix=(goal.dayLabels&&goal.dayLabels[selDate])?String(goal.dayLabels[selDate]):'';
-  var gh=document.createElement('div'); gh.className='task-projsub-head task-goalsub-head';
-  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+col+'"></span>'
-    +'<span class="task-projsub-name">🎯 '+tEscHtml(goal.title)+(daySuffix?'<span class="goal-daysuffix"> · '+tEscHtml(daySuffix)+'</span>':'')+'</span>'
-    +'<button type="button" class="goal-daylabel-btn" title="오늘 이름 덧붙이기">✎</button>'
-    +(rangeTxt?'<span class="task-goalsub-range">'+tEscHtml(rangeTxt)+'</span>':'')
-    +'<span class="task-projsub-count">'+doneN+'/'+list.length+'</span>';
-  gh.addEventListener('click',function(e){ if(e.target.closest('.goal-daylabel-btn'))return; g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
-  var eb=gh.querySelector('.goal-daylabel-btn'); if(eb)eb.addEventListener('click',function(e){ e.stopPropagation(); _editGoalDayLabel(goal); });
-  var gb=document.createElement('div'); gb.className='task-projsub-body';
-  orderTaskSubset(list).forEach(function(t){ gb.appendChild(buildTaskEl(t)); });
-  g.appendChild(gh); g.appendChild(gb);
+  var g=document.createElement('div'); g.className='task-goalitem'+(allDone?' done':'')+(open?'':' collapsed'); g.style.setProperty('--gc',col);
+
+  var head=document.createElement('div'); head.className='task-goalitem-head';
+  head.innerHTML='<span class="gti-caret">▸</span>'
+    +'<span class="gti-dot" style="background:'+col+'"></span>'
+    +'<span class="gti-name">🎯 '+tEscHtml(goal.title)+(daySuffix?'<span class="goal-daysuffix"> · '+tEscHtml(daySuffix)+'</span>':'')+'</span>'
+    +'<button type="button" class="goal-daylabel-btn" title="이름 덧붙이기">✎</button>'
+    +'<button type="button" class="gti-count" title="모두 완료/해제 토글">'+doneN+'/'+tot+'</button>';
+  head.addEventListener('click',function(e){ if(e.target.closest('.goal-daylabel-btn')||e.target.closest('.gti-count'))return; g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
+  head.querySelector('.goal-daylabel-btn').addEventListener('click',function(e){ e.stopPropagation(); _editGoalDayLabel(goal); });
+  head.querySelector('.gti-count').addEventListener('click',function(e){ e.stopPropagation(); var target=!allDone; list.forEach(function(t){ t.done=target; t.updatedAt=Date.now(); }); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
+
+  var prog=document.createElement('div'); prog.className='gti-prog'; prog.innerHTML='<span style="width:'+pct+'%;background:'+col+'"></span>';
+
+  var subs=document.createElement('div'); subs.className='task-goalitem-subs';
+  orderTaskSubset(list).forEach(function(t){
+    var done=_goalTaskDone(t);
+    var meta=[]; if(t.timeStart)meta.push(t.timeStart); if(t.deadlineDate)meta.push('~'+(typeof _goalFmt==='function'?_goalFmt(t.deadlineDate):t.deadlineDate));
+    var ownSubs=(Array.isArray(t.subs)&&t.subs.length)?(t.subs.filter(function(s){return s.done;}).length+'/'+t.subs.length):'';
+    var sr=document.createElement('div'); sr.className='gti-sub'+(done?' done':'');
+    sr.innerHTML='<button type="button" class="gti-subcheck'+(done?' done':'')+'" aria-label="완료 토글"></button>'
+      +'<span class="gti-subtext">'+tEscHtml(t.text)+'</span>'
+      +(ownSubs?'<span class="gti-subbadge">☑ '+ownSubs+'</span>':'')
+      +(meta.length?'<span class="gti-submeta">'+tEscHtml(meta.join(' · '))+'</span>':'');
+    sr.querySelector('.gti-subcheck').addEventListener('click',function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
+    sr.querySelector('.gti-subtext').addEventListener('click',function(e){ e.stopPropagation(); if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
+    subs.appendChild(sr);
+  });
+
+  g.appendChild(head); g.appendChild(prog); g.appendChild(subs);
   return g;
 }
 function _projSubGroup(name,color,list,emoji){
