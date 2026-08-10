@@ -35972,7 +35972,15 @@ function loadHabitNotionConfig(){
     if(!shared.workerUrl) st.textContent='먼저 위 일기 Notion의 Worker URL을 설정해주세요';
     else if(!_habitNotionCfg.dbId) st.textContent='DB ID를 입력해주세요';
     else if(!_habitNotionCfg.pageId) st.textContent='"페이지 불러오기"로 대상 페이지를 선택해주세요';
-    else st.textContent='연결됨 — "'+(_habitNotionCfg.pageTitle||'선택된 페이지')+'"에 해빗 변경 시 자동 전송';
+    else {
+      st.textContent='연결됨 — "'+(_habitNotionCfg.pageTitle||'선택된 페이지')+'"에 해빗 변경 시 자동 전송';
+      /* 자동 전송은 조용히 동작하므로, 마지막 자동 전송이 실패했다면 여기서만
+         이유를 보여준다(토스트 도배 없이 진단 가능하게). */
+      try{
+        var _tr=_habitNotionTrace[_habitNotionTrace.length-1];
+        if(_tr&&_tr.stage==='fail') st.textContent='마지막 자동 전송 실패: '+_tr.detail+' — "지금 전송"으로 확인/재시도하세요';
+      }catch(_e){}
+    }
   }
   var row=document.getElementById('habit-notion-row');
   if(row)row.setAttribute('data-state', (getNotionCfg().workerUrl&&_habitNotionCfg.dbId&&_habitNotionCfg.pageId)?'ok':'');
@@ -36036,6 +36044,17 @@ function queueHabitNotionSave(){
   var cfg=getHabitNotionCfg();
   if(!cfg.dbId||!cfg.leftProp||!cfg.rightProp||!cfg.pageId){ _hnTrace('skip','설정 미완료(DB/속성/페이지)'); return; }
   if(!getNotionCfg().workerUrl){ _hnTrace('skip','Worker URL 없음'); return; }
+  /* 상태 변화가 없으면 자동 전송하지 않는다. saveRoutineData()는 새로고침 시
+     중복 정리(heal)·데모 정리·다른 기기 동기화 적용 등으로도 호출되는데, 그때
+     오늘 해빗 상태는 그대로다. 시그니처(오늘 상태)가 마지막 전송 시도와 같으면
+     새로 보내지 않아, 새로고침·기기 전환마다 전송이 재발화하던 문제를 막는다. */
+  var _sig=null;
+  try{ var _t=habitNotionBuildTexts(); _sig=_t.left+'␟'+_t.right; }catch(_e){ _sig=null; }
+  if(_sig!=null){
+    var _last=null; try{ _last=localStorage.getItem('habit_notion_last_sig'); }catch(_e2){}
+    if(_last===_sig){ _hnTrace('skip','상태 변화 없음'); return; }
+    try{ localStorage.setItem('habit_notion_last_sig', _sig); }catch(_e3){}
+  }
   _hnTrace('armed', cfg.pageTitle||cfg.pageId);
   clearTimeout(_habitNotionSaveTimer);
   _habitNotionSaveTimer=setTimeout(function(){ syncHabitStatusToNotion({silent:true}); },600);
@@ -36078,12 +36097,11 @@ async function syncHabitStatusToNotion(opts){
     var msg=(e&&e.message)||String(e);
     _hnTrace('fail', msg);
     console.warn('[habit-notion] sync failed:', msg);
-    /* 자동(silent) 전송 실패도 "왜 안 보내지는지" 알 수 있게 표시하되, 토글마다
-       토스트가 도배되지 않도록 60초에 한 번만. 수동은 항상 표시. */
-    if(opts.silent){
-      var now=Date.now();
-      if(now-_habitNotionLastErrToastMs>60000){ _habitNotionLastErrToastMs=now; if(typeof showToast==='function')showToast('해빗 Notion 전송 실패: '+msg+' (속성 타입/페이지 확인)'); }
-    }else if(typeof showToast==='function'){ showToast('해빗 Notion 전송 실패: '+msg); }
+    /* 자동(silent) 전송 실패는 토스트를 띄우지 않는다 — 새로고침·기기 전환 때마다,
+       그리고 Notion 토큰이 없는 다른 기기(토큰은 기기-로컬)에서 실패 토스트가
+       도배되던 문제. 실패 원인은 _hnTrace('fail')·콘솔에 남고, 설정의 "지금 전송"
+       (수동)은 여전히 오류를 표시한다. */
+    if(!opts.silent && typeof showToast==='function'){ showToast('해빗 Notion 전송 실패: '+msg); }
   }finally{
     _habitNotionSyncActive=false;
   }
