@@ -127,4 +127,27 @@ const t = runner('Tombstone registry');
   t.ok('markMany: all eids present', ['a_1','a_2','a_3'].every((e) => e in ts), Object.keys(ts));
 }
 
+// ── 9. inbox/task union-merge resurrection guard ─────────────────────────────
+//   블롭 union-merge(fbApplyData)는 클라우드 배열에서 시작하므로, 이 기기에서 지운
+//   항목이 클라우드 블롭에 남아 있으면 되살아난다("삭제해도 다시 생김"). 병합 결과에
+//   returnEntityFilterTombstoned를 적용해 tombstone이 이긴 항목을 떨어뜨린다. 단,
+//   삭제 후 재생성된(더 최신 updatedAt) 항목은 살아남아야 한다.
+{
+  const { sb } = makeSandbox();
+  sb.Date = { now: () => 9000 };
+  sb.returnTombstoneMark('ib_del', 'inbox');   // 삭제 시각 9000
+  // 클라우드 블롭에서 온 병합 결과(삭제된 것 + 재생성된 것 + 그대로인 것)
+  const merged = [
+    { _eid: 'ib_del',  id: 1, text: '지운 인박스',   updatedAt: 4000 }, // 4000 < 9000 → 제거
+    { _eid: 'ib_recr', id: 2, text: '지웠다 다시 씀', updatedAt: 12000 }, // 재생성(최신) → 유지
+    { _eid: 'ib_keep', id: 3, text: '멀쩡한 인박스', updatedAt: 4000 }, // tombstone 없음 → 유지
+  ];
+  sb.returnTombstoneMark('ib_recr', 'inbox');  // 삭제 9000 < 재생성 12000 → 유지되어야
+  const out = sb.returnEntityFilterTombstoned(merged);
+  const ids = out.map((e) => e && e.id);
+  t.ok('deleted inbox item does not resurrect', !ids.includes(1), ids);
+  t.ok('recreated (newer) item survives', ids.includes(2), ids);
+  t.ok('untouched item survives', ids.includes(3), ids);
+}
+
 t.done();
