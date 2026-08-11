@@ -34175,8 +34175,14 @@ function fbApplyData(data){
                  cleaned value back to cloud when anything changed. */
               var _mergedArr=_lwwArr.concat(_localArrOnly);
               var _dd=returnDedupById(_mergedArr);
-              if(_localArrOnly.length||_dd.removed>0||_lwwChanged){
-                _fbWriter(k,JSON.stringify(_dd.arr));
+              /* 삭제된(tombstone) 항목이 클라우드 블롭에 남아 되살아나는 것 방지 —
+                 union-merge는 클라우드 배열에서 시작하므로 이 기기에서 지운 항목도
+                 그대로 살아남았다. _eid 기준으로 tombstone이 이긴(더 최신) 항목 제거.
+                 (인박스·할일·프로젝트가 "삭제해도 다시 생기는" 원인.) */
+              var _ddArr=_dd.arr, _tombRemoved=0;
+              if(typeof returnEntityFilterTombstoned==='function'){ var _btN=_ddArr.length; _ddArr=returnEntityFilterTombstoned(_ddArr); _tombRemoved=_btN-_ddArr.length; }
+              if(_localArrOnly.length||_dd.removed>0||_lwwChanged||_tombRemoved>0){
+                _fbWriter(k,JSON.stringify(_ddArr));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
@@ -34972,8 +34978,11 @@ async function fbSaveNow(opts){
                 var created=Number(t.createdAt||t.ts||0);
                 return created>localApplyBaseline;
               });
-              if(_snLocalOnly.length||_snLwwChanged){
-                valueToAbsorb=JSON.stringify(_snLwwArr.concat(_snLocalOnly));
+              /* 삭제된(tombstone) 항목이 되살아나지 않도록 병합 결과에서 제거(_eid 기준). */
+              var _snMerged=_snLwwArr.concat(_snLocalOnly), _snTombRemoved=0;
+              if(typeof returnEntityFilterTombstoned==='function'){ var _sbt=_snMerged.length; _snMerged=returnEntityFilterTombstoned(_snMerged); _snTombRemoved=_sbt-_snMerged.length; }
+              if(_snLocalOnly.length||_snLwwChanged||_snTombRemoved>0){
+                valueToAbsorb=JSON.stringify(_snMerged);
               }
             }
           }catch(_ae){}
