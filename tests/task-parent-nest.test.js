@@ -20,6 +20,7 @@ function makeCtx(taskList) {
     tasks: taskList,
     Date: Date,
     taskEffectiveDone: (t) => !!(t && t.done),
+    orderTaskSubset: (l) => (l || []).slice(),
   };
   const ctx = vm.createContext(sb);
   vm.runInContext(block, ctx);
@@ -60,25 +61,39 @@ const r = runner('task parent/child nesting — taskSetParent');
   r.ok('A stays top-level', A.parentId==null, 'A.parentId='+A.parentId);
 }
 
-/* 4. 한 단계 유지 — 부모(A, 자식 B)를 C 아래로 넣으면 B도 C로 승격 */
+/* 4. 깊은 위계 유지 — 부모(A, 자식 B)를 C 아래로 넣으면 B는 A의 하위로 유지(=C의 손자) */
 {
   const A=T(1), B=T(2), C=T(3);
   const ctx=makeCtx([A,B,C]);
   vm.runInContext('taskSetParent(_taskById(2),1)',ctx); // B under A
-  vm.runInContext('taskSetParent(_taskById(1),3)',ctx); // A under C → B promoted to C
+  vm.runInContext('taskSetParent(_taskById(1),3)',ctx); // A under C
   r.ok('A under C', String(A.parentId)==='3', A.parentId);
-  r.ok('B promoted to C (no 2-level)', String(B.parentId)==='3', B.parentId);
-  r.ok('taskChildren(C) has A and B', vm.runInContext('taskChildren(3).length',ctx)===2, 'len');
-  r.ok('taskChildren(A) empty', vm.runInContext('taskChildren(1).length',ctx)===0, 'A kids');
+  r.ok('B stays under A (deep, not flattened)', String(B.parentId)==='1', B.parentId);
+  r.ok('taskChildren(C) = [A] only (direct)', vm.runInContext('taskChildren(3).length',ctx)===1, 'len');
+  r.ok('taskChildren(A) = [B]', vm.runInContext('taskChildren(1).length',ctx)===1, 'A kids');
+  r.ok('descendantRows(C) = 2 (A + B)', vm.runInContext('taskDescendantRows(3).length',ctx)===2, 'desc');
+  r.ok('B depth under C is 1', vm.runInContext('(taskDescendantRows(3).find(function(x){return String(x.t.id)==="2";})||{}).depth',ctx)===1, 'depth');
 }
 
-/* 5. 대상이 이미 자식이면 그 위(부모)로 붙어 한 단계 유지 */
+/* 5. 하위의 하위 — 자식 위에 놓으면 그 자식의 하위로(깊은 위계) */
 {
   const A=T(1), B=T(2), X=T(9);
   const ctx=makeCtx([A,B,X]);
   vm.runInContext('taskSetParent(_taskById(2),1)',ctx);   // B under A
-  vm.runInContext('taskSetParent(_taskById(9),2)',ctx);   // X onto B(자식) → X under A
-  r.ok('drop onto a child re-targets its parent', String(X.parentId)==='1', X.parentId);
+  vm.runInContext('taskSetParent(_taskById(9),2)',ctx);   // X under B (grandchild of A)
+  r.ok('X nests under the child (deep)', String(X.parentId)==='2', X.parentId);
+  r.ok('chain X→B→A', vm.runInContext('String(taskParentOf(_taskById(9)).id)',ctx)==='2' && vm.runInContext('String(taskParentOf(_taskById(2)).id)',ctx)==='1', 'chain');
+}
+
+/* 5b. 후손 아래로 조상 넣기 거부(순환) — A→B→X 에서 A를 X 하위로 */
+{
+  const A=T(1), B=T(2), X=T(9);
+  const ctx=makeCtx([A,B,X]);
+  vm.runInContext('taskSetParent(_taskById(2),1)',ctx); // B under A
+  vm.runInContext('taskSetParent(_taskById(9),2)',ctx); // X under B
+  const ok=vm.runInContext('taskSetParent(_taskById(1),9)',ctx); // A under X(후손) → 거부
+  r.ok('nesting under own descendant rejected', ok===false, 'ok='+ok);
+  r.ok('A stays top-level', A.parentId==null, 'A.parentId='+A.parentId);
 }
 
 /* 6. 종속 해제 */

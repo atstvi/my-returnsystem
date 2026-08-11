@@ -3196,8 +3196,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .sub-item.done .sub-text{text-decoration:line-through;color:var(--fg-4)}
 /* ── 상·하위 할일(부모/자식) ─────────────────────────────────────────────── */
 .task-children{margin-top:var(--sp-2);display:flex;flex-direction:column;gap:2px;padding-left:var(--sp-3);border-left:2px solid var(--border-subtle)}
-.task-child{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-2);border-radius:var(--r-sm);cursor:pointer;transition:background var(--t-snap)}
+.task-child{position:relative;display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-1) var(--sp-2);border-radius:var(--r-sm);cursor:pointer;transition:background var(--t-snap)}
 .task-child:hover{background:var(--bg-hover)}
+.task-child.nest-target::after{content:'';position:absolute;left:26px;right:8px;bottom:-1px;height:2px;border-radius:2px;background:var(--accent);pointer-events:none;animation:nestln .16s var(--t-snap) backwards}
+.task-child.nest-target::before{content:'';position:absolute;left:22px;bottom:-2.5px;width:6px;height:6px;border-radius:50%;background:var(--accent);pointer-events:none}
 .task-child.dragging{opacity:.5}
 .task-child-check{width:15px;height:15px;border-radius:50%;flex-shrink:0;box-shadow:0 0 0 1.5px var(--border-strong);background:transparent;cursor:pointer}
 .task-child-check.done{background:var(--success);box-shadow:0 0 0 1.5px var(--t-400)}
@@ -20195,19 +20197,36 @@ function taskParentOf(t){ if(!t||t.parentId==null||t.parentId==='')return null; 
 function taskIsNested(t){ return !!taskParentOf(t); }
 function taskChildren(id){ if(id==null||typeof tasks==='undefined')return []; return tasks.filter(function(t){ return t&&!t._travelOnly&&t.parentId!=null&&t.parentId!==''&&String(t.parentId)===String(id); }); }
 function taskChildrenDone(id){ var k=taskChildren(id); return { done:k.filter(function(t){return taskEffectiveDone(t);}).length, total:k.length }; }
-/* child를 parentId의 하위로 지정. parentId 없으면 종속 해제. 순환·다단계 방지. */
+/* child를 parentId의 하위로 지정. parentId 없으면 종속 해제. 위계 깊이 제한은 없음
+   (하위의 하위… 무제한). 순환만 방지 — 새 상위가 child 자신이거나 child의 후손이면
+   거부(조상 체인을 위로 따라가며 child를 만나면 순환). */
 function taskSetParent(child, parentId){
   if(!child)return false;
   if(parentId==null||parentId===''){ if(child.parentId){ delete child.parentId; child.updatedAt=Date.now(); } return true; }
   if(String(parentId)===String(child.id))return false;                 // 자기 자신 금지
   var p=_taskById(parentId); if(!p||p._travelOnly)return false;
-  if(p.parentId!=null&&p.parentId!=='')parentId=p.parentId;            // 대상이 이미 자식이면 그 위(한 단계 유지)
-  if(String(parentId)===String(child.id))return false;                 // 순환 방지
-  taskChildren(child.id).forEach(function(gc){ gc.parentId=String(parentId); gc.updatedAt=Date.now(); }); // child의 자식을 새 부모로 승격
+  var cur=p, guard=0;
+  while(cur && guard++<10000){
+    if(String(cur.id)===String(child.id))return false;                 // 순환(새 상위가 child의 후손)
+    cur=(cur.parentId!=null&&cur.parentId!=='')?_taskById(cur.parentId):null;
+  }
   child.parentId=String(parentId);
   child.goalId='';                                                     // 목표 그룹과 상호배타
   child.updatedAt=Date.now();
   return true;
+}
+/* 특정 할일의 모든 후손을 깊이 우선(DFS) 순서로 [{t,depth}] 반환(순환 방지). */
+function taskDescendantRows(rootId){
+  var out=[]; var seen={};
+  (function walk(pid, depth){
+    if(seen[String(pid)])return; seen[String(pid)]=1;
+    orderTaskSubset(taskChildren(pid)).forEach(function(ct){
+      if(seen[String(ct.id)])return;
+      out.push({t:ct, depth:depth});
+      walk(ct.id, depth+1);
+    });
+  })(rootId, 0);
+  return out;
 }
 function syncDeadlineCompletions(){
   if(!Array.isArray(tasks))return;
@@ -22181,12 +22200,14 @@ function buildTaskEl(task){
 
   /* 하위 할일 — 부모 아래 들여쓰기로 접혀 보이는 진짜 '할일'들. 각 행은 클릭하면
      그 할일의 편집창(정보)이 열리고, 체크로 완료 토글, 드래그로 종속 조절이 된다. */
-  var _kids=(typeof taskChildren==='function')?orderTaskSubset(taskChildren(task.id)):[];
-  if(_kids.length){
+  var _kidRows=(typeof taskDescendantRows==='function')?taskDescendantRows(task.id):[];
+  if(_kidRows.length){
     var kidWrap=document.createElement('div');kidWrap.className='task-children';
-    _kids.forEach(function(ct){
+    _kidRows.forEach(function(row){
+      var ct=row.t;
       var kdone=(typeof taskEffectiveDone==='function')?taskEffectiveDone(ct):!!ct.done;
       var kr=document.createElement('div');kr.className='task-child'+(kdone?' done':'');
+      if(row.depth>0)kr.style.marginLeft=(row.depth*16)+'px';   /* 하위의 하위… 깊이만큼 들여쓰기 */
       kr.setAttribute('data-id',ct.id);kr.setAttribute('draggable','true');
       var kck=document.createElement('button');kck.type='button';kck.className='task-child-check'+(kdone?' done':'');kck.setAttribute('aria-label','완료 토글');
       var kt=document.createElement('span');kt.className='task-child-text';kt.textContent=ct.text;
@@ -22194,11 +22215,25 @@ function buildTaskEl(task){
       var kcat=(typeof getCat==='function')?getCat(ct.catId):null;
       kr.appendChild(kck);kr.appendChild(kt);
       if(kcat&&kcat.emoji){var kb=document.createElement('span');kb.className='task-child-cat';kb.textContent=kcat.emoji;kr.appendChild(kb);}
+      var _gk=(typeof taskChildrenDone==='function')?taskChildrenDone(ct.id):{done:0,total:0};
+      if(_gk.total){var kg=document.createElement('span');kg.className='task-child-meta';kg.textContent='↳ '+_gk.done+'/'+_gk.total;kr.appendChild(kg);}
       if(km.length){var kmm=document.createElement('span');kmm.className='task-child-meta';kmm.textContent=km.join(' · ');kr.appendChild(kmm);}
       kck.addEventListener('click',function(e){e.stopPropagation();ct.done=!ct.done;ct.updatedAt=Date.now();if(typeof saveTaskData==='function')saveTaskData();renderList();if(typeof renderCal==='function')renderCal();});
       kr.addEventListener('click',function(e){e.stopPropagation();if(selMode)return;tasksOpenModal(ct);});
-      kr.addEventListener('dragstart',function(e){e.stopPropagation();dragSrcId=ct.id;_taskDragFromHandle=false;e.dataTransfer.effectAllowed='move';setTimeout(function(){kr.classList.add('dragging');},0);});
-      kr.addEventListener('dragend',function(e){e.stopPropagation();kr.classList.remove('dragging');});
+      kr.addEventListener('dragstart',function(e){e.stopPropagation();dragSrcId=ct.id;_taskDragFromHandle=false;_taskDragMode='nest';e.dataTransfer.effectAllowed='move';setTimeout(function(){kr.classList.add('dragging');},0);});
+      kr.addEventListener('dragend',function(e){e.stopPropagation();kr.classList.remove('dragging');document.querySelectorAll('.task-child.nest-target').forEach(function(i){i.classList.remove('nest-target');});});
+      /* 하위 행 위에 놓으면 그 하위의 '하위'로 종속(깊은 위계). */
+      kr.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();if(e.dataTransfer)e.dataTransfer.dropEffect='move';document.querySelectorAll('.task-item.drag-over,.task-item.nest-target,.task-child.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');});document.querySelectorAll('.task-section.cat-drop-target').forEach(function(s){s.classList.remove('cat-drop-target');});if(String(ct.id)!==String(dragSrcId))kr.classList.add('nest-target');});
+      kr.addEventListener('drop',function(e){
+        e.preventDefault();e.stopPropagation();kr.classList.remove('nest-target');
+        if(String(dragSrcId)===String(ct.id))return;
+        var src=_taskById(dragSrcId); if(!src)return;
+        if(typeof taskSetParent==='function'&&taskSetParent(src,ct.id)){
+          if(typeof saveTaskData==='function')saveTaskData();
+          renderList();if(typeof renderCal==='function')renderCal();
+          if(typeof showToast==='function')showToast('"'+src.text+'"을(를) "'+ct.text+'"의 하위로 넣었어요');
+        }
+      });
       kidWrap.appendChild(kr);
     });
     body.appendChild(kidWrap);
@@ -22237,8 +22272,8 @@ function buildTaskEl(task){
 
   /* Drag */
   el.addEventListener('dragstart',function(e){dragSrcId=task.id;_taskDragMode=_taskDragFromHandle?'reorder':'nest';_taskDragFromHandle=false;e.dataTransfer.effectAllowed='move';setTimeout(function(){el.classList.add('dragging');},0);});
-  el.addEventListener('dragend',function(){el.classList.remove('dragging');_taskDragFromHandle=false;document.querySelectorAll('.task-item,.task-section').forEach(function(i){i.classList.remove('drag-over','nest-target');});});
-  el.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();if(e.dataTransfer)e.dataTransfer.dropEffect='move';document.querySelectorAll('.task-item.drag-over,.task-item.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');});document.querySelectorAll('.task-section.cat-drop-target').forEach(function(s){s.classList.remove('cat-drop-target');});if(String(task.id)!==String(dragSrcId))el.classList.add(_taskDragMode==='nest'?'nest-target':'drag-over');});
+  el.addEventListener('dragend',function(){el.classList.remove('dragging');_taskDragFromHandle=false;document.querySelectorAll('.task-item,.task-section,.task-child').forEach(function(i){i.classList.remove('drag-over','nest-target','cat-drop-target');});});
+  el.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();if(e.dataTransfer)e.dataTransfer.dropEffect='move';document.querySelectorAll('.task-item.drag-over,.task-item.nest-target,.task-child.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');});document.querySelectorAll('.task-section.cat-drop-target').forEach(function(s){s.classList.remove('cat-drop-target');});if(String(task.id)!==String(dragSrcId))el.classList.add(_taskDragMode==='nest'?'nest-target':'drag-over');});
   el.addEventListener('drop',function(e){
     e.preventDefault();e.stopPropagation();
     if(String(dragSrcId)===String(task.id))return;
