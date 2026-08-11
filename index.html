@@ -4867,10 +4867,21 @@ to{opacity:1;transform:translateY(0)}}
 .pjd-2col{display:grid;grid-template-columns:minmax(0,.92fr) minmax(0,1.08fr);gap:var(--sp-5);align-items:start}
 @media(max-width:900px){.pjd-2col{grid-template-columns:1fr}}
 /* 작업 로그 ↔ 처리할 인박스 나란히 (로그쪽을 더 넓고 길게). */
-.pjd-split{display:grid;grid-template-columns:1.7fr 1fr;gap:var(--sp-4);align-items:start}
-.pjd-split>.section-card{min-width:0}
+.pjd-split{display:grid;grid-template-columns:1.7fr 1fr;gap:var(--sp-4);align-items:stretch}
+.pjd-split>.section-card,.pjd-split>.pjd-inboxwrap{min-width:0}
 .pjd-inboxcol .pji-list{max-height:340px;overflow-y:auto}
-@media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}}
+/* 오른쪽 열: 처리할 인박스(위) + 미분류 인박스(아래). 미분류 카드가 남는 높이를
+   채워 작업 로그 열과 높이를 맞춘다. */
+.pjd-inboxwrap{display:flex;flex-direction:column;gap:var(--sp-4);min-height:0}
+.pjd-unfiledcol{flex:1;display:flex;flex-direction:column;min-height:150px}
+.pjd-unfiledcol .pji-list{flex:1;max-height:none;overflow-y:auto}
+.pji-unfiled{cursor:grab}
+.pji-unfiled.dragging{opacity:.5}
+.pji-grip{flex:none;color:var(--fg-4);opacity:.5;font-size:12px;cursor:grab;line-height:1}
+.pji-assign{flex:none;font-size:11px;font-weight:var(--fw-semibold);color:var(--accent);background:var(--accent-light);border:none;border-radius:var(--r-full);padding:5px 10px;cursor:pointer;transition:background var(--t-snap)}
+.pji-assign:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.pjd-inboxcol.pji-drop-target{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-light)}
+@media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}.pjd-unfiledcol{min-height:0}.pjd-unfiledcol .pji-list{flex:none}}
 .pji-list{display:flex;flex-direction:column;gap:6px}
 .pji-item{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;font-family:inherit;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:11px 13px;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
 .pji-item:hover{border-color:var(--accent);box-shadow:var(--elev-1)}
@@ -30134,6 +30145,34 @@ function projectInboxHtml(project){
   }).join(''):'<div class="pji-empty">이 프로젝트로 담긴 인박스가 없어요.</div>';
   return '<div class="pji-list">'+rows+'</div><button type="button" class="pji-add" id="project-inbox-add">＋ 이 프로젝트에 담기</button>';
 }
+/* 미분류 인박스 — 아직 어떤 프로젝트에도 담기지 않은(projectId 없는) 인박스 항목.
+   위쪽 "처리할 인박스" 카드로 드래그해 놓으면 이 프로젝트로 분류된다. */
+var _pjDragInboxId=null;
+function projectUnfiledInboxItems(){
+  return (typeof inboxItems!=='undefined'?inboxItems:[]).filter(function(i){return i&&!i.done&&!(i.projectId);});
+}
+function projectAssignInbox(p,it){
+  if(!p||!it)return;
+  it.projectId=p.id; it.unread=(it.unread==null?true:it.unread); it.updatedAt=Date.now();
+  if(typeof saveInboxItems==='function')saveInboxItems();
+  if(typeof renderProjects==='function')renderProjects();
+  if(typeof showToast==='function')showToast('"'+(p.title||'프로젝트')+'"(으)로 분류했어요');
+}
+function projectUnfiledInboxHtml(project){
+  var items=projectUnfiledInboxItems().slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  var rows=items.length?items.map(function(it){
+    var when=(typeof timeAgo==='function'&&it.ts)?timeAgo(it.ts):'';
+    var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
+    var sub=(hasImg?'이미지 · ':'')+(when||'방금');
+    var id=projectEsc(it.id);
+    return '<div class="pji-item pji-unfiled" draggable="true" data-unfiled="'+id+'">'
+      +'<span class="pji-grip" title="드래그해서 위 인박스로 분류">⠿</span>'
+      +'<span class="pji-dot" style="background:var(--fg-4);opacity:.45"></span>'
+      +'<div class="pji-main"><div class="pji-t">'+projectEsc(it.text||(hasImg?'(이미지)':''))+'</div><div class="pji-s">'+projectEsc(sub)+'</div></div>'
+      +'<button type="button" class="pji-assign" data-assign="'+id+'" title="이 프로젝트로 분류">→ 담기</button></div>';
+  }).join(''):'<div class="pji-empty">미분류 인박스가 없어요.</div>';
+  return '<div class="pji-list pji-unfiled-list">'+rows+'</div>';
+}
 renderProjects=function(){
   loadProjects();
   var page=document.querySelector('.projects-page');
@@ -30181,7 +30220,10 @@ renderProjects=function(){
     +'</section>'
     +'<div class="pjd-split">'
       +'<section class="section-card pjd-logcol"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">이 프로젝트의 기록 · '+logN+'</span></div>'+logsHtml+'</section>'
-      +'<section class="section-card pjd-inboxcol"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
+      +'<div class="pjd-inboxwrap">'
+        +'<section class="section-card pjd-inboxcol" id="pjd-inboxcol"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
+        +'<section class="section-card pjd-unfiledcol"><div class="project-section-head">'+_sl('inbox','미분류 인박스')+'<span class="pjd-subtle">드래그해서 위로 분류</span></div>'+projectUnfiledInboxHtml(p)+'</section>'
+      +'</div>'
     +'</div>'
     +'<section class="section-card pjd-goals-section"><div class="project-section-head">'+_sl('goal','목표')+'<button class="btn btn-ghost" id="project-add-goal">＋ 목표</button></div>'+goalsHtml+'</section>'
     +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
@@ -30213,6 +30255,19 @@ renderProjects=function(){
     var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pji-sheet'));});
     if(it&&typeof openProjectInboxSheet==='function')openProjectInboxSheet(p,it);
   });});
+  /* 미분류 인박스 → 이 프로젝트로 분류: "→ 담기" 버튼 또는 위 인박스 카드로 드래그 */
+  var _findInbox=function(id){return (typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(id);});};
+  detail.querySelectorAll('[data-assign]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var it=_findInbox(b.getAttribute('data-assign'));if(it)projectAssignInbox(p,it);});});
+  detail.querySelectorAll('[data-unfiled]').forEach(function(row){
+    row.addEventListener('dragstart',function(e){_pjDragInboxId=row.getAttribute('data-unfiled');if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',_pjDragInboxId);}catch(_){}}setTimeout(function(){row.classList.add('dragging');},0);});
+    row.addEventListener('dragend',function(){row.classList.remove('dragging');var c=detail.querySelector('#pjd-inboxcol');if(c)c.classList.remove('pji-drop-target');});
+  });
+  var _inboxDrop=detail.querySelector('#pjd-inboxcol');
+  if(_inboxDrop){
+    _inboxDrop.addEventListener('dragover',function(e){if(_pjDragInboxId==null)return;e.preventDefault();if(e.dataTransfer)e.dataTransfer.dropEffect='move';_inboxDrop.classList.add('pji-drop-target');});
+    _inboxDrop.addEventListener('dragleave',function(e){if(e.target===_inboxDrop)_inboxDrop.classList.remove('pji-drop-target');});
+    _inboxDrop.addEventListener('drop',function(e){e.preventDefault();_inboxDrop.classList.remove('pji-drop-target');var id=_pjDragInboxId;_pjDragInboxId=null;var it=_findInbox(id);if(it)projectAssignInbox(p,it);});
+  }
   detail.querySelectorAll('[data-pji-done]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();
     var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pji-done'));});
     if(it){ it.done=true; it.unread=false; if(typeof saveInboxItems==='function')saveInboxItems(); renderProjects(); }
