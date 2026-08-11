@@ -36076,12 +36076,16 @@ function queueHabitNotionSave(){
      중복 정리(heal)·데모 정리·다른 기기 동기화 적용 등으로도 호출되는데, 그때
      오늘 해빗 상태는 그대로다. 시그니처(오늘 상태)가 마지막 전송 시도와 같으면
      새로 보내지 않아, 새로고침·기기 전환마다 전송이 재발화하던 문제를 막는다. */
+  /* 마지막으로 "성공적으로 전송된" 상태와 같을 때만 건너뛴다. 시그니처는 전송이
+     성공한 순간(syncHabitStatusToNotion)에만 기록한다. arm 시점에 미리 기록하면
+     그 뒤 전송이 실패해도 같은 상태의 재전송이 영영 막혀(루틴이 Notion에 반영 안 됨)
+     버리는 회귀가 있었다. 실패 시엔 sent_sig가 갱신되지 않으므로 다음 저장에 재시도된다.
+     새 키(habit_notion_sent_sig)를 써서 예전 arm-시점에 오염된 값은 무시한다. */
   var _sig=null;
   try{ var _t=habitNotionBuildTexts(); _sig=_t.left+'␟'+_t.right; }catch(_e){ _sig=null; }
   if(_sig!=null){
-    var _last=null; try{ _last=localStorage.getItem('habit_notion_last_sig'); }catch(_e2){}
-    if(_last===_sig){ _hnTrace('skip','상태 변화 없음'); return; }
-    try{ localStorage.setItem('habit_notion_last_sig', _sig); }catch(_e3){}
+    var _sent=null; try{ _sent=localStorage.getItem('habit_notion_sent_sig'); }catch(_e2){}
+    if(_sent===_sig){ _hnTrace('skip','상태 변화 없음(전송 완료)'); return; }
   }
   _hnTrace('armed', cfg.pageTitle||cfg.pageId);
   clearTimeout(_habitNotionSaveTimer);
@@ -36120,6 +36124,9 @@ async function syncHabitStatusToNotion(opts){
       throw e;
     }
     _hnTrace('ok', texts.count+'개 · '+(cfg.leftProp)+'/'+(cfg.rightProp));
+    /* 성공적으로 보낸 상태만 시그니처로 기록 → 같은 상태의 재저장은 건너뛰되(도배 방지),
+       실패했을 땐 기록하지 않으므로 다음 저장에 자동 재시도된다. */
+    try{ localStorage.setItem('habit_notion_sent_sig', texts.left+'␟'+texts.right); }catch(_e){}
     if(!opts.silent)showToast('해빗 상태를 "'+(cfg.pageTitle||'선택한 페이지')+'"에 보냈어요 ('+texts.count+'개)');
   }catch(e){
     var msg=(e&&e.message)||String(e);
