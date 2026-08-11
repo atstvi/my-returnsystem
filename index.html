@@ -3302,6 +3302,16 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .msub-addinp{width:100%;border:0;background:transparent;color:var(--fg-2);font-family:inherit;font-size:var(--text-sm);padding:4px 2px}
 .msub-addinp:focus{outline:none}
 .msub-addinp::placeholder{color:var(--fg-4)}
+/* 통일된 하위 목록 — 하위 '할일'(진짜 할일) 행 + 상위 태그 + 하단 링크 */
+.msub-kidtext{flex:1;min-width:0;font-size:var(--text-sm);color:var(--fg-1);padding:3px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;border-bottom:1px solid transparent}
+.msub-kidtext:hover{border-bottom-color:var(--border)}
+.msub-row.msub-kid.done .msub-kidtext{text-decoration:line-through;color:var(--fg-4)}
+.msub-parent-tag{margin-left:auto;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:22px;padding:0 var(--sp-3);border-radius:var(--r-full);background:var(--accent-light);color:var(--accent);border:none;font-size:var(--text-2xs);font-weight:var(--fw-semibold);cursor:pointer}
+.msub-parent-x{width:20px;height:20px;border-radius:50%;border:none;background:transparent;color:var(--fg-4);cursor:pointer;font-size:14px;line-height:1;flex:none}
+.msub-parent-x:hover{color:var(--danger)}
+.msub-foot{display:flex;gap:var(--sp-4);margin-top:var(--sp-2)}
+.msub-link{border:0;background:none;color:var(--fg-4);font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;padding:2px 0}
+.msub-link:hover{color:var(--accent)}
 .modal-row{display:flex;align-items:center;gap:var(--sp-5);min-height:38px;padding:0 var(--sp-10);cursor:pointer;transition:background var(--t-snap)}
 .modal-row:hover{background:var(--bg-hover)}
 .mr-icon{width:26px;height:24px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0}
@@ -8228,7 +8238,6 @@ to{opacity:1;transform:translateY(0)}}
       <textarea class="modal-memo" id="modalMemo" rows="2" placeholder="메모 추가..."></textarea>
       <div class="modal-memo-imgs" id="modalMemoImgs" hidden></div>
       <div class="modal-subs-edit" id="modalSubs"></div>
-      <div class="modal-children-edit" id="modalChildren"></div>
     </div>
     <div class="modal-body task-edit-body">
       <section class="task-modal-section task-modal-section-primary" aria-label="일정">
@@ -22741,7 +22750,6 @@ function tasksOpenNewModal(seed){
   document.getElementById('modalMemo').value=taskModalDraft.note||'';
   renderTaskModalImgs(taskModalDraft);
   renderTaskModalSubs(taskModalDraft,function(){});
-  if(typeof renderTaskModalChildren==='function')renderTaskModalChildren(taskModalDraft);
   document.getElementById('modal-date-input').value=taskModalDraft.date||selDate||TK;
   document.getElementById('modal-dl-input').value=taskModalDraft.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=taskModalDraft.deadlineTime||'';
@@ -22798,80 +22806,80 @@ function openReturnImageOverlay(ref){
 /* 하위 항목(체크리스트) editor for any task — reads/writes obj.subs
    ([{text,done}]). `commit` persists (existing task → saveTaskData; new draft →
    no-op, saved when the modal is submitted). Works for 일반 할일 and 목표 할일 모두. */
+/* 하위 항목 편집 — 체크리스트(obj.subs, [{text,done}])와 하위 '할일'(task.parentId로
+   연결된 진짜 할일)을 한 목록으로 통일해서 보여준다. 기본 추가는 체크리스트 방식
+   (아래 입력창에 쓰고 Enter → 가벼운 체크 항목). 진짜 할일을 하위로 넣으려면
+   "기존 할일 연결"(드래그로도 가능). 상위 할일 지정/해제도 여기서. `commit`은 subs
+   저장(기존 할일 → saveTaskData; 새 초안 → no-op). */
 function renderTaskModalSubs(obj, commit){
   var host=document.getElementById('modalSubs'); if(!host)return;
   var _e=function(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});};
   if(!Array.isArray(obj.subs))obj.subs=[];
   var subs=obj.subs;
-  var doneN=subs.filter(function(s){return s&&s.done;}).length;
-  host.innerHTML='<div class="msub-head"><span class="msub-title">체크리스트</span>'+(subs.length?'<span class="msub-count">'+doneN+'/'+subs.length+'</span>':'')+'</div>'
-    +'<div class="msub-list">'+subs.map(function(s,i){
-      return '<div class="msub-row'+(s.done?' done':'')+'"><button type="button" class="msub-check'+(s.done?' done':'')+'" data-sub-toggle="'+i+'" aria-label="완료 토글"></button>'
-        +'<input class="msub-text" data-sub-text="'+i+'" type="text" value="'+_e(s.text||'')+'" placeholder="항목">'
-        +'<button type="button" class="msub-del" data-sub-del="'+i+'" aria-label="삭제">×</button></div>';
-    }).join('')+'</div>'
-    +'<div class="msub-add"><input class="msub-addinp" id="msub-addinp" type="text" placeholder="＋ 하위 항목 추가"></div>';
-  host.querySelectorAll('[data-sub-toggle]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-toggle'); if(subs[i]){subs[i].done=!subs[i].done; obj.updatedAt=Date.now(); if(typeof _syncTaskDoneFromSubs==='function')_syncTaskDoneFromSubs(obj); var mc=document.getElementById('modalCheck'); if(mc)mc.className='modal-check'+(obj.done?' done':''); commit(); renderTaskModalSubs(obj,commit);} });});
-  host.querySelectorAll('[data-sub-del]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-del'); subs.splice(i,1); obj.updatedAt=Date.now(); commit(); renderTaskModalSubs(obj,commit); });});
+  var isExisting=obj.id!=null;
+  var kids=(isExisting&&typeof taskChildren==='function')?orderTaskSubset(taskChildren(obj.id)):[];
+  var parent=(isExisting&&typeof taskParentOf==='function')?taskParentOf(obj):null;
+  var doneN=subs.filter(function(s){return s&&s.done;}).length+kids.filter(function(k){return taskEffectiveDone(k);}).length;
+  var totN=subs.length+kids.length;
+  var re=function(){ renderTaskModalSubs(obj,commit); };
+  var childReflow=function(){ if(typeof saveTaskData==='function')saveTaskData(); if(typeof renderList==='function')renderList(); if(typeof renderCal==='function')renderCal(); re(); };
+
+  var html='<div class="msub-head"><span class="msub-title">하위 할일</span>'+(totN?'<span class="msub-count">'+doneN+'/'+totN+'</span>':'')
+    +(parent?'<button type="button" class="msub-parent-tag" id="msub-parent-open" title="상위 할일 열기">↰ '+_e(parent.text)+'</button><button type="button" class="msub-parent-x" id="msub-parent-clear" title="상위 해제">×</button>':'')+'</div>';
+  html+='<div class="msub-list">';
+  html+=subs.map(function(s,i){
+    return '<div class="msub-row'+(s.done?' done':'')+'"><button type="button" class="msub-check'+(s.done?' done':'')+'" data-sub-toggle="'+i+'" aria-label="완료 토글"></button>'
+      +'<input class="msub-text" data-sub-text="'+i+'" type="text" value="'+_e(s.text||'')+'" placeholder="항목">'
+      +'<button type="button" class="msub-del" data-sub-del="'+i+'" aria-label="삭제">×</button></div>';
+  }).join('');
+  html+=kids.map(function(k){var kd=taskEffectiveDone(k);var c=(typeof getCat==='function')?getCat(k.catId):null;
+    return '<div class="msub-row msub-kid'+(kd?' done':'')+'"><button type="button" class="msub-check'+(kd?' done':'')+'" data-kid-toggle="'+_e(k.id)+'" aria-label="완료 토글"></button>'
+      +'<span class="msub-kidtext" data-kid-open="'+_e(k.id)+'" title="이 할일 열기">'+(c&&c.emoji?_e(c.emoji)+' ':'')+_e(k.text)+'</span>'
+      +'<button type="button" class="msub-del" data-kid-unlink="'+_e(k.id)+'" title="하위에서 빼기" aria-label="하위에서 빼기">×</button></div>';
+  }).join('');
+  html+='</div>';
+  html+='<div class="msub-add"><input class="msub-addinp" id="msub-addinp" type="text" placeholder="＋ 하위 추가"></div>';
+  if(isExisting){
+    html+='<div class="msub-foot"><button type="button" class="msub-link" id="msub-link">＋ 기존 할일 연결</button>'
+      +(parent?'':'<button type="button" class="msub-link" id="msub-parent-set">↰ 상위 할일 지정</button>')+'</div>';
+  }
+  host.innerHTML=html;
+
+  /* 체크리스트 항목 */
+  host.querySelectorAll('[data-sub-toggle]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-toggle'); if(subs[i]){subs[i].done=!subs[i].done; obj.updatedAt=Date.now(); if(typeof _syncTaskDoneFromSubs==='function')_syncTaskDoneFromSubs(obj); var mc=document.getElementById('modalCheck'); if(mc)mc.className='modal-check'+(obj.done?' done':''); commit(); re();} });});
+  host.querySelectorAll('[data-sub-del]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-del'); subs.splice(i,1); obj.updatedAt=Date.now(); commit(); re(); });});
   host.querySelectorAll('[data-sub-text]').forEach(function(inp){
     inp.addEventListener('change',function(){ var i=+inp.getAttribute('data-sub-text'); if(subs[i]){subs[i].text=inp.value; obj.updatedAt=Date.now(); commit();} });
     inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){e.preventDefault(); var add=document.getElementById('msub-addinp'); if(add)add.focus();} });
   });
   var addInp=document.getElementById('msub-addinp');
   if(addInp)addInp.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){ e.preventDefault(); var t=(addInp.value||'').trim(); if(!t)return; subs.push({text:t,done:false}); obj.updatedAt=Date.now(); commit(); renderTaskModalSubs(obj,commit); var ni=document.getElementById('msub-addinp'); if(ni)ni.focus(); }
+    if(e.key==='Enter'){ e.preventDefault(); var t=(addInp.value||'').trim(); if(!t)return; subs.push({text:t,done:false}); obj.updatedAt=Date.now(); commit(); re(); var ni=document.getElementById('msub-addinp'); if(ni)ni.focus(); }
   });
+
+  /* 하위 '할일'(진짜 할일) + 상위 지정 — 기존 할일에서만 */
+  if(isExisting){
+    host.querySelectorAll('[data-kid-toggle]').forEach(function(b){b.addEventListener('click',function(){var k=_taskById(b.getAttribute('data-kid-toggle'));if(k){k.done=!k.done;k.updatedAt=Date.now();childReflow();}});});
+    host.querySelectorAll('[data-kid-open]').forEach(function(s){s.addEventListener('click',function(){var k=_taskById(s.getAttribute('data-kid-open'));if(k)tasksOpenModal(k);});});
+    host.querySelectorAll('[data-kid-unlink]').forEach(function(b){b.addEventListener('click',function(){var k=_taskById(b.getAttribute('data-kid-unlink'));if(k){taskSetParent(k,null);childReflow();}});});
+    var link=host.querySelector('#msub-link');
+    if(link)link.addEventListener('click',function(){
+      var ex={}; ex[String(obj.id)]=1; if(parent)ex[String(parent.id)]=1; taskChildren(obj.id).forEach(function(k){ex[String(k.id)]=1;});
+      openTaskNestPicker('하위로 넣을 할일 선택',ex,function(ct){ if(taskSetParent(ct,obj.id))childReflow(); });
+    });
+    var pset=host.querySelector('#msub-parent-set'), pclear=host.querySelector('#msub-parent-clear'), popen=host.querySelector('#msub-parent-open');
+    if(pset)pset.addEventListener('click',function(){
+      var ex={}; ex[String(obj.id)]=1; taskChildren(obj.id).forEach(function(k){ex[String(k.id)]=1;});
+      openTaskNestPicker('상위 할일 선택 — "'+obj.text+'"을(를) 아래로 넣기',ex,function(pt){ if(taskSetParent(obj,pt.id))childReflow(); });
+    });
+    if(popen)popen.addEventListener('click',function(){ if(parent)tasksOpenModal(parent); });
+    if(pclear)pclear.addEventListener('click',function(){ taskSetParent(obj,null); childReflow(); });
+  }
 }
 /* 상·하위 할일 편집 — 편집창에서 이 할일의 상위 할일을 지정하거나, 다른 할일을
    이 할일의 하위로 넣는다(진짜 할일끼리의 종속관계). 새 할일(id 없음)은 먼저
    저장해야 종속을 걸 수 있으므로 안내만 표시. */
 function _tcEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(ch){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];});}
-function renderTaskModalChildren(task){
-  var host=document.getElementById('modalChildren'); if(!host)return;
-  if(!task||task.id==null){ host.innerHTML='<div class="mch-hint">저장하면 하위 할일을 추가할 수 있어요.</div>'; return; }
-  var parent=(typeof taskParentOf==='function')?taskParentOf(task):null;
-  var kids=(typeof taskChildren==='function')?orderTaskSubset(taskChildren(task.id)):[];
-  var html='';
-  /* 상위 할일 */
-  html+='<div class="mch-parent"><span class="mch-label">상위 할일</span>'
-    +(parent?'<button type="button" class="mch-parent-chip" id="mch-parent-open">↰ '+_tcEsc(parent.text)+'</button><button type="button" class="mch-parent-clear" id="mch-parent-clear" title="종속 해제">×</button>'
-            :'<button type="button" class="mch-parent-set" id="mch-parent-set">＋ 상위 할일 지정</button>')
-    +'</div>';
-  /* 하위 할일 */
-  html+='<div class="mch-head"><span class="mch-title">하위 할일</span>'+(kids.length?'<span class="mch-count">'+kids.filter(function(k){return taskEffectiveDone(k);}).length+'/'+kids.length+'</span>':'')+'</div>';
-  html+='<div class="mch-list">'+kids.map(function(k){var kd=taskEffectiveDone(k);var c=(typeof getCat==='function')?getCat(k.catId):null;
-    return '<div class="mch-row'+(kd?' done':'')+'" data-kid="'+_tcEsc(k.id)+'"><button type="button" class="mch-check'+(kd?' done':'')+'" data-kid-toggle="'+_tcEsc(k.id)+'" aria-label="완료 토글"></button>'
-      +'<span class="mch-row-text" data-kid-open="'+_tcEsc(k.id)+'">'+(c&&c.emoji?_tcEsc(c.emoji)+' ':'')+_tcEsc(k.text)+'</span>'
-      +'<button type="button" class="mch-unlink" data-kid-unlink="'+_tcEsc(k.id)+'" title="하위에서 빼기">빼기</button></div>';
-  }).join('')+'</div>';
-  html+='<div class="mch-add"><input class="mch-addinp" id="mch-addinp" type="text" placeholder="＋ 하위 할일 만들기 (Enter)"><button type="button" class="mch-link" id="mch-link">기존 할일 연결</button></div>';
-  host.innerHTML=html;
-  var reflow=function(){ renderTaskModalChildren(task); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); };
-  var pset=host.querySelector('#mch-parent-set'), pclear=host.querySelector('#mch-parent-clear'), popen=host.querySelector('#mch-parent-open');
-  if(pset)pset.addEventListener('click',function(){
-    var ex={}; ex[String(task.id)]=1; taskChildren(task.id).forEach(function(k){ex[String(k.id)]=1;}); /* 자기·자기 자식 제외(순환 방지) */
-    openTaskNestPicker('상위 할일 선택 — "'+task.text+'"을(를) 아래로 넣기',ex,function(pt){ if(taskSetParent(task,pt.id))reflow(); });
-  });
-  if(popen)popen.addEventListener('click',function(){ if(parent)tasksOpenModal(parent); });
-  if(pclear)pclear.addEventListener('click',function(){ taskSetParent(task,null); reflow(); });
-  host.querySelectorAll('[data-kid-toggle]').forEach(function(b){b.addEventListener('click',function(){var k=_taskById(b.getAttribute('data-kid-toggle'));if(k){k.done=!k.done;k.updatedAt=Date.now();reflow();}});});
-  host.querySelectorAll('[data-kid-open]').forEach(function(s){s.addEventListener('click',function(){var k=_taskById(s.getAttribute('data-kid-open'));if(k)tasksOpenModal(k);});});
-  host.querySelectorAll('[data-kid-unlink]').forEach(function(b){b.addEventListener('click',function(){var k=_taskById(b.getAttribute('data-kid-unlink'));if(k){taskSetParent(k,null);reflow();}});});
-  var link=host.querySelector('#mch-link');
-  if(link)link.addEventListener('click',function(){
-    var ex={}; ex[String(task.id)]=1; if(parent)ex[String(parent.id)]=1; taskChildren(task.id).forEach(function(k){ex[String(k.id)]=1;});
-    openTaskNestPicker('하위로 넣을 할일 선택',ex,function(ct){ if(taskSetParent(ct,task.id))reflow(); });
-  });
-  var addInp=host.querySelector('#mch-addinp');
-  if(addInp)addInp.addEventListener('keydown',function(e){
-    if(e.key!=='Enter')return; e.preventDefault();
-    var t=(addInp.value||'').trim(); if(!t)return;
-    var nt={id:Date.now(),text:t,catId:task.catId||'etc',date:task.date||selDate||TK,priority:'',done:false,deadlineDate:'',deadlineTime:'',deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],parentId:String(task.id),_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
-    tasks.unshift(nt);
-    reflow();
-    var ni=document.getElementById('mch-addinp'); if(ni)ni.focus();
-  });
-}
 /* 재사용 가능한 할일 선택기 — exclude(제외 id맵), onPick(task) 콜백. */
 function openTaskNestPicker(title, exclude, onPick){
   exclude=exclude||{};
@@ -22937,7 +22945,6 @@ function tasksOpenModal(task){
   document.getElementById('modalMemo').value=task.note||'';
   renderTaskModalImgs(task);
   renderTaskModalSubs(task,function(){ if(typeof saveTaskData==='function')saveTaskData(); if(typeof renderCal==='function')renderCal(); });
-  if(typeof renderTaskModalChildren==='function')renderTaskModalChildren(task);
   document.getElementById('modal-date-input').value=task.date||selDate||TK;
   document.getElementById('modal-dl-input').value=task.deadlineDate||'';
   document.getElementById('modal-dl-time-input').value=task.deadlineTime||'';
