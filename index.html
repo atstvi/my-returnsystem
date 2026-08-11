@@ -36494,6 +36494,23 @@ function queueHabitNotionSave(){
   clearTimeout(_habitNotionSaveTimer);
   _habitNotionSaveTimer=setTimeout(function(){ syncHabitStatusToNotion({silent:true}); },600);
 }
+/* 페이지 PATCH가 실패하는 가장 흔한 원인은 대상 rich_text 속성(기본 왼쪽/오른쪽)이
+   Notion DB에 없기 때문. 없으면 DB 스키마에 rich_text 속성으로 자동 생성하고, 이미
+   있는데 타입이 다르면 명확히 안내한다. 반환: 새로 만든 게 있으면 true. */
+async function _habitNotionEnsureProps(cfg){
+  if(!cfg||!cfg.dbId)return false;
+  var meta=await _diaryNotionApi('GET','/databases/'+cfg.dbId);
+  var props=(meta&&meta.properties)||{};
+  var add={};
+  [cfg.leftProp,cfg.rightProp].forEach(function(name){
+    if(!name)return;
+    var ex=props[name];
+    if(!ex){ add[name]={rich_text:{}}; }
+    else if(ex.type!=='rich_text'){ throw new Error('Notion 속성 "'+name+'"이 텍스트(rich_text)가 아니에요 (현재: '+ex.type+'). 그 속성을 텍스트로 바꾸거나 다른 이름을 쓰세요.'); }
+  });
+  if(Object.keys(add).length){ await _diaryNotionApi('PATCH','/databases/'+cfg.dbId,{properties:add}); return true; }
+  return false;
+}
 async function syncHabitStatusToNotion(opts){
   opts=opts||{};
   if(_habitNotionSyncActive){
@@ -36524,22 +36541,31 @@ async function syncHabitStatusToNotion(opts){
         if(document.getElementById('habit-notion-page')&&typeof loadHabitNotionConfig==='function')loadHabitNotionConfig();
         throw new Error('선택한 페이지를 찾을 수 없어요. "페이지 불러오기"로 다시 선택해주세요.');
       }
-      throw e;
+      /* 그 외 실패(주로 "속성이 없음" 400) → DB에 rich_text 속성을 자동 생성하고 한 번 재시도.
+         자동 생성할 게 없으면(속성은 이미 있음) 원래 오류를 그대로 던진다. */
+      var _healed=false;
+      _healed=await _habitNotionEnsureProps(cfg);   // 타입 불일치면 명확한 오류를 던짐
+      if(_healed){ _hnTrace('heal','속성 자동 생성: '+cfg.leftProp+' / '+cfg.rightProp);
+        await _diaryNotionApi('PATCH','/pages/'+cfg.pageId,{properties:props}); }
+      else throw e;
     }
     _hnTrace('ok', texts.count+'개 · '+(cfg.leftProp)+'/'+(cfg.rightProp));
     /* 성공적으로 보낸 상태만 시그니처로 기록 → 같은 상태의 재저장은 건너뛰되(도배 방지),
        실패했을 땐 기록하지 않으므로 다음 저장에 자동 재시도된다. */
-    try{ localStorage.setItem('habit_notion_sent_sig', texts.left+'␟'+texts.right); }catch(_e){}
+    try{ localStorage.setItem('habit_notion_sent_sig', texts.left+'␟'+texts.right); localStorage.removeItem('habit_notion_last_fail'); }catch(_e){}
     if(!opts.silent)showToast('해빗 상태를 "'+(cfg.pageTitle||'선택한 페이지')+'"에 보냈어요 ('+texts.count+'개)');
   }catch(e){
     var msg=(e&&e.message)||String(e);
     _hnTrace('fail', msg);
     console.warn('[habit-notion] sync failed:', msg);
-    /* 자동(silent) 전송 실패는 토스트를 띄우지 않는다 — 새로고침·기기 전환 때마다,
-       그리고 Notion 토큰이 없는 다른 기기(토큰은 기기-로컬)에서 실패 토스트가
-       도배되던 문제. 실패 원인은 _hnTrace('fail')·콘솔에 남고, 설정의 "지금 전송"
-       (수동)은 여전히 오류를 표시한다. */
+    /* 자동(silent) 전송 실패는 도배하지 않는다 — 단, "새로운" 실패 사유는 딱 한 번만
+       알려서 왜 안 되는지 알 수 있게 한다(같은 사유의 새로고침·기기 전환 반복은 조용히).
+       수동 "지금 전송"은 항상 오류를 표시. 성공하면 위에서 기억을 지운다. */
     if(!opts.silent && typeof showToast==='function'){ showToast('해빗 Notion 전송 실패: '+msg); }
+    else if(opts.silent && typeof showToast==='function'){
+      var _lastFail=null; try{ _lastFail=localStorage.getItem('habit_notion_last_fail'); }catch(_e2){}
+      if(_lastFail!==msg){ try{ localStorage.setItem('habit_notion_last_fail', msg); }catch(_e3){} showToast('해빗 Notion 자동 전송 실패: '+msg); }
+    }
   }finally{
     _habitNotionSyncActive=false;
   }
