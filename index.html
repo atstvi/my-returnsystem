@@ -3206,7 +3206,12 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .task-child.done .task-child-text{text-decoration:line-through;color:var(--fg-4)}
 .task-child-cat{flex-shrink:0;font-size:var(--text-xs)}
 .task-child-meta{flex-shrink:0;font-size:var(--text-2xs);color:var(--fg-4);font-family:var(--font-mono)}
-.task-item.nest-target{box-shadow:inset 0 0 0 2px var(--accent);background:var(--accent-light)}
+/* 하위로 넣기 표시 — 박스/배경 대신, 대상 할일 아래에 들여쓴 밑줄(+시작 점)로
+   "여기 아래 하위로 들어감"을 매끄럽게 안내(노션 등에서 쓰는 방식). */
+.task-item.nest-target{background:transparent}
+.task-item.nest-target::after{content:'';position:absolute;left:46px;right:10px;bottom:-1px;height:2.5px;border-radius:2px;background:var(--accent);pointer-events:none;animation:nestln .16s var(--t-snap) backwards}
+.task-item.nest-target::before{content:'';position:absolute;left:42px;bottom:-3px;width:7px;height:7px;border-radius:50%;background:var(--accent);pointer-events:none}
+@keyframes nestln{from{opacity:0}to{opacity:1}}
 .task-section.cat-drop-target{outline:2px dashed var(--accent);outline-offset:-3px;border-radius:var(--r-md);background:var(--accent-light)}
 .task-add-input-wrap.under-cat{margin:var(--sp-2) 0 var(--sp-3)}
 .modal-children-edit{margin-top:var(--sp-3);display:flex;flex-direction:column;gap:var(--sp-2)}
@@ -21879,7 +21884,7 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
     sec.setAttribute('data-cat',catId);
     /* 카테고리 섹션 위로 할일을 드래그해 놓으면 그 카테고리로 이동(+종속 해제). 섹션
        안의 할일 항목은 자체 drop에서 stopPropagation 하므로 빈 영역/헤더 드롭만 잡힘. */
-    sec.addEventListener('dragover',function(e){e.preventDefault();if(dragSrcId!=null)sec.classList.add('cat-drop-target');});
+    sec.addEventListener('dragover',function(e){e.preventDefault();if(dragSrcId==null)return;document.querySelectorAll('.task-item.drag-over,.task-item.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');});sec.classList.add('cat-drop-target');});
     sec.addEventListener('dragleave',function(e){if(e.target===sec)sec.classList.remove('cat-drop-target');});
     sec.addEventListener('drop',function(e){
       e.preventDefault();sec.classList.remove('cat-drop-target');
@@ -22224,7 +22229,7 @@ function buildTaskEl(task){
   /* Drag */
   el.addEventListener('dragstart',function(e){dragSrcId=task.id;_taskDragMode=_taskDragFromHandle?'reorder':'nest';_taskDragFromHandle=false;e.dataTransfer.effectAllowed='move';setTimeout(function(){el.classList.add('dragging');},0);});
   el.addEventListener('dragend',function(){el.classList.remove('dragging');_taskDragFromHandle=false;document.querySelectorAll('.task-item,.task-section').forEach(function(i){i.classList.remove('drag-over','nest-target');});});
-  el.addEventListener('dragover',function(e){e.preventDefault();document.querySelectorAll('.task-item').forEach(function(i){i.classList.remove('drag-over','nest-target');});if(String(task.id)!==String(dragSrcId))el.classList.add(_taskDragMode==='nest'?'nest-target':'drag-over');});
+  el.addEventListener('dragover',function(e){e.preventDefault();e.stopPropagation();if(e.dataTransfer)e.dataTransfer.dropEffect='move';document.querySelectorAll('.task-item.drag-over,.task-item.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');});document.querySelectorAll('.task-section.cat-drop-target').forEach(function(s){s.classList.remove('cat-drop-target');});if(String(task.id)!==String(dragSrcId))el.classList.add(_taskDragMode==='nest'?'nest-target':'drag-over');});
   el.addEventListener('drop',function(e){
     e.preventDefault();e.stopPropagation();
     if(String(dragSrcId)===String(task.id))return;
@@ -22443,7 +22448,15 @@ function _restoreAddWrapTop(){
 function _placeAddWrapUnderCategory(catId){
   var aw=document.getElementById('add-wrap'); if(!aw)return;
   var sec=catId?document.querySelector('#task-sections .task-section[data-cat="'+catId+'"]'):null;
-  if(sec&&sec.parentNode){ aw.classList.add('under-cat'); sec.parentNode.insertBefore(aw, sec.nextSibling); }
+  if(sec){
+    aw.classList.add('under-cat');
+    var head=sec.querySelector('.section-head'); if(head)head.classList.remove('collapsed'); /* 접혀있으면 펼쳐서 보이게 */
+    var body=sec.querySelector('.section-body');
+    /* 카테고리 헤더 바로 밑 = 그 카테고리 할일 목록 맨 위에 추가창을 둔다. */
+    if(body){ body.insertBefore(aw, body.firstChild); }
+    else if(head&&head.parentNode===sec){ sec.insertBefore(aw, head.nextSibling); }
+    else sec.appendChild(aw);
+  }
   else _restoreAddWrapTop();
 }
 
