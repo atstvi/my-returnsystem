@@ -3095,7 +3095,11 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .gti-prog>span{display:block;height:100%}
 .task-goalitem-subs{padding:var(--sp-2) var(--sp-4) var(--sp-3) calc(var(--sp-4) + 15px)}
 .task-goalitem.collapsed .task-goalitem-subs,.task-goalitem.collapsed .gti-prog{display:none}
-.gti-sub{display:flex;align-items:center;gap:var(--sp-3);padding:3px 0}
+.gti-sub{position:relative;display:flex;align-items:center;gap:var(--sp-3);padding:3px 0}
+.gti-sub[draggable=true]{cursor:grab}
+.gti-sub.dragging{opacity:.5}
+.gti-sub.nest-target::after{content:'';position:absolute;left:26px;right:6px;bottom:-1px;height:2px;border-radius:2px;background:var(--gc,var(--accent));pointer-events:none;animation:nestln .16s var(--t-snap) backwards}
+.gti-sub.nest-target::before{content:'';position:absolute;left:22px;bottom:-2.5px;width:6px;height:6px;border-radius:50%;background:var(--gc,var(--accent));pointer-events:none}
 .gti-subcheck{width:18px;height:18px;flex:none;border:1.6px solid var(--border);border-radius:6px;background:transparent;cursor:pointer;padding:0;position:relative}
 .gti-subcheck.done{background:var(--gc,var(--accent));border-color:var(--gc,var(--accent))}
 .gti-subcheck.done::after{content:'✓';position:absolute;inset:0;color:#fff;font-size:12px;line-height:16px;text-align:center}
@@ -20211,7 +20215,10 @@ function taskSetParent(child, parentId){
     cur=(cur.parentId!=null&&cur.parentId!=='')?_taskById(cur.parentId):null;
   }
   child.parentId=String(parentId);
-  child.goalId='';                                                     // 목표 그룹과 상호배타
+  /* 하위 할일은 상위의 소속(목표/프로젝트)을 따라간다 — 목표 할일 아래로 넣으면 그
+     목표 안에 중첩되고(같은 목표·프로젝트로), 목표 밖 할일 아래로 넣으면 목표에서 빠짐. */
+  child.goalId = p.goalId ? String(p.goalId) : '';
+  if(p.goalId && p.projectId) child.projectId = String(p.projectId);
   child.updatedAt=Date.now();
   return true;
 }
@@ -22016,7 +22023,14 @@ function _goalTaskDone(t){ return (typeof taskEffectiveDone==='function')?taskEf
 function _goalSubGroup(goal,list){
   var col=goal.color||'#BE727A';
   var open=!!_goalTaskGroupOpen[goal.id];
-  var doneN=list.filter(_goalTaskDone).length, tot=list.length;
+  /* 목표 안에서도 하위 할일(중첩)을 지원 — list(비중첩 목표 할일)를 루트로 보고, 각
+     루트의 후손을 그 아래에 들여쓰기로 렌더. 카운트/토글은 후손 포함. 드래그로 목표
+     할일을 다른 목표 할일의 하위로 넣을 수 있다(할일 탭 일반 항목과 동일). */
+  var _inGoal={}; list.forEach(function(t){_inGoal[String(t.id)]=1;});
+  var roots=orderTaskSubset(list.filter(function(t){return !(t.parentId&&_inGoal[String(t.parentId)]);}));
+  var allTasks=[];
+  roots.forEach(function(rt){ allTasks.push({t:rt,depth:0}); (typeof taskDescendantRows==='function'?taskDescendantRows(rt.id):[]).forEach(function(row){ allTasks.push({t:row.t,depth:1+row.depth}); }); });
+  var doneN=allTasks.filter(function(x){return _goalTaskDone(x.t);}).length, tot=allTasks.length;
   var pct=tot?Math.round(doneN/tot*100):0, allDone=tot>0&&doneN===tot;
   var daySuffix=(goal.dayLabels&&goal.dayLabels[selDate])?String(goal.dayLabels[selDate]):'';
   var g=document.createElement('div'); g.className='task-goalitem'+(allDone?' done':'')+(open?'':' collapsed'); g.style.setProperty('--gc',col);
@@ -22031,24 +22045,32 @@ function _goalSubGroup(goal,list){
   head.addEventListener('click',function(e){ if(e.target.closest('.goal-daylabel-btn')||e.target.closest('.gti-count')||e.target.closest('.gti-add'))return; g.classList.toggle('collapsed'); _goalTaskGroupOpen[goal.id]=!g.classList.contains('collapsed'); });
   head.querySelector('.goal-daylabel-btn').addEventListener('click',function(e){ e.stopPropagation(); _editGoalDayLabel(goal); });
   head.querySelector('.gti-add').addEventListener('click',function(e){ e.stopPropagation(); _addTaskToGoal(goal.id); });
-  head.querySelector('.gti-count').addEventListener('click',function(e){ e.stopPropagation(); var target=!allDone; list.forEach(function(t){ t.done=target; t.updatedAt=Date.now(); }); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
+  head.querySelector('.gti-count').addEventListener('click',function(e){ e.stopPropagation(); var target=!allDone; allTasks.forEach(function(x){ x.t.done=target; x.t.updatedAt=Date.now(); }); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
 
   var prog=document.createElement('div'); prog.className='gti-prog'; prog.innerHTML='<span style="width:'+pct+'%;background:'+col+'"></span>';
 
   var subs=document.createElement('div'); subs.className='task-goalitem-subs';
-  orderTaskSubset(list).forEach(function(t){
+  function _goalRow(t, depth){
     var done=_goalTaskDone(t);
     var meta=[]; if(t.timeStart)meta.push(t.timeStart); if(t.deadlineDate)meta.push('~'+(typeof _goalFmt==='function'?_goalFmt(t.deadlineDate):t.deadlineDate));
-    var ownSubs=(Array.isArray(t.subs)&&t.subs.length)?(t.subs.filter(function(s){return s.done;}).length+'/'+t.subs.length):'';
-    var sr=document.createElement('div'); sr.className='gti-sub'+(done?' done':'');
+    var kc=(typeof taskChildrenDone==='function')?taskChildrenDone(t.id):{done:0,total:0};
+    var subDone=(t.subs||[]).filter(function(s){return s&&s.done;}).length, subTot=(t.subs||[]).length;
+    var hd=kc.done+subDone, ht=kc.total+subTot;
+    var sr=document.createElement('div'); sr.className='gti-sub'+(done?' done':''); sr.setAttribute('draggable','true'); sr.setAttribute('data-id',t.id);
+    if(depth>0)sr.style.marginLeft=(depth*16)+'px';
     sr.innerHTML='<button type="button" class="gti-subcheck'+(done?' done':'')+'" aria-label="완료 토글"></button>'
       +'<span class="gti-subtext">'+tEscHtml(t.text)+'</span>'
-      +(ownSubs?'<span class="gti-subbadge">☑ '+ownSubs+'</span>':'')
+      +(ht?'<span class="gti-subbadge">↳ '+hd+'/'+ht+'</span>':'')
       +(meta.length?'<span class="gti-submeta">'+tEscHtml(meta.join(' · '))+'</span>':'');
     sr.querySelector('.gti-subcheck').addEventListener('click',function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
     sr.querySelector('.gti-subtext').addEventListener('click',function(e){ e.stopPropagation(); if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
+    sr.addEventListener('dragstart',function(e){ e.stopPropagation(); dragSrcId=t.id; _taskDragFromHandle=false; _taskDragMode='nest'; e.dataTransfer.effectAllowed='move'; setTimeout(function(){sr.classList.add('dragging');},0); });
+    sr.addEventListener('dragend',function(e){ e.stopPropagation(); sr.classList.remove('dragging'); document.querySelectorAll('.gti-sub.nest-target').forEach(function(i){i.classList.remove('nest-target');}); });
+    sr.addEventListener('dragover',function(e){ e.preventDefault(); e.stopPropagation(); if(e.dataTransfer)e.dataTransfer.dropEffect='move'; document.querySelectorAll('.gti-sub.nest-target').forEach(function(i){i.classList.remove('nest-target');}); if(String(t.id)!==String(dragSrcId))sr.classList.add('nest-target'); });
+    sr.addEventListener('drop',function(e){ e.preventDefault(); e.stopPropagation(); sr.classList.remove('nest-target'); if(String(dragSrcId)===String(t.id))return; var src=(typeof _taskById==='function')?_taskById(dragSrcId):null; if(src&&typeof taskSetParent==='function'&&taskSetParent(src,t.id)){ if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); if(typeof showToast==='function')showToast('"'+src.text+'"을(를) "'+t.text+'"의 하위로 넣었어요'); } });
     subs.appendChild(sr);
-  });
+  }
+  allTasks.forEach(function(x){ _goalRow(x.t, x.depth); });
 
   g.appendChild(head); g.appendChild(prog); g.appendChild(subs);
   return g;
@@ -22175,34 +22197,36 @@ function buildTaskEl(task){
   if(task._occurrenceCustomized)mkBadge('b-custom','✎ 개별');
   var pu=(task.prepItems||[]).filter(function(p){return p.text&&!p.done;});
   if(pu.length)mkBadge('b-prep','🧳 '+pu.length);
-  if(task.subs&&task.subs.length){var ds=task.subs.filter(function(s){return s.done;}).length;mkBadge('b-sub',ds+'/'+task.subs.length);}
+  /* 하위(체크리스트 + 하위 할일)를 하나로 합산한 단일 배지. */
+  var _subDone=(task.subs||[]).filter(function(s){return s&&s.done;}).length, _subTot=(task.subs||[]).length;
   var _kidStat=(typeof taskChildrenDone==='function')?taskChildrenDone(task.id):{done:0,total:0};
-  if(_kidStat.total)mkBadge('b-sub','↳ '+_kidStat.done+'/'+_kidStat.total);
+  var _hDone=_subDone+_kidStat.done, _hTot=_subTot+_kidStat.total;
+  if(_hTot)mkBadge('b-sub','↳ '+_hDone+'/'+_hTot);
   if(hasBadge)meta.classList.add('always-show');
 
   body.appendChild(textEl);
   if(meta.childElementCount)body.appendChild(meta);
   if(task.note){var note=document.createElement('div');note.className='task-note';note.textContent=task.note;body.appendChild(note);}
 
-  /* Subs */
-  if(task.subs&&task.subs.length){
-    var subsEl=document.createElement('div');subsEl.className='task-subs';
-    task.subs.forEach(function(sub){
-      var sr=document.createElement('div');sr.className='sub-item'+(sub.done?' done':'');
-      var sc=document.createElement('div');sc.className='sub-check'+(sub.done?' done':'');
-      var st=document.createElement('span');st.className='sub-text';st.textContent=sub.text;
-      sr.appendChild(sc);sr.appendChild(st);
-      sr.addEventListener('click',function(e){e.stopPropagation();sub.done=!sub.done;task.updatedAt=Date.now();_syncTaskDoneFromSubs(task);saveTaskData();renderList();renderCal();});
-      subsEl.appendChild(sr);
-    });
-    body.appendChild(subsEl);
-  }
-
-  /* 하위 할일 — 부모 아래 들여쓰기로 접혀 보이는 진짜 '할일'들. 각 행은 클릭하면
-     그 할일의 편집창(정보)이 열리고, 체크로 완료 토글, 드래그로 종속 조절이 된다. */
+  /* 하위 목록 — 체크리스트 항목(legacy subs)과 하위 '할일'(parentId 연결 진짜 할일)을
+     한 컨테이너에 같은 모양으로 렌더한다. 체크리스트 항목은 진짜 할일이 아니라 드래그가
+     안 되지만(편집창 기본 추가는 이제 진짜 하위 할일을 만든다), 모양·동그라미 위치는
+     완전히 동일. 하위 할일은 클릭해 열기·완료 토글·드래그로 종속 조절 모두 가능. */
   var _kidRows=(typeof taskDescendantRows==='function')?taskDescendantRows(task.id):[];
-  if(_kidRows.length){
+  var _hasSubs=!!(task.subs&&task.subs.length);
+  if(_hasSubs||_kidRows.length){
     var kidWrap=document.createElement('div');kidWrap.className='task-children';
+    /* 1) legacy 체크리스트 항목 (같은 모양, 드래그 없음) */
+    (task.subs||[]).forEach(function(sub){
+      var sdone=!!sub.done;
+      var sr=document.createElement('div');sr.className='task-child task-child-sub'+(sdone?' done':'');
+      var sck=document.createElement('button');sck.type='button';sck.className='task-child-check'+(sdone?' done':'');sck.setAttribute('aria-label','완료 토글');
+      var stx=document.createElement('span');stx.className='task-child-text';stx.textContent=sub.text;
+      sr.appendChild(sck);sr.appendChild(stx);
+      sr.addEventListener('click',function(e){e.stopPropagation();sub.done=!sub.done;task.updatedAt=Date.now();if(typeof _syncTaskDoneFromSubs==='function')_syncTaskDoneFromSubs(task);if(typeof saveTaskData==='function')saveTaskData();renderList();if(typeof renderCal==='function')renderCal();});
+      kidWrap.appendChild(sr);
+    });
+    /* 2) 진짜 하위 할일들 (깊이 들여쓰기 + 드래그) */
     _kidRows.forEach(function(row){
       var ct=row.t;
       var kdone=(typeof taskEffectiveDone==='function')?taskEffectiveDone(ct):!!ct.done;
@@ -22889,7 +22913,18 @@ function renderTaskModalSubs(obj, commit){
   });
   var addInp=document.getElementById('msub-addinp');
   if(addInp)addInp.addEventListener('keydown',function(e){
-    if(e.key==='Enter'){ e.preventDefault(); var t=(addInp.value||'').trim(); if(!t)return; subs.push({text:t,done:false}); obj.updatedAt=Date.now(); commit(); re(); var ni=document.getElementById('msub-addinp'); if(ni)ni.focus(); }
+    if(e.key!=='Enter')return; e.preventDefault();
+    var t=(addInp.value||'').trim(); if(!t)return;
+    if(isExisting){
+      /* 편집창 기본 추가도 '진짜 하위 할일'을 만든다 — 드래그로 넣은 것과 완전히 동일
+         (모양·드래그·클릭 열기 모두 일관). 카테고리·날짜는 상위 할일에서 물려받음. */
+      var nt={id:Date.now(),text:t,catId:obj.catId||'etc',date:obj.date||selDate||TK,priority:'',done:false,deadlineDate:'',deadlineTime:'',deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],parentId:String(obj.id),_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+      tasks.unshift(nt); childReflow();
+    } else {
+      /* 아직 저장 안 된 새 할일 초안 — 부모 id가 없어 임시로 체크리스트에 담아둔다. */
+      subs.push({text:t,done:false}); obj.updatedAt=Date.now(); commit(); re();
+    }
+    var ni=document.getElementById('msub-addinp'); if(ni)ni.focus();
   });
 
   /* 하위 '할일'(진짜 할일) + 상위 지정 — 기존 할일에서만 */
