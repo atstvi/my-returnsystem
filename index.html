@@ -4880,6 +4880,9 @@ to{opacity:1;transform:translateY(0)}}
 .pji-grip{flex:none;color:var(--fg-4);opacity:.5;font-size:12px;cursor:grab;line-height:1}
 .pji-assign{flex:none;font-size:11px;font-weight:var(--fw-semibold);color:var(--accent);background:var(--accent-light);border:none;border-radius:var(--r-full);padding:5px 10px;cursor:pointer;transition:background var(--t-snap)}
 .pji-assign:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+.pji-uacts{flex:none;display:flex;align-items:center;gap:6px}
+.pji-ack{flex:none;width:28px;height:28px;border-radius:var(--r-full);border:none;background:var(--bg-card);color:var(--fg-4);font-size:13px;line-height:1;cursor:pointer;transition:background var(--t-snap),color var(--t-snap)}
+.pji-ack:hover{background:color-mix(in srgb,var(--success) 15%,transparent);color:var(--success)}
 .pjd-inboxcol.pji-drop-target{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-light)}
 @media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}.pjd-unfiledcol{min-height:0}.pjd-unfiledcol .pji-list{flex:none}}
 .pji-list{display:flex;flex-direction:column;gap:6px}
@@ -30148,8 +30151,12 @@ function projectInboxHtml(project){
 /* 미분류 인박스 — 아직 어떤 프로젝트에도 담기지 않은(projectId 없는) 인박스 항목.
    위쪽 "처리할 인박스" 카드로 드래그해 놓으면 이 프로젝트로 분류된다. */
 var _pjDragInboxId=null;
-function projectUnfiledInboxItems(){
-  return (typeof inboxItems!=='undefined'?inboxItems:[]).filter(function(i){return i&&!i.done&&!(i.projectId);});
+/* 이 프로젝트에서 "확인 완료"로 숨긴 미분류 항목인가? — it.pjDismiss(프로젝트 id 배열)에
+   해당 프로젝트가 들어 있으면 그 프로젝트 미분류 목록에서 제외(다른 프로젝트/인박스 탭엔
+   그대로). 새로 등록되는 항목은 pjDismiss가 없어 다시 나타나므로 중복 확인이 필요 없다. */
+function _pjInboxDismissed(it,project){ return !!(it&&project&&Array.isArray(it.pjDismiss)&&it.pjDismiss.indexOf(String(project.id))>=0); }
+function projectUnfiledInboxItems(project){
+  return (typeof inboxItems!=='undefined'?inboxItems:[]).filter(function(i){return i&&!i.done&&!(i.projectId)&&!_pjInboxDismissed(i,project);});
 }
 function projectAssignInbox(p,it){
   if(!p||!it)return;
@@ -30158,8 +30165,17 @@ function projectAssignInbox(p,it){
   if(typeof renderProjects==='function')renderProjects();
   if(typeof showToast==='function')showToast('"'+(p.title||'프로젝트')+'"(으)로 분류했어요');
 }
+/* 이 프로젝트 미분류에서만 숨김(확인 완료). 항목 자체는 삭제하지 않고, 다른 곳엔 그대로. */
+function projectDismissUnfiled(p,it){
+  if(!p||!it)return;
+  if(!Array.isArray(it.pjDismiss))it.pjDismiss=[];
+  if(it.pjDismiss.indexOf(String(p.id))<0)it.pjDismiss.push(String(p.id));
+  it.updatedAt=Date.now();
+  if(typeof saveInboxItems==='function')saveInboxItems();
+  if(typeof renderProjects==='function')renderProjects();
+}
 function projectUnfiledInboxHtml(project){
-  var items=projectUnfiledInboxItems().slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
+  var items=projectUnfiledInboxItems(project).slice().sort(function(a,b){return (b.ts||0)-(a.ts||0);});
   var rows=items.length?items.map(function(it){
     var when=(typeof timeAgo==='function'&&it.ts)?timeAgo(it.ts):'';
     var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
@@ -30169,7 +30185,10 @@ function projectUnfiledInboxHtml(project){
       +'<span class="pji-grip" title="드래그해서 위 인박스로 분류">⠿</span>'
       +'<span class="pji-dot" style="background:var(--fg-4);opacity:.45"></span>'
       +'<div class="pji-main"><div class="pji-t">'+projectEsc(it.text||(hasImg?'(이미지)':''))+'</div><div class="pji-s">'+projectEsc(sub)+'</div></div>'
-      +'<button type="button" class="pji-assign" data-assign="'+id+'" title="이 프로젝트로 분류">→ 담기</button></div>';
+      +'<div class="pji-uacts">'
+        +'<button type="button" class="pji-assign" data-assign="'+id+'" title="이 프로젝트로 분류">→ 담기</button>'
+        +'<button type="button" class="pji-ack" data-unfiled-ack="'+id+'" title="확인 완료 — 이 프로젝트 미분류에서 숨기기">✓</button>'
+      +'</div></div>';
   }).join(''):'<div class="pji-empty">미분류 인박스가 없어요.</div>';
   return '<div class="pji-list pji-unfiled-list">'+rows+'</div>';
 }
@@ -30258,6 +30277,7 @@ renderProjects=function(){
   /* 미분류 인박스 → 이 프로젝트로 분류: "→ 담기" 버튼 또는 위 인박스 카드로 드래그 */
   var _findInbox=function(id){return (typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(id);});};
   detail.querySelectorAll('[data-assign]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var it=_findInbox(b.getAttribute('data-assign'));if(it)projectAssignInbox(p,it);});});
+  detail.querySelectorAll('[data-unfiled-ack]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var it=_findInbox(b.getAttribute('data-unfiled-ack'));if(it)projectDismissUnfiled(p,it);});});
   detail.querySelectorAll('[data-unfiled]').forEach(function(row){
     row.addEventListener('dragstart',function(e){_pjDragInboxId=row.getAttribute('data-unfiled');if(e.dataTransfer){e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',_pjDragInboxId);}catch(_){}}setTimeout(function(){row.classList.add('dragging');},0);});
     row.addEventListener('dragend',function(){row.classList.remove('dragging');var c=detail.querySelector('#pjd-inboxcol');if(c)c.classList.remove('pji-drop-target');});
