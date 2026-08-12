@@ -19448,13 +19448,16 @@ function _initInbox(){
     return it.text;
   }
   /* 보이는 URL 카드의 미리보기를 한 번씩 지연 로드(자동 미리보기). 실패해도 meta={}
-     로 표시해 재시도하지 않고 파비콘+도메인 폴백을 유지한다. */
+     로 표시해 재시도하지 않고 파비콘+도메인 폴백을 유지한다. "이번에 시도함"은
+     세션 한정 메모리 Set으로만 추적한다 — 아이템에 붙여 저장/동기화하지 않는다
+     (it.meta는 결과라 동기화되지만, 시도 여부 플래그가 블롭에 새면 안 되므로). */
+  var _ib2MetaTried={};
   function ib2EnrichLinks(){
     if(typeof boardFetchMeta!=='function')return;
     (inboxItems||[]).forEach(function(it){
-      if(!it||it.done||it._metaTried||it.meta!=null)return;
+      if(!it||it.done||_ib2MetaTried[it.id]||it.meta!=null)return;
       var u=ib2FirstUrl(it); if(!u)return;
-      it._metaTried=true;
+      _ib2MetaTried[it.id]=true;
       boardFetchMeta(u).then(function(m){ it.meta=m||{}; if(typeof saveInboxItems==='function')saveInboxItems(); paintKanban(); });
     });
   }
@@ -29361,6 +29364,9 @@ function projectBoardEnsure(project){
   if(!project.board.view)project.board.view={tx:0,ty:0,scale:1};
   if(!Array.isArray(project.board.items))project.board.items=[];
   if(!Array.isArray(project.board.edges))project.board.edges=[]; /* connectors (2차) */
+  /* 임시(비동기) 플래그가 저장/동기화에 새어 붙박이 로딩 상태로 남는 걸 방지 —
+     재로드 시엔 진행 중인 fetch가 없으므로 제거한다(_titleEdited 등 의미 있는 건 유지). */
+  project.board.items.forEach(function(it){ if(it){ delete it._metaLoading; delete it._metaOk; } });
   if(!project._boardMigrated){
     project._boardMigrated=true;
     var res=Array.isArray(project.resources)?project.resources:[];
@@ -29463,6 +29469,10 @@ function returnFirstUrl(text){ var m=String(text||'').match(/https?:\/\/[^\s<>"'
 /* microlink 응답 data → 우리 필드로 정규화. 순수 함수(테스트 대상). */
 function boardMapMeta(data){ data=data||{}; return { title:String(data.title||'').trim(), desc:String(data.description||'').trim(), image:(data.image&&data.image.url)||'', logo:(data.logo&&data.logo.url)||'', publisher:String(data.publisher||'').trim() }; }
 var _boardMetaCache={};
+/* fetch가 진행 중인 아이템 id (id→true). 렌더의 "미리보기…" 표시에만 쓰는 임시
+   상태라, 아이템에 붙여 저장/동기화하지 않고 메모리에만 둔다(기기 간에 붙박이
+   로딩 상태가 새는 것을 방지). */
+var _boardMetaLoading={};
 function boardFetchMeta(url){
   if(!url)return Promise.resolve(null);
   if(_boardMetaCache[url])return Promise.resolve(_boardMetaCache[url]);
@@ -29476,12 +29486,11 @@ function boardFetchMeta(url){
    (_titleEdited) 덮어쓰지 않는다. 성공·실패 무관하게 done(ok)으로 저장·리페인트
    를 맡긴다(폴백은 렌더 단계의 파비콘+도메인이 담당). */
 function boardEnrichItem(it,done){
-  if(!it||!it.url){ if(it)it._metaLoading=false; done&&done(false); return; }
-  it._metaLoading=true;
+  if(!it||!it.url){ if(it&&it.id)delete _boardMetaLoading[it.id]; done&&done(false); return; }
+  if(it.id)_boardMetaLoading[it.id]=true;
   boardFetchMeta(it.url).then(function(m){
-    it._metaLoading=false;
-    if(m){ if(m.title&&!it._titleEdited)it.title=m.title; if(m.desc)it.desc=m.desc; if(m.image)it.image=m.image; if(m.logo)it.logo=m.logo; if(m.publisher)it.publisher=m.publisher; it._metaOk=true; }
-    else { it._metaOk=false; }
+    if(it.id)delete _boardMetaLoading[it.id];
+    if(m){ if(m.title&&!it._titleEdited)it.title=m.title; if(m.desc)it.desc=m.desc; if(m.image)it.image=m.image; if(m.logo)it.logo=m.logo; if(m.publisher)it.publisher=m.publisher; }
     done&&done(!!m);
   });
 }
@@ -29511,7 +29520,7 @@ function projectBoardItemHtml(it){
       +'<div class="pjb-bm-body">'
         +'<div class="pjb-bm-title">'+projectEsc(it.title||bhost)+'</div>'
         +(it.desc?'<div class="pjb-bm-desc">'+projectEsc(it.desc)+'</div>':'')
-        +'<div class="pjb-bm-foot"><img class="pjb-bm-fav" src="'+projectEsc(it.logo||boardFavicon(it.url))+'" alt="" onerror="this.onerror=null;this.src=\''+projectEsc(boardFavicon(it.url))+'\'"><span>'+projectEsc(it.publisher||bhost)+'</span>'+(it._metaLoading?'<span class="pjb-bm-loading">미리보기…</span>':'')+'</div>'
+        +'<div class="pjb-bm-foot"><img class="pjb-bm-fav" src="'+projectEsc(it.logo||boardFavicon(it.url))+'" alt="" onerror="this.onerror=null;this.src=\''+projectEsc(boardFavicon(it.url))+'\'"><span>'+projectEsc(it.publisher||bhost)+'</span>'+((typeof _boardMetaLoading!=='undefined'&&_boardMetaLoading[it.id])?'<span class="pjb-bm-loading">미리보기…</span>':'')+'</div>'
       +'</div></a>';
   }
   else if(it.type==='embed'){
@@ -29620,8 +29629,8 @@ function projectBoardBind(detail,project){
         var url=(d.url||'').trim(); if(!url)return; if(!/^https?:\/\//i.test(url))url='https://'+url;
         var title=(d.title||'').trim(), as=d.as||'bookmark';
         if(as==='link'){ addItem({type:'link',title:title||url,url:url,h:96,accent:'#5c9e86'}); return; }
-        if(as==='embed'){ var eit=addItem({type:'embed',url:url,title:title,w:380,h:280,accent:'#7c8aa0',_titleEdited:!!title,_metaLoading:!title}); if(!title)boardEnrichItem(eit,function(){save();repaint();}); return; }
-        var it=addItem({type:'bookmark',url:url,title:title,w:280,accent:'#5c9e86',_titleEdited:!!title,_metaLoading:true}); boardEnrichItem(it,function(){save();repaint();});
+        if(as==='embed'){ var eit=addItem({type:'embed',url:url,title:title,w:380,h:280,accent:'#7c8aa0',_titleEdited:!!title}); if(!title){ boardEnrichItem(eit,function(){save();repaint();}); repaint(); } return; }
+        var it=addItem({type:'bookmark',url:url,title:title,w:280,accent:'#5c9e86',_titleEdited:!!title}); boardEnrichItem(it,function(){save();repaint();}); repaint();
       }); }
     else if(t==='image'){ projectBoardAddImage(addItem,save,repaint); }
   });});
@@ -29688,7 +29697,7 @@ function projectBoardEditItem(project,it,repaint,save){
     it.url=url; it.title=(d.title||'').trim(); it._titleEdited=!!it.title;
     if(changed){ it.image='';it.desc='';it.logo='';it.publisher=''; }
     save(); repaint();
-    if(changed&&typeof boardEnrichItem==='function'){ it._metaLoading=true; boardEnrichItem(it,function(){save();repaint();}); }
+    if(changed&&typeof boardEnrichItem==='function'){ boardEnrichItem(it,function(){save();repaint();}); repaint(); }
   });
   else if(it.type==='image'){
     /* Uploaded images store a return-media ref (not a human URL) — don't expose
@@ -30723,7 +30732,9 @@ renderProjects=function(){
       var byStage={}; PROJECT_STAGES.forEach(function(s){byStage[s.id]=[];});
       vis.forEach(function(p){ var st=projectStageOf(p); (byStage[st]||byStage.inprogress).push(p); });
       var sections=PROJECT_STAGES.filter(function(s){return byStage[s.id]&&byStage[s.id].length;}).map(function(s){
-        var open=_pjStageOpen[s.id]!==false;
+        /* 기본은 "진행 중"만 펼치고 나머지(시작 전·보류·완료·취소)는 접는다.
+           사용자가 직접 토글한 섹션만 그 선택을 따른다. */
+        var open=(s.id in _pjStageOpen)?!!_pjStageOpen[s.id]:(s.id==='inprogress');
         return '<section class="pj-stage-sec'+(open?' open':'')+'" data-stagesec="'+s.id+'">'
           +'<button type="button" class="pj-stage-shead" data-stagetoggle="'+s.id+'" aria-expanded="'+(open?'true':'false')+'">'
             +'<span class="pj-stage-caret">▸</span><span class="pj-stage-dot" style="background:'+s.color+'"></span>'
@@ -30735,7 +30746,7 @@ renderProjects=function(){
     }
     host.innerHTML=toolbar+body;
     var gt=host.querySelector('#pj-fgroup-toggle'); if(gt)gt.addEventListener('click',function(){_pjFolderGroup=!_pjFolderGroup;try{localStorage.setItem('pj_folder_group',_pjFolderGroup?'1':'0');}catch(_e){}renderFolders();});
-    host.querySelectorAll('[data-stagetoggle]').forEach(function(b){b.addEventListener('click',function(){var s=b.getAttribute('data-stagetoggle');_pjStageOpen[s]=(_pjStageOpen[s]===false);renderFolders();});});
+    host.querySelectorAll('[data-stagetoggle]').forEach(function(b){b.addEventListener('click',function(){var s=b.getAttribute('data-stagetoggle');var cur=(s in _pjStageOpen)?!!_pjStageOpen[s]:(s==='inprogress');_pjStageOpen[s]=!cur;renderFolders();});});
     host.querySelectorAll('[data-stage-pick]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var pr=projects.find(function(x){return String(x.id)===String(b.getAttribute('data-stage-pick'));});if(pr)openProjectStagePicker(pr,renderFolders);});});
     host.querySelectorAll('[data-open]').forEach(function(b){b.addEventListener('click',function(){activeProjectId=b.getAttribute('data-open');_mode='detail';renderProjects();});});
     host.querySelectorAll('[data-new-folder]').forEach(function(nf){nf.addEventListener('click',function(){openProjectEditor(null);});});
