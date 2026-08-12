@@ -3120,7 +3120,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .section-head{display:flex;align-items:center;gap:var(--sp-4);padding:var(--sp-2) var(--sp-3) var(--sp-3);cursor:pointer;border-radius:var(--r-md);transition:background var(--t-snap)}
 .section-head:hover{background:var(--bg-hover)}
 .section-title{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);letter-spacing:.5px;text-transform:uppercase;flex:1}
-.section-head.cat-section-head{background:var(--bg-raised);border-radius:var(--r-lg);box-shadow:var(--elev-inset)}
+.section-head.cat-section-head{background:var(--bg-raised);border-radius:var(--r-lg);box-shadow:var(--elev-inset);cursor:default}
+.section-head.cat-section-head:hover{background:var(--bg-raised)} /* 카테고리는 접기 불가 → 클릭 유도 제거 */
 /* Empty category bars stay fully visible so the + is easy to reach; only the
    count reads muted. */
 .section-head.cat-section-head.cat-empty .section-count{color:var(--fg-4)}
@@ -22144,7 +22145,9 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
   }
 
   var head=document.createElement('div');
-  head.className='section-head'+(collapsed?' collapsed':'');
+  /* 카테고리 섹션(catId)은 접을 수 없다 — 항상 펼친 상태. 우선순위/마감/완료 등
+     다른 그룹 섹션은 기존대로 접기 가능. */
+  head.className='section-head'+((collapsed&&!catId)?' collapsed':'');
 
   /* Left color stripe for category */
   var cat=catId?getCat(catId):null;
@@ -22194,10 +22197,12 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
     head.appendChild(moveBtn);
   }
 
-  var chevron=document.createElement('span');chevron.className='section-chevron';chevron.textContent='▾';
-  head.appendChild(chevron);
-
-  head.addEventListener('click',function(){head.classList.toggle('collapsed');});
+  /* 접기 UI(쉐브론+클릭 토글)는 카테고리가 아닌 섹션에만. 카테고리는 항상 펼침. */
+  if(!catId){
+    var chevron=document.createElement('span');chevron.className='section-chevron';chevron.textContent='▾';
+    head.appendChild(chevron);
+    head.addEventListener('click',function(){head.classList.toggle('collapsed');});
+  }
 
   var body=document.createElement('div');body.className='section-body';
   items.forEach(function(t){body.appendChild(buildTaskEl(t));});
@@ -22234,7 +22239,8 @@ function _editGoalDayLabel(goal){
 function _goalTaskDone(t){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; }
 function _goalSubGroup(goal,list){
   var col=goal.color||'#BE727A';
-  var open=!!_goalTaskGroupOpen[goal.id];
+  /* 기본 펼침. 사용자가 직접 접은 목표만 그 상태를 따른다. */
+  var open=(goal.id in _goalTaskGroupOpen)?!!_goalTaskGroupOpen[goal.id]:true;
   /* 목표 안에서도 하위 할일(중첩)을 지원 — list(비중첩 목표 할일)를 루트로 보고, 각
      루트의 후손을 그 아래에 들여쓰기로 렌더. 카운트/토글은 후손 포함. 드래그로 목표
      할일을 다른 목표 할일의 하위로 넣을 수 있다(할일 탭 일반 항목과 동일). */
@@ -22315,9 +22321,8 @@ function renderProjectSection(container,items){
   var addBtn=document.createElement('button'); addBtn.className='section-add-btn task-cat-add-btn'; addBtn.type='button'; addBtn.textContent='+'; addBtn.title='프로젝트 할일 추가';
   addBtn.addEventListener('click',function(e){ e.stopPropagation(); openAddForCategory('project'); });
   head.appendChild(addBtn);
-  var chevron=document.createElement('span'); chevron.className='section-chevron'; chevron.textContent='▾';
-  head.appendChild(chevron);
-  head.addEventListener('click',function(){ head.classList.toggle('collapsed'); });
+  /* 프로젝트 카테고리도 접을 수 없다 — 쉐브론/클릭 토글 없음(항상 펼침). 안쪽
+     프로젝트 폴더·목표 그룹은 각자 접기 가능. */
   var body=document.createElement('div'); body.className='section-body';
   var projList=[]; try{ projList=JSON.parse(localStorage.getItem('projects_v1')||'[]')||[]; }catch(e){}
   var byPid={}; items.forEach(function(t){ var k=String(t.projectId||''); (byPid[k]=byPid[k]||[]).push(t); });
