@@ -553,6 +553,11 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
    only button) is pushed to the far left; the primary/confirm stays right. A
    lone button keeps its right alignment. Applies to every .modal-foot. */
 .modal-foot > .btn-ghost:first-child:not(:only-child){margin-right:auto}
+/* Leading action group (e.g. 보관/삭제 in an edit dialog): pinned far-left,
+   취소/저장 stay right. */
+.modal-foot-lead{margin-right:auto;display:flex;align-items:center;gap:var(--sp-3)}
+.btn-ghost.danger{color:var(--danger)}
+.btn-ghost.danger:hover{background:var(--d-50);color:var(--danger)}
 /* ── SHARED FORM SYSTEM ── */
 .field{display:flex;flex-direction:column;gap:var(--sp-2)}
 .field-label{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-3);letter-spacing:.4px;text-transform:uppercase}
@@ -3911,7 +3916,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .rt-habit.state-rest .rt-check{background:var(--p-50);box-shadow:0 0 0 1.6px var(--p-400)}
 .rt-habit.state-rest .rt-check::after{content:'';width:9px;height:2px;border-radius:1px;background:var(--p-600)}
 .rt-habit-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.rt-habit-title{font-size:var(--text-base);color:var(--fg);line-height:var(--lh-snug)}
+.rt-habit-title{font-size:var(--text-base);color:var(--fg);line-height:var(--lh-snug);appearance:none;background:none;border:0;padding:0;margin:0;text-align:left;font-family:inherit;cursor:pointer;display:inline-flex;align-items:center;gap:2px;transition:color .15s}
+.rt-habit-title:hover{color:var(--accent,var(--fg))}
 .rt-habit.state-done .rt-habit-title,.rt-habit.state-skip .rt-habit-title{text-decoration:line-through;color:var(--fg-4)}
 .rt-habit-plan{font-size:var(--text-xs);color:var(--fg-4);line-height:var(--lh-snug)}
 /* per-habit intensity chip (shows the custom level name) */
@@ -13359,7 +13365,8 @@ function taskCreateRangePicker(mount, initialRanges, opts){
   render();
   return { getRanges:function(){return ranges.slice();} };
 }
-function openFormDialog(title, fields, onSave){
+function openFormDialog(title, fields, onSave, opts){
+  opts = opts || {};
   var old = document.getElementById('simple-form-dialog');
   if (old) old.remove();
   var ov = document.createElement('div');
@@ -13378,9 +13385,12 @@ function openFormDialog(title, fields, onSave){
     }
     return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<input class="field-inp" data-key="'+f.key+'" type="'+(f.type||'text')+'" value="'+val.replace(/"/g,'&quot;')+'"></div>';
   }).join('');
-  ov.innerHTML = '<div class="modal"><div class="modal-head"><div class="modal-title">'+title+'</div></div><div class="modal-body">'+html+'</div><div class="modal-foot"><button class="btn btn-ghost" id="sfd-cancel">취소</button><button class="btn btn-primary" id="sfd-save">저장</button></div></div>';
+  var actions = Array.isArray(opts.actions) ? opts.actions : [];
+  var actionsHtml = actions.map(function(a,i){ return '<button class="btn btn-ghost'+(a.danger?' danger':'')+'" data-sfd-action="'+i+'">'+(a.label||'')+'</button>'; }).join('');
+  ov.innerHTML = '<div class="modal"><div class="modal-head"><div class="modal-title">'+title+'</div></div><div class="modal-body">'+html+'</div><div class="modal-foot">'+(actionsHtml?'<div class="modal-foot-lead">'+actionsHtml+'</div>':'')+'<button class="btn btn-ghost" id="sfd-cancel">취소</button><button class="btn btn-primary" id="sfd-save">저장</button></div></div>';
   document.body.appendChild(ov);
   function close(){ ov.remove(); }
+  ov.querySelectorAll('[data-sfd-action]').forEach(function(btn){ btn.addEventListener('click', function(){ var a=actions[Number(btn.getAttribute('data-sfd-action'))]; if(a&&typeof a.onClick==='function')a.onClick(close); }); });
   ov.addEventListener('click', function(e){ if(e.target===ov) close(); });
   var rangePickers={};
   fields.forEach(function(f){
@@ -31421,16 +31431,16 @@ function seedRoutineData(){routineHabits=[{id:'rh_water',title:'물 한 컵',ico
 function routineTodayLog(){var key=routineDateKey();routineLogs[key]=routineLogs[key]||{};return routineLogs[key];}
 function routineHabitById(id){return routineHabits.find(function(h){return String(h.id)===String(id);});}
 function routineBundleHabits(bundle){return (bundle&&bundle.habitIds||[]).map(routineHabitById).filter(function(h){return h&&!h.archived;});}
-/* 보관(archive): 당분간 안 할 루틴/습관은 archived=true 로 숨긴다. 데이터(로그 포함)는
-   그대로 남고 보관함에서 복원할 수 있다. "완전 삭제"만 실제로 데이터를 지운다. */
-function routineArchivedBundles(){return (routineBundles||[]).filter(function(b){return b&&b.archived;});}
+/* 보관(archive)은 "습관"에만 있는 기능이다. 당분간 안 할 습관을 archived=true 로 숨기면
+   목록/홈에서 빠지지만 데이터(로그 포함)는 그대로 남고 보관함에서 복원할 수 있다.
+   삭제(습관/루틴 모두)는 목록에서만 제거하고 로그는 보존한다 — 파괴적 삭제는 없다. */
 function routineArchivedHabits(){return (routineHabits||[]).filter(function(h){return h&&h.archived;});}
 function routineHabitPlan(h){return h[routineCondition]||h.plus||h.mini||h.max||'';}
 function routineStatsForBundle(bundle){var log=routineTodayLog(), habits=routineBundleHabits(bundle), total=habits.length, done=0, rest=0;habits.forEach(function(h){var st=(log[h.id]||{}).state||'';if(st==='done'||st==='skip')done++;if(st==='rest')rest++;});return {total:total,done:done,rest:rest};}
 /* Routine 묶음(루틴) 순서: 선택적 `order` 필드로 정렬한다. order는 엔티티 payload에
    포함돼 기기 간에도 동기화된다(LWW). order 없는 묶음은 현재 위치 기준으로 뒤에. */
 function routineSortedBundles(){
-  return (routineBundles||[]).filter(function(b){return b&&!b.archived;}).map(function(b,i){return {b:b,i:i};}).sort(function(x,y){
+  return (routineBundles||[]).map(function(b,i){return {b:b,i:i};}).sort(function(x,y){
     var ox=(x.b&&x.b.order!=null)?Number(x.b.order):(x.i+100000);
     var oy=(y.b&&y.b.order!=null)?Number(y.b.order):(y.i+100000);
     if(ox!==oy)return ox-oy;
@@ -31557,15 +31567,14 @@ function renderRoutineConditions(){var root=document.getElementById('routine-con
 function renderRoutineBundles(){var root=document.getElementById('routine-bundles');if(!root)return;if(!routineBundles.length){root.innerHTML='<div class="routine-empty">아직 루틴 묶음이 없어요.</div>';return;}var log=routineTodayLog();root.innerHTML=routineBundles.map(function(bundle){var habits=routineBundleHabits(bundle), stat=routineStatsForBundle(bundle);var rows=habits.map(function(h){var state=(log[h.id]||{}).state||'';return '<div class="routine-habit" data-routine-habit="'+routineEsc(h.id)+'"><div class="routine-habit-main"><div class="routine-habit-title"><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span></div><div class="routine-habit-plan">'+routineEsc(routineHabitPlan(h))+'</div></div><div class="routine-state-actions"><button class="routine-state '+(state==='done'?'active':'')+'" data-routine-state="done">완료</button><button class="routine-state '+(state==='skip'?'active':'')+'" data-routine-state="skip">건너뜀</button><button class="routine-state '+(state==='rest'?'active':'')+'" data-routine-state="rest">쉼</button></div></div>';}).join('')||'<div class="routine-empty">묶음에 습관이 없습니다.</div>';return '<article class="routine-bundle" data-routine-bundle="'+routineEsc(bundle.id)+'"><div class="routine-bundle-head"><div><div class="routine-bundle-title">'+routineEsc(bundle.icon||'☀️')+' '+routineEsc(bundle.title)+'</div><div class="routine-muted">'+routineEsc(bundle.slot||'루틴')+' · '+stat.done+'/'+stat.total+' 완료</div></div><div class="routine-bundle-tools"><span class="routine-pill">'+stat.done+'/'+stat.total+'</span><button class="btn btn-ghost" type="button" data-routine-edit-bundle="'+routineEsc(bundle.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">삭제</button></div></div><div class="routine-habit-list">'+rows+'</div></article>';}).join('');root.querySelectorAll('[data-routine-state]').forEach(function(btn){btn.addEventListener('click',function(){var row=btn.closest('[data-routine-habit]');if(!row)return;var id=row.getAttribute('data-routine-habit');var log=routineTodayLog();log[id]=log[id]||{};var next=btn.getAttribute('data-routine-state');log[id].state=(log[id].state===next?'':next);log[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});root.querySelectorAll('[data-routine-edit-bundle]').forEach(function(btn){btn.addEventListener('click',function(){openRoutineBundleEditor(routineBundles.find(function(b){return String(b.id)===String(btn.getAttribute('data-routine-edit-bundle'));}));});});root.querySelectorAll('[data-routine-delete-bundle]').forEach(function(btn){btn.addEventListener('click',function(){deleteRoutineBundle(btn.getAttribute('data-routine-delete-bundle'));});});}
 function renderRoutineLibrary(){var root=document.getElementById('routine-habit-list');if(!root)return;root.innerHTML=routineHabits.map(function(h){return '<div class="routine-lib-item"><div><div class="routine-habit-title"><span>'+routineEsc(h.icon||'○')+'</span><span>'+routineEsc(h.title)+'</span></div><div class="routine-muted">'+routineEsc(routineHabitPlan(h)||'설정 없음')+'</div></div><div class="routine-state-actions"><button class="btn btn-ghost" type="button" data-routine-edit-habit="'+routineEsc(h.id)+'">편집</button><button class="btn btn-danger" type="button" data-routine-delete-habit="'+routineEsc(h.id)+'">삭제</button></div></div>';}).join('')||'<div class="routine-empty">습관이 없습니다.</div>';root.querySelectorAll('[data-routine-edit-habit]').forEach(function(btn){btn.addEventListener('click',function(){openRoutineHabitEditor(routineHabits.find(function(h){return String(h.id)===String(btn.getAttribute('data-routine-edit-habit'));}));});});root.querySelectorAll('[data-routine-delete-habit]').forEach(function(btn){btn.addEventListener('click',function(){deleteRoutineHabit(btn.getAttribute('data-routine-delete-habit'));});});}
 function renderRoutineStats(){var stats=document.getElementById('routine-stats'), week=document.getElementById('routine-week-grid');if(!stats||!week)return;var todayLog=routineTodayLog(), total=routineHabits.length, done=0, rest=0;routineHabits.forEach(function(h){var st=(todayLog[h.id]||{}).state||'';if(st==='done'||st==='skip')done++;if(st==='rest')rest++;});stats.innerHTML='<div class="routine-stat"><strong>'+done+'/'+total+'</strong><span class="routine-muted">오늘 완료</span></div><div class="routine-stat"><strong>'+rest+'</strong><span class="routine-muted">쉼</span></div><div class="routine-stat"><strong>'+routineEsc(routineCondition)+'</strong><span class="routine-muted">현재 강도</span></div>';var days=[], base=new Date();base.setHours(0,0,0,0);for(var i=6;i>=0;i--){var d=new Date(base);d.setDate(base.getDate()-i);days.push(d);}week.innerHTML=days.map(function(d){var key=routineDateKey(d), log=routineLogs[key]||{}, count=0;routineHabits.forEach(function(h){var st=(log[h.id]||{}).state||'';if(st==='done'||st==='skip')count++;});return '<div class="routine-day"><strong>'+String(d.getMonth()+1)+'/'+d.getDate()+'</strong>'+routineHabits.slice(0,8).map(function(h){var st=(log[h.id]||{}).state||'';return '<span class="routine-day-dot '+((st==='done'||st==='skip')?'done':'')+'"></span>';}).join('')+'<div class="routine-muted" style="margin-top:var(--sp-2)">'+count+'개</div></div>';}).join('');}
-function openRoutineHabitEditor(habit){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(habit?'습관 편집':'습관 추가',[{key:'title',label:'이름',value:habit?habit.title:''},{key:'icon',label:'아이콘',value:habit?habit.icon:'☀️'},{key:'mini',label:'Mini',value:habit?habit.mini:''},{key:'plus',label:'Plus',value:habit?habit.plus:''},{key:'max',label:'Max',value:habit?habit.max:''}],function(data){var title=(data.title||'').trim();if(!title)return;var next={id:habit?habit.id:returnNewId('rh_'),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});else routineHabits.push(next);saveRoutineData();renderRoutine();});}
+function openRoutineHabitEditor(habit){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(habit?'습관 편집':'습관 추가',[{key:'title',label:'이름',value:habit?habit.title:''},{key:'icon',label:'아이콘',value:habit?habit.icon:'☀️'},{key:'mini',label:'Mini',value:habit?habit.mini:''},{key:'plus',label:'Plus',value:habit?habit.plus:''},{key:'max',label:'Max',value:habit?habit.max:''}],function(data){var title=(data.title||'').trim();if(!title)return;var next={id:habit?habit.id:returnNewId('rh_'),title:title,icon:data.icon||'☀️',mini:data.mini||'',plus:data.plus||'',max:data.max||''};if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});else routineHabits.push(next);saveRoutineData();renderRoutine();},habit?{actions:[{label:habit.archived?'복원':'보관',onClick:function(close){close();if(habit.archived)routineRestoreHabit(habit.id);else archiveRoutineHabit(habit.id);}},{label:'삭제',danger:true,onClick:function(close){close();deleteRoutineHabit(habit.id);}}]}:undefined);}
 function openRoutineBundleEditor(bundle){if(typeof openFormDialog!=='function'){routineToast('편집창을 열 수 없어요');return;}openFormDialog(bundle?'루틴 묶음 편집':'루틴 묶음 추가',[{key:'title',label:'이름',value:bundle?bundle.title:''},{key:'icon',label:'아이콘',value:bundle?bundle.icon:'☀️'},{key:'slot',label:'언제',value:bundle?bundle.slot:''},{key:'habits',label:'포함할 습관 이름 또는 ID(쉼표 구분)',value:bundle?routineBundleHabits(bundle).map(function(h){return h.title;}).join(', '):routineHabits.slice(0,3).map(function(h){return h.title;}).join(', ')}],function(data){var title=(data.title||'').trim();if(!title)return;var names=String(data.habits||'').split(',').map(function(s){return s.trim();}).filter(Boolean);var ids=names.map(function(n){var h=routineHabits.find(function(x){return x.title===n||x.id===n;});return h&&h.id;}).filter(Boolean);var next={id:bundle?bundle.id:returnNewId('rb_'),title:title,icon:data.icon||'☀️',slot:data.slot||'',habitIds:ids};if(bundle)routineBundles=routineBundles.map(function(b){return String(b.id)===String(bundle.id)?Object.assign({},b,next):b;});else routineBundles.push(next);saveRoutineData();renderRoutine();});}
-/* 삭제 = 보관(soft). 데이터는 안 지우고 보관함으로. 실제 삭제는 보관함의 "완전 삭제". */
-function deleteRoutineHabit(id){var h=routineHabitById(id);if(!h)return;var run=function(){h.archived=true;h.archivedAt=Date.now();h.updatedAt=Date.now();saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(h.title||'습관')+'"을 보관함으로 옮겼어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('습관 보관',(h.title||'습관')+'을 보관할까요? 데이터는 그대로 남고 보관함에서 복원할 수 있어요.',run,{confirmText:'보관'});else run();}
-function deleteRoutineBundle(id){var b=routineBundles.find(function(x){return String(x.id)===String(id);});if(!b)return;var run=function(){b.archived=true;b.archivedAt=Date.now();b.updatedAt=Date.now();if(typeof routineTimerState!=='undefined'&&routineTimerState&&String(routineTimerState.bundleId)===String(id)&&typeof routineResetTimer==='function'){try{routineResetTimer(false);}catch(_e){}}saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(b.title||'루틴')+'"을 보관함으로 옮겼어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('루틴 보관',(b.title||'루틴')+'을 보관할까요? 데이터는 그대로 남고 보관함에서 복원할 수 있어요.',run,{confirmText:'보관'});else run();}
-function routineRestoreBundle(id){var b=routineBundles.find(function(x){return String(x.id)===String(id);});if(!b)return;b.archived=false;delete b.archivedAt;b.updatedAt=Date.now();saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(b.title||'루틴')+'"을 복원했어요');}
+/* 보관은 습관 전용(soft). 삭제(습관·루틴 모두)는 목록에서만 빼고 기록(routineLogs)은
+   보존한다 — 보관함에서든 편집창에서든 동일. 파괴적(로그까지 지우는) 삭제는 없다. */
+function archiveRoutineHabit(id){var h=routineHabitById(id);if(!h)return;h.archived=true;h.archivedAt=Date.now();h.updatedAt=Date.now();saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(h.title||'습관')+'"을 보관함으로 옮겼어요');}
 function routineRestoreHabit(id){var h=routineHabitById(id);if(!h)return;h.archived=false;delete h.archivedAt;h.updatedAt=Date.now();saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(h.title||'습관')+'"을 복원했어요');}
-function routinePurgeBundle(id){var b=routineBundles.find(function(x){return String(x.id)===String(id);});if(!b)return;var run=function(){routineBundles=routineBundles.filter(function(x){return String(x.id)!==String(id);});saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('완전히 삭제했어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('완전 삭제',(b.title||'루틴')+'을 완전히 삭제할까요? 되돌릴 수 없어요.',run,{danger:true,confirmText:'완전 삭제'});else if(confirm('완전히 삭제할까요?'))run();}
-function routinePurgeHabit(id){var h=routineHabitById(id);if(!h)return;var run=function(){routineHabits=routineHabits.filter(function(x){return String(x.id)!==String(id);});routineBundles.forEach(function(b){b.habitIds=(b.habitIds||[]).filter(function(hid){return String(hid)!==String(id);});});Object.keys(routineLogs||{}).forEach(function(day){if(routineLogs[day])delete routineLogs[day][id];});saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('완전히 삭제했어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('완전 삭제',(h.title||'습관')+'을 완전히 삭제할까요? 기록도 함께 지워지고 되돌릴 수 없어요.',run,{danger:true,confirmText:'완전 삭제'});else if(confirm('완전히 삭제할까요?'))run();}
+function deleteRoutineHabit(id){var h=routineHabitById(id);if(!h)return;var run=function(){routineHabits=routineHabits.filter(function(x){return String(x.id)!==String(id);});routineBundles.forEach(function(b){b.habitIds=(b.habitIds||[]).filter(function(hid){return String(hid)!==String(id);});});/* 기록(routineLogs)은 일부러 남긴다 — 데이터 보존 삭제. */saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(h.title||'습관')+'"을 삭제했어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('습관 삭제',(h.title||'습관')+'을 삭제할까요? 목록에서 사라지지만 지난 기록은 보존돼요.',run,{danger:true,confirmText:'삭제'});else if(confirm('삭제할까요?'))run();}
+function deleteRoutineBundle(id){var b=routineBundles.find(function(x){return String(x.id)===String(id);});if(!b)return;var run=function(){if(typeof routineTimerState!=='undefined'&&routineTimerState&&String(routineTimerState.bundleId)===String(id)&&typeof routineResetTimer==='function'){try{routineResetTimer(false);}catch(_e){}}routineBundles=routineBundles.filter(function(x){return String(x.id)!==String(id);});/* 묶음만 지우고 습관·기록은 그대로 둔다. */saveRoutineData();renderRoutine();if(typeof showToast==='function')showToast('"'+(b.title||'루틴')+'"을 삭제했어요');};if(typeof openConfirmDialog==='function')openConfirmDialog('루틴 삭제',(b.title||'루틴')+'을 삭제할까요? 묶음만 사라지고 습관과 기록은 그대로 남아요.',run,{danger:true,confirmText:'삭제'});else if(confirm('삭제할까요?'))run();}
 function _initRoutine(){loadRoutineData();var hb=document.getElementById('routine-new-habit');if(hb&&!hb.dataset.bound){hb.dataset.bound='1';hb.addEventListener('click',function(){openRoutineHabitEditor(null);});}var bb=document.getElementById('routine-new-bundle');if(bb&&!bb.dataset.bound){bb.dataset.bound='1';bb.addEventListener('click',function(){openRoutineBundleEditor(null);});}var rb=document.getElementById('routine-reset-today');if(rb&&!rb.dataset.bound){rb.dataset.bound='1';rb.addEventListener('click',function(){var run=function(){delete routineLogs[routineDateKey()];saveRoutineData();renderRoutine();};if(typeof openConfirmDialog==='function')openConfirmDialog('오늘 루틴 기록 초기화','오늘 체크 상태를 지울까요?',run);else if(confirm('오늘 루틴 기록을 지울까요?'))run();});}renderRoutine();}
 
 /* Routine UX recovery: Mini/Plus/Max are per-habit choices, shown only when configured. */
@@ -31778,7 +31787,10 @@ openRoutineHabitEditor=function(habit){
     if(habit)routineHabits=routineHabits.map(function(h){return String(h.id)===String(habit.id)?Object.assign({},h,next):h;});
     else routineHabits.push(next);
     saveRoutineData();renderRoutine();if(typeof renderProjects==='function')renderProjects();
-  });
+  },habit?{actions:[
+    {label:habit.archived?'복원':'보관',onClick:function(close){close();if(habit.archived)routineRestoreHabit(habit.id);else archiveRoutineHabit(habit.id);}},
+    {label:'삭제',danger:true,onClick:function(close){close();deleteRoutineHabit(habit.id);}}
+  ]}:undefined);
 };
 renderRoutineLibrary=function(){
   var root=document.getElementById('routine-habit-list');if(!root)return;
@@ -32590,7 +32602,7 @@ renderRoutineBundles=function(){
       var stateItems=[['done','완료'],['skip','건너뜀'],['rest','쉼'],['clear','선택 안 함']].map(function(p){return '<button class="menu-item'+((p[0]!=='clear'&&state===p[0])?' active':'')+'" type="button" data-routine-state-option="'+p[0]+'">'+stateIcons[p[0]]+'<span>'+p[1]+'</span></button>';}).join('');
       return '<div class="rt-habit state-'+(state||'none')+(running?' running':'')+'" data-routine-habit="'+routineEsc(h.id)+'">'
         +'<button class="rt-check" type="button" data-routine-check aria-label="완료 표시 (길게 눌러 상태 선택)"></button>'
-        +'<div class="rt-habit-body"><div class="rt-habit-title">'+routineEsc(h.icon||'○')+' '+routineEsc(h.title)+'</div>'+chip+'</div>'
+        +'<div class="rt-habit-body"><button class="rt-habit-title" type="button" data-routine-edit-habit="'+routineEsc(h.id)+'" title="눌러서 습관 편집">'+routineEsc(h.icon||'○')+' '+routineEsc(h.title)+'</button>'+chip+'</div>'
         +'<button class="rt-drag" type="button" data-routine-drag aria-label="드래그로 순서 변경" title="드래그로 순서 변경">'+grip+'</button>'
         +diffMenu
         +'<div class="rt-state-menu menu-pop" data-routine-state-wrap>'+stateItems+'</div>'
@@ -32608,26 +32620,22 @@ renderRoutineBundles=function(){
         +(arr.length>1?('<button class="menu-item" type="button" data-routine-move-bundle="'+routineEsc(bundle.id)+'" data-dir="up"'+(idx===0?' disabled':'')+'>위로 이동</button><button class="menu-item" type="button" data-routine-move-bundle="'+routineEsc(bundle.id)+'" data-dir="down"'+(idx===arr.length-1?' disabled':'')+'>아래로 이동</button>'):'')
         +'<button class="menu-item" type="button" data-routine-edit-bundle="'+routineEsc(bundle.id)+'">편집</button>'
         +'<div class="menu-sep"></div>'
-        +'<button class="menu-item" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">📦 보관</button>'
+        +'<button class="menu-item danger" type="button" data-routine-delete-bundle="'+routineEsc(bundle.id)+'">삭제</button>'
       +'</div>'
       +'</div>'
       +'<div class="rt-habits">'+rows+'</div>'
       +'</article>';
   }).join('');
-  /* 보관함 — 보관한 루틴/습관 목록. 접이식(기본 접힘). 복원 / 완전 삭제. */
-  var _archB=routineArchivedBundles(), _archH=routineArchivedHabits();
-  if(_archB.length||_archH.length){
+  /* 보관함 — 보관한 습관 목록(습관 전용). 접이식(기본 접힘). 복원 / 삭제(기록 보존). */
+  var _archH=routineArchivedHabits();
+  if(_archH.length){
     var _archOpen=(window._rtArchiveOpen===true);
-    var _archRows=_archB.map(function(b){
-      return '<div class="rt-arch-row"><span class="rt-arch-ico">'+routineEsc(b.icon||'☀️')+'</span><span class="rt-arch-name">'+routineEsc(b.title||'루틴')+'</span><span class="rt-arch-tag">루틴</span>'
-        +'<button class="rt-arch-btn" type="button" data-routine-restore-bundle="'+routineEsc(b.id)+'">복원</button>'
-        +'<button class="rt-arch-btn danger" type="button" data-routine-purge-bundle="'+routineEsc(b.id)+'">완전 삭제</button></div>';
-    }).join('')+_archH.map(function(h){
+    var _archRows=_archH.map(function(h){
       return '<div class="rt-arch-row"><span class="rt-arch-ico">'+routineEsc(h.icon||'○')+'</span><span class="rt-arch-name">'+routineEsc(h.title||'습관')+'</span><span class="rt-arch-tag">습관</span>'
         +'<button class="rt-arch-btn" type="button" data-routine-restore-habit="'+routineEsc(h.id)+'">복원</button>'
-        +'<button class="rt-arch-btn danger" type="button" data-routine-purge-habit="'+routineEsc(h.id)+'">완전 삭제</button></div>';
+        +'<button class="rt-arch-btn danger" type="button" data-routine-delete-habit="'+routineEsc(h.id)+'">삭제</button></div>';
     }).join('');
-    root.innerHTML+='<div class="rt-archive'+(_archOpen?' open':'')+'"><button class="rt-archive-head" type="button" id="rt-archive-toggle"><span class="rt-archive-title">📦 보관함</span><span class="rt-archive-count">'+(_archB.length+_archH.length)+'</span><svg class="rt-archive-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="rt-archive-body">'+_archRows+'</div></div>';
+    root.innerHTML+='<div class="rt-archive'+(_archOpen?' open':'')+'"><button class="rt-archive-head" type="button" id="rt-archive-toggle"><span class="rt-archive-title">📦 보관함</span><span class="rt-archive-count">'+_archH.length+'</span><svg class="rt-archive-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="rt-archive-body">'+_archRows+'</div></div>';
   }
   function closeAll(){root.querySelectorAll('.rt-state-menu.open,.rt-bundle-menu.open,.rt-diff-menu.open').forEach(function(w){w.classList.remove('open');});}
   // left check: tap = toggle 완료 ; long-press = open state menu (완료/건너뜀/쉼/선택 안 함)
@@ -32657,12 +32665,12 @@ renderRoutineBundles=function(){
   root.querySelectorAll('[data-routine-add-habit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();openRoutineBundleHabitPicker(btn.getAttribute('data-routine-add-habit'));});});
   root.querySelectorAll('[data-routine-edit-bundle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();openRoutineBundleEditor(routineBundles.find(function(b){return String(b.id)===String(btn.getAttribute('data-routine-edit-bundle'));}));});});
   root.querySelectorAll('[data-routine-delete-bundle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();deleteRoutineBundle(btn.getAttribute('data-routine-delete-bundle'));});});
+  // 목록에서 습관 제목을 누르면 바로 편집창
+  root.querySelectorAll('[data-routine-edit-habit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();openRoutineHabitEditor(routineHabitById(btn.getAttribute('data-routine-edit-habit')));});});
   var _atg=root.querySelector('#rt-archive-toggle');
   if(_atg)_atg.addEventListener('click',function(e){e.stopPropagation();var w=_atg.closest('.rt-archive');if(w){w.classList.toggle('open');window._rtArchiveOpen=w.classList.contains('open');}});
-  root.querySelectorAll('[data-routine-restore-bundle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();routineRestoreBundle(btn.getAttribute('data-routine-restore-bundle'));});});
-  root.querySelectorAll('[data-routine-purge-bundle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();routinePurgeBundle(btn.getAttribute('data-routine-purge-bundle'));});});
   root.querySelectorAll('[data-routine-restore-habit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();routineRestoreHabit(btn.getAttribute('data-routine-restore-habit'));});});
-  root.querySelectorAll('[data-routine-purge-habit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();routinePurgeHabit(btn.getAttribute('data-routine-purge-habit'));});});
+  root.querySelectorAll('[data-routine-delete-habit]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();deleteRoutineHabit(btn.getAttribute('data-routine-delete-habit'));});});
   document.addEventListener('click',function _rtc(){closeAll();},{once:true});
 };
 renderRoutineStats=function(){
