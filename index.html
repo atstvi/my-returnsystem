@@ -10251,6 +10251,28 @@ to{opacity:1;transform:translateY(0)}}
           </div>
         </div>
 
+        <!-- 기록 하루 경계 (routine/diary logical-day cutoff) -->
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--accent-light)">🌙</div>
+            <div class="set-row-body">
+              <div class="set-row-label">기록 하루 경계</div>
+              <div class="set-row-desc">밤샘 기록용 — 이 시각 전까지는 전날을 '오늘'로 봐요. 루틴·일기에만 적용되고, 할일·캘린더는 자정 기준 그대로예요.</div>
+            </div>
+            <div class="set-row-ctrl">
+              <select class="set-inp" id="day-cutoff-sel" onchange="setDayCutoffHours(this.value)" style="width:120px">
+                <option value="0">자정</option>
+                <option value="1">새벽 1시</option>
+                <option value="2">새벽 2시</option>
+                <option value="3">새벽 3시</option>
+                <option value="4">새벽 4시</option>
+                <option value="5">새벽 5시</option>
+                <option value="6">새벽 6시</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <!-- Values (phil cards) -->
         <div class="set-card">
           <div class="set-row" onclick="toggleDetail('phil-detail')" style="cursor:pointer">
@@ -20035,8 +20057,12 @@ var TK = dk(TODAY);
    그 시각 전까지는 전날을 '오늘'로 본다(밤샘 기록이 자정 넘자마자 다음날로
    넘어가지 않게). 태스크/캘린더의 TK(자정 기준)에는 영향 없음 — 기록에만 적용.
    nowMs 인자로 테스트 가능(기본 Date.now()). */
-var RETURN_DAY_CUTOFF_HOURS = 4;
-function returnLogicalNow(nowMs){ return new Date((nowMs!=null?nowMs:Date.now()) - RETURN_DAY_CUTOFF_HOURS*3600000); }
+var RETURN_DAY_CUTOFF_HOURS = 4;            /* 기본값(설정 미지정 시) */
+var RETURN_DAY_CUTOFF_KEY = 'return_day_cutoff_hours'; /* 설정에서 조절, 기기 간 동기화(return_ 접두) */
+/* 현재 적용 경계 시각(0~11). 설정값이 있으면 그것을, 없으면 기본 4시. 매 호출마다
+   읽으므로 설정을 바꾸면 새로고침 없이 바로 반영된다. */
+function returnDayCutoffHours(){ try{ var v=parseInt(localStorage.getItem(RETURN_DAY_CUTOFF_KEY),10); if(!isNaN(v)&&v>=0&&v<=11)return v; }catch(e){} return RETURN_DAY_CUTOFF_HOURS; }
+function returnLogicalNow(nowMs){ return new Date((nowMs!=null?nowMs:Date.now()) - returnDayCutoffHours()*3600000); }
 function returnLogicalDayKey(nowMs){ var d=returnLogicalNow(nowMs); return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
 
 /* Whether hardcoded sample/demo data may be seeded (and thus eventually synced).
@@ -29283,6 +29309,18 @@ function _initProjects(){
    ───────────────────────────────────────────────────────────── */
 
 /* ── PANEL SWITCH ── */
+/* 설정: 기록 하루 경계(새벽 N시) 선택값 반영 + 저장. return_day_cutoff_hours는
+   return_ 접두라 기기 간 동기화되며, returnDayCutoffHours()가 매 호출 시 읽어 즉시 반영. */
+function _syncDayCutoffSel(){ var s=document.getElementById('day-cutoff-sel'); if(s&&typeof returnDayCutoffHours==='function')s.value=String(returnDayCutoffHours()); }
+function setDayCutoffHours(v){
+  var h=parseInt(v,10); if(isNaN(h)||h<0||h>11)h=4;
+  if(typeof setReturnStorageItem==='function')setReturnStorageItem(RETURN_DAY_CUTOFF_KEY,String(h));
+  else { try{localStorage.setItem(RETURN_DAY_CUTOFF_KEY,String(h));}catch(e){} }
+  try{ if(typeof renderRoutine==='function')renderRoutine(); }catch(e){}
+  try{ if(typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick(); }catch(e){}
+  try{ if(typeof homeRefreshCards==='function')homeRefreshCards({force:true}); }catch(e){}
+  if(typeof showToast==='function')showToast('기록 하루 경계: '+(h===0?'자정':('새벽 '+h+'시'))+'로 설정했어요');
+}
 function switchTab(id, btn) {
   document.querySelectorAll('.set-panel').forEach(function(p){ p.classList.remove('active'); });
   document.getElementById('panel-' + id).classList.add('active');
@@ -29290,6 +29328,7 @@ function switchTab(id, btn) {
   if (btn) btn.classList.add('active');
   if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); _updateArchiveStatusUI(); }
   if (id === 'widget'){ try{ renderWidgetPanel(); }catch(e){} }
+  if (id === 'profile'){ try{ _syncDayCutoffSel(); }catch(e){} }
   /* Mobile: close nav drawer and update header label */
   closeSetNav();
   var curEl = document.getElementById('set-mob-cur');
