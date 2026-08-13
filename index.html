@@ -1092,6 +1092,9 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 }
 .htb-vblock:hover { box-shadow:var(--elev-2); z-index:6; }
 .htb-vblock.htb-dragging { box-shadow:var(--elev-3); z-index:20; opacity:.88; cursor:grabbing !important; transition:none; }
+/* 목표 대표 블록 — 목표 색 좌측 스트라이프 + 옅은 톤 */
+.htb-vblock.htb-goalblock{ border-left:3px solid var(--gc,var(--accent)); background:color-mix(in srgb, var(--gc,var(--accent)) 13%, var(--bg-card)); }
+.htb-goalchip{ border-left:3px solid var(--gc,var(--accent)); }
 
 /* Split timeline: 할일(왼쪽) · 집중 기록(오른쪽), 가운데 점선 */
 .htb-lanes-head { display:flex; align-items:center; padding:0 var(--sp-2) var(--sp-1); }
@@ -15189,6 +15192,20 @@ function homePullOverdueToToday(){
   if(typeof renderList==='function')try{renderList();}catch(_e){}
   if(typeof showToast==='function')showToast(n+'개 밀린 할일을 오늘로 옮겼어요.');
 }
+/* 목표의 타임블록 전용 시간(tbStart/tbEnd) 편집. 목표엔 다른 화면에 시간 속성이
+   없으므로 이 시간은 오직 나 탭 타임블록 표시·조절용이다. 비우면 종일 칩으로. */
+function openGoalTbTimeEditor(g){
+  if(!g||!g.goal||typeof openFormDialog!=='function')return;
+  openFormDialog('목표 시간 · 타임블록',[
+    {key:'ts',label:'시작',type:'time',value:g.goal.tbStart||''},
+    {key:'te',label:'종료',type:'time',value:g.goal.tbEnd||'',help:'비우면 종일 칩으로 표시돼요. 타임블록에서만 쓰는 시간이에요.'}
+  ],function(d){
+    var ts=(d.ts||'').trim(), te=(d.te||'').trim();
+    g.goal.tbStart=ts; g.goal.tbEnd=te; g.goal.updatedAt=Date.now(); if(g.project)g.project.updatedAt=Date.now();
+    if(typeof saveProjects==='function')saveProjects();
+    if(typeof renderHomeTimeBlocks==='function')renderHomeTimeBlocks();
+  });
+}
 function renderHomeTimeBlocks(){
   if (typeof tasks === 'undefined') return;
   var slots = document.getElementById('htb-slots');
@@ -15592,6 +15609,58 @@ function renderHomeTimeBlocks(){
     el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); if(metaEl)el.appendChild(metaEl); el.appendChild(time); if(timerBtn)el.appendChild(timerBtn); el.appendChild(resize);
     slots.appendChild(el);
   }
+  /* 목표 대표 블록 — 소속 할일들을 대신하는 한 블록. 시간은 목표 전용 tbStart/tbEnd에
+     쓰고 저장은 saveProjects. 데스크톱은 드래그/리사이즈로, 어디서든 탭하면 시간
+     편집창으로 조절(목표엔 다른 곳에 시간 속성이 없으므로). 종일로 끌면 시간 해제. */
+  function _htbGoalPersist(g, sm, em){ g.goal.tbStart=fmt(sm); g.goal.tbEnd=fmt(em); g.goal.updatedAt=Date.now(); if(g.project)g.project.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects(); }
+  function makeGoalBlock(g, members, sm, em){
+    if (em <= sm) em = sm + 30;
+    if (em < START*60 || sm > END*60) return;
+    sm = Math.max(sm, START*60); em = Math.min(em, END*60);
+    var col = (g.goal && g.goal.color) || 'var(--accent)';
+    var doneN = members.filter(function(m){ return typeof taskEffectiveDone==='function'?taskEffectiveDone(m):m.done; }).length;
+    var el=document.createElement('div'); el.className='htb-vblock htb-goalblock'+(members.length&&doneN>=members.length?' done':'');
+    el.style.setProperty('--gc', col);
+    el.style.top=((sm/60-START)*SLOT_H)+'px';
+    el.style.height=Math.max(((em-sm)/60)*SLOT_H-3,22)+'px';
+    if(_htbSplit){ el.style.left='var(--sp-2)'; el.style.right='calc(50% + 4px)'; }
+    var bar=document.createElement('div'); bar.className='htb-vbar';
+    var name=document.createElement('span'); name.className='htb-vname'; name.textContent='🎯 '+g.goal.title;
+    var badge=document.createElement('span'); badge.className='htb-vbadge'; badge.textContent=doneN+'/'+members.length;
+    var time=document.createElement('span'); time.className='htb-vtime'; time.textContent=fmt(sm)+'-'+fmt(em);
+    var resize=document.createElement('div'); resize.style.cssText='position:absolute;left:0;right:0;bottom:0;height:12px;cursor:ns-resize;display:flex;align-items:center;justify-content:center;touch-action:none';
+    resize.innerHTML='<span style="width:24px;height:2px;border-radius:var(--r-full);background:currentColor;opacity:.35"></span>';
+    el.addEventListener('click', function(){ if(el._dragMoved){el._dragMoved=false;return;} openGoalTbTimeEditor(g); });
+    el.addEventListener('mousedown', function(e){
+      if (e.button!==0 || e.target.closest('button') || resize.contains(e.target)) return;
+      e.preventDefault();
+      var y0=e.clientY, sm0=sm, dur=em-sm, moved=false, lastX=e.clientX, lastY=e.clientY;
+      el.classList.add('htb-dragging');
+      function mv(ev){ lastX=ev.clientX; lastY=ev.clientY; var ns=Math.round((sm0+(ev.clientY-y0)/SLOT_H*60)/5)*5; ns=Math.max(START*60,Math.min(ns,END*60-dur)); if(Math.abs(ns-sm0)>=5)moved=true; sm=ns; em=ns+dur; el.style.top=((sm/60-START)*SLOT_H)+'px'; time.textContent=fmt(sm)+'-'+fmt(em); }
+      function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); el.classList.remove('htb-dragging'); el._dragMoved=moved; if(!moved)return; if(pointInAllDay(lastX,lastY)){ g.goal.tbStart=''; g.goal.tbEnd=''; if(g.project)g.project.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects(); renderHomeTimeBlocks(); return; } _htbGoalPersist(g, sm, em); }
+      document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+    });
+    resize.addEventListener('mousedown', function(e){
+      e.preventDefault(); e.stopPropagation();
+      var y0=e.clientY, em0=em;
+      function mv(ev){ var ne=Math.round((em0+(ev.clientY-y0)/SLOT_H*60)/5)*5; ne=Math.max(sm+15,Math.min(ne,END*60)); em=ne; el.style.height=Math.max(((em-sm)/60)*SLOT_H-3,22)+'px'; time.textContent=fmt(sm)+'-'+fmt(em); }
+      function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); _htbGoalPersist(g, sm, em); }
+      document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
+    });
+    bar.appendChild(name); bar.appendChild(badge);
+    el.appendChild(bar); el.appendChild(time); el.appendChild(resize);
+    slots.appendChild(el);
+  }
+  function addGoalChip(g, members){
+    var doneN = members.filter(function(m){ return typeof taskEffectiveDone==='function'?taskEffectiveDone(m):m.done; }).length;
+    var chip=document.createElement('button');
+    chip.className='allday-chip chip-accent htb-goalchip';
+    chip.style.setProperty('--gc',(g.goal&&g.goal.color)||'var(--accent)');
+    chip.textContent='🎯 '+g.goal.title+' '+doneN+'/'+members.length;
+    chip.title='탭해서 타임블록 시간 정하기';
+    chip.addEventListener('click', function(){ openGoalTbTimeEditor(g); });
+    allday.appendChild(chip);
+  }
 
   try {
     var tts = JSON.parse(localStorage.getItem('timetables_v1') || '[]');
@@ -15628,6 +15697,10 @@ function renderHomeTimeBlocks(){
   } catch(e) {}
 
   homeTodayTasks(true).forEach(function(t){
+    /* 하위 할일(중첩)은 대표(부모) 블록으로만 보이고, 목표에 속한 할일은 목표
+       대표 블록으로만 보인다 — 타임블록엔 대표 하나만. */
+    if (typeof taskIsNested === 'function' && taskIsNested(t)) return;
+    if (t.goalId && typeof findGoal === 'function' && findGoal(t.goalId)) return;
     if (!t.timeStart) {
       if (!t.done) addChip(t, t.deadlineDate ? 'chip-warn' : 'chip-accent', (t.deadlineDate ? '📌 ' : '') + t.text);
       return;
@@ -15643,6 +15716,26 @@ function renderHomeTimeBlocks(){
     }
     makeBlock(t, sm, em, (t.catId === 'schedule' || t._isTt ? 'vblk-sched' : 'vblk-task'), t.deadlineDate && typeof dlText==='function' ? dlText(t.deadlineDate) : '');
   });
+
+  /* 목표(할일 묶음)를 대표 블록 하나로. 목표엔 자체 시간 속성이 없어 타임블록 전용
+     goal.tbStart/tbEnd만 쓰고(다른 화면에선 안 씀), 없으면 오늘 소속 할일들의 최소
+     시작~최대 종료에서 유도한다. 시간이 전혀 없으면 종일 칩으로. */
+  if (typeof findGoal === 'function') {
+    var _goalToday = homeTodayKey();
+    var _goalSeen = {};
+    homeTodayTasks(true).forEach(function(t){
+      if (!t.goalId) return;
+      var gid = String(t.goalId); if (_goalSeen[gid]) return;
+      var g = findGoal(gid); if (!g) return; _goalSeen[gid] = 1;
+      var members = tasks.filter(function(x){ return x && !x._travelOnly && x.date === _goalToday && String(x.goalId||'') === gid; });
+      if (!members.length) return;
+      var gs = g.goal.tbStart || '', ge = g.goal.tbEnd || '';
+      if (!gs) { var _st = members.map(function(m){return m.timeStart;}).filter(Boolean).sort(); if (_st.length) gs = _st[0]; }
+      if (!ge) { var _en = members.map(function(m){return m.timeEnd||m.timeStart;}).filter(Boolean).sort(); if (_en.length) ge = _en[_en.length-1]; }
+      if (!gs) { addGoalChip(g, members); return; }
+      makeGoalBlock(g, members, mins(gs), ge ? mins(ge) : mins(gs)+45);
+    });
+  }
 
   /* Right lane — 오늘의 집중(타이머) 기록을 타임라인 블록으로. */
   if(_htbSplit){
