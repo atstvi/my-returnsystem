@@ -3163,6 +3163,7 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .gti-prog>span{display:block;height:100%}
 .task-goalitem-subs{padding:var(--sp-2) var(--sp-4) var(--sp-3) calc(var(--sp-4) + 15px)}
 .task-goalitem.collapsed .task-goalitem-subs,.task-goalitem.collapsed .gti-prog{display:none}
+.task-goalitem.goal-drop-target{outline:2px dashed var(--accent);outline-offset:2px;background:var(--accent-light);border-radius:var(--r-lg)}
 .gti-sub{position:relative;display:flex;align-items:center;gap:var(--sp-3);padding:3px 0}
 .gti-sub[draggable=true]{cursor:grab}
 .gti-sub.dragging{opacity:.5}
@@ -22271,6 +22272,22 @@ function _goalSubGroup(goal,list){
   allTasks.forEach(function(x){ _goalRow(x.t, x.depth); });
 
   g.appendChild(head); g.appendChild(prog); g.appendChild(subs);
+  /* 할일을 이 목표 그룹으로 드래그해 넣기 — 카테고리 드롭과 같은 방식. 하위 항목
+     위 드롭은 그 항목이 stopPropagation으로 중첩 처리하므로, 여기선 헤더/빈 영역에
+     떨어뜨린 경우만 잡아 목표(+프로젝트 카테고리)로 이동시킨다. */
+  g.addEventListener('dragover',function(e){ if(typeof dragSrcId==='undefined'||dragSrcId==null)return; e.preventDefault(); if(e.dataTransfer)e.dataTransfer.dropEffect='move'; document.querySelectorAll('.task-item.drag-over,.task-item.nest-target,.gti-sub.nest-target').forEach(function(i){i.classList.remove('drag-over','nest-target');}); g.classList.add('goal-drop-target'); });
+  g.addEventListener('dragleave',function(e){ if(!g.contains(e.relatedTarget))g.classList.remove('goal-drop-target'); });
+  g.addEventListener('drop',function(e){
+    e.preventDefault(); g.classList.remove('goal-drop-target');
+    var src=(typeof _taskById==='function')?_taskById(dragSrcId):null; if(!src)return;
+    if(String(src.goalId||'')===String(goal.id)&&String(src.catId||'')==='project')return; /* 이미 이 목표 */
+    if(typeof taskIsNested==='function'&&taskIsNested(src)&&typeof taskSetParent==='function')taskSetParent(src,null);
+    var gp=(typeof findGoal==='function')?findGoal(goal.id):null;
+    src.catId='project'; if(gp&&gp.project)src.projectId=gp.project.id; src.goalId=goal.id; src.updatedAt=Date.now();
+    if(typeof saveTaskData==='function')saveTaskData();
+    if(typeof renderList==='function')renderList(); if(typeof renderCal==='function')renderCal();
+    if(typeof showToast==='function')showToast('"'+src.text+'"을(를) 목표 "'+goal.title+'"에 넣었어요');
+  });
   return g;
 }
 function _projSubGroup(name,color,list,emoji){
