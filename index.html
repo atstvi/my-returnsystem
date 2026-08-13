@@ -8456,6 +8456,8 @@ to{opacity:1;transform:translateY(0)}}
       </div>
       <div class="modal-btns">
         <button class="btn btn-ghost modal-del-action" id="modal-del-btn">삭제</button>
+        <button class="btn btn-ghost" id="modal-dup-btn" type="button" title="이 할일을 복제">복제</button>
+        <button class="btn btn-ghost" id="modal-focus-btn" type="button" title="계획된 시간 그대로 집중 기록 추가">⏱ 집중 기록</button>
         <button class="btn btn-ghost" id="modal-ws-btn" type="button" title="작업대 위젯으로 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>작업대</button>
         <button class="btn btn-ghost" onclick="tasksCloseModal()">취소</button>
         <button class="btn btn-primary" onclick="saveModal()">저장</button>
@@ -23283,9 +23285,55 @@ function tasksOpenModal(task){
   };
   document.getElementById('modal-clear-time').onclick=function(){document.getElementById('modal-ts').value='';document.getElementById('modal-te').value='';};
 
+  /* 복제 — 같은 내용의 독립 할일을 만든다. */
+  var _dupBtn=document.getElementById('modal-dup-btn');
+  if(_dupBtn)_dupBtn.onclick=function(){ tasksCloseModal(); duplicateTask(task); };
+  /* 집중 기록 추가 — 계획된 시작 시간이 있을 때만. */
+  var _focBtn=document.getElementById('modal-focus-btn');
+  if(_focBtn){ var _hasTime=/^\d{1,2}:\d{2}$/.test(String(task.timeStart||'')); _focBtn.disabled=!_hasTime; _focBtn.title=_hasTime?'계획된 시간 그대로 집중 기록 추가':'시작 시간을 정하면 사용할 수 있어요'; _focBtn.onclick=function(){ focusAddRecordForTask(task); }; }
+
   bindTaskModalRows(task);
   taskModalEl.classList.add('open');
   setTimeout(function(){document.getElementById('modalTitle').focus();},50);
+}
+
+/* 할일 복제 — 같은 내용의 독립 할일을 원본 바로 아래에 만든다. 반복/규칙/시간표로
+   "생성된" 표시는 떼서 복제본이 그 규칙의 일부가 아닌 단발 할일이 되게 하고, 완료는
+   해제한다(하위 항목/이미지/시간/카테고리/프로젝트/목표는 그대로 복사). */
+function duplicateTask(task){
+  if(!task||typeof tasks==='undefined')return null;
+  var copy; try{ copy=JSON.parse(JSON.stringify(task)); }catch(e){ copy=Object.assign({},task); }
+  copy.id=Date.now()+Math.floor(Math.random()*100000);
+  delete copy._eid; /* 엔티티 동기화가 새 안정 id를 부여하도록 */
+  copy.done=false; copy.createdAt=Date.now(); copy.updatedAt=Date.now();
+  ['_repeat','_repeatId','_repeatOccurrence','_generationKey','generationKey','occurrenceDate','repeatRuleId','_ruleGen','_ruleId','_ruleSourceId','activeRuleId','sourceType','_isTt','_travelOnly'].forEach(function(k){ delete copy[k]; });
+  if(!Array.isArray(copy.subs))copy.subs=[];
+  var idx=-1; for(var i=0;i<tasks.length;i++){ if(tasks[i]&&String(tasks[i].id)===String(task.id)){idx=i;break;} }
+  if(idx>=0)tasks.splice(idx+1,0,copy); else tasks.push(copy);
+  if(typeof saveTaskData==='function')saveTaskData();
+  if(typeof renderList==='function')renderList();
+  if(typeof renderCal==='function')renderCal();
+  if(typeof showToast==='function')showToast('"'+task.text+'" 복제됨');
+  return copy;
+}
+/* 할일의 계획된 시간(날짜+시작~종료) 그대로 집중 기록을 하나 추가. 종료가 없으면
+   30분으로, 시작 시각이 없으면 만들지 않는다("그 시간 그대로"라 시작이 필요). */
+function focusAddRecordForTask(task){
+  if(!task)return;
+  if(typeof buildManualFocusRecord!=='function'||typeof focusTimerSaveLog!=='function'||typeof focusTimerLog==='undefined'){ if(typeof showToast==='function')showToast('집중 기록 기능을 불러오지 못했어요'); return; }
+  var date=String(task.date||'');
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ if(typeof showToast==='function')showToast('할일에 날짜가 없어 집중 기록을 만들 수 없어요'); return; }
+  var ts=String(task.timeStart||'');
+  if(!/^\d{1,2}:\d{2}$/.test(ts)){ if(typeof showToast==='function')showToast('계획된 시작 시간이 없어요 — 할일에 시간을 정한 뒤 눌러주세요'); return; }
+  function _min(h){ var m=/^(\d{1,2}):(\d{2})$/.exec(h); return m?(parseInt(m[1],10)*60+parseInt(m[2],10)):null; }
+  var durMin=30, te=String(task.timeEnd||''); if(/^\d{1,2}:\d{2}$/.test(te)){ var a=_min(ts),b=_min(te); if(a!=null&&b!=null&&b>a)durMin=b-a; }
+  var rec=buildManualFocusRecord({date:date,startHHMM:ts,durationMin:durMin,taskId:task.id,taskText:task.text,mode:'stopwatch'});
+  if(!rec){ if(typeof showToast==='function')showToast('집중 기록을 만들 수 없어요'); return; }
+  focusTimerLog.push(rec);
+  focusTimerSaveLog();
+  try{ if(typeof renderFocusTimer==='function')renderFocusTimer(); }catch(e){}
+  try{ if(typeof renderHomeTimeBlocks==='function')renderHomeTimeBlocks(); }catch(e){}
+  if(typeof showToast==='function')showToast('"'+task.text+'" 집중 기록 추가 · '+ts+' · '+(typeof focusFmtDur==='function'?focusFmtDur(rec.durationMs):(durMin+'분')));
 }
 
 function saveModal(){
