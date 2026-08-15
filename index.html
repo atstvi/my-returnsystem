@@ -1797,7 +1797,12 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-item{position:absolute;background:var(--bg-card);border:1px solid var(--border);border-top:3px solid var(--bd-accent,var(--accent));border-radius:var(--r-md);box-shadow:var(--elev-1);overflow:hidden;display:flex;flex-direction:column;user-select:none}
 .pjb-item.dragging{box-shadow:var(--elev-3);z-index:5;opacity:.96}
 .pjb-item.fav{box-shadow:0 0 0 2px var(--bd-accent,var(--accent)),var(--elev-1)}
-.pjb-frame{background:transparent;border:1.5px dashed var(--bd-accent,var(--fg-4));border-top-width:1.5px;box-shadow:none}
+.pjb-frame{background:transparent;border:1.5px dashed var(--bd-accent,var(--fg-4));border-top-width:1.5px;box-shadow:none;z-index:0}
+/* 프레임은 경계만 있고 안은 '뚫려' 있어야 함 — 안쪽이 클릭을 가로채면 프레임에
+   넣은 자료를 못 누른다. 프레임 본문은 pointer-events를 끄고, 상단 바(grip·편집·
+   삭제)만 살려 이동/편집이 되게 한다. */
+.pjb-frame{pointer-events:none}
+.pjb-frame .pjb-bar{pointer-events:auto}
 .pjb-bar{display:flex;align-items:center;gap:2px;padding:3px 4px;min-height:22px;background:transparent}
 .pjb-grip{flex:1;height:14px;cursor:grab;background-image:radial-gradient(var(--fg-4) 1px,transparent 1px);background-size:5px 5px;background-position:0 4px;opacity:.35;border-radius:2px;min-width:20px}
 .pjb-item.dragging .pjb-grip{cursor:grabbing}
@@ -1830,6 +1835,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-bm-thumb{width:100%;aspect-ratio:2/1;overflow:hidden;background:var(--bg-sunken);border-bottom:.5px solid var(--border-subtle)}
 .pjb-bm-thumb img{width:100%;height:100%;object-fit:cover;display:block;pointer-events:none}
 .pjb-bm-body{padding:8px 12px 11px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pjb-bm-app{margin-bottom:1px}
+/* 출처 앱 배지 — 자료 보드를 외부 문서 허브로 읽히게 하는 핵심 표식 */
+.pjb-app-badge{display:inline-flex;align-items:center;gap:4px;max-width:100%;font-size:11px;font-weight:var(--fw-bold);line-height:1;padding:3px 8px;border-radius:var(--r-full);color:var(--app,var(--accent));background:color-mix(in srgb,var(--app,var(--accent)) 14%,transparent);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pjb-bm-title{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-1);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pjb-bm-desc{font-size:var(--text-xs);color:var(--fg-3);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pjb-bm-foot{display:flex;align-items:center;gap:5px;margin-top:1px;min-width:0}
@@ -13289,7 +13297,9 @@ function renderHomeTasks(){
     });
     var head = document.createElement('div'); head.className = 'eisen-title'; head.innerHTML = '<span class="eisen-qt">' + b.title + '</span><span class="eisen-qs">' + b.hint + '</span>';
     var itemsEl = document.createElement('div'); itemsEl.className = 'eisen-items';
-    grouped[b.key].slice(0, 4).forEach(function(t){
+    /* 사분면의 할일을 모두 보여준다(예전엔 4개로 잘라 나머지가 숨겨졌음). 카드가
+       할일 수에 맞춰 늘어나고, 옆 타임블록 길이는 유동적이라 높이가 맞춰진다. */
+    grouped[b.key].forEach(function(t){
       var it = document.createElement('div'); it.className = 'eisen-item' + (t.done ? ' done' : '');
       it.setAttribute('draggable','true');
       it.addEventListener('dragstart',function(e){
@@ -29838,6 +29848,31 @@ function projectBoardResolveMedia(root){
    파비콘+도메인으로 폴백한다(파비콘은 순수 <img>라 CORS와 무관하게 항상 뜸). */
 function boardUrlDomain(url){ try{ return new URL(url).hostname.replace(/^www\./,''); }catch(e){ return String(url||'').replace(/^https?:\/\//i,'').replace(/^www\./i,'').split(/[\/?#]/)[0]||'링크'; } }
 function boardFavicon(url){ return 'https://www.google.com/s2/favicons?domain='+encodeURIComponent(boardUrlDomain(url))+'&sz=64'; }
+/* 링크의 '출처 앱'을 도메인으로 인식한다 — 자료 보드를 외부 문서(노션·피그마·
+   프리폼·구글 독스…)를 모아 두는 허브로 쓰기 위해, 카드에 어느 앱 문서인지
+   배지로 보여준다. 알 수 없는 링크는 null → 기존 도메인/파비콘 폴백. 순수 함수. */
+function boardLinkApp(url){
+  var host=''; try{ host=new URL(/^https?:\/\//i.test(url)?url:'https://'+url).hostname.replace(/^www\./,'').toLowerCase(); }catch(e){ return null; }
+  if(!host)return null;
+  var A=[
+    {m:/(^|\.)notion\.(so|site)$/,           id:'notion',   label:'Notion',    icon:'📝', color:'#111111'},
+    {m:/(^|\.)figma\.com$/,                  id:'figma',    label:'Figma',     icon:'🎨', color:'#A259FF'},
+    {m:/(^|\.)icloud\.com$/,                 id:'freeform', label:'Freeform',  icon:'🧊', color:'#F0A02E'},
+    {m:/(^|\.)docs\.google\.com$/,           id:'gdocs',    label:'Google 문서', icon:'📄', color:'#1A73E8'},
+    {m:/(^|\.)drive\.google\.com$/,          id:'gdrive',   label:'Google Drive', icon:'📁', color:'#1FA463'},
+    {m:/(^|\.)sheets\.google\.com$/,         id:'gsheets',  label:'Google 시트', icon:'📊', color:'#1FA463'},
+    {m:/(^|\.)(youtube\.com|youtu\.be)$/,    id:'youtube',  label:'YouTube',   icon:'▶️', color:'#FF0000'},
+    {m:/(^|\.)github\.com$/,                 id:'github',   label:'GitHub',    icon:'🐙', color:'#24292F'},
+    {m:/(^|\.)miro\.com$/,                   id:'miro',     label:'Miro',      icon:'🗺️', color:'#FFD02F'},
+    {m:/(^|\.)loom\.com$/,                   id:'loom',     label:'Loom',      icon:'🎬', color:'#625DF5'},
+    {m:/(^|\.)(slack\.com|slack-edge\.com)$/,id:'slack',    label:'Slack',     icon:'💬', color:'#4A154B'},
+    {m:/(^|\.)dropbox\.com$/,                id:'dropbox',  label:'Dropbox',   icon:'🗄️', color:'#0061FF'},
+    {m:/(^|\.)canva\.com$/,                  id:'canva',    label:'Canva',     icon:'🖌️', color:'#00C4CC'},
+    {m:/(^|\.)airtable\.com$/,               id:'airtable', label:'Airtable',  icon:'🗃️', color:'#2D7FF9'}
+  ];
+  for(var i=0;i<A.length;i++){ if(A[i].m.test(host)){ var a=A[i]; return {id:a.id,label:a.label,icon:a.icon,color:a.color}; } }
+  return null;
+}
 function boardYoutubeEmbed(url){ var id=(typeof musicVideoId==='function')?musicVideoId(url):''; return id?('https://www.youtube.com/embed/'+id):''; }
 /* 문자열 안 첫 http(s) URL. 인박스 텍스트에서 링크를 감지할 때 쓴다. */
 function returnFirstUrl(text){ var m=String(text||'').match(/https?:\/\/[^\s<>"')]+/i); return m?m[0]:''; }
@@ -29954,7 +29989,10 @@ function returnHandleSharedLink(){
 }
 try{ window.addEventListener('load',function(){ setTimeout(function(){ try{ returnHandleSharedLink(); }catch(e){} },400); }); }catch(e){}
 function projectBoardItemHtml(it){
-  var accent=it.accent||'var(--accent)';
+  /* 링크류(북마크·임베드·링크)는 출처 앱을 인식해 그 앱 색을 카드 강조색으로 써
+     보드가 '외부 문서 디렉터리'처럼 읽히게 한다(사용자가 색을 직접 지정했으면 유지). */
+  var _linkApp=(it.type==='bookmark'||it.type==='embed'||it.type==='link')?boardLinkApp(it.url):null;
+  var accent=it.accent||(_linkApp?_linkApp.color:'')||'var(--accent)';
   var head='<span class="pjb-grip" data-bd-drag="'+projectEsc(it.id)+'"></span>'+
     '<button type="button" class="pjb-ctl pjb-fav'+(it.fav?' on':'')+'" data-bd-ctl="fav" data-bd-id="'+projectEsc(it.id)+'" aria-label="즐겨찾기">★</button>'+
     '<button type="button" class="pjb-ctl" data-bd-ctl="edit" data-bd-id="'+projectEsc(it.id)+'" aria-label="편집">✎</button>'+
@@ -29969,14 +30007,17 @@ function projectBoardItemHtml(it){
   else if(it.type==='frame'){ body='<div class="pjb-frame-label">'+projectEsc(it.label||'프레임')+'</div>'; }
   else if(it.type==='link'){
     var host='링크'; try{ if(it.url)host=new URL(it.url).hostname; }catch(e){}
-    body='<a class="pjb-link" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open"><span class="pjb-link-ic"><img src="https://www.google.com/s2/favicons?domain='+projectEsc(host)+'&sz=64" alt=""></span><span class="pjb-link-t"><b>'+projectEsc(it.title||host)+'</b><small>'+projectEsc(host)+'</small></span></a>';
+    var lnkSub=_linkApp?(_linkApp.icon+' '+_linkApp.label):projectEsc(host);
+    body='<a class="pjb-link" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open"><span class="pjb-link-ic"><img src="https://www.google.com/s2/favicons?domain='+projectEsc(host)+'&sz=64" alt=""></span><span class="pjb-link-t"><b>'+projectEsc(it.title||host)+'</b><small>'+lnkSub+'</small></span></a>';
   }
   else if(it.type==='bookmark'){
     var bhost=boardUrlDomain(it.url);
     var thumb=it.image?('<div class="pjb-bm-thumb"><img src="'+projectEsc(it.image)+'" alt="" loading="lazy" draggable="false" onerror="this.onerror=null;this.parentNode.style.display=\'none\'"></div>'):'';
+    var bmApp=_linkApp?('<span class="pjb-app-badge" style="--app:'+projectEsc(_linkApp.color)+'">'+_linkApp.icon+' '+projectEsc(_linkApp.label)+'</span>'):'';
     body='<a class="pjb-bm" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open">'
       +thumb
       +'<div class="pjb-bm-body">'
+        +(bmApp?'<div class="pjb-bm-app">'+bmApp+'</div>':'')
         +'<div class="pjb-bm-title">'+projectEsc(it.title||bhost)+'</div>'
         +(it.desc?'<div class="pjb-bm-desc">'+projectEsc(it.desc)+'</div>':'')
         +'<div class="pjb-bm-foot"><img class="pjb-bm-fav" src="'+projectEsc(it.logo||boardFavicon(it.url))+'" alt="" onerror="this.onerror=null;this.src=\''+projectEsc(boardFavicon(it.url))+'\'"><span>'+projectEsc(it.publisher||bhost)+'</span>'+((typeof _boardMetaLoading!=='undefined'&&_boardMetaLoading[it.id])?'<span class="pjb-bm-loading">미리보기…</span>':'')+'</div>'
@@ -29986,7 +30027,7 @@ function projectBoardItemHtml(it){
     var ehost=boardUrlDomain(it.url);
     var esrc=boardYoutubeEmbed(it.url)||it.url||'';
     body='<div class="pjb-embed-wrap"><iframe class="pjb-embed" src="'+projectEsc(esrc)+'" loading="lazy" referrerpolicy="no-referrer" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-presentation"></iframe></div>'
-      +'<div class="pjb-embed-foot"><img class="pjb-bm-fav" src="'+projectEsc(boardFavicon(it.url))+'" alt="" onerror="this.onerror=null;this.style.display=\'none\'"><span>'+projectEsc(it.title||ehost)+'</span><a class="pjb-embed-open" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open">원본 ↗</a></div>';
+      +'<div class="pjb-embed-foot"><img class="pjb-bm-fav" src="'+projectEsc(boardFavicon(it.url))+'" alt="" onerror="this.onerror=null;this.style.display=\'none\'"><span>'+(_linkApp?(_linkApp.icon+' '+projectEsc(_linkApp.label)+' · '):'')+projectEsc(it.title||ehost)+'</span><a class="pjb-embed-open" href="'+projectEsc(it.url||'#')+'" target="_blank" rel="noopener" data-bd-ctl="open">원본 ↗</a></div>';
   }
   else if(it.type==='image'){
     var _src=it.src||'';
@@ -30015,7 +30056,7 @@ function projectBoardHtml(project){
     '<button type="button" class="pjb-tool" data-bd-fit>맞춤</button>'+
     '<span class="pjb-hint">드래그로 이동 · 휠/핀치로 확대 · 🔗로 항목 잇기</span></div>';
   return tb+'<div class="pjb-view" id="pjb-view"><div class="pjb-world" id="pjb-world"><svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+items+'</div>'+
-    (b.items.length?'':'<div class="pjb-empty">메모·체크·이미지를 추가해 자유롭게 배치하세요. 빈 곳을 끌면 화면이 움직여요.</div>')+'</div>';
+    (b.items.length?'':'<div class="pjb-empty"><b>자료 허브</b><br>노션·피그마·프리폼·구글 문서 링크를 ＋링크로 모아 한눈에 두고, 문서로 만들 필요 없는 가벼운 자료(메모·체크·이미지)는 여기에 바로. 빈 곳을 끌면 화면이 움직여요.</div>')+'</div>';
 }
 function projectBoardBind(detail,project){
   var b=projectBoardEnsure(project);
@@ -30061,7 +30102,7 @@ function projectBoardBind(detail,project){
     paintEdges();
     if(_linkSrc!=null)markLinkSrc();
     var em=view.querySelector('.pjb-empty'); if(em&&b.items.length)em.remove();
-    if(!b.items.length&&!view.querySelector('.pjb-empty')){var e=document.createElement('div');e.className='pjb-empty';e.textContent='메모·체크·이미지를 추가해 자유롭게 배치하세요. 빈 곳을 끌면 화면이 움직여요.';view.appendChild(e);}
+    if(!b.items.length&&!view.querySelector('.pjb-empty')){var e=document.createElement('div');e.className='pjb-empty';e.innerHTML='<b>자료 허브</b><br>노션·피그마·프리폼·구글 문서 링크를 ＋링크로 모아 한눈에 두고, 문서로 만들 필요 없는 가벼운 자료(메모·체크·이미지)는 여기에 바로. 빈 곳을 끌면 화면이 움직여요.';view.appendChild(e);}
   }
   paintEdges(); /* initial (world already has items + empty svg from projectBoardHtml) */
   function centerPos(w,h){ var vw=view.clientWidth||600,vh=view.clientHeight||460; return {x:Math.round((vw/2-V.tx)/V.scale-(w||200)/2),y:Math.round((vh/2-V.ty)/V.scale-(h||150)/2)}; }
@@ -31247,9 +31288,10 @@ renderProjects=function(){
     var days=_pjWeekDays(_pjWeek), keys=days.map(_pjDk), w0=keys[0], w6=keys[6];
     var today=(typeof TK!=='undefined')?TK:_pjDk(new Date());
     var DOW=['일','월','화','수','목','금','토'];
-    /* groups: 기본 (no projectId) first, then each active project */
+    /* groups: 기본 (no projectId) first, then each in-progress project only
+       (완료·보관 프로젝트는 전체 타임라인에서 제외해 진행 중인 일정만 깔끔히). */
     var groups=[{gid:'base',name:'기본 · 할일 탭',color:'#7c8aa0'}];
-    projects.filter(function(p){return p&&p.status!=='archived';}).forEach(function(p){
+    projects.filter(function(p){return p&&p.status!=='archived'&&(typeof projectStageOf==='function'?projectStageOf(p)==='inprogress':true);}).forEach(function(p){
       groups.push({gid:'p_'+p.id,name:p.title,color:p.color||'#BE727A',pid:p.id});
     });
     groups.push({gid:'hobby',name:'취미',color:'#B0863F',hobby:true});
