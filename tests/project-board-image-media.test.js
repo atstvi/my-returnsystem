@@ -17,7 +17,7 @@ const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
-const block = sliceBlock(html, 'function projectBoardItemHtml(it){', '\nfunction projectBoardHtml(');
+const block = sliceBlock(html, 'function projectBoardItemHtml(it,grid){', '\nfunction pjbViewMode(');
 
 function render(it, mediaStore) {
   const sb = {

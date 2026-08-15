@@ -1785,6 +1785,14 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-view{position:relative;height:480px;border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-sunken);overflow:hidden;touch-action:none;cursor:grab;background-image:radial-gradient(var(--border-subtle) 1px,transparent 1px);background-size:22px 22px}
 .pjb-view.panning{cursor:grabbing}
 .pjb-world{position:absolute;left:0;top:0;transform-origin:0 0;will-change:transform}
+/* 정리 그리드 뷰 — 수동 배치 없이 카드를 자동 정렬(즐겨찾기·앱별). 자유 캔버스와
+   동일한 카드 스타일을 쓰되 위치만 static으로 흐르게 한다. */
+.pjb-grid{height:480px;overflow:auto;border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-sunken);padding:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px;align-content:start}
+.pjb-grid .pjb-item{position:static;z-index:auto;width:auto;height:auto;align-self:start}
+.pjb-grid.pjb-favonly .pjb-item:not(.fav){display:none}
+.pjb-grid .pjb-empty{grid-column:1/-1;position:static;transform:none;left:auto;top:auto;max-width:none;margin:auto}
+.pjb-grid .pjb-img{max-height:200px;overflow:hidden}
+.pjb-grid .pjb-embed-wrap{height:150px}
 .pjb-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:0}
 .pjb-edge{stroke:var(--border-strong);stroke-width:2;fill:none;stroke-linecap:round}
 .pjb-edge-hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
@@ -29988,7 +29996,7 @@ function returnHandleSharedLink(){
   }catch(e){}
 }
 try{ window.addEventListener('load',function(){ setTimeout(function(){ try{ returnHandleSharedLink(); }catch(e){} },400); }); }catch(e){}
-function projectBoardItemHtml(it){
+function projectBoardItemHtml(it,grid){
   /* 링크류(북마크·임베드·링크)는 출처 앱을 인식해 그 앱 색을 카드 강조색으로 써
      보드가 '외부 문서 디렉터리'처럼 읽히게 한다(사용자가 색을 직접 지정했으면 유지). */
   var _linkApp=(it.type==='bookmark'||it.type==='embed'||it.type==='link')?boardLinkApp(it.url):null;
@@ -30037,44 +30045,76 @@ function projectBoardItemHtml(it){
     else if(_mref){ body='<div class="pjb-img pjb-img-load"><img data-bd-media="'+projectEsc(_src)+'" alt="'+projectEsc(it.title||'')+'" draggable="false"><span class="pjb-img-ph">불러오는 중…</span></div>'; }
     else { body='<div class="pjb-img pjb-img-load"><span class="pjb-img-ph">'+(it._loading?'업로드 중…':'이미지 없음')+'</span></div>'; }
   }
+  /* 그리드 뷰에서는 절대좌표·고정폭·고정높이를 빼고 CSS 그리드가 배치·크기를 맡는다. */
+  var posStyle=grid?'':('left:'+(it.x||0)+'px;top:'+(it.y||0)+'px;width:'+(it.w||200)+'px;'+((it.type==='image'||it.type==='bookmark')?'':'height:'+(it.h||150)+'px;'));
   return '<div class="pjb-item pjb-'+projectEsc(it.type)+(it.fav?' fav':'')+'" data-bd-item="'+projectEsc(it.id)+'" '+
-    'style="left:'+(it.x||0)+'px;top:'+(it.y||0)+'px;width:'+(it.w||200)+'px;'+((it.type==='image'||it.type==='bookmark')?'':'height:'+(it.h||150)+'px;')+'--bd-accent:'+projectEsc(accent)+'">'+
+    'style="'+posStyle+'--bd-accent:'+projectEsc(accent)+'">'+
     '<div class="pjb-bar">'+head+'</div>'+body+'</div>';
 }
+/* 정리 그리드 뷰의 카드 목록 — 프레임(공간 배치 전용)은 빼고, 즐겨찾기 먼저 →
+   링크류(허브)를 앱별로 → 나머지(메모·체크·이미지)를 제목순으로 정렬한다. */
+function pjbViewMode(){ try{ return localStorage.getItem('pjb_view_mode')==='grid'?'grid':'canvas'; }catch(e){ return 'canvas'; } }
+function pjbGridItemsHtml(b){
+  if(!b||!Array.isArray(b.items))return '';
+  var items=b.items.filter(function(it){return it&&it.type!=='frame';});
+  var isLink=function(t){return t==='bookmark'||t==='link'||t==='embed';};
+  items.sort(function(a,c){
+    var fa=a.fav?0:1, fc=c.fav?0:1; if(fa!==fc)return fa-fc;
+    var la=isLink(a.type)?0:1, lc=isLink(c.type)?0:1; if(la!==lc)return la-lc;
+    if(!la&&!lc){ var aa=(boardLinkApp(a.url)||{}).label||'~', ca=(boardLinkApp(c.url)||{}).label||'~'; if(aa!==ca)return aa<ca?-1:1; }
+    var ta=String(a.title||a.text||''), tc=String(c.title||c.text||''); return ta<tc?-1:ta>tc?1:0;
+  });
+  return items.map(function(it){return projectBoardItemHtml(it,true);}).join('');
+}
+var PJB_EMPTY_HTML='<div class="pjb-empty"><b>자료 허브</b><br>노션·피그마·프리폼·구글 문서 링크를 ＋링크로 모아 한눈에 두고, 문서로 만들 필요 없는 가벼운 자료(메모·체크·이미지)는 여기에 바로. 빈 곳을 끌면 화면이 움직여요.</div>';
 function projectBoardHtml(project){
   var b=projectBoardEnsure(project);
-  var items=b.items.map(projectBoardItemHtml).join('');
+  var mode=pjbViewMode(), grid=mode==='grid';
+  /* 뷰 전환 버튼: 현재 모드에서 넘어갈 대상 모드를 라벨로 보여준다. */
+  var viewBtn='<button type="button" class="pjb-tool'+(grid?' on':'')+'" data-bd-view aria-pressed="'+(grid?'true':'false')+'">'+(grid?'⇄ 자유 배치':'▦ 정리 뷰')+'</button>';
   var tb='<div class="pjb-toolbar">'+
     '<button type="button" class="pjb-tool" data-bd-add="note">＋ 메모</button>'+
     '<button type="button" class="pjb-tool" data-bd-add="check">＋ 체크</button>'+
-    '<button type="button" class="pjb-tool" data-bd-add="frame">＋ 프레임</button>'+
+    (grid?'':'<button type="button" class="pjb-tool" data-bd-add="frame">＋ 프레임</button>')+
     '<button type="button" class="pjb-tool" data-bd-add="link">＋ 링크</button>'+
     '<button type="button" class="pjb-tool" data-bd-add="image">＋ 이미지</button>'+
     '<span class="pjb-tsep"></span>'+
-    '<button type="button" class="pjb-tool" data-bd-link aria-pressed="false">🔗 연결</button>'+
+    viewBtn+
+    (grid?'':'<button type="button" class="pjb-tool" data-bd-link aria-pressed="false">🔗 연결</button>')+
     '<button type="button" class="pjb-tool" data-bd-favfilter aria-pressed="false">★ 즐겨찾기</button>'+
-    '<button type="button" class="pjb-tool" data-bd-fit>맞춤</button>'+
-    '<span class="pjb-hint">드래그로 이동 · 휠/핀치로 확대 · 🔗로 항목 잇기</span></div>';
-  return tb+'<div class="pjb-view" id="pjb-view"><div class="pjb-world" id="pjb-world"><svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+items+'</div>'+
-    (b.items.length?'':'<div class="pjb-empty"><b>자료 허브</b><br>노션·피그마·프리폼·구글 문서 링크를 ＋링크로 모아 한눈에 두고, 문서로 만들 필요 없는 가벼운 자료(메모·체크·이미지)는 여기에 바로. 빈 곳을 끌면 화면이 움직여요.</div>')+'</div>';
+    (grid?'':'<button type="button" class="pjb-tool" data-bd-fit>맞춤</button>')+
+    '<span class="pjb-hint">'+(grid?'앱별로 자동 정렬 · 카드를 눌러 열기':'드래그로 이동 · 휠/핀치로 확대 · 🔗로 항목 잇기')+'</span></div>';
+  if(grid){
+    var cards=pjbGridItemsHtml(b);
+    return '<div class="pjb-root" id="pjb-root" data-mode="grid">'+tb+
+      '<div class="pjb-grid" id="pjb-grid">'+(cards||PJB_EMPTY_HTML)+'</div></div>';
+  }
+  var items=b.items.map(function(it){return projectBoardItemHtml(it);}).join('');
+  return '<div class="pjb-root" id="pjb-root" data-mode="canvas">'+tb+
+    '<div class="pjb-view" id="pjb-view"><div class="pjb-world" id="pjb-world"><svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+items+'</div>'+
+    (b.items.length?'':PJB_EMPTY_HTML)+'</div></div>';
 }
 function projectBoardBind(detail,project){
   var b=projectBoardEnsure(project);
-  var view=detail.querySelector('#pjb-view'), world=detail.querySelector('#pjb-world');
-  if(!view||!world)return;
+  var root=detail.querySelector('#pjb-root'); if(!root)return;
+  var grid=root.getAttribute('data-mode')==='grid';
+  var view=detail.querySelector('#pjb-view'), world=detail.querySelector('#pjb-world'), gridEl=detail.querySelector('#pjb-grid');
+  var favTarget=grid?gridEl:view;
   var V=b.view;
-  var _linkMode=false, _linkSrc=null;   /* connector (엣지) 만들기 모드 */
+  var _linkMode=false, _linkSrc=null;   /* connector (엣지) 만들기 모드 (캔버스 전용) */
   function clampScale(s){return Math.max(0.3,Math.min(3,s));}
-  function apply(){world.style.transform='translate('+V.tx+'px,'+V.ty+'px) scale('+V.scale+')';}
+  function apply(){ if(world)world.style.transform='translate('+V.tx+'px,'+V.ty+'px) scale('+V.scale+')'; }
   apply();
-  projectBoardResolveMedia(world); /* resolve any return-media image refs already in the initial HTML */
+  if(world)projectBoardResolveMedia(world); /* resolve any return-media image refs already in the initial HTML */
+  if(gridEl)projectBoardResolveMedia(gridEl);
   function save(){project.updatedAt=Date.now();saveProjects();}
   function findItem(id){return b.items.find(function(x){return String(x.id)===String(id);});}
   function itemCenter(it){ return {x:(it.x||0)+((it.w||200)/2), y:(it.y||0)+((it.h||150)/2)}; }
   /* Draw connector edges into the world-space SVG (transforms with pan/zoom).
      Prunes edges whose endpoints no longer exist. A fat transparent hit-line
-     sits over each visible line so it's easy to click-to-delete. */
+     sits over each visible line so it's easy to click-to-delete. (캔버스 전용) */
   function paintEdges(){
+    if(!world)return;
     var svg=world.querySelector('#pjb-edges'); if(!svg)return;
     b.edges=(b.edges||[]).filter(function(ed){return ed&&findItem(ed.from)&&findItem(ed.to);});
     svg.innerHTML=b.edges.map(function(ed){
@@ -30083,7 +30123,7 @@ function projectBoardBind(detail,project){
         +'<line class="pjb-edge-hit" data-edge="'+projectEsc(ed.id)+'" x1="'+a.x+'" y1="'+a.y+'" x2="'+c.x+'" y2="'+c.y+'"/>';
     }).join('');
   }
-  function markLinkSrc(){ world.querySelectorAll('.pjb-item').forEach(function(el){ el.classList.toggle('pjb-linksrc', _linkSrc!=null&&el.getAttribute('data-bd-item')===String(_linkSrc)); }); }
+  function markLinkSrc(){ if(!world)return; world.querySelectorAll('.pjb-item').forEach(function(el){ el.classList.toggle('pjb-linksrc', _linkSrc!=null&&el.getAttribute('data-bd-item')===String(_linkSrc)); }); }
   function addEdge(a,c){
     if(String(a)===String(c))return;
     var dup=(b.edges||[]).some(function(ed){ return (String(ed.from)===String(a)&&String(ed.to)===String(c))||(String(ed.from)===String(c)&&String(ed.to)===String(a)); });
@@ -30097,7 +30137,13 @@ function projectBoardBind(detail,project){
     addEdge(_linkSrc,id); _linkSrc=null; markLinkSrc();
   }
   function repaint(){
-    world.innerHTML='<svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+b.items.map(projectBoardItemHtml).join('');
+    if(grid){
+      if(!gridEl)return;
+      gridEl.innerHTML=pjbGridItemsHtml(b)||PJB_EMPTY_HTML;
+      projectBoardResolveMedia(gridEl);
+      return;
+    }
+    world.innerHTML='<svg class="pjb-edges" id="pjb-edges" style="width:1px;height:1px;overflow:visible"></svg>'+b.items.map(function(it){return projectBoardItemHtml(it);}).join('');
     projectBoardResolveMedia(world);
     paintEdges();
     if(_linkSrc!=null)markLinkSrc();
@@ -30105,7 +30151,7 @@ function projectBoardBind(detail,project){
     if(!b.items.length&&!view.querySelector('.pjb-empty')){var e=document.createElement('div');e.className='pjb-empty';e.innerHTML='<b>자료 허브</b><br>노션·피그마·프리폼·구글 문서 링크를 ＋링크로 모아 한눈에 두고, 문서로 만들 필요 없는 가벼운 자료(메모·체크·이미지)는 여기에 바로. 빈 곳을 끌면 화면이 움직여요.';view.appendChild(e);}
   }
   paintEdges(); /* initial (world already has items + empty svg from projectBoardHtml) */
-  function centerPos(w,h){ var vw=view.clientWidth||600,vh=view.clientHeight||460; return {x:Math.round((vw/2-V.tx)/V.scale-(w||200)/2),y:Math.round((vh/2-V.ty)/V.scale-(h||150)/2)}; }
+  function centerPos(w,h){ if(!view)return {x:40,y:40}; var vw=view.clientWidth||600,vh=view.clientHeight||460; return {x:Math.round((vw/2-V.tx)/V.scale-(w||200)/2),y:Math.round((vh/2-V.ty)/V.scale-(h||150)/2)}; }
   function addItem(extra){
     var w=extra.w||200,h=extra.h||150,pos=centerPos(w,h);
     /* Cascade each new card so consecutive adds don't stack exactly on the view
@@ -30135,13 +30181,16 @@ function projectBoardBind(detail,project){
     else if(t==='image'){ projectBoardAddImage(addItem,save,repaint); }
   });});
   var ff=detail.querySelector('[data-bd-favfilter]');
-  if(ff)ff.addEventListener('click',function(){ var on=view.classList.toggle('pjb-favonly'); ff.setAttribute('aria-pressed',on?'true':'false'); ff.classList.toggle('on',on); });
+  if(ff)ff.addEventListener('click',function(){ if(!favTarget)return; var on=favTarget.classList.toggle('pjb-favonly'); ff.setAttribute('aria-pressed',on?'true':'false'); ff.classList.toggle('on',on); });
+  /* 뷰 전환(정리 그리드 ↔ 자유 캔버스) — 기기 로컬 상태로 저장 후 상세를 다시 그린다. */
+  var vb=detail.querySelector('[data-bd-view]');
+  if(vb)vb.addEventListener('click',function(){ try{ localStorage.setItem('pjb_view_mode', grid?'canvas':'grid'); }catch(e){} if(typeof renderProjects==='function')renderProjects(); });
   var fit=detail.querySelector('[data-bd-fit]');
   if(fit)fit.addEventListener('click',function(){ V.tx=0;V.ty=0;V.scale=1; apply(); save(); });
   var lk=detail.querySelector('[data-bd-link]');
-  if(lk)lk.addEventListener('click',function(){ _linkMode=!_linkMode; _linkSrc=null; markLinkSrc(); lk.setAttribute('aria-pressed',_linkMode?'true':'false'); lk.classList.toggle('on',_linkMode); view.classList.toggle('pjb-linking',_linkMode); });
-  /* item controls (delegated) */
-  world.addEventListener('click',function(e){
+  if(lk)lk.addEventListener('click',function(){ if(!view)return; _linkMode=!_linkMode; _linkSrc=null; markLinkSrc(); lk.setAttribute('aria-pressed',_linkMode?'true':'false'); lk.classList.toggle('on',_linkMode); view.classList.toggle('pjb-linking',_linkMode); });
+  /* item controls (delegated) — root에 걸어 두 모드(캔버스·그리드) 모두 처리 */
+  root.addEventListener('click',function(e){
     /* connector edge delete (normal mode) */
     var eh=e.target.closest('[data-edge]');
     if(eh&&!_linkMode){ var eid=eh.getAttribute('data-edge'); var run=function(){ b.edges=(b.edges||[]).filter(function(x){return String(x.id)!==String(eid);}); save(); paintEdges(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('연결 삭제','이 연결선을 지울까요?',run):run()); return; }
@@ -30157,7 +30206,8 @@ function projectBoardBind(detail,project){
     else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); b.edges=(b.edges||[]).filter(function(ed){return String(ed.from)!==String(id)&&String(ed.to)!==String(id);}); save(); repaint(); } }
     else if(kind==='edit'){ projectBoardEditItem(project,it,repaint,save); }
   });
-  /* pointer pan / drag / pinch */
+  /* pointer pan / drag / pinch — 자유 캔버스 전용 (그리드 뷰엔 배치가 없음) */
+  if(grid||!view)return;
   var ptrs={}, drag=null, pinch=null;
   view.addEventListener('pointerdown',function(e){
     if(e.target.closest('[data-bd-ctl],input,label,a'))return; /* controls/links handle themselves; drag starts elsewhere (grip/body) */
