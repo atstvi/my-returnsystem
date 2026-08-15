@@ -1601,6 +1601,10 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .goal-prog>span{display:block;height:100%;border-radius:var(--r-full)}
 .goal-meta{font-size:var(--text-2xs);color:var(--fg-4);font-weight:var(--fw-semibold)}
 .goal-tasks{display:flex;flex-wrap:wrap;gap:5px;margin-top:var(--sp-3);min-height:26px}
+.goal-tasks.collapsed{display:none}
+.goal-tasks-toggle{border:0;background:none;cursor:pointer;display:inline-flex;align-items:center;gap:4px;padding:2px 0;font:inherit}
+.goal-tasks-toggle .goal-caret{display:inline-block;font-size:9px;color:var(--fg-4);transition:transform var(--t-snap)}
+.goal-tasks-toggle:hover{color:var(--fg-2)}
 .goal-drop-hint{font-size:var(--text-2xs);color:var(--fg-4);font-style:italic;align-self:center}
 .goal-task-chip{display:inline-flex;align-items:center;gap:2px;background:var(--bg-card);border:1px solid var(--border-subtle);border-radius:var(--r-full);padding:2px 4px 2px 9px;font-size:var(--text-xs);cursor:grab;max-width:100%}
 .goal-task-chip.goal-dragging{opacity:.5}
@@ -30150,7 +30154,13 @@ function projectTaskTimelineHtml(list){
 }
 /* 프로젝트 상세 할일 타임라인 = 이 프로젝트 할일의 주간 그리드(비어도 뷰 표시). */
 var _pjdTlWeek=0;
-function _pjdWeekDays(off){ var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7); var start=new Date(base); start.setDate(base.getDate()-base.getDay()); var out=[]; for(var i=0;i<7;i++){var d=new Date(start);d.setDate(start.getDate()+i);out.push(d);} return out; }
+/* 목표 카드에서 담은 할일 칩 접힘 상태(목표 id→true=펼침). 기본은 접힘(할일이
+   많아질 때 카드가 길어지지 않도록). */
+var _goalCardOpen={};
+/* off는 '일(day)' 단위 — 이번 주 일요일에서 off일만큼 민 7일 창을 만든다. off가
+   7의 배수면 주 단위로 정렬되고(‹ › 버튼), 드래그 가장자리에서는 하루씩 밀어
+   부드럽게 '스크롤'된다(딱딱 일주일씩 끊기지 않게). */
+function _pjdWeekDays(off){ var base=new Date(); base.setHours(0,0,0,0); var start=new Date(base); start.setDate(base.getDate()-base.getDay()+off); var out=[]; for(var i=0;i<7;i++){var d=new Date(start);d.setDate(start.getDate()+i);out.push(d);} return out; }
 function _pjdDk(d){return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate();}
 var _pjdTlKeys=[];
 /* Shared: drag a timeline task bar horizontally to reschedule it to another day.
@@ -30175,9 +30185,11 @@ function _pjTlStopEdge(){ var D=window._pjTlDrag; if(!D)return; D.edgeDir=0; if(
 function _pjTlStartEdge(dir){
   var D=window._pjTlDrag; if(!D||D.edgeDir===dir)return;
   _pjTlStopEdge(); D.edgeDir=dir;
+  /* navWeek(dir)은 이제 하루(±1일)씩 창을 민다 — 가장자리에 대고 있으면 하루씩
+     연속으로 밀려 '스크롤'처럼 부드럽게 넘어간다(예전엔 620ms마다 한 주씩 점프). */
   var hop=function(){ var d=window._pjTlDrag; if(!d||!d.edgeDir||typeof d.navWeek!=='function')return; d.navWeek(d.edgeDir); };
-  setTimeout(function(){ if(window._pjTlDrag&&window._pjTlDrag.edgeDir===dir)hop(); },140); /* 짧은 첫 반응 */
-  D.edgeTimer=setInterval(hop,620);
+  setTimeout(function(){ if(window._pjTlDrag&&window._pjTlDrag.edgeDir===dir)hop(); },120); /* 짧은 첫 반응 */
+  D.edgeTimer=setInterval(hop,240);
 }
 function _pjTlOnMove(e){
   var D=window._pjTlDrag; if(!D)return;
@@ -30252,8 +30264,10 @@ function projectGoalsHtml(project){
         +'<button type="button" class="goal-addtask" data-goal-addtask="'+projectEsc(g.id)+'" title="이 목표에 할일 추가">＋</button>'
         +'<button type="button" class="goal-edit" data-goal-edit="'+projectEsc(g.id)+'" title="목표 편집">✏</button></div>'
       +'<div class="goal-prog"><span style="width:'+pct+'%;background:'+projectEsc(col)+'"></span></div>'
-      +'<div class="goal-meta">할일 '+ts.length+' · 완료 '+pct+'%</div>'
-      +'<div class="goal-tasks">'+chips+'</div>'
+      +(ts.length
+        ? '<button type="button" class="goal-meta goal-tasks-toggle" data-goal-toggle="'+projectEsc(g.id)+'" aria-expanded="'+(_goalCardOpen[g.id]===true?'true':'false')+'"><span class="goal-caret">'+(_goalCardOpen[g.id]===true?'▾':'▸')+'</span> 할일 '+ts.length+' · 완료 '+pct+'%</button>'
+        : '<div class="goal-meta">할일 0 · 완료 '+pct+'%</div>')
+      +'<div class="goal-tasks'+(ts.length&&_goalCardOpen[g.id]!==true?' collapsed':'')+'">'+chips+'</div>'
     +'</div>';
   }).join('');
   /* Pool of the project's tasks not yet in any goal — the drag source. Dropping
@@ -30282,6 +30296,7 @@ function bindProjectGoals(detail){
     pool.addEventListener('dragleave',function(e){ if(!pool.contains(e.relatedTarget))pool.classList.remove('drag-over'); });
     pool.addEventListener('drop',function(e){ e.preventDefault(); pool.classList.remove('drag-over'); var id=e.dataTransfer?e.dataTransfer.getData('text/plain'):''; if(id&&goalRemoveTask(id))renderProjects(); });
   }
+  detail.querySelectorAll('[data-goal-toggle]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var gid=b.getAttribute('data-goal-toggle');_goalCardOpen[gid]=!(_goalCardOpen[gid]===true);renderProjects();});});
   detail.querySelectorAll('[data-goal-addtask]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();_addTaskToGoal(b.getAttribute('data-goal-addtask'));});});
   detail.querySelectorAll('[data-goal-edit]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var g=findGoal(b.getAttribute('data-goal-edit'));if(g)openGoalEditor(g.project,g.goal);});});
   detail.querySelectorAll('[data-goal-remove]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();if(goalRemoveTask(b.getAttribute('data-goal-remove')))renderProjects();});});
@@ -30305,7 +30320,7 @@ function projectWeekTimelineHtml(project){
     '<button type="button" class="pj-tl-nav" data-pjdtlnav="1" aria-label="다음 주">›</button>'+
   '</div>';
   var colhead='<div class="pj-tl-colhead"><span class="pj-tl-cap">할일</span>'+
-    days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[i]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
+    days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[d.getDay()]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
   /* Clamp an arbitrary [start,end] range to the visible week → grid columns. */
   function rangeSpan(s,e){ if(!s||!e||e<w0||s>w6)return null; var si=0; if(s>=w0){for(var j=0;j<7;j++){if(keys[j]>=s){si=j;break;}}} var ei=6; if(e<=w6){for(var k=6;k>=0;k--){if(keys[k]<=e){ei=k;break;}}} if(ei<si)ei=si; return {si:si,ei:ei}; }
   function _taskRow(t,barCol,cls){
@@ -30333,7 +30348,7 @@ function projectWeekTimelineHtml(project){
 }
 function bindProjectWeekTimeline(detail){
   if(!detail)return;
-  detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v); renderProjects(); });});
+  detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v)*7; renderProjects(); });});
   detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ if(window._pjTlDragged)return; var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
   detail.querySelectorAll('[data-goal-open]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var g=findGoal(b.getAttribute('data-goal-open'));if(g)openGoalEditor(g.project,g.goal);});});
   if(typeof window.bindProjectTimelineDrag==='function')window.bindProjectTimelineDrag(detail,_pjdTlKeys,function(id){return (typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});},function(){ if(typeof saveTaskData==='function')saveTaskData(); renderProjects(); },function(dir){ _pjdTlWeek+=dir; renderProjects(); });
@@ -31171,12 +31186,14 @@ renderProjects=function(){
   }
   var _pjFolderGroup=(function(){try{return localStorage.getItem('pj_folder_group')!=='0';}catch(_e){return true;}})(); /* 폴더를 상태별로 묶기 (기본 켬) */
   var _pjStageOpen={};   /* 상태 섹션 접기/펼치기 상태, stage id로 키 */
-  var _pjWeek=0;      /* week offset for the all-timeline strip */
+  var _pjWeek=0;      /* day offset for the all-timeline strip (7 = one week) */
   var _pjTlOpen={};   /* group open/closed state, keyed by group id */
   var _pjLogsView='all';  /* 전체 기록: 'all' | 'bookmark' */
+  /* off는 '일(day)' 단위 — 이번 주 일요일 + off일에서 시작하는 7일 창. 드래그
+     가장자리에서 하루씩 밀어 부드럽게 스크롤(주 단위 끊김 제거). */
   function _pjWeekDays(off){
-    var base=new Date(); base.setHours(0,0,0,0); base.setDate(base.getDate()+off*7);
-    var start=new Date(base); start.setDate(base.getDate()-base.getDay()); /* Sunday start */
+    var base=new Date(); base.setHours(0,0,0,0);
+    var start=new Date(base); start.setDate(base.getDate()-base.getDay()+off); /* Sunday + off days */
     var out=[]; for(var i=0;i<7;i++){var d=new Date(start); d.setDate(start.getDate()+i); out.push(d);}
     return out;
   }
@@ -31218,7 +31235,7 @@ renderProjects=function(){
       return '<span class="pj-tl-leg"><span class="pj-tl-legdot" style="background:'+projectEsc(g.color)+'"></span>'+projectEsc(g.gid==='base'?'기본(할일 탭)':g.name)+'</span>';
     }).join('')+'</div>';
     var colhead='<div class="pj-tl-colhead"><span class="pj-tl-cap">묶음 · 프로젝트</span>'+
-      days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[i]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
+      days.map(function(d,i){var isT=keys[i]===today;return '<span class="pj-tl-day'+(isT?' now':'')+'"><small>'+DOW[d.getDay()]+'</small><b>'+d.getDate()+'</b></span>';}).join('')+'</div>';
     var body=groups.map(function(g){
       var allList,list,doneN,actN,status;
       if(g.hobby){
@@ -31254,7 +31271,7 @@ renderProjects=function(){
     host.innerHTML=head+legend+'<div class="pj-tl-card">'+colhead+'<div class="pj-tl-groups">'+body+'</div></div>';
     var addBtn=host.querySelector('#pj-tl-addtask'); if(addBtn)addBtn.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(null); else if(typeof goPage==='function')goPage('tasks'); });
     host.querySelectorAll('[data-tlnav]').forEach(function(b){b.addEventListener('click',function(){
-      var v=b.getAttribute('data-tlnav'); if(v==='0')_pjWeek=0; else _pjWeek+=Number(v); renderAllTimeline();
+      var v=b.getAttribute('data-tlnav'); if(v==='0')_pjWeek=0; else _pjWeek+=Number(v)*7; renderAllTimeline();
     });});
     host.querySelectorAll('[data-tltoggle]').forEach(function(b){b.addEventListener('click',function(){
       var g=b.getAttribute('data-tltoggle'); _pjTlOpen[g]=(_pjTlOpen[g]===false); renderAllTimeline();
