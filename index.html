@@ -436,6 +436,39 @@ input,textarea { outline:none; }
   .tab-btn{justify-content:center;padding:var(--sp-4) var(--sp-2);gap:0;min-height:46px;}
   .tab-label{display:none;}
 }
+/* 사이드바 수동 접기 버튼(넓은 폭에서만 의미가 있어 901px+에서만 노출) */
+.sb-collapse-btn{
+  display:none;align-items:center;justify-content:flex-start;gap:var(--sp-6);
+  width:100%;min-height:38px;margin-top:var(--sp-2);
+  border:none;border-radius:var(--r-md);background:none;cursor:pointer;
+  padding:var(--sp-3) var(--sp-6);color:var(--sidebar-fg,var(--fg-3));
+  font-size:var(--text-sm);transition:background var(--t-snap),color var(--t-snap);
+}
+.sb-collapse-btn:hover{background:var(--sidebar-active,var(--n-150));color:var(--fg-2);}
+.sb-collapse-btn:focus-visible{outline:none;box-shadow:var(--focus-ring);}
+.sb-collapse-ic{width:20px;height:20px;flex-shrink:0;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;display:block;transition:transform var(--t-snap);}
+.sb-collapse-label{font-size:var(--text-sm);white-space:nowrap;}
+/* 수동 접힘(.collapsed) — 좁은 폭 아이콘 레일과 동일한 모습. 901px+에서만 적용
+   (640–900px 범위는 위 미디어쿼리가 이미 레일로 만듦, 모바일은 하단 바). */
+@media (min-width:901px){
+  .sb-collapse-btn{display:flex;}
+  .sidebar.collapsed{width:64px;align-items:center;padding:var(--sp-8) var(--sp-3) var(--sp-6);}
+  .sidebar.collapsed .sb-profile{padding:var(--sp-2) 0 var(--sp-6);border-bottom:none;margin-bottom:var(--sp-3);}
+  .sidebar.collapsed .sb-avatar{width:40px;height:40px;margin-bottom:0;}
+  .sidebar.collapsed .sb-avatar-fb{font-size:18px;}
+  .sidebar.collapsed .sb-name,.sidebar.collapsed .sb-handle,.sidebar.collapsed .sb-status{display:none;}
+  .sidebar.collapsed .sb-sep{margin:var(--sp-3) 0;width:24px;align-self:center;}
+  .sidebar.collapsed .tab-btn{justify-content:center;padding:var(--sp-4) var(--sp-2);gap:0;min-height:46px;}
+  .sidebar.collapsed .tab-label{display:none;}
+  .sidebar.collapsed .sb-collapse-btn{justify-content:center;padding:var(--sp-4) var(--sp-2);gap:0;}
+  .sidebar.collapsed .sb-collapse-label{display:none;}
+  .sidebar.collapsed .sb-collapse-ic{transform:rotate(180deg);}
+  /* 라이브 배너도 레일 폭에 맞춰 압축(태블릿 레일과 동일) */
+  .sidebar.collapsed .sb-live.on{margin:calc(var(--sp-8) * -1) calc(var(--sp-3) * -1) 0;}
+  .sidebar.collapsed .sb-live-main{display:none;}
+  .sidebar.collapsed .sb-live-bar{flex-direction:column;padding:var(--sp-3) var(--sp-2);gap:var(--sp-2);}
+  .sidebar.collapsed.has-live .sb-avatar{margin-top:-16px;}
+}
 .tab-dot {
   position:absolute; top:7px; right:7px; width:6px; height:6px;
   border-radius:var(--r-full); background:var(--accent); border:1.5px solid var(--bg-card);
@@ -8703,6 +8736,7 @@ to{opacity:1;transform:translateY(0)}}
     <button class="tab-btn" id="tab-records" data-page="records" aria-label="기록"><span class="tab-icon"><svg viewBox="0 0 24 24"><path d="M5 19.5h14"/><path d="M6 15.2 14.4 6.8a1.4 1.4 0 0 1 2 2L8 17.2l-3.1 1z"/></svg></span><span class="tab-label">기록</span></button>
     <button class="tab-btn" id="tab-timer" data-page="timer" aria-label="타이머"><span class="tab-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="6.7"/><path d="M12 13.5V9.5M9.3 3.5h5.4M18.5 6.2 19.8 4.9"/></svg></span><span class="tab-label">타이머</span></button>
     <div class="sb-spacer"></div>
+    <button class="sb-collapse-btn" id="sb-collapse-btn" type="button" aria-label="사이드바 접기" onclick="toggleSidebarCollapse()"><svg class="sb-collapse-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 7 9.5 12l5 5"/><path d="M19 5v14"/></svg><span class="sb-collapse-label">접기</span></button>
   </nav>
 
   <div class="app-main">
@@ -31518,6 +31552,23 @@ function renderSidebarProfile(){
     else { img.hidden=true; img.removeAttribute('src'); fb.hidden=false; fb.textContent=(name||'R').trim().slice(0,1).toUpperCase()||'R'; }
   }
 }
+/* 사이드바 수동 접기/펼치기(데스크톱). 좁은 폭에서 자동으로 되는 아이콘 레일과
+   같은 모습으로 넓은 폭에서도 접을 수 있게 한다. 기기 로컬 UI 상태라 plain
+   localStorage(sidebar_collapsed)에만 저장(동기화하지 않음). */
+function applySidebarCollapse(){
+  var sb=document.getElementById('main-sidebar'); if(!sb)return;
+  var on=false; try{ on=localStorage.getItem('sidebar_collapsed')==='1'; }catch(e){}
+  sb.classList.toggle('collapsed',on);
+  var btn=document.getElementById('sb-collapse-btn');
+  if(btn){ btn.setAttribute('aria-label',on?'사이드바 펼치기':'사이드바 접기'); btn.title=on?'사이드바 펼치기':'사이드바 접기'; }
+}
+function toggleSidebarCollapse(){
+  var sb=document.getElementById('main-sidebar'); if(!sb)return;
+  var on=!sb.classList.contains('collapsed');
+  try{ localStorage.setItem('sidebar_collapsed',on?'1':'0'); }catch(e){}
+  applySidebarCollapse();
+}
+(function(){ function _b(){ try{applySidebarCollapse();}catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_b); else _b(); })();
 function renderAccountProfile(){
   var p={};
   try{p=JSON.parse(localStorage.getItem('profile_data')||'{}');}catch(e){}
