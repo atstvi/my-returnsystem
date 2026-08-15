@@ -1618,6 +1618,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pj-goal-sub .pj-tl-rowlabel{font-weight:var(--fw-medium);color:var(--fg-3);padding-left:var(--sp-4);position:relative}
 .pj-sub-connector{position:absolute;left:2px;top:-6px;bottom:50%;width:8px;border-left:1.5px solid color-mix(in srgb,var(--fg) 20%,transparent);border-bottom:1.5px solid color-mix(in srgb,var(--fg) 20%,transparent);border-bottom-left-radius:5px}
 .pj-subbar{opacity:.92;font-weight:var(--fw-semibold)}
+.pj-goal-caret{border:0;background:none;color:var(--fg-4);cursor:pointer;font-size:9px;padding:0 5px 0 0;line-height:1;flex-shrink:0}
+.pj-goal-caret:hover{color:var(--fg-1)}
+.pj-goal-count{font-size:10px;color:var(--fg-4);font-weight:var(--fw-semibold);margin-left:4px}
 /* 목표 카드 (프로젝트 상세) */
 .pjd-goals-section .goal-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:var(--sp-4)}
 .goal-card{background:var(--bg-raised);border:1px solid var(--border-subtle);border-radius:var(--r-lg);padding:var(--sp-4);transition:border-color var(--t-snap),box-shadow var(--t-snap),background var(--t-snap)}
@@ -30191,6 +30194,9 @@ var _pjdTlWeek=0;
 /* 목표 카드에서 담은 할일 칩 접힘 상태(목표 id→true=펼침). 기본은 접힘(할일이
    많아질 때 카드가 길어지지 않도록). */
 var _goalCardOpen={};
+/* 프로젝트 상세 주간 타임라인에서 목표 하위 할일 접힘 상태(목표 id→false=접힘).
+   기본은 펼침(하위 할일 막대가 일정 정보라). 목표 행의 캐럿으로 접어 깔끔하게. */
+var _goalTlOpen={};
 /* off는 '일(day)' 단위 — 이번 주 일요일에서 off일만큼 민 7일 창을 만든다. off가
    7의 배수면 주 단위로 정렬되고(‹ › 버튼), 드래그 가장자리에서는 하루씩 밀어
    부드럽게 '스크롤'된다(딱딱 일주일씩 끊기지 않게). */
@@ -30372,8 +30378,11 @@ function projectWeekTimelineHtml(project){
     var bars=segs.map(function(r){ var b=rangeSpan(r.start,r.end); return b?'<span class="pj-goalbar" data-goal-open="'+projectEsc(g.id)+'" style="grid-column:'+(b.si+2)+' / '+(b.ei+3)+';background:linear-gradient(90deg,'+col+','+col+'cc)" title="'+projectEsc(g.title)+'">🎯 '+projectEsc(g.title)+'</span>':''; }).filter(Boolean);
     var subTasks=goalTasks(g.id).filter(placeable).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
     if(!bars.length && !subTasks.length) return '';
-    var head='<div class="pj-tl-row pj-goal-row"><span class="pj-tl-rowlabel pj-goal-label" title="'+projectEsc(g.title)+'">🎯 '+projectEsc(g.title)+'</span>'+(bars.length?bars.join(''):'<button type="button" class="pj-goal-norange" data-goal-open="'+projectEsc(g.id)+'" style="grid-column:2 / 9">기간 미설정 — 눌러서 설정</button>')+'</div>';
-    return head+subTasks.map(function(t){ return _taskRow(t,col,'pj-goal-sub'); }).join('');
+    var open=_goalTlOpen[g.id]!==false; /* 기본 펼침 */
+    var caret=subTasks.length?'<button type="button" class="pj-goal-caret" data-goal-tl-toggle="'+projectEsc(g.id)+'" aria-expanded="'+(open?'true':'false')+'" title="'+(open?'하위 할일 접기':'하위 할일 펼치기')+'">'+(open?'▾':'▸')+'</button>':'';
+    var countBadge=(subTasks.length&&!open)?' <span class="pj-goal-count">'+subTasks.length+'</span>':'';
+    var head='<div class="pj-tl-row pj-goal-row"><span class="pj-tl-rowlabel pj-goal-label" title="'+projectEsc(g.title)+'" style="display:flex;align-items:center;min-width:0">'+caret+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">🎯 '+projectEsc(g.title)+'</span>'+countBadge+'</span>'+(bars.length?bars.join(''):'<button type="button" class="pj-goal-norange" data-goal-open="'+projectEsc(g.id)+'" style="grid-column:2 / 9">기간 미설정 — 눌러서 설정</button>')+'</div>';
+    return head+(open?subTasks.map(function(t){ return _taskRow(t,col,'pj-goal-sub'); }).join(''):'');
   }).join('');
   var ungrouped=mine.filter(placeable).filter(function(t){return !groupedIds[String(t.id)];}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
   var ungroupedHtml=ungrouped.map(function(t){ return _taskRow(t,color,''); }).join('');
@@ -30385,6 +30394,7 @@ function bindProjectWeekTimeline(detail){
   detail.querySelectorAll('[data-pjdtlnav]').forEach(function(b){b.addEventListener('click',function(){ var v=b.getAttribute('data-pjdtlnav'); if(v==='0')_pjdTlWeek=0; else _pjdTlWeek+=Number(v)*7; renderProjects(); });});
   detail.querySelectorAll('[data-pjdtltask]').forEach(function(b){b.addEventListener('click',function(){ if(window._pjTlDragged)return; var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pjdtltask'));}); if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t); });});
   detail.querySelectorAll('[data-goal-open]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var g=findGoal(b.getAttribute('data-goal-open'));if(g)openGoalEditor(g.project,g.goal);});});
+  detail.querySelectorAll('[data-goal-tl-toggle]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();var gid=b.getAttribute('data-goal-tl-toggle');_goalTlOpen[gid]=(_goalTlOpen[gid]===false);renderProjects();});});
   if(typeof window.bindProjectTimelineDrag==='function')window.bindProjectTimelineDrag(detail,_pjdTlKeys,function(id){return (typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});},function(){ if(typeof saveTaskData==='function')saveTaskData(); renderProjects(); },function(dir){ _pjdTlWeek+=dir; renderProjects(); });
 }
 openProjectTaskLinker=function(project){
