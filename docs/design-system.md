@@ -6,11 +6,15 @@
 > materials (§0, inspire don't copy).** The workflow governs *how* a redesign is carried out; this
 > governs *what* the design is.
 >
-> **Status — §2 (tokens/color), the app shell (§4.1), and the 나/Home + 할일/Tasks tabs are SHIPPED.** §3
-> (components) documents the real, current vocabulary (updated as Home was built). §6 (application
-> process) is the decided workflow. §5 is now part intent / part done-record: the **나/Home** (§5.1)
-> and **할일/Tasks** (§5.2) entries are built records; the other tabs are still the intent layer and
-> get scoped approval before code. Reference §7 for the distilled **one-tab redesign playbook**.
+> **Status — §2 (tokens/color), the app shell (§4.1), and the 나/Home + 할일/Tasks + 루틴/Routine +
+> 타이머/Timer tabs are SHIPPED; the 프로젝트/Projects 자료 보드 hub (§5.4) is shipped and a global
+> save/sync indicator (§3.12) is app-wide.** §3 (components) documents the real, current vocabulary —
+> including the toolbar/icon-button/segmented-control/add-menu family (§3.10), source-app badges
+> (§3.11), and the sync indicator (§3.12) added while building the board. §6 (application process) is
+> the decided workflow. §5 is part intent / part done-record: **나/Home** (§5.1), **할일/Tasks**
+> (§5.2), **루틴/Routine** (§5.3), and the **Projects 자료 보드** (§5.4) are built records; the other
+> tabs are still the intent layer and get scoped approval before code. Reference §7 for the distilled
+> **one-tab redesign playbook**.
 >
 > **This document is a constraint, not a mood board.** Every component and pattern below must
 > name the exact page/control in `docs/UI_FUNCTION_INVENTORY.md` it replaces. If a redesign pass
@@ -223,10 +227,13 @@ through to the dark palette + the base `var(--n-*)` fallbacks. The dark block al
 byte-identical; verified light + dark headlessly across pages. **Rule going forward:** never emit
 a user's light color literal on bare `:root` — scope surface/ink literals to `:not([data-mode="dark"])`.
 
-### 2.1.4 `--bg-tint` (deferred naming aid)
+### 2.1.4 `--bg-tint` — applied
 
-Still intend to add `--bg-tint: var(--a-50)` as a named emphasis-surface token (see §3 principle
-3) when components are specced — not yet added.
+`--bg-tint: var(--a-50)` is now defined on `:root` (right after `--bg-active`) as the named
+emphasis-surface token (see §3 principle 3). Same value as `--accent-light`/`--bg-active`, named
+so a component spec can say "use `--bg-tint` for an earned emphasis surface" without implying the
+accent-*fill* token. Use it for tinted emphasis backgrounds (app badges, active/highlight
+surfaces); use `--accent` only for a filled primary action.
 
 ### 2.2 Typography — no change
 
@@ -371,6 +378,48 @@ product, not an afterthought.
 Every dashboard card header leads with a small **SVG line icon** (`.sec-ico`, 24-grid, ~1.7
 stroke, `currentColor`) before its `.sec-label` title, so cards read as one family. No card header
 is icon-less; no emoji/glyph headers.
+
+### 3.10 Toolbar: icon-button, segmented control, add-menu — SHIPPED (자료 보드)
+
+The professional-tool toolbar vocabulary, first shipped on the Projects 자료 보드 (§5.4). These
+are the canonical shapes for a per-view action bar; reuse them (don't invent page-local toolbars
+with emoji pill rows again):
+
+- **Icon-button (`.pjb-ibtn`)** — a 33px-high control: line icon (+ optional label), `--r-md`,
+  `.5px --border`, `--bg-card`. `.on` = accent-tinted active. `.pjb-ibtn-sq` = icon-only square.
+  A **primary** variant (`.pjb-add`) fills with `--accent` + white text for the one main action.
+  This is the toolbar counterpart to §3.1's `.btn` hierarchy (primary = accent fill, rest = ghost).
+- **Add dropdown (`.pjb-addwrap`/`.pjb-menu`/`.pjb-mi`)** — instead of a row of loose `＋X`
+  pills, one primary **＋ 추가** button opens a menu of typed actions, each row = a `.pjb-mi-ic`
+  line-icon tile + bold label + `--fg-4` hint. Opens on click, closes on outside-click or select.
+  Same popover language as the `.menu-pop` family (§5.2) — rounded card, `--elev-3`, line icons.
+- **Segmented control (`.pjb-seg`/`.pjb-seg-btn`)** — a 2+ segment view switch on a `--bg-sunken`
+  track; the active segment is a raised `--bg-card` chip (`.on`), with a line icon + label. Use it
+  for view-mode switches (자유 | 정리) instead of a single ambiguous toggle button. This is the same
+  idea as the capture bar's `.capture-modes` (§3.7) — the two should converge visually.
+
+All icons come from a shared line-icon map (24-grid, ~1.8 stroke, `currentColor`) — no emoji in
+toolbar buttons. Empty states in these views follow §3.8 (`.pjb-empty` = icon + title + one line +
+one CTA).
+
+### 3.11 Source-app badge & doc-hub cards (`.pjb-app-badge`) — SHIPPED (자료 보드)
+
+Link cards that reference an external app (Notion/Figma/Freeform/Google/YouTube/GitHub/…) carry a
+**source-app badge** — a tint+ink pill (§3.3 pattern: `color-mix(app-color 14%)` bg + app-color
+ink) with the app's icon + name — and adopt the app's color as the card's accent stripe. This is
+what makes the board read as a *directory of external work* rather than a wall of generic links.
+`boardLinkApp(url)` is the pure recognizer (host → `{id,label,icon,color}`, unknown → null →
+favicon/domain fallback). Reuse the tint+ink badge shape for any "which system is this from" label.
+
+### 3.12 Global save/sync status indicator (`.sync-pill`) — SHIPPED
+
+The app's core promise is "records never get lost," so **save/sync state is now always visible** —
+a compact pill in the top bar, left of the icon cluster. Four states, driven **read-only** from the
+existing `setFbStatus()` signal (no sync-logic change): 동기화 중 (spinner) / 저장됨 (cloud-check,
+teal) / 동기화 오류 (danger) / 기기에 저장 (cloud-off, logged-out). `renderSyncPill(cls)` maps the
+status; clicking opens sync settings. This is a **trust component** — treat "is my data safe?" as a
+first-class, always-on affordance, not something buried in Settings. Icon set shares the
+line-icon language (`SYNC_ICO`).
 
 ---
 
@@ -697,6 +746,29 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
   list + hour timeline) restated in Return terms; **task-linking kept** (no subject/category concept).
   See `docs/timer-tab-audit.md`. No functionality removed (§6.0); inventory diff = line-number churn only.
 
+### 5.4 프로젝트/Projects · 자료 보드 (資料 hub) — SHIPPED (partial: the board)
+
+The project **자료 보드** was recast from a weak freeform-canvas clone into a purpose-built
+**hub**: gather links to external docs (Notion/Figma/Freeform/Google/…) + hold light glanceable
+materials (note/check/image) that don't warrant a document. What landed (all verified by rendering
+the real board headlessly — the "mockup" is the real render, never a separate drawing):
+- **Source-app recognition** on link cards (§3.11): app badge + app-color accent → the board reads
+  as a directory of external work.
+- **Two view modes** via a segmented switch (§3.10): **자유 배치** (the freeform pan/zoom canvas)
+  and **정리** (an auto-arranged grid — favorites first, then links grouped by app, then
+  notes/checks/images; frames omitted). Mode is a device-local pref (`pjb_view_mode`).
+- **Professional toolbar** (§3.10): one primary **＋ 추가** dropdown (typed actions with icon +
+  hint) + line-icon buttons (즐겨찾기/연결/맞춤) + the segment switch, replacing the old emoji pill
+  row. Empty state = hub icon + title + one line + `＋ 링크 추가` CTA (§3.8).
+- **Frames are hollow** — a frame is only its border; its interior is `pointer-events:none` (only
+  the top bar stays interactive) so cards placed inside a frame stay clickable, and frames sit at
+  `z-index:0` behind cards.
+- **Global sync indicator** (§3.12) shipped alongside (top bar, app-wide — not board-specific).
+
+Still *intent* for the rest of the Projects tab (project folder-cards, goal cards, the week/all
+timelines): apply the §3 components (canonical `.btn`/icon-button, tint+ink chips, flat cards) in a
+future strangler-fig pass toward the ref-4 folder-card + progress-bar + favorite grid.
+
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
 - **일기/Diary** — *keep* the 7 fixed sections + Notion sync. *fix* section headers/spacing,
@@ -704,7 +776,8 @@ via a slow `선택 ▼` dropdown, intensity hidden, library eating half the scre
 - **루틴/Routine** — SHIPPED (§5.3). Structural do-first redesign.
 - **할일/Tasks** — *keep* category sidebar, view-switcher, recurring rules (rated above refs).
   *fix* messy secondary-action placement accreted over time; consider §4.4 review step.
-- **프로젝트/Projects** — *fix* toward ref-4 folder-card + progress-bar + favorite grid.
+- **프로젝트/Projects** — 자료 보드 hub SHIPPED (§5.4). *fix* remaining: project folder-cards +
+  goal cards + timelines toward ref-4 folder-card + progress-bar + favorite grid.
 - **시간표/Schedule** — *keep* timetable grid. palette already pastel. *fix* slot edit affordances.
 - **취미/Hobby** — *keep* tracker + banner. category colors now muted (§2.1.5).
 - **음악/Music** — *keep* recommender + playlists. *fix* card/grid consistency with §3.2.
