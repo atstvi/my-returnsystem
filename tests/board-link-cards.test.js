@@ -29,6 +29,18 @@ t.ok('domain fallback for junk', typeof sb.boardUrlDomain('') === 'string');
 /* ── boardFavicon ── */
 t.ok('favicon uses google service + domain', /s2\/favicons\?domain=example\.com/.test(sb.boardFavicon('https://example.com/x')), sb.boardFavicon('https://example.com/x'));
 
+/* ── boardLinkApp: recognize the source app so the board reads as a doc hub ── */
+t.ok('notion → Notion', (sb.boardLinkApp('https://www.notion.so/My-Page-abc')||{}).id === 'notion');
+t.ok('figma → Figma', (sb.boardLinkApp('https://figma.com/file/xxx')||{}).id === 'figma');
+t.ok('google docs → gdocs', (sb.boardLinkApp('https://docs.google.com/document/d/1/edit')||{}).id === 'gdocs');
+t.ok('icloud → freeform', (sb.boardLinkApp('https://www.icloud.com/freeform/xxx')||{}).id === 'freeform');
+t.ok('youtu.be → youtube', (sb.boardLinkApp('https://youtu.be/abcdefghijk')||{}).id === 'youtube');
+t.ok('github → github', (sb.boardLinkApp('https://github.com/a/b')||{}).id === 'github');
+t.ok('app carries a label + color', (function(){var a=sb.boardLinkApp('https://notion.so/x');return a&&a.label==='Notion'&&/^#/.test(a.color);})());
+t.ok('unknown host → null', sb.boardLinkApp('https://example.com/x') === null);
+t.ok('bare host (no scheme) still recognized', (sb.boardLinkApp('notion.so/x')||{}).id === 'notion');
+t.ok('junk → null (no throw)', sb.boardLinkApp('') === null);
+
 /* ── boardYoutubeEmbed ── */
 t.ok('youtube watch → embed url', sb.boardYoutubeEmbed('https://www.youtube.com/watch?v=abcdefghijk') === 'https://www.youtube.com/embed/abcdefghijk', sb.boardYoutubeEmbed('https://www.youtube.com/watch?v=abcdefghijk'));
 t.ok('youtu.be → embed url', sb.boardYoutubeEmbed('https://youtu.be/abcdefghijk') === 'https://www.youtube.com/embed/abcdefghijk', sb.boardYoutubeEmbed('https://youtu.be/abcdefghijk'));
