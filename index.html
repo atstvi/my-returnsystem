@@ -13593,15 +13593,19 @@ function openConfirmDialog(title, message, onConfirm, opts){
          anything else (default 'repeat') → 3 options (this/future/all) for
          repeat-rule tasks.
    onScope(scope) called with: 'this' | 'future' | 'all' | 'tt-all' */
-function openRepeatEditScopeDialog(taskText, kind, onScope){
+function openRepeatEditScopeDialog(taskText, kind, onScope, onCancel){
   var old=document.getElementById('repeat-scope-dialog');
   if(old)old.remove();
   var ov=document.createElement('div');
   ov.className='overlay open repeat-scope-dialog';
   ov.id='repeat-scope-dialog';
-  function close(){ov.remove();}
+  /* 범위를 고르지 않고 닫으면(취소/바깥 클릭) onCancel을 호출한다 — 드래그로 연 경우
+     원래 시간으로 되돌릴 수 있게. 선택하면 picked=true라 onCancel은 걸리지 않음. */
+  var picked=false;
+  function close(){ ov.remove(); if(!picked && typeof onCancel==='function'){ try{onCancel();}catch(_e){} } }
   var defaultKey=kind==='tt'?'repeat_scope_tt_default':(kind==='rule'?'repeat_scope_rule_default':'repeat_scope_default');
   function pick(scope){return function(){
+    picked=true;
     /* If the user checked "다음부터 이 선택 사용", persist the preference. */
     var remEl=ov.querySelector('#rsd-remember');
     if(remEl&&remEl.checked){
@@ -15507,6 +15511,7 @@ function renderHomeTimeBlocks(){
       if (e.button !== 0 || e.target.closest('button') || resize.contains(e.target) || virtual) return;
       e.preventDefault();
       var y0=e.clientY, sm0=sm, dur=em-sm, moved=false, lastX=e.clientX, lastY=e.clientY;
+      var os=t.timeStart, oe=t.timeEnd;
       el.classList.add('htb-dragging');
       function mv(ev){
         lastX=ev.clientX;lastY=ev.clientY;
@@ -15523,10 +15528,11 @@ function renderHomeTimeBlocks(){
         document.removeEventListener('mouseup',up);
         el.classList.remove('htb-dragging');
         el._dragMoved=moved;
+        var droppedAllday=false;
         if(moved&&pointInAllDay(lastX,lastY)&&t.id&&!String(t.id).startsWith('tt_')){
-          t.timeStart='';t.timeEnd='';
+          t.timeStart='';t.timeEnd='';droppedAllday=true;
         }
-        if(moved && typeof saveTaskData==='function')saveTaskData();
+        if(moved) _htbCommitTaskTime(t,{moved:true,origStart:os,origEnd:oe,droppedAllday:droppedAllday});
       }
       document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);
     });
@@ -15540,6 +15546,7 @@ function renderHomeTimeBlocks(){
         if(e.target.closest('button') || resize.contains(e.target)) return;
         var touch=e.touches[0], startY=touch.clientY, startX=touch.clientX;
         var sm0=sm, dur=em-sm, dragging=false, moved=false, lastX=startX, lastY=startY;
+        var os=t.timeStart, oe=t.timeEnd;
         var hold=setTimeout(function(){ dragging=true; el.classList.add('htb-dragging'); try{ if(navigator.vibrate) navigator.vibrate(10); }catch(_){} }, 220);
         function cleanup(){
           document.removeEventListener('touchmove',move,{passive:false});
@@ -15569,9 +15576,9 @@ function renderHomeTimeBlocks(){
           el._dragMoved=moved;
           if(dragging && moved){
             var et=(ev.changedTouches&&ev.changedTouches[0])||null;
-            if(et && pointInAllDay(et.clientX,et.clientY)){ t.timeStart=''; t.timeEnd=''; }
-            if(typeof saveTaskData==='function')saveTaskData();
-            renderHomeTimeBlocks();
+            var droppedAllday=false;
+            if(et && pointInAllDay(et.clientX,et.clientY)){ t.timeStart=''; t.timeEnd=''; droppedAllday=true; }
+            _htbCommitTaskTime(t,{moved:true,origStart:os,origEnd:oe,droppedAllday:droppedAllday});
           }
           cleanup();
         }
@@ -15631,6 +15638,44 @@ function renderHomeTimeBlocks(){
     el.appendChild(bar); el.appendChild(ck); el.appendChild(name); el.appendChild(badgeEl); if(metaEl)el.appendChild(metaEl); el.appendChild(time); if(timerBtn)el.appendChild(timerBtn); el.appendChild(resize);
     slots.appendChild(el);
   }
+  /* 반복 할일인가? (반복 규칙/활성 규칙으로 생성된 항목) */
+  function _htbIsRepeatTask(t){
+    return !!(t && (t._repeatId || t.repeatRuleId || t.sourceType==='repeat' || t._repeatOccurrence || (t._repeat && (t._repeat===true || t._repeat.kind))));
+  }
+  /* 타임블록에서 할일을 드래그로 옮긴 뒤 시간 변경을 확정한다. 반복 할일이면
+     변경 범위(이 항목만 / 이후 / 전체)를 물어 적용하고, 취소하면 원래 시간으로
+     되돌린다. 일반 할일은 바로 저장. o={moved,origStart,origEnd,droppedAllday}. */
+  function _htbCommitTaskTime(t, o){
+    o = o || {};
+    if(!o.moved) return;
+    var save=function(){ if(typeof saveTaskData==='function')saveTaskData(); };
+    var repaint=function(){ try{ renderHomeTimeBlocks(); }catch(_e){} };
+    /* 종일 영역으로 끌어 시간 해제 → 이 항목만의 변경으로 처리(반복이어도 규칙 유지). */
+    if(o.droppedAllday){
+      if(_htbIsRepeatTask(t)){ t._occurrenceCustomized=true; t._repeatMoved=true; t.userModifiedDate=true; }
+      save(); repaint(); return;
+    }
+    if(!_htbIsRepeatTask(t) || typeof openRepeatEditScopeDialog!=='function'){ save(); repaint(); return; }
+    var newStart=t.timeStart, newEnd=t.timeEnd;
+    var occDate=t.occurrenceDate||t._repeatOccurrence||t.date||'';
+    function apply(scope){
+      t.timeStart=newStart; t.timeEnd=newEnd; t._repeatMoved=true; t.updatedAt=Date.now();
+      if(scope==='this'){ t._occurrenceCustomized=true; t.userModifiedDate=true; }
+      else { /* future | all — 규칙 시간을 갱신하고 기존 항목에도 전파 */
+        if(typeof syncTaskRepeatItem==='function')syncTaskRepeatItem(t);
+        var ruleId=String(t.repeatRuleId||t._repeatId||'');
+        if(typeof propagateRepeatEdit==='function')propagateRepeatEdit(ruleId, scope==='future'?occDate:null, scope==='future'?'future':'all', {timeStart:newStart,timeEnd:newEnd}, t.id);
+      }
+      save(); repaint();
+      if(typeof showToast==='function'&&typeof _scopeLabel==='function'){ try{ showToast(_scopeLabel(scope)+' 적용됨'); }catch(_e){} }
+    }
+    /* 선택 전엔 원래 시간으로 되돌려 둠 — 취소 시 그대로 유지되도록. */
+    if(o.origStart!==undefined){ t.timeStart=o.origStart; t.timeEnd=o.origEnd; repaint(); }
+    /* 저장된 기본 범위(‘다음부터 이 선택 사용’)가 있으면 바로 적용. */
+    var saved=''; try{ saved=localStorage.getItem('repeat_scope_default')||''; }catch(_e){}
+    if(saved){ apply(saved); return; }
+    openRepeatEditScopeDialog(t.text, 'repeat', apply, function(){ repaint(); /* 취소: 원위치 유지 */ });
+  }
   /* 목표 대표 블록 — 소속 할일들을 대신하는 한 블록. 시간은 목표 전용 tbStart/tbEnd에
      쓰고 저장은 saveProjects. 데스크톱은 드래그/리사이즈로, 어디서든 탭하면 시간
      편집창으로 조절(목표엔 다른 곳에 시간 속성이 없으므로). 종일로 끌면 시간 해제. */
@@ -15669,8 +15714,49 @@ function renderHomeTimeBlocks(){
       function up(){ document.removeEventListener('mousemove',mv); document.removeEventListener('mouseup',up); _htbGoalPersist(g, sm, em); }
       document.addEventListener('mousemove',mv); document.addEventListener('mouseup',up);
     });
-    bar.appendChild(name); bar.appendChild(badge);
-    el.appendChild(bar); el.appendChild(time); el.appendChild(resize);
+    /* 터치 이동(길게 눌러 시작) — 데스크톱 마우스 드래그와 동일하게 목표 블록을
+       옮긴다. 220ms 홀드 전에 움직이면 스크롤로 넘겨 타임라인 스크롤과 충돌 방지.
+       종일 영역으로 끌면 시간 해제(tbStart/tbEnd 비움). */
+    el.addEventListener('touchstart', function(e){
+      if(e.touches.length!==1) return;
+      if(e.target.closest('button') || resize.contains(e.target)) return;
+      var touch=e.touches[0], startY=touch.clientY, startX=touch.clientX;
+      var sm0=sm, dur=em-sm, dragging=false, moved=false, lastX=startX, lastY=startY;
+      var hold=setTimeout(function(){ dragging=true; el.classList.add('htb-dragging'); try{ if(navigator.vibrate) navigator.vibrate(10); }catch(_){} }, 220);
+      function cleanup(){ document.removeEventListener('touchmove',move,{passive:false}); document.removeEventListener('touchend',end); document.removeEventListener('touchcancel',end); }
+      function move(ev){
+        if(!ev.touches||ev.touches.length!==1) return;
+        var tt=ev.touches[0]; lastX=tt.clientX; lastY=tt.clientY;
+        if(!dragging){ if(Math.abs(tt.clientY-startY)>8 || Math.abs(tt.clientX-startX)>8){ clearTimeout(hold); cleanup(); } return; }
+        ev.preventDefault();
+        var ns=Math.round((sm0+(tt.clientY-startY)/SLOT_H*60)/5)*5; ns=Math.max(START*60,Math.min(ns,END*60-dur));
+        if(Math.abs(ns-sm0)>=5)moved=true; sm=ns; em=ns+dur;
+        el.style.top=((sm/60-START)*SLOT_H)+'px'; time.textContent=fmt(sm)+'-'+fmt(em);
+      }
+      function end(ev){
+        clearTimeout(hold); el.classList.remove('htb-dragging'); el._dragMoved=moved;
+        if(dragging && moved){
+          var et=(ev.changedTouches&&ev.changedTouches[0])||null;
+          if(et && pointInAllDay(et.clientX,et.clientY)){ g.goal.tbStart=''; g.goal.tbEnd=''; if(g.project)g.project.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects(); renderHomeTimeBlocks(); }
+          else { _htbGoalPersist(g, sm, em); renderHomeTimeBlocks(); }
+        }
+        cleanup();
+      }
+      document.addEventListener('touchmove',move,{passive:false}); document.addEventListener('touchend',end); document.addEventListener('touchcancel',end);
+    }, {passive:true});
+    /* 터치 리사이즈 — 아래 핸들을 끌어 종료 시간 조절. */
+    resize.addEventListener('pointerdown', function(e){
+      if (e.pointerType !== 'touch') return;
+      e.preventDefault(); e.stopPropagation();
+      var y0=e.clientY, em0=em;
+      try{resize.setPointerCapture(e.pointerId);}catch(_e){}
+      function mv(ev){ var ne=Math.round((em0+(ev.clientY-y0)/SLOT_H*60)/5)*5; ne=Math.max(sm+15,Math.min(ne,END*60)); em=ne; el.style.height=Math.max(((em-sm)/60)*SLOT_H-3,22)+'px'; time.textContent=fmt(sm)+'-'+fmt(em); }
+      function up(ev){ resize.removeEventListener('pointermove',mv); resize.removeEventListener('pointerup',up); resize.removeEventListener('pointercancel',up); try{resize.releasePointerCapture(ev.pointerId);}catch(_e){} _htbGoalPersist(g, sm, em); }
+      resize.addEventListener('pointermove',mv); resize.addEventListener('pointerup',up); resize.addEventListener('pointercancel',up);
+    });
+    /* name·badge는 블록(flex 행)의 직접 자식이어야 한다. bar(htb-vbar)는 폭 3px
+       스트라이프라, 여기에 이름을 넣으면 한 글자씩 세로로 접혀 보였다(버그). */
+    el.appendChild(bar); el.appendChild(name); el.appendChild(badge); el.appendChild(time); el.appendChild(resize);
     slots.appendChild(el);
   }
   function addGoalChip(g, members){
