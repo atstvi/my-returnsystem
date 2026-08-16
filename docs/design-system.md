@@ -787,6 +787,29 @@ future strangler-fig pass toward the ref-4 folder-card + progress-bar + favorite
   (apply dataviz care). *refs* nagi-memo rich-text toolbar.
 - **설정/Settings** — *keep* tabbed structure. *fix* nothing urgent; it's the most orderly page.
 
+### 5.5 App-wide icon-language unification — SHIPPED (audit-driven, tab by tab)
+
+A strangler-fig pass that removed leftover **emoji glyphs from chrome** (headers,
+nav, stat tiles, empty states, toolbar/meta buttons) across the tabs, replacing
+them with the app's SVG line-icon language (§3.9) so every surface reads as one
+family. Done per tab with a real-render screenshot each; structure/hooks
+untouched.
+
+- **프로젝트/Projects** — detail-header meta+action glyphs (📥✔🖼🗑✏) and goal-card
+  ＋/✏ → line icons (`_pjIco`).
+- **기록/Records** — inner-nav tabs, 돌아보기 stat tiles + card headers, and all
+  five panel empty states (✧✦🧠📈🌡◈⏱) → line icons (`_recIco`).
+- **인박스/Inbox** — capture header 💬/🗑 → line icons (send/attach/link were
+  already SVG; layout/density audited as already sound).
+- **취미/Hobby** — banner title + 언젠가 someday header → line icons.
+- **시간표/Schedule · 음악/Music** — audited clean (no chrome emoji).
+- **충전과 체크/Recharge** — section headers already SVG; calm layout kept as-is.
+
+**Rule kept:** per-item / per-category / per-activity emoji (task & hobby category
+icons, inbox category chips, stamina band faces, project/goal identity emoji) are
+**user data, not chrome** — left untouched. Only chrome glyphs were converted.
+Shared per-tab icon helpers (`_pjIco`/`_recIco`) mirror the toolbar set (§3.10).
+
 ---
 
 ## 6. Application process (mandatory)
