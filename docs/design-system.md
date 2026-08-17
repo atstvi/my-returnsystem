@@ -373,6 +373,16 @@ Every card states its empty case rather than showing a blank box (Phase 6). The 
 it. Use a muted accent glyph, one line of copy, at most one CTA. An empty state is part of the
 product, not an afterthought.
 
+**The glyph is not optional on the primary full-page empties (applied).** The muted accent icon
+(`--accent`, `opacity:.5`, ~28px, 1.7 stroke) is what makes an empty state read as designed rather
+than as a stray text block. Two first-use states a new user actually lands on were message+CTA but
+icon-less; both now lead with the glyph the tab already uses, so they match the Home widgets:
+- **음악** first-use (`.music-v8-onboard`) — the music-note glyph (same icon as the Home music widget).
+- **루틴** bundles empty (`.rt-empty`) — the 루틴 sun glyph (same icon as the sidebar 루틴 nav).
+Reach for this glyph whenever a page-level empty already has copy + CTA but no icon; the bare inline
+`없어요` labels inside dense lists (routine bundles, project logs, board notes) stay as-is — they are
+inline states, not the landing empties this rule governs.
+
 ### 3.9 Section-header icons (`.sec-ico`)
 
 Every dashboard card header leads with a small **SVG line icon** (`.sec-ico`, 24-grid, ~1.7
@@ -765,9 +775,43 @@ the real board headlessly — the "mockup" is the real render, never a separate 
   `z-index:0` behind cards.
 - **Global sync indicator** (§3.12) shipped alongside (top bar, app-wide — not board-specific).
 
-Still *intent* for the rest of the Projects tab (project folder-cards, goal cards, the week/all
-timelines): apply the §3 components (canonical `.btn`/icon-button, tint+ink chips, flat cards) in a
-future strangler-fig pass toward the ref-4 folder-card + progress-bar + favorite grid.
+The rest of the Projects tab (folder-cards, goal cards, the week/all timelines) is being taken in a
+**bounded strangler-fig pass**, one concern per commit, toward the ref-4 folder-card + progress-bar
++ favorite grid. Progress so far:
+- **Folder-card progress bar (step 1 — done).** Each `.pj-folder` gains a thin progress bar
+  (`.pj-fprog`) that reads the project's task completion (`projectProgress`), filled in the
+  project's own color (`--pjc`); 100% tints the percent label with `--success`. The bar is
+  `margin-top:auto` so it pins to a consistent baseline across cards regardless of how many meta
+  lines a card has, and is omitted entirely when a project has no linked tasks (a 0% bar is noise).
+  The folder identity glyph stays as-is (user data, not chrome — §5.5 rule).
+
+- **Goal-card unification (step 2 — done).** The 목표 cards in the project detail dropped their
+  last raw text glyphs and tied their chips to the goal color: the tasks-toggle caret (`▸`/`▾`) →
+  a chevron SVG that rotates on open, the pool drag grip (`⠿`) → a 6-dot grip SVG, and the
+  `.goal-task-chip`s now carry a subtle **goal-color tint** (`--gc` at ~7% bg / ~22% border) so a
+  chip reads as belonging to its goal (§3.3 tint pattern). The ＋/✏ actions were already SVG
+  icon-buttons; the per-goal progress bar and the bullseye section header were already in place.
+
+- **Project-timeline goal glyph (step 3/4 — done).** The `🎯` prefix on the project detail's
+  weekly-timeline goal rows (both the colored `.pj-goalbar` and the `.pj-goal-label`) → the
+  bullseye 'goal' SVG (`.pj-goal-ico`, `1em` so it scales with the row's font size and inherits
+  `currentColor` — white on the bar, ink on the label). Matches the bullseye already used as the
+  목표 section header.
+- **The "landing empty glyph" step turned out to have no target.** The active Projects landing
+  (`renderProjects` → `renderFolders`) shows the folder grid with its own "새 프로젝트" tile as the
+  empty state, and the "프로젝트를 선택해 주세요" detail-empty is never reached (detail only renders
+  with a selected project). The remaining reachable empties are section-level first-use states
+  inside a project (목표/자료/기록/로그) that already read as designed (titled + described, with the
+  section's §3.9 header icon), and the §3.8 rule keeps those bare. So no glyph was forced in.
+
+- **Cross-tab goal-glyph sweep (done).** The same `🎯` prefix on the Home 타임블록 goal block
+  (`.htb-vname`) + all-day goal chip (`.htb-goalchip`) and the 할일 tab goal pill
+  (`.cpill--goal`) + goal-group label (`.gti-name`) → the shared bullseye SVG. A single
+  `GOAL_ICO_SVG` constant + `.goal-ico` class (1em, `currentColor`) now backs every goal label
+  app-wide; the `textContent` sites were switched to `innerHTML` with `tEscHtml`-escaped titles so
+  the swap stays injection-safe. (The `🎯` left in the CAT_EMOJI_POOL is a user-pickable category
+  emoji — data, not chrome — and the Settings 집중 모드 row icon is a focus-mode indicator, not a
+  goal label; both intentionally kept.)
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
@@ -800,10 +844,35 @@ untouched.
 - **기록/Records** — inner-nav tabs, 돌아보기 stat tiles + card headers, and all
   five panel empty states (✧✦🧠📈🌡◈⏱) → line icons (`_recIco`).
 - **인박스/Inbox** — capture header 💬/🗑 → line icons (send/attach/link were
-  already SVG; layout/density audited as already sound).
+  already SVG; layout/density audited as already sound). Both landing empties'
+  glyphs converted too: the feed empty (📭 → the 인박스 tray icon) and the board
+  empty (□ → a columns/board icon), each in the §3.8 muted-accent treatment.
 - **취미/Hobby** — banner title + 언젠가 someday header → line icons.
 - **시간표/Schedule · 음악/Music** — audited clean (no chrome emoji).
 - **충전과 체크/Recharge** — section headers already SVG; calm layout kept as-is.
+  The one remaining chrome emoji, the charge/discharge activity-empty glyphs
+  (💙/🔴), → line icons that keep the semantic color split: a heart in
+  `--success` for 충전, a low-battery in `--danger` for 방전.
+- **설정/Settings** — the last emoji-chrome nav. The left-nav's 8 `.set-tab-icon`
+  glyphs (🎨🙋✦🔔🪟☁️💾◎) → line icons matching the app language: a light/dark
+  contrast circle (테마·외관), person (프로필), sparkle (AI·API, mirroring the AI
+  glyph), bell (알림, mirroring the topbar), 2×2 grid (위젯), cloud (동기화·연동,
+  same shape as the `.sync-pill` cloud), database cylinder (데이터 관리), info
+  circle (Return 정보). Active state tints the icon via `currentColor`.
+- **Collapse/expand carets (app-wide).** The legacy `▸`/`▾`/`▴` text chevrons on every
+  disclosure control → a single shared chevron SVG. Two string constants back it: `CARET_SVG_R`
+  (base points right) and `CARET_SVG_D` (down), plus a `.caret-ico` class where `.open` rotates
+  90°. Carets that already rotate via a parent `.open`/`.collapsed` class (project stage sections
+  `.pj-stage-caret`, timeline legend `.pj-tl-caret`, 할일 project sub-groups `.task-projsub-caret`
+  + goal items `.gti-caret`, 취미 `.section-chevron`) just embed the matching base orientation and
+  keep their existing transform; JS-toggled ones (project goal-timeline `.pj-goal-caret`, 음악 song
+  panel + 고급 설정 toggle, 루틴 난이도 dropdown) swap between the right/`.open` variants.
+  `textContent` sites moved to `innerHTML` with escaped labels. Play `▶`/`⏸` glyphs are controls,
+  not carets — left untouched.
+- **View-toggle & menu glyphs.** The Projects folder-group toggle (`.pj-fgroup-ico`, `▤`/`▦`) →
+  a stacked-rows icon for 상태별로 묶어 보기 and the 2×2 grid icon for 전체 한눈에 보기, and the
+  Settings mobile nav `☰` → a 3-line hamburger SVG. Both driven by `currentColor` so they follow
+  their button's ink.
 
 **Rule kept:** per-item / per-category / per-activity emoji (task & hobby category
 icons, inbox category chips, stamina band faces, project/goal identity emoji) are
