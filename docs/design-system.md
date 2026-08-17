@@ -785,8 +785,15 @@ The rest of the Projects tab (folder-cards, goal cards, the week/all timelines) 
   lines a card has, and is omitted entirely when a project has no linked tasks (a 0% bar is noise).
   The folder identity glyph stays as-is (user data, not chrome — §5.5 rule).
 
-Still *intent* for the remaining steps (goal cards → canonical `.btn`/icon-button + tint+ink chips;
-landing-only §3.8 empty glyph via an opt-in param on the shared empty helpers).
+- **Goal-card unification (step 2 — done).** The 목표 cards in the project detail dropped their
+  last raw text glyphs and tied their chips to the goal color: the tasks-toggle caret (`▸`/`▾`) →
+  a chevron SVG that rotates on open, the pool drag grip (`⠿`) → a 6-dot grip SVG, and the
+  `.goal-task-chip`s now carry a subtle **goal-color tint** (`--gc` at ~7% bg / ~22% border) so a
+  chip reads as belonging to its goal (§3.3 tint pattern). The ＋/✏ actions were already SVG
+  icon-buttons; the per-goal progress bar and the bullseye section header were already in place.
+
+Still *intent* for the remaining step (landing-only §3.8 empty glyph via an opt-in param on the
+shared empty helpers) and the week/all timelines (goal `🎯` label emoji → the bullseye icon).
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
