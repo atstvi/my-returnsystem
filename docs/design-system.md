@@ -792,8 +792,21 @@ The rest of the Projects tab (folder-cards, goal cards, the week/all timelines) 
   chip reads as belonging to its goal (§3.3 tint pattern). The ＋/✏ actions were already SVG
   icon-buttons; the per-goal progress bar and the bullseye section header were already in place.
 
-Still *intent* for the remaining step (landing-only §3.8 empty glyph via an opt-in param on the
-shared empty helpers) and the week/all timelines (goal `🎯` label emoji → the bullseye icon).
+- **Project-timeline goal glyph (step 3/4 — done).** The `🎯` prefix on the project detail's
+  weekly-timeline goal rows (both the colored `.pj-goalbar` and the `.pj-goal-label`) → the
+  bullseye 'goal' SVG (`.pj-goal-ico`, `1em` so it scales with the row's font size and inherits
+  `currentColor` — white on the bar, ink on the label). Matches the bullseye already used as the
+  목표 section header.
+- **The "landing empty glyph" step turned out to have no target.** The active Projects landing
+  (`renderProjects` → `renderFolders`) shows the folder grid with its own "새 프로젝트" tile as the
+  empty state, and the "프로젝트를 선택해 주세요" detail-empty is never reached (detail only renders
+  with a selected project). The remaining reachable empties are section-level first-use states
+  inside a project (목표/자료/기록/로그) that already read as designed (titled + described, with the
+  section's §3.9 header icon), and the §3.8 rule keeps those bare. So no glyph was forced in.
+
+Follow-up (small, cross-tab): the same goal `🎯` prefix still appears on the Home 타임블록 goal
+chips and the 할일 tab goal group labels; those are built via `textContent`, so they need a
+`textContent → element` swap rather than a string edit, tracked as a separate consistency sweep.
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
