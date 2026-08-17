@@ -814,6 +814,12 @@ untouched.
 - **취미/Hobby** — banner title + 언젠가 someday header → line icons.
 - **시간표/Schedule · 음악/Music** — audited clean (no chrome emoji).
 - **충전과 체크/Recharge** — section headers already SVG; calm layout kept as-is.
+- **설정/Settings** — the last emoji-chrome nav. The left-nav's 8 `.set-tab-icon`
+  glyphs (🎨🙋✦🔔🪟☁️💾◎) → line icons matching the app language: a light/dark
+  contrast circle (테마·외관), person (프로필), sparkle (AI·API, mirroring the AI
+  glyph), bell (알림, mirroring the topbar), 2×2 grid (위젯), cloud (동기화·연동,
+  same shape as the `.sync-pill` cloud), database cylinder (데이터 관리), info
+  circle (Return 정보). Active state tints the icon via `currentColor`.
 
 **Rule kept:** per-item / per-category / per-activity emoji (task & hobby category
 icons, inbox category chips, stamina band faces, project/goal identity emoji) are
