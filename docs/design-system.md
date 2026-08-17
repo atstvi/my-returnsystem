@@ -775,9 +775,18 @@ the real board headlessly — the "mockup" is the real render, never a separate 
   `z-index:0` behind cards.
 - **Global sync indicator** (§3.12) shipped alongside (top bar, app-wide — not board-specific).
 
-Still *intent* for the rest of the Projects tab (project folder-cards, goal cards, the week/all
-timelines): apply the §3 components (canonical `.btn`/icon-button, tint+ink chips, flat cards) in a
-future strangler-fig pass toward the ref-4 folder-card + progress-bar + favorite grid.
+The rest of the Projects tab (folder-cards, goal cards, the week/all timelines) is being taken in a
+**bounded strangler-fig pass**, one concern per commit, toward the ref-4 folder-card + progress-bar
++ favorite grid. Progress so far:
+- **Folder-card progress bar (step 1 — done).** Each `.pj-folder` gains a thin progress bar
+  (`.pj-fprog`) that reads the project's task completion (`projectProgress`), filled in the
+  project's own color (`--pjc`); 100% tints the percent label with `--success`. The bar is
+  `margin-top:auto` so it pins to a consistent baseline across cards regardless of how many meta
+  lines a card has, and is omitted entirely when a project has no linked tasks (a 0% bar is noise).
+  The folder identity glyph stays as-is (user data, not chrome — §5.5 rule).
+
+Still *intent* for the remaining steps (goal cards → canonical `.btn`/icon-button + tint+ink chips;
+landing-only §3.8 empty glyph via an opt-in param on the shared empty helpers).
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
