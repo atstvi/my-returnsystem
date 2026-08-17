@@ -373,6 +373,16 @@ Every card states its empty case rather than showing a blank box (Phase 6). The 
 it. Use a muted accent glyph, one line of copy, at most one CTA. An empty state is part of the
 product, not an afterthought.
 
+**The glyph is not optional on the primary full-page empties (applied).** The muted accent icon
+(`--accent`, `opacity:.5`, ~28px, 1.7 stroke) is what makes an empty state read as designed rather
+than as a stray text block. Two first-use states a new user actually lands on were message+CTA but
+icon-less; both now lead with the glyph the tab already uses, so they match the Home widgets:
+- **음악** first-use (`.music-v8-onboard`) — the music-note glyph (same icon as the Home music widget).
+- **루틴** bundles empty (`.rt-empty`) — the 루틴 sun glyph (same icon as the sidebar 루틴 nav).
+Reach for this glyph whenever a page-level empty already has copy + CTA but no icon; the bare inline
+`없어요` labels inside dense lists (routine bundles, project logs, board notes) stay as-is — they are
+inline states, not the landing empties this rule governs.
+
 ### 3.9 Section-header icons (`.sec-ico`)
 
 Every dashboard card header leads with a small **SVG line icon** (`.sec-ico`, 24-grid, ~1.7
