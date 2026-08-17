@@ -859,6 +859,16 @@ untouched.
   glyph), bell (알림, mirroring the topbar), 2×2 grid (위젯), cloud (동기화·연동,
   same shape as the `.sync-pill` cloud), database cylinder (데이터 관리), info
   circle (Return 정보). Active state tints the icon via `currentColor`.
+- **Collapse/expand carets (app-wide).** The legacy `▸`/`▾`/`▴` text chevrons on every
+  disclosure control → a single shared chevron SVG. Two string constants back it: `CARET_SVG_R`
+  (base points right) and `CARET_SVG_D` (down), plus a `.caret-ico` class where `.open` rotates
+  90°. Carets that already rotate via a parent `.open`/`.collapsed` class (project stage sections
+  `.pj-stage-caret`, timeline legend `.pj-tl-caret`, 할일 project sub-groups `.task-projsub-caret`
+  + goal items `.gti-caret`, 취미 `.section-chevron`) just embed the matching base orientation and
+  keep their existing transform; JS-toggled ones (project goal-timeline `.pj-goal-caret`, 음악 song
+  panel + 고급 설정 toggle, 루틴 난이도 dropdown) swap between the right/`.open` variants.
+  `textContent` sites moved to `innerHTML` with escaped labels. Play `▶`/`⏸` glyphs are controls,
+  not carets — left untouched.
 
 **Rule kept:** per-item / per-category / per-activity emoji (task & hobby category
 icons, inbox category chips, stamina band faces, project/goal identity emoji) are

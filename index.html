@@ -1644,6 +1644,8 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pj-goal-row{margin-top:var(--sp-2)}
 .pj-goal-label{color:var(--fg-1);font-weight:var(--fw-bold)}
 .pj-goal-ico,.goal-ico{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;vertical-align:-.12em;margin-right:4px;flex:none}
+.caret-ico{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;display:inline-block;vertical-align:-.1em;transition:transform var(--t-snap)}
+.caret-ico.open{transform:rotate(90deg)}
 .pj-goalbar{grid-row:1;font-family:inherit;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:var(--fw-bold);color:#fff;border:0;border-radius:var(--r-full);padding:6px 12px;cursor:pointer;text-align:left;box-shadow:var(--elev-1)}
 .pj-goalbar:hover{filter:brightness(1.05)}
 .pj-goal-norange{grid-row:1;font-family:inherit;font-size:11px;color:var(--fg-4);background:var(--bg-sunken);border:1px dashed var(--border);border-radius:var(--r-full);padding:5px 12px;cursor:pointer;text-align:left}
@@ -21207,6 +21209,13 @@ function tEscHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
 /* Shared 목표(goal) bullseye glyph — replaces the legacy 🎯 chrome prefix on goal
    labels across tabs (Home 타임블록, 할일, 프로젝트 타임라인). Scales via 1em + currentColor. */
 var GOAL_ICO_SVG='<svg class="goal-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>';
+/* Shared collapse/expand caret glyph — replaces legacy ▸/▾/▴ text chevrons. The
+   base points right; `.caret-ico.open` rotates it to point down (for JS-toggled
+   carets), while carets that already rotate via a parent .open/.collapsed class
+   just embed the matching base orientation (R = right, D = down). */
+var CARET_SVG_R='<svg class="caret-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+var CARET_SVG_D='<svg class="caret-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+var CARET_SVG_R_OPEN='<svg class="caret-ico open" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 function visibleTasks(){
   return tasks.filter(function(t){
     if(t.date!==selDate)return false;
@@ -21945,7 +21954,7 @@ function renderHobbySection(container){
   list.sort(function(a,b){ var at=a.type==='event'?0:1,bt=b.type==='event'?0:1; if(at!==bt)return at-bt; return String(a.timeStart||'~').localeCompare(String(b.timeStart||'~')); });
   var sec=document.createElement('div'); sec.className='task-section hobby-section';
   var head=document.createElement('div'); head.className='section-head hobby-section-head';
-  head.innerHTML='<span class="section-title">🎨 취미</span><span class="section-count">'+list.length+'</span><span class="hobby-sec-note">취미 탭 항목</span><span class="section-chevron">▾</span>';
+  head.innerHTML='<span class="section-title">🎨 취미</span><span class="section-count">'+list.length+'</span><span class="hobby-sec-note">취미 탭 항목</span><span class="section-chevron">'+CARET_SVG_D+'</span>';
   head.addEventListener('click',function(){ head.classList.toggle('collapsed'); });
   var body=document.createElement('div'); body.className='section-body';
   list.forEach(function(it){ body.appendChild(_hobbyTaskEl(it)); });
@@ -22605,7 +22614,7 @@ function renderSection(container,title,items,collapsed,catId,overdueCnt){
 
   /* 접기 UI(쉐브론+클릭 토글)는 카테고리가 아닌 섹션에만. 카테고리는 항상 펼침. */
   if(!catId){
-    var chevron=document.createElement('span');chevron.className='section-chevron';chevron.textContent='▾';
+    var chevron=document.createElement('span');chevron.className='section-chevron';chevron.innerHTML=CARET_SVG_D;
     head.appendChild(chevron);
     head.addEventListener('click',function(){head.classList.toggle('collapsed');});
   }
@@ -22660,7 +22669,7 @@ function _goalSubGroup(goal,list){
   var g=document.createElement('div'); g.className='task-goalitem'+(allDone?' done':'')+(open?'':' collapsed'); g.style.setProperty('--gc',col);
 
   var head=document.createElement('div'); head.className='task-goalitem-head';
-  head.innerHTML='<span class="gti-caret">▸</span>'
+  head.innerHTML='<span class="gti-caret">'+CARET_SVG_R+'</span>'
     +'<span class="gti-dot" style="background:'+col+'"></span>'
     +'<span class="gti-name">'+GOAL_ICO_SVG+tEscHtml(goal.title)+(daySuffix?'<span class="goal-daysuffix"> · '+tEscHtml(daySuffix)+'</span>':'')+'</span>'
     +'<button type="button" class="goal-daylabel-btn" title="이름 덧붙이기">✎</button>'
@@ -22718,7 +22727,7 @@ function _goalSubGroup(goal,list){
 function _projSubGroup(name,color,list,emoji){
   var g=document.createElement('div'); g.className='task-projsub';
   var gh=document.createElement('div'); gh.className='task-projsub-head';
-  gh.innerHTML='<span class="task-projsub-caret">▸</span><span class="task-projsub-dot" style="background:'+color+'"></span><span class="task-projsub-name">'+tEscHtml(emoji||'📁')+' '+tEscHtml(name)+'</span><span class="task-projsub-count">'+list.length+'</span>';
+  gh.innerHTML='<span class="task-projsub-caret">'+CARET_SVG_R+'</span><span class="task-projsub-dot" style="background:'+color+'"></span><span class="task-projsub-name">'+tEscHtml(emoji||'📁')+' '+tEscHtml(name)+'</span><span class="task-projsub-count">'+list.length+'</span>';
   gh.addEventListener('click',function(){ g.classList.toggle('collapsed'); });
   var gb=document.createElement('div'); gb.className='task-projsub-body';
   /* 목표로 묶인 할일은 목표 하위 그룹(기본 접힘)으로, 나머지는 그대로. */
@@ -30627,7 +30636,7 @@ function projectWeekTimelineHtml(project){
     var subTasks=goalTasks(g.id).filter(placeable).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0;});
     if(!bars.length && !subTasks.length) return '';
     var open=_goalTlOpen[g.id]!==false; /* 기본 펼침 */
-    var caret=subTasks.length?'<button type="button" class="pj-goal-caret" data-goal-tl-toggle="'+projectEsc(g.id)+'" aria-expanded="'+(open?'true':'false')+'" title="'+(open?'하위 할일 접기':'하위 할일 펼치기')+'">'+(open?'▾':'▸')+'</button>':'';
+    var caret=subTasks.length?'<button type="button" class="pj-goal-caret" data-goal-tl-toggle="'+projectEsc(g.id)+'" aria-expanded="'+(open?'true':'false')+'" title="'+(open?'하위 할일 접기':'하위 할일 펼치기')+'">'+(open?CARET_SVG_R_OPEN:CARET_SVG_R)+'</button>':'';
     var countBadge=(subTasks.length&&!open)?' <span class="pj-goal-count">'+subTasks.length+'</span>':'';
     var head='<div class="pj-tl-row pj-goal-row"><span class="pj-tl-rowlabel pj-goal-label" title="'+projectEsc(g.title)+'" style="display:flex;align-items:center;min-width:0">'+caret+'<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><svg class="pj-goal-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>'+projectEsc(g.title)+'</span>'+countBadge+'</span>'+(bars.length?bars.join(''):'<button type="button" class="pj-goal-norange" data-goal-open="'+projectEsc(g.id)+'" style="grid-column:2 / 9">기간 미설정 — 눌러서 설정</button>')+'</div>';
     return head+(open?subTasks.map(function(t){ return _taskRow(t,col,'pj-goal-sub'); }).join(''):'');
@@ -31485,7 +31494,7 @@ renderProjects=function(){
         var open=(s.id in _pjStageOpen)?!!_pjStageOpen[s.id]:(s.id==='inprogress');
         return '<section class="pj-stage-sec'+(open?' open':'')+'" data-stagesec="'+s.id+'">'
           +'<button type="button" class="pj-stage-shead" data-stagetoggle="'+s.id+'" aria-expanded="'+(open?'true':'false')+'">'
-            +'<span class="pj-stage-caret">▸</span><span class="pj-stage-dot" style="background:'+s.color+'"></span>'
+            +'<span class="pj-stage-caret">'+CARET_SVG_R+'</span><span class="pj-stage-dot" style="background:'+s.color+'"></span>'
             +'<span class="pj-stage-sname">'+projectEsc(s.label)+'</span><span class="pj-stage-scount">'+byStage[s.id].length+'</span></button>'
           +'<div class="pj-folders-grid pj-stage-grid">'+byStage[s.id].map(function(p){return _pjFolderTile(p,false);}).join('')+'</div>'
         +'</section>';
@@ -31580,7 +31589,7 @@ renderProjects=function(){
       }
       return '<div class="pj-tl-grp'+(open?' open':'')+'" data-tlgrp="'+projectEsc(g.gid)+'">'+
         '<button type="button" class="pj-tl-ghead" data-tltoggle="'+projectEsc(g.gid)+'" aria-expanded="'+(open?'true':'false')+'">'+
-          '<span class="pj-tl-caret">▸</span><span class="pj-tl-legdot" style="background:'+projectEsc(g.color)+'"></span>'+
+          '<span class="pj-tl-caret">'+CARET_SVG_R+'</span><span class="pj-tl-legdot" style="background:'+projectEsc(g.color)+'"></span>'+
           '<span class="pj-tl-gname">'+projectEsc(g.gid==='base'?'기본 · 할일 탭':g.name)+'</span><span class="pj-tl-gstatus">'+projectEsc(status)+'</span></button>'+
         '<div class="pj-tl-body">'+rows+'</div></div>';
     }).join('');
@@ -32763,7 +32772,7 @@ renderRoutineLibrary=function(){
 function routineDifficultyPickerHtml(h, diff, opts){
   if(!opts.length)return '';
   var label=diff?((opts.find(function(o){return o.key===diff;})||{}).label||'선택'):'선택';
-  return '<span class="routine-difficulty-wrap"><button type="button" class="routine-difficulty-pick '+(diff?'has-value':'')+'" data-routine-difficulty-pick>'+routineEsc(label)+' ▾</button><span class="routine-difficulty-menu">'+opts.map(function(o){return '<button type="button" class="routine-difficulty-option '+(diff===o.key?'active':'')+'" data-routine-difficulty="'+routineEsc(o.key)+'"><span>'+routineEsc(o.label)+'</span><span>'+routineEsc(o.text)+'</span></button>';}).join('')+'</span></span>';
+  return '<span class="routine-difficulty-wrap"><button type="button" class="routine-difficulty-pick '+(diff?'has-value':'')+'" data-routine-difficulty-pick>'+routineEsc(label)+' '+CARET_SVG_D+'</button><span class="routine-difficulty-menu">'+opts.map(function(o){return '<button type="button" class="routine-difficulty-option '+(diff===o.key?'active':'')+'" data-routine-difficulty="'+routineEsc(o.key)+'"><span>'+routineEsc(o.label)+'</span><span>'+routineEsc(o.text)+'</span></button>';}).join('')+'</span></span>';
 }
 renderRoutineBundles=function(){
   var root=document.getElementById('routine-bundles');if(!root)return;
@@ -37122,7 +37131,7 @@ async function openArchiveViewer(){
     var items=groups[g]; if(!items||!items.length) return;
     html+='<div style="margin-bottom:var(--sp-4)"><div style="font-weight:700;font-size:var(--text-sm);margin-bottom:var(--sp-2)">'+g+' <span style="color:var(--fg-4);font-weight:400">'+items.length+'</span></div>';
     items.forEach(function(it){
-      html+='<div class="av-item" data-key="'+tEscHtml(it.key)+'" style="border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);cursor:pointer"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:var(--text-sm)">'+tEscHtml(it.date||it.key)+'</span><span style="color:var(--fg-4);font-size:var(--text-xs)">펼치기 ▾</span></div><div class="av-detail" style="display:none;margin-top:var(--sp-2);padding-top:var(--sp-2);border-top:1px solid var(--border)"></div></div>';
+      html+='<div class="av-item" data-key="'+tEscHtml(it.key)+'" style="border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--sp-2) var(--sp-3);margin-bottom:var(--sp-2);cursor:pointer"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:var(--text-sm)">'+tEscHtml(it.date||it.key)+'</span><span style="color:var(--fg-4);font-size:var(--text-xs)">펼치기 '+CARET_SVG_D+'</span></div><div class="av-detail" style="display:none;margin-top:var(--sp-2);padding-top:var(--sp-2);border-top:1px solid var(--border)"></div></div>';
     });
     html+='</div>';
   });
@@ -43375,10 +43384,10 @@ function musicEnhanceSongForm(){
   toggle.type='button';
   toggle.className='music-adv-toggle';
   toggle.style.gridColumn='1/-1';
-  toggle.textContent='고급 설정 ▸';
+  toggle.innerHTML='고급 설정 '+CARET_SVG_R;
   toggle.addEventListener('click',function(){
     var open=wrap.classList.toggle('open');
-    toggle.textContent=open?'고급 설정 ▴':'고급 설정 ▸';
+    toggle.innerHTML='고급 설정 '+(open?CARET_SVG_R_OPEN:CARET_SVG_R);
   });
   var actions=form.querySelector('.music-form-actions');
   if(actions){form.insertBefore(toggle,actions);form.insertBefore(wrap,actions);}
@@ -43407,7 +43416,7 @@ function musicShowEditPanel(songId){
         musicPresetChipsHtml(grpId,s.tags||[])+
         '<input class="set-inp" id="music-edit-tags" placeholder="직접 입력" style="margin-top:6px" value="'+musicEsc((s.tags||[]).join(', '))+'">'+
       '</div>'+
-      '<button type="button" class="music-adv-toggle" id="music-edit-adv-toggle" style="grid-column:1/-1">고급 설정 ▸</button>'+
+      '<button type="button" class="music-adv-toggle" id="music-edit-adv-toggle" style="grid-column:1/-1">고급 설정 '+CARET_SVG_R+'</button>'+
       '<div class="music-adv-fields" id="music-edit-adv-wrap" style="grid-column:1/-1">'+
         '<input class="set-inp" id="music-edit-start" type="number" min="0" placeholder="시작 초" value="'+(s.startTime||0)+'">'+
         '<input class="set-inp" id="music-edit-end" type="number" min="0" placeholder="종료 초" value="'+(s.endTime||0)+'">'+
@@ -43427,7 +43436,7 @@ function musicShowEditPanel(songId){
   var advWrap=panel.querySelector('#music-edit-adv-wrap');
   advTog.addEventListener('click',function(){
     var open=advWrap.classList.toggle('open');
-    advTog.textContent=open?'고급 설정 ▴':'고급 설정 ▸';
+    advTog.innerHTML='고급 설정 '+(open?CARET_SVG_R_OPEN:CARET_SVG_R);
   });
   panel.querySelector('#music-edit-del-btn').addEventListener('click',function(){
     if(!confirm('"'+s.title+'" 를 삭제할까요?'))return;
@@ -43864,22 +43873,22 @@ function musicApplyHierarchy(){
       songTitle.classList.add('music-collapsible');
       var caret=document.createElement('span');
       caret.id='music-songs-caret';
-      caret.style.cssText='font-size:.7em;color:var(--fg-4)';
+      caret.style.cssText='font-size:.7em;color:var(--fg-4);margin-left:5px';
       songTitle.appendChild(caret);
       /* auto-collapse if playlists already exist */
       var hasPlaylists=musicLibrary&&musicLibrary.playlists&&musicLibrary.playlists.length>0;
       if(hasPlaylists){
         grid.classList.add('music-grid-collapsed');
-        caret.textContent=' ▸';
+        caret.innerHTML=CARET_SVG_R;
         songPanel.dataset.collapsed='1';
       }else{
-        caret.textContent=' ▾';
+        caret.innerHTML=CARET_SVG_R_OPEN;
         songPanel.dataset.collapsed='0';
       }
       songTitle.addEventListener('click',function(){
         var collapsed=songPanel.dataset.collapsed==='1';
         grid.classList.toggle('music-grid-collapsed',collapsed);
-        caret.textContent=collapsed?' ▾':' ▸';
+        caret.innerHTML=collapsed?CARET_SVG_R_OPEN:CARET_SVG_R;
         songPanel.dataset.collapsed=collapsed?'0':'1';
       });
     }
