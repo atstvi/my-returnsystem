@@ -869,6 +869,10 @@ untouched.
   panel + 고급 설정 toggle, 루틴 난이도 dropdown) swap between the right/`.open` variants.
   `textContent` sites moved to `innerHTML` with escaped labels. Play `▶`/`⏸` glyphs are controls,
   not carets — left untouched.
+- **View-toggle & menu glyphs.** The Projects folder-group toggle (`.pj-fgroup-ico`, `▤`/`▦`) →
+  a stacked-rows icon for 상태별로 묶어 보기 and the 2×2 grid icon for 전체 한눈에 보기, and the
+  Settings mobile nav `☰` → a 3-line hamburger SVG. Both driven by `currentColor` so they follow
+  their button's ink.
 
 **Rule kept:** per-item / per-category / per-activity emoji (task & hobby category
 icons, inbox category chips, stamina band faces, project/goal identity emoji) are
