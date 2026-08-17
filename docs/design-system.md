@@ -810,10 +810,15 @@ untouched.
 - **기록/Records** — inner-nav tabs, 돌아보기 stat tiles + card headers, and all
   five panel empty states (✧✦🧠📈🌡◈⏱) → line icons (`_recIco`).
 - **인박스/Inbox** — capture header 💬/🗑 → line icons (send/attach/link were
-  already SVG; layout/density audited as already sound).
+  already SVG; layout/density audited as already sound). Both landing empties'
+  glyphs converted too: the feed empty (📭 → the 인박스 tray icon) and the board
+  empty (□ → a columns/board icon), each in the §3.8 muted-accent treatment.
 - **취미/Hobby** — banner title + 언젠가 someday header → line icons.
 - **시간표/Schedule · 음악/Music** — audited clean (no chrome emoji).
 - **충전과 체크/Recharge** — section headers already SVG; calm layout kept as-is.
+  The one remaining chrome emoji, the charge/discharge activity-empty glyphs
+  (💙/🔴), → line icons that keep the semantic color split: a heart in
+  `--success` for 충전, a low-battery in `--danger` for 방전.
 - **설정/Settings** — the last emoji-chrome nav. The left-nav's 8 `.set-tab-icon`
   glyphs (🎨🙋✦🔔🪟☁️💾◎) → line icons matching the app language: a light/dark
   contrast circle (테마·외관), person (프로필), sparkle (AI·API, mirroring the AI
