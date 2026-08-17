@@ -804,9 +804,14 @@ The rest of the Projects tab (folder-cards, goal cards, the week/all timelines) 
   inside a project (목표/자료/기록/로그) that already read as designed (titled + described, with the
   section's §3.9 header icon), and the §3.8 rule keeps those bare. So no glyph was forced in.
 
-Follow-up (small, cross-tab): the same goal `🎯` prefix still appears on the Home 타임블록 goal
-chips and the 할일 tab goal group labels; those are built via `textContent`, so they need a
-`textContent → element` swap rather than a string edit, tracked as a separate consistency sweep.
+- **Cross-tab goal-glyph sweep (done).** The same `🎯` prefix on the Home 타임블록 goal block
+  (`.htb-vname`) + all-day goal chip (`.htb-goalchip`) and the 할일 tab goal pill
+  (`.cpill--goal`) + goal-group label (`.gti-name`) → the shared bullseye SVG. A single
+  `GOAL_ICO_SVG` constant + `.goal-ico` class (1em, `currentColor`) now backs every goal label
+  app-wide; the `textContent` sites were switched to `innerHTML` with `tEscHtml`-escaped titles so
+  the swap stays injection-safe. (The `🎯` left in the CAT_EMOJI_POOL is a user-pickable category
+  emoji — data, not chrome — and the Settings 집중 모드 row icon is a focus-mode indicator, not a
+  goal label; both intentionally kept.)
 
 - **인박스/Inbox** — *keep* fast-capture intent + feed/board views. *fix* compose bar (§4.3),
   category chip consistency. *open* SNS framing (§4.3).
