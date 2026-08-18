@@ -22559,7 +22559,12 @@ function renderByCategory(container,vt){
   vt.forEach(function(t){var k=taskEffectiveCatId(t);if(!cg[k])cg[k]=[];cg[k].push(t);});
   CATS.forEach(function(catDef){
     var cid = catDef.id;
-    if(cid==='project'){ renderProjectSection(container, cg['project'] || []); return; }
+    if(cid==='project'){
+      var pOverdue=(selDate===TK&&(activeCat==='all'||activeCat==='project'))?tasks.filter(function(t){
+        return t&&!t.done&&!t._travelOnly&&taskEffectiveCatId(t)==='project'&&t.date&&t.date<TK;
+      }).length:0;
+      renderProjectSection(container, cg['project'] || [], pOverdue); return;
+    }
     var cat=getCat(cid);
     var items=orderTaskSubset(cg[cid] || []);
     var overdueCnt=(selDate===TK&&(activeCat==='all'||activeCat===cid))?tasks.filter(function(t){
@@ -22793,7 +22798,8 @@ function _projSubGroup(name,color,list,emoji){
   g.appendChild(gh); g.appendChild(gb);
   return g;
 }
-function renderProjectSection(container,items){
+function renderProjectSection(container,items,overdueCnt){
+  overdueCnt=overdueCnt||0;
   var sec=document.createElement('div'); sec.className='task-section'; sec.setAttribute('data-cat','project');
   var cat=getCat('project');
   var head=document.createElement('div'); head.className='section-head cat-section-head'+(items.length?'':' cat-empty');
@@ -22803,6 +22809,14 @@ function renderProjectSection(container,items){
   var addBtn=document.createElement('button'); addBtn.className='section-add-btn task-cat-add-btn'; addBtn.type='button'; addBtn.textContent='+'; addBtn.title='프로젝트 할일 추가';
   addBtn.addEventListener('click',function(e){ e.stopPropagation(); openAddForCategory('project'); });
   head.appendChild(addBtn);
+  /* 다른 카테고리와 동일하게 — 오늘 목록에서 밀린 프로젝트 할일을 오늘로 당기는 버튼. */
+  if(selDate===TK&&overdueCnt>0){
+    var ovBadge=document.createElement('span'); ovBadge.className='section-overdue-badge'; ovBadge.textContent='⚠ '+overdueCnt+'개 밀림';
+    head.appendChild(ovBadge);
+    var moveBtn=document.createElement('button'); moveBtn.className='section-move-btn'; moveBtn.textContent='← 오늘로'; moveBtn.title='밀린 '+overdueCnt+'개를 오늘로 이동';
+    moveBtn.addEventListener('click',function(e){ e.stopPropagation(); moveCategoryOverdueToToday('project'); });
+    head.appendChild(moveBtn);
+  }
   /* 프로젝트 카테고리도 접을 수 없다 — 쉐브론/클릭 토글 없음(항상 펼침). 안쪽
      프로젝트 폴더·목표 그룹은 각자 접기 가능. */
   var body=document.createElement('div'); body.className='section-body';
