@@ -6,7 +6,7 @@
    This ensures index.html edits pushed to GitHub Pages are visible
    immediately on next app open (no stale-cache trap). */
 
-const CACHE = 'return-v1';
+const CACHE = 'return-v2';
 
 /* Assets to pre-cache on install (shell only — fonts/CDN loaded dynamically).
    manifest.json is intentionally NOT precached: the page writes a themed
@@ -62,8 +62,17 @@ self.addEventListener('fetch', function(e) {
     return;
   }
 
+  /* HTML / navigation requests bypass the browser HTTP cache entirely
+     ({cache:'no-store'}) so a fresh GitHub Pages deploy is visible on the very
+     next app open — GitHub serves index.html with max-age=600, which otherwise
+     lets a browser hold a stale shell for up to 10 minutes even under a
+     network-first SW. Other assets keep the normal network-first flow. */
+  const isHtml = e.request.mode === 'navigate'
+    || /\/(index\.html)?$/.test(url.pathname)
+    || (e.request.headers.get('accept') || '').indexOf('text/html') !== -1;
+
   e.respondWith(
-    fetch(e.request).then(function(res) {
+    fetch(isHtml ? new Request(e.request, { cache: 'no-store' }) : e.request).then(function(res) {
       /* Clone before consuming — streams can only be read once. */
       const clone = res.clone();
       caches.open(CACHE).then(function(cache) {
