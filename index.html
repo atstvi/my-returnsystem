@@ -3500,6 +3500,23 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .add-chip-dot{width:8px;height:8px;border-radius:var(--r-full);background:var(--fg-4);flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06)}
 .add-chip-ico{display:inline-flex;align-items:center;width:13px;height:13px;flex-shrink:0}
 .add-chip-ico svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.add-chip-label{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 프로젝트·목표 선택 피커 */
+.apg-list{display:flex;flex-direction:column;gap:2px;max-height:60vh;overflow-y:auto}
+.apg-row{display:flex;align-items:center;gap:var(--sp-3);width:100%;text-align:left;font-family:inherit;font-size:var(--text-sm);color:var(--fg-1);background:transparent;border:none;border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);cursor:pointer;transition:background var(--t-snap)}
+.apg-row:hover{background:var(--bg-raised)}
+.apg-row.on{background:var(--accent-light);color:var(--a-600);font-weight:var(--fw-semibold)}
+.apg-none{color:var(--fg-3)}
+.apg-proj{margin-top:var(--sp-2)}
+.apg-projrow{font-weight:var(--fw-bold)}
+.apg-goalrow{padding-left:calc(var(--sp-4) + 20px)}
+.apg-dot{width:9px;height:9px;border-radius:50%;flex:none}
+.apg-goalico{display:inline-flex;color:var(--accent);flex:none}
+.apg-goalico svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.apg-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.apg-hint{font-size:var(--text-2xs);color:var(--fg-4);font-weight:var(--fw-medium);flex:none}
+.apg-row.on .apg-hint{color:var(--a-600)}
+.apg-empty{padding:var(--sp-6) var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-sm)}
 .add-confirm{height:28px;padding:0 var(--sp-6);border-radius:var(--r-md);background:var(--accent);color:var(--n-0);font-size:var(--text-sm);font-weight:var(--fw-medium);margin-left:auto;transition:background var(--t-snap)}
 .add-confirm:hover{background:var(--accent-hover)}
 .add-cancel{height:28px;padding:0 var(--sp-4);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg-2);font-size:var(--text-sm);font-weight:var(--fw-medium)}
@@ -9342,6 +9359,7 @@ to{opacity:1;transform:translateY(0)}}
           <div class="task-add-toolbar">
             <button class="add-chip" id="add-prio-chip" data-prio=""><span class="add-chip-dot"></span><span class="add-chip-label">우선순위</span></button>
             <button class="add-chip" id="add-cat-chip" data-cat="etc"><span class="add-chip-dot"></span><span class="add-chip-label">카테고리</span></button>
+            <button class="add-chip" id="add-proj-chip"><span class="add-chip-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h5l2 2h9a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/></svg></span><span class="add-chip-label">프로젝트</span></button>
             <button class="add-chip" id="add-dl-chip"><span class="add-chip-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg></span><span class="add-chip-label">마감일</span></button>
             <button class="add-cancel" onclick="closeAdd()">취소</button>
             <button class="add-confirm" onclick="confirmAdd()">추가</button>
@@ -20960,6 +20978,8 @@ var newPrio   = '';
 var newCat    = 'etc';
 var newDeadline = '';
 var newDeadlineTime = '';
+var newProjectId = '';   /* quick-add: 담을 프로젝트(선택 시 catId='project') */
+var newGoalId    = '';   /* quick-add: 담을 목표(프로젝트 하위) */
 
 /* Load prefs */
 try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;showHobby=!!_p.showHobby;weekStart=Number(_p.weekStart)===1?1:0;if(_p.twvDays!=null)_twvDays=Number(_p.twvDays);}catch(e){}
@@ -23266,13 +23286,16 @@ function _placeAddWrapUnderCategory(catId){
 }
 
 function openAdd(){addWrap.classList.add('open');addInput.focus();}
-function closeAdd(){_addOpenForCat=null;_restoreAddWrapTop();addWrap.classList.remove('open');addInput.value='';newPrio='';newCat='etc';newDeadline='';newDeadlineTime='';updateAddChips();}
+function closeAdd(){_addOpenForCat=null;_restoreAddWrapTop();addWrap.classList.remove('open');addInput.value='';newPrio='';newCat='etc';newDeadline='';newDeadlineTime='';newProjectId='';newGoalId='';updateAddChips();}
 function confirmAdd(){
   var txt=addInput.value.trim();if(!txt){closeAdd();return;}
   /* If the user hasn't explicitly picked a priority, fall back to the
      category's defaultPriority — old-app behavior. */
   var effectivePrio = newPrio || (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(newCat) : '');
-  tasks.unshift({id:Date.now(),text:txt,catId:newCat,date:selDate,priority:effectivePrio,done:false,deadlineDate:newDeadline,deadlineTime:newDeadlineTime,deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+  var _cat=newProjectId?'project':newCat;
+  var t={id:Date.now(),text:txt,catId:_cat,date:selDate,priority:effectivePrio,done:false,deadlineDate:newDeadline,deadlineTime:newDeadlineTime,deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+  if(newProjectId){ t.projectId=newProjectId; if(newGoalId)t.goalId=newGoalId; }
+  tasks.unshift(t);
   if (typeof saveTaskData === 'function') saveTaskData();
   closeAdd();renderList();renderCal();
 }
@@ -23294,6 +23317,18 @@ function updateAddChips(){
     dc.querySelector('.add-chip-label').textContent = newDeadline ? newDeadline.slice(5).replace('-', '/') + (newDeadlineTime?' '+newDeadlineTime:'') : '마감일';
     dc.classList.toggle('sel', !!newDeadline);
   }
+  var jc=document.getElementById('add-proj-chip');
+  if(jc){
+    var lbl='프로젝트';
+    if(newProjectId){
+      var pj=(typeof projects!=='undefined'?projects:[]).find(function(p){return String(p.id)===String(newProjectId);});
+      var pjName=pj?(pj.title||'프로젝트'):'프로젝트';
+      if(newGoalId){ var gg=(typeof findGoal==='function')?findGoal(newGoalId):null; lbl=pjName+' · '+((gg&&gg.goal)?gg.goal.title:'목표'); }
+      else lbl=pjName;
+    }
+    jc.querySelector('.add-chip-label').textContent=lbl;
+    jc.classList.toggle('sel',!!newProjectId);
+  }
 }
 document.getElementById('add-prio-chip').addEventListener('click',function(){
   var opts=['','high','mid','low'];
@@ -23302,6 +23337,8 @@ document.getElementById('add-prio-chip').addEventListener('click',function(){
 document.getElementById('add-cat-chip').addEventListener('click',function(){
   var idx=CATS.findIndex(function(c){return c.id===newCat;});
   newCat=CATS[(idx+1)%CATS.length].id;
+  /* 카테고리를 직접 바꾸면 프로젝트·목표 선택은 해제(불일치 방지). */
+  if(newCat!=='project'){ newProjectId=''; newGoalId=''; }
   /* Auto-apply the category's default priority only if the user hasn't
      explicitly picked one already. Lets users override when they want. */
   if(!newPrio){
@@ -23310,6 +23347,48 @@ document.getElementById('add-cat-chip').addEventListener('click',function(){
   }
   updateAddChips();
 });
+/* 프로젝트·목표 선택 — 프로젝트를 고르면 그 프로젝트의 목표도 함께 보여줘서,
+   자연어 할일 입력에서 바로 목표 할일로 담을 수 있게 한다. */
+function openAddProjGoalPicker(){
+  var old=document.getElementById('add-projgoal-picker'); if(old)old.remove();
+  if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!Array.isArray(projects)||!projects.length)){ try{ loadProjects(); }catch(_e){} }
+  var actives=(typeof projects!=='undefined'?projects:[]).filter(function(p){return p&&p.status!=='archived';});
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='add-projgoal-picker';
+  var rows='<button type="button" class="apg-row apg-none'+(!newProjectId?' on':'')+'" data-pid="" data-gid="">선택 안 함 · 일반 할일</button>';
+  if(!actives.length){
+    rows+='<div class="apg-empty">진행 중인 프로젝트가 없어요. 프로젝트 탭에서 먼저 만들어 주세요.</div>';
+  } else {
+    actives.forEach(function(p){
+      var col=p.color||'#8296C8';
+      var sel=(String(newProjectId)===String(p.id)&&!newGoalId);
+      rows+='<div class="apg-proj">'
+        +'<button type="button" class="apg-row apg-projrow'+(sel?' on':'')+'" data-pid="'+tEscHtml(String(p.id))+'" data-gid="">'
+          +'<span class="apg-dot" style="background:'+col+'"></span><span class="apg-name">'+tEscHtml(p.title||'프로젝트')+'</span><span class="apg-hint">프로젝트에만</span></button>';
+      var goals=(typeof projectGoals==='function')?projectGoals(p):(Array.isArray(p.goals)?p.goals:[]);
+      goals.forEach(function(g){
+        var gsel=(String(newGoalId)===String(g.id));
+        rows+='<button type="button" class="apg-row apg-goalrow'+(gsel?' on':'')+'" data-pid="'+tEscHtml(String(p.id))+'" data-gid="'+tEscHtml(String(g.id))+'">'
+          +'<span class="apg-goalico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg></span><span class="apg-name">'+tEscHtml(g.title||'목표')+'</span></button>';
+      });
+      rows+='</div>';
+    });
+  }
+  ov.innerHTML='<div class="modal" style="max-width:440px;width:92%"><div class="modal-head"><div class="modal-title">프로젝트 · 목표 선택</div></div>'
+    +'<div class="modal-body"><div class="apg-list">'+rows+'</div></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelectorAll('[data-pid]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var pid=btn.getAttribute('data-pid')||'', gid=btn.getAttribute('data-gid')||'';
+      newProjectId=pid; newGoalId=gid;
+      if(pid){ newCat='project'; }
+      else if(newCat==='project'){ newCat='etc'; }
+      updateAddChips(); close();
+    });
+  });
+}
+document.getElementById('add-proj-chip').addEventListener('click',openAddProjGoalPicker);
 document.getElementById('add-dl-chip').addEventListener('click',function(){
   openFormDialog('마감일 설정', [
     {key:'deadline', label:'마감일', type:'date', value:newDeadline || selDate},
