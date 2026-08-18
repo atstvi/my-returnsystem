@@ -3315,6 +3315,9 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .gti-subcheck.done::after{content:'✓';position:absolute;inset:0;color:#fff;font-size:12px;line-height:16px;text-align:center}
 .gti-subtext{flex:1;min-width:0;font-size:var(--text-sm);color:var(--fg-1);cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .gti-sub.done .gti-subtext{text-decoration:line-through;color:var(--fg-4)}
+.gti-sub .task-sel-check{margin-top:0}
+.gti-sub.selected-item{background:var(--accent-light);border-radius:var(--r-sm)}
+.gti-sub.selected-item .task-sel-check{background:var(--accent);border-color:var(--accent);color:var(--n-0);font-size:10px}
 .gti-subbadge{flex:none;font-size:var(--text-2xs);color:var(--fg-4);background:var(--bg-sunken);border-radius:var(--r-full);padding:1px 6px}
 .gti-submeta{flex:none;font-size:var(--text-2xs);color:var(--fg-4);font-variant-numeric:tabular-nums}
 /* ── 취미 탭 항목을 할일 탭에서 볼 때 (확실히 구분되는 스타일) ── */
@@ -22691,14 +22694,16 @@ function _goalSubGroup(goal,list){
     var kc=(typeof taskChildrenDone==='function')?taskChildrenDone(t.id):{done:0,total:0};
     var subDone=(t.subs||[]).filter(function(s){return s&&s.done;}).length, subTot=(t.subs||[]).length;
     var hd=kc.done+subDone, ht=kc.total+subTot;
-    var sr=document.createElement('div'); sr.className='gti-sub'+(done?' done':''); sr.setAttribute('draggable','true'); sr.setAttribute('data-id',t.id);
+    var sr=document.createElement('div'); sr.className='gti-sub'+(done?' done':'')+(selIds.has(t.id)?' selected-item':''); sr.setAttribute('draggable','true'); sr.setAttribute('data-id',t.id);
     if(depth>0)sr.style.marginLeft=(depth*16)+'px';
-    sr.innerHTML='<button type="button" class="gti-subcheck'+(done?' done':'')+'" aria-label="완료 토글"></button>'
+    sr.innerHTML='<span class="task-sel-check">'+(selIds.has(t.id)?'✓':'')+'</span>'
+      +'<button type="button" class="gti-subcheck'+(done?' done':'')+'" aria-label="완료 토글"></button>'
       +'<span class="gti-subtext">'+tEscHtml(t.text)+'</span>'
       +(ht?'<span class="gti-subbadge">↳ '+hd+'/'+ht+'</span>':'')
       +(meta.length?'<span class="gti-submeta">'+tEscHtml(meta.join(' · '))+'</span>':'');
-    sr.querySelector('.gti-subcheck').addEventListener('click',function(e){ e.stopPropagation(); t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
-    sr.querySelector('.gti-subtext').addEventListener('click',function(e){ e.stopPropagation(); if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
+    sr.querySelector('.task-sel-check').addEventListener('click',function(e){ e.stopPropagation(); toggleSel(t.id); });
+    sr.querySelector('.gti-subcheck').addEventListener('click',function(e){ e.stopPropagation(); if(selMode){toggleSel(t.id);return;} t.done=!t.done; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); renderList(); if(typeof renderCal==='function')renderCal(); });
+    sr.querySelector('.gti-subtext').addEventListener('click',function(e){ e.stopPropagation(); if(selMode){toggleSel(t.id);return;} if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
     sr.addEventListener('dragstart',function(e){ e.stopPropagation(); dragSrcId=t.id; _taskDragFromHandle=false; _taskDragMode='nest'; e.dataTransfer.effectAllowed='move'; setTimeout(function(){sr.classList.add('dragging');},0); });
     sr.addEventListener('dragend',function(e){ e.stopPropagation(); sr.classList.remove('dragging'); document.querySelectorAll('.gti-sub.nest-target').forEach(function(i){i.classList.remove('nest-target');}); });
     sr.addEventListener('dragover',function(e){ e.preventDefault(); e.stopPropagation(); if(e.dataTransfer)e.dataTransfer.dropEffect='move'; document.querySelectorAll('.gti-sub.nest-target').forEach(function(i){i.classList.remove('nest-target');}); if(String(t.id)!==String(dragSrcId))sr.classList.add('nest-target'); });
@@ -23006,7 +23011,7 @@ function appendAddRow(container){
 function toggleSel(id){
   if(selIds.has(id))selIds.delete(id);else selIds.add(id);
   document.getElementById('bulk-count').textContent=selIds.size+'개 선택됨';
-  document.getElementById('task-sections').querySelectorAll('.task-item').forEach(function(el){
+  document.getElementById('task-sections').querySelectorAll('.task-item,.gti-sub').forEach(function(el){
     var eid=Number(el.getAttribute('data-id'));
     el.classList.toggle('selected-item',selIds.has(eid));
     var ck=el.querySelector('.task-sel-check');if(ck)ck.innerHTML=selIds.has(eid)?'✓':'';
