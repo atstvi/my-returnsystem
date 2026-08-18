@@ -3403,6 +3403,22 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .b-sub{background:var(--bg-raised);color:var(--fg-4);border:.5px solid var(--border)}
 
 .task-note{font-size:var(--text-xs);color:var(--fg-4);line-height:var(--lh-snug);margin-top:var(--sp-1)}
+/* ── 할일 메모 모아보기 (note/document board) ── */
+.tmemo-count{font-size:var(--text-xs);color:var(--fg-4);font-weight:var(--fw-medium);margin-left:var(--sp-2)}
+.tmemo-list{column-width:270px;column-gap:var(--sp-4);max-height:66vh;overflow-y:auto;padding:2px}
+.tmemo-card{break-inside:avoid;display:block;width:100%;text-align:left;font-family:inherit;background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);padding:var(--sp-4) var(--sp-5);margin:0 0 var(--sp-4);box-shadow:var(--elev-1);cursor:pointer;color:var(--fg);transition:transform var(--t-snap),box-shadow var(--t-snap),border-color var(--t-snap)}
+.tmemo-card:hover{transform:translateY(-2px);box-shadow:var(--elev-2);border-color:var(--accent)}
+.tmemo-card.done{opacity:.62}
+.tmemo-card-title{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-1);line-height:var(--lh-snug);word-break:break-word}
+.tmemo-card.done .tmemo-card-title{text-decoration:line-through;color:var(--fg-4)}
+.tmemo-card-body{font-size:var(--text-sm);color:var(--fg-2);line-height:var(--lh-normal);white-space:pre-wrap;word-break:break-word;margin-top:var(--sp-2);max-height:220px;overflow:hidden;position:relative}
+.tmemo-card-meta{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;margin-top:var(--sp-3);font-size:var(--text-2xs);color:var(--fg-4);font-weight:var(--fw-medium);font-variant-numeric:tabular-nums}
+.tmemo-cat-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.tmemo-attach{display:inline-flex;align-items:center;gap:2px}
+.tmemo-attach svg{width:11px;height:11px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tmemo-empty{padding:var(--sp-12) var(--sp-4);text-align:center;color:var(--fg-4);font-size:var(--text-sm);display:flex;flex-direction:column;align-items:center;gap:var(--sp-3)}
+.tmemo-empty-ic{color:var(--accent);opacity:.5}
+.tmemo-empty-ic svg{width:34px;height:34px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 
 /* Subs */
 .task-subs{display:flex;flex-direction:column;gap:1px;padding-left:var(--sp-5);margin-top:var(--sp-2);border-left:1.5px solid var(--border-subtle)}
@@ -9340,6 +9356,7 @@ to{opacity:1;transform:translateY(0)}}
 <!-- More actions menu (name-delete, etc) -->
 <div id="more-menu" class="menu-pop" style="display:none;position:fixed;z-index:300">
   <button type="button" class="menu-item" onclick="openOpsModal()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M17 2l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 22l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>활성 규칙 · 반복 할일</button>
+  <button type="button" class="menu-item" onclick="openTaskMemoView()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>할일 메모 모아보기</button>
   <div class="menu-sep"></div>
   <button type="button" class="menu-item" onclick="moveAllPast()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 4v5h-5"/></svg>지난 미완료 → 오늘로</button>
   <div class="menu-sep"></div>
@@ -23137,6 +23154,71 @@ document.getElementById('btn-more').addEventListener('click',function(e){
 });
 function closeMoreMenu(){document.getElementById('more-menu').style.display='none';moreMenuOpen=false;}
 document.addEventListener('click',function(e){if(moreMenuOpen&&!e.target.closest('#more-menu'))closeMoreMenu();});
+
+/* ── 할일 메모 모아보기 ─────────────────────────────────────────────
+   Collect every task that carries a memo (note text and/or attached images)
+   into a note-board overlay, newest first, searchable. A task's memo lives in
+   `task.note` (+ `task.imgs`). Cards open the task modal. */
+function _taskHasMemo(t){ return t && !t._travelOnly && (((t.note||'').trim().length>0) || (Array.isArray(t.imgs)&&t.imgs.length>0)); }
+function openTaskMemoView(){
+  try{ closeMoreMenu(); }catch(e){}
+  var old=document.getElementById('task-memo-view'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='task-memo-view';
+  ov.innerHTML='<div class="modal" style="max-width:860px;width:94%">'
+    +'<div class="modal-head"><div class="modal-title">할일 메모<span class="tmemo-count" id="tmemo-count"></span></div></div>'
+    +'<div class="modal-body">'
+    +  '<input type="search" id="tmemo-search" class="field-inp" placeholder="메모·제목 검색..." style="width:100%;margin-bottom:var(--sp-4);font-size:16px">'
+    +  '<div class="tmemo-list" id="tmemo-list"></div>'
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-primary" id="tmemo-close">닫기</button></div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelector('#tmemo-close').addEventListener('click',close);
+  var searchEl=ov.querySelector('#tmemo-search');
+  function render(){
+    var q=(searchEl.value||'').trim().toLowerCase();
+    var rows=(typeof tasks!=='undefined'?tasks:[]).filter(_taskHasMemo);
+    if(q) rows=rows.filter(function(t){ return ((t.text||'')+' '+(t.note||'')).toLowerCase().indexOf(q)>=0; });
+    rows.sort(function(a,b){ var da=a.date||'', db=b.date||''; if(da!==db)return da<db?1:-1; return (b.updatedAt||0)-(a.updatedAt||0); });
+    var cEl=ov.querySelector('#tmemo-count'); if(cEl)cEl.textContent=rows.length?(' '+rows.length+'개'):'';
+    var listEl=ov.querySelector('#tmemo-list'); if(!listEl)return;
+    if(!rows.length){
+      listEl.innerHTML='<div class="tmemo-empty"><span class="tmemo-empty-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg></span><span>'+(q?'검색 결과가 없어요.':'메모가 담긴 할일이 아직 없어요.<br>할일을 열어 메모를 남기면 여기에 모여요.')+'</span></div>';
+      return;
+    }
+    listEl.innerHTML=rows.map(function(t){
+      var cat=(typeof getCat==='function')?getCat(t.catId||'etc'):null;
+      var col=(typeof twvCatColor==='function')?twvCatColor(t.catId||'etc'):((cat&&cat.color)||'#897E74');
+      var catLabel=(cat&&cat.label)||'';
+      var dateTxt=t.date?String(t.date).slice(5).replace('-','/'):'';
+      var imgN=Array.isArray(t.imgs)?t.imgs.length:0;
+      var goalName=''; if(t.goalId&&typeof findGoal==='function'){ var g=findGoal(t.goalId); if(g&&g.goal)goalName=g.goal.title; }
+      var meta='<span class="tmemo-cat-dot" style="background:'+col+'"></span>'
+        +(catLabel?tEscHtml(catLabel):'')
+        +(dateTxt?' · '+dateTxt:'')
+        +(goalName?' · 목표 '+tEscHtml(goalName):'')
+        +(imgN?' · <span class="tmemo-attach"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.5 12.5 21a5 5 0 0 1-7-7l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7L10 18.6a1.6 1.6 0 0 1-2.3-2.3l7.8-7.8"/></svg>'+imgN+'</span>':'');
+      return '<button type="button" class="tmemo-card'+(t.done?' done':'')+'" data-tid="'+tEscHtml(String(t.id))+'">'
+        +'<div class="tmemo-card-title">'+(cat&&cat.emoji?tEscHtml(cat.emoji)+' ':'')+tEscHtml(t.text||'(제목 없음)')+'</div>'
+        +((t.note||'').trim()?'<div class="tmemo-card-body">'+tEscHtml(t.note)+'</div>':'')
+        +'<div class="tmemo-card-meta">'+meta+'</div>'
+        +'</button>';
+    }).join('');
+    listEl.querySelectorAll('[data-tid]').forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var id=btn.getAttribute('data-tid');
+        var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});
+        if(t&&typeof tasksOpenModal==='function'){ close(); tasksOpenModal(t); }
+      });
+    });
+  }
+  searchEl.addEventListener('input',render);
+  searchEl.addEventListener('keydown',function(e){ if(e.key==='Escape')close(); });
+  render();
+  setTimeout(function(){ try{ searchEl.focus(); }catch(e){} },50);
+}
 
 /* 활성 규칙 · 반복 할일 — on-demand modal (opened from 더보기) */
 function openOpsModal(){
