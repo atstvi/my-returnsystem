@@ -5256,6 +5256,13 @@ to{opacity:1;transform:translateY(0)}}
 .pjx-vtab{border:0;background:transparent;color:var(--fg-3);font-family:inherit;font-weight:var(--fw-bold);font-size:var(--text-sm);padding:6px 16px;border-radius:var(--r-full);cursor:pointer;transition:background var(--t-snap),color var(--t-snap)}
 .pjx-vtab.on{background:var(--bg-card);color:var(--accent);box-shadow:var(--elev-1)}
 .pjx-vtab:hover{color:var(--fg)}
+.pjx-logsearch{display:flex;align-items:center;gap:var(--sp-2);background:var(--bg-card);border:.5px solid var(--border-subtle);border-radius:var(--r-full);padding:0 var(--sp-4);margin-bottom:var(--sp-4);height:38px;transition:border-color var(--t-snap),box-shadow var(--t-snap)}
+.pjx-logsearch:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
+.pjx-logsearch-ic{display:inline-flex;color:var(--fg-4);flex:none}
+.pjx-logsearch-ic svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.pjx-logsearch-inp{flex:1;min-width:0;border:none;background:transparent;font-family:inherit;font-size:var(--text-sm);color:var(--fg-1);padding:0;outline:none}
+.pjx-logsearch-inp::placeholder{color:var(--fg-4)}
+.pjx-logsearch-count{font-size:var(--text-xs);color:var(--accent);font-weight:var(--fw-semibold);flex:none;font-variant-numeric:tabular-nums}
 .project-studio-empty{border:1px dashed var(--border);border-radius:var(--r-md);padding:var(--sp-5);color:var(--fg-3);background:var(--bg-raised)}
 .project-studio-empty strong{display:block;color:var(--fg-2);margin-bottom:var(--sp-2)}
 @media(max-width:860px){.projects-page.project-studio{grid-template-columns:1fr}.project-studio .project-list-pane{padding:var(--sp-5);border-right:none;border-bottom:.5px solid var(--border-subtle)}.project-list-head{padding:0 0 var(--sp-4)}.project-studio .project-detail-pane{padding:var(--sp-5)}.project-studio-head,.hero-card{grid-template-columns:1fr}.project-studio-board,.project-workspace{grid-template-columns:1fr}}
@@ -31585,16 +31592,24 @@ renderProjects=function(){
     active.forEach(function(p){ if(Array.isArray(p.logs)) p.logs.forEach(function(l){ if(l) all.push({p:p,l:l}); }); });
     all.sort(function(a,b){ return (b.l.updatedAt||b.l.createdAt||0)-(a.l.updatedAt||a.l.createdAt||0); });
     var bkMode=(_pjLogsView==='bookmark');
-    var shown=bkMode?all.filter(function(o){return o.l&&(o.l.bookmarked||o.l.pinned);}):all;
     var bkCount=all.filter(function(o){return o.l&&(o.l.bookmarked||o.l.pinned);}).length;
+    var base=bkMode?all.filter(function(o){return o.l&&(o.l.bookmarked||o.l.pinned);}):all;
+    /* 로그 내용 검색 — 빨리 적어둔 로그를 내용/프로젝트명으로 바로 찾는다. */
+    var q=(_pjLogSearch||'').trim().toLowerCase();
+    var shown=q?base.filter(function(o){ return (((o.l&&o.l.text)||'')+' '+((o.p&&o.p.title)||'')).toLowerCase().indexOf(q)>=0; }):base;
     /* tabs: 전체 / 🔖 북마크 (X-style bookmarks collection) */
     var tabs='<div class="pjx-viewtabs">'
       +'<button type="button" class="pjx-vtab'+(bkMode?'':' on')+'" data-logview="all">전체</button>'
       +'<button type="button" class="pjx-vtab'+(bkMode?' on':'')+'" data-logview="bookmark">🔖 북마크'+(bkCount?' '+bkCount:'')+'</button>'
       +'</div>';
-    var composer=bkMode?'':projectLogComposerHtml('var(--accent)','＋',{placeholder:active.length?'작업 로그 남기기 — 어떤 프로젝트, 무엇을 했어?':'프로젝트를 먼저 만들어 주세요'});
+    var searchBar='<div class="pjx-logsearch">'
+      +'<span class="pjx-logsearch-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span>'
+      +'<input type="search" id="pjx-logsearch-inp" class="pjx-logsearch-inp" placeholder="로그 내용 검색..." value="'+projectEsc(_pjLogSearch)+'">'
+      +(q?'<span class="pjx-logsearch-count">'+shown.length+'개</span>':'')
+      +'</div>';
+    var composer=(bkMode||q)?'':projectLogComposerHtml('var(--accent)','＋',{placeholder:active.length?'작업 로그 남기기 — 어떤 프로젝트, 무엇을 했어?':'프로젝트를 먼저 만들어 주세요'});
     var feed;
-    if(!shown.length){ feed='<div class="project-empty" style="padding:var(--sp-8) var(--sp-4)">'+(bkMode?'북마크한 기록이 없어요. 포스트의 🔖를 눌러 모아보세요.':'아직 작업 로그가 없어요. 위에 한 줄 적어 남겨보세요.')+'</div>'; }
+    if(!shown.length){ feed='<div class="project-empty" style="padding:var(--sp-8) var(--sp-4)">'+(q?('‘'+projectEsc(_pjLogSearch.trim())+'’에 해당하는 로그가 없어요.'):(bkMode?'북마크한 기록이 없어요. 포스트의 🔖를 눌러 모아보세요.':'아직 작업 로그가 없어요. 위에 한 줄 적어 남겨보세요.'))+'</div>'; }
     else {
       var lastDay='';
       feed=shown.map(function(o){
@@ -31605,9 +31620,16 @@ renderProjects=function(){
         return div+projectXPostHtml(o.p,o.l,{withPid:true});
       }).join('');
     }
-    host.innerHTML=tabs+'<div class="pjx-feed pjx-feed-all">'+composer+'<div class="pjx-feed-scroll">'+feed+'</div></div>';
+    var searchWasFocused=document.activeElement&&document.activeElement.id==='pjx-logsearch-inp';
+    host.innerHTML=tabs+searchBar+'<div class="pjx-feed pjx-feed-all">'+composer+'<div class="pjx-feed-scroll">'+feed+'</div></div>';
     host.querySelectorAll('[data-logview]').forEach(function(b){b.addEventListener('click',function(){ _pjLogsView=b.getAttribute('data-logview'); renderAllLogs(); });});
-    if(!bkMode)bindProjectLogComposer(host);
+    var sInp=host.querySelector('#pjx-logsearch-inp');
+    if(sInp){
+      sInp.addEventListener('input',function(){ _pjLogSearch=sInp.value; renderAllLogs(); });
+      sInp.addEventListener('keydown',function(e){ if(e.key==='Escape'){ _pjLogSearch=''; renderAllLogs(); } });
+      if(searchWasFocused){ try{ sInp.focus(); var v=sInp.value; sInp.setSelectionRange(v.length,v.length); }catch(_e){} }
+    }
+    if(!bkMode&&!q)bindProjectLogComposer(host);
     bindAllLogsFeed(host);
   }
   function _fmtFolderDeadline(d){
@@ -31684,6 +31706,7 @@ renderProjects=function(){
   var _pjWeek=0;      /* day offset for the all-timeline strip (7 = one week) */
   var _pjTlOpen={};   /* group open/closed state, keyed by group id */
   var _pjLogsView='all';  /* 전체 기록: 'all' | 'bookmark' */
+  var _pjLogSearch='';    /* 전체 기록 로그 내용 검색어 */
   /* off는 '일(day)' 단위 — 이번 주 일요일 + off일에서 시작하는 7일 창. 드래그
      가장자리에서 하루씩 밀어 부드럽게 스크롤(주 단위 끊김 제거). */
   function _pjWeekDays(off){
