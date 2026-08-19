@@ -7071,6 +7071,14 @@ to{opacity:1;transform:translateY(0)}}
 #music-playlist-create-panel .music-form{grid-template-columns:1fr 1fr}
 /* Inline edit + picker panels */
 .music-edit-panel,.music-pl-picker{background:var(--bg-card);border:.5px solid var(--border);border-left:3px solid var(--accent);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--sp-5);margin-bottom:var(--sp-4)}
+.music-newsong-box{margin-top:var(--sp-3);padding:var(--sp-4);border:.5px solid var(--border-subtle);border-radius:var(--r-lg);background:var(--bg-raised);display:flex;flex-direction:column;gap:var(--sp-2)}
+.music-newsong-title{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-1)}
+.music-newsong-row{display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2)}
+.music-newsong-hint{font-size:var(--text-2xs);color:var(--fg-4);line-height:var(--lh-normal)}
+.music-newsong-box .set-btn{margin-top:var(--sp-1)}
+.music-newsong-status{font-size:var(--text-xs);color:var(--accent);font-weight:var(--fw-medium);min-height:1.2em}
+.music-pl-picker-sub{margin-top:var(--sp-5);font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--fg-4);text-transform:none}
+@media (max-width:420px){.music-newsong-row{grid-template-columns:1fr}}
 .music-pl-picker-list{display:flex;flex-direction:column;gap:var(--sp-2);margin-top:var(--sp-3);max-height:360px;overflow-y:auto}
 .music-pl-pick-btn{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-2) var(--sp-3);border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-raised);cursor:pointer;text-align:left;width:100%;transition:background .1s,border-color .1s}
 .music-pl-pick-btn:hover:not([disabled]){background:var(--accent-light);border-color:var(--a-200)}
@@ -11765,11 +11773,32 @@ musicReadForm=function(){
   title=title.trim()||'YouTube song';url=url.trim();
   return {id:musicId(),title:title,youtubeUrl:url,thumbnail:musicCoverDraft||musicThumb(url),artist:'',tags:tags,mood:mood.trim(),useCase:useCase.trim(),startTime:start,endTime:end,volume:volume,notes:notes.trim(),createdAt:Date.now(),updatedAt:Date.now()};
 };
-musicSaveFromForm=function(){
-  var s=musicReadForm();
-  if(!s.youtubeUrl){if(typeof showToast==='function')showToast('YouTube 영상 URL을 입력해 주세요.');return;}
-  if(!musicVideoId(s.youtubeUrl)){if(musicListId(s.youtubeUrl)){if(typeof showToast==='function')showToast('플레이리스트 URL은 여러 노래를 가져올 API가 있을 때만 자동 분해할 수 있어요. 지금은 영상 URL을 노래로 추가해 주세요.');return;}if(typeof showToast==='function')showToast('재생 가능한 YouTube 영상 URL이 필요해요.');return;}
-  musicLoad();musicLibrary.songs.unshift(s);musicSave();musicClearForm();var panel=document.getElementById('music-add-panel');if(panel)panel.style.display='none';musicRender();
+musicSaveFromForm=async function(){
+  var url=((document.getElementById('music-url-input')||{}).value||'').trim();
+  if(!url){if(typeof showToast==='function')showToast('YouTube 영상 URL을 입력해 주세요.');return;}
+  if(!musicVideoId(url)){if(musicListId(url)){if(typeof showToast==='function')showToast('플레이리스트 URL은 여러 노래를 가져올 API가 있을 때만 자동 분해할 수 있어요. 지금은 영상 URL을 노래로 추가해 주세요.');return;}if(typeof showToast==='function')showToast('재생 가능한 YouTube 영상 URL이 필요해요.');return;}
+  var saveBtn=document.getElementById('music-save-btn'); var origLabel=saveBtn?saveBtn.textContent:'';
+  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='가져오는 중…';}
+  try{
+    var ov={
+      title:(document.getElementById('music-title-input')||{}).value||'',
+      artist:'',
+      mood:(document.getElementById('music-mood-input')||{}).value||'',
+      useCase:(document.getElementById('music-usecase-input')||{}).value||'',
+      tags:musicSplitTags((document.getElementById('music-tags-input')||{}).value||''),
+      notes:(document.getElementById('music-notes-input')||{}).value||'',
+      startTime:Math.max(0,parseInt((document.getElementById('music-start-input')||{}).value||'0',10)||0),
+      endTime:Math.max(0,parseInt((document.getElementById('music-end-input')||{}).value||'0',10)||0),
+      volume:Math.max(0,Math.min(100,parseInt((document.getElementById('music-volume-input')||{}).value||'80',10)||80)),
+      thumbnail:musicCoverDraft||musicThumb(url)
+    };
+    var s=await musicCreateSongFromUrl(url,ov);
+    musicLoad();musicLibrary.songs.unshift(s);musicSave();musicClearForm();
+    var panel=document.getElementById('music-add-panel');if(panel)panel.style.display='none';
+    musicRender();
+    if(typeof showToast==='function')showToast('"'+s.title+'" 추가됨'+(s.artist?(' · '+s.artist):''));
+  }catch(e){ if(typeof showToast==='function')showToast('추가 실패: '+(e&&e.message||'오류')); }
+  if(saveBtn){saveBtn.disabled=false;saveBtn.textContent=origLabel||'저장';}
 };
 function musicCreatePlaylist(){
   musicLoad();
@@ -43674,6 +43703,87 @@ function musicShowEditPanel(songId){
 }
 
 /* ── 3. Inline add-song-to-playlist picker ── */
+/* ── 곡 메타 자동 채우기 ──────────────────────────────────────────────
+   유튜브 oEmbed(+noembed 폴백)로 영상 제목/채널을 받아 제목·아티스트를
+   추정하고, Groq 키가 있으면 분위기·태그·용도 기본값을 채운다. 외부 요청이
+   모두 실패해도 최소한 제목은 남도록 폴백한다. */
+window.musicFetchYtMeta = async function(url){
+  var out={title:'',author:''};
+  var endpoints=[
+    'https://www.youtube.com/oembed?format=json&url='+encodeURIComponent(url),
+    'https://noembed.com/embed?url='+encodeURIComponent(url)
+  ];
+  for(var i=0;i<endpoints.length;i++){
+    try{
+      var r=await fetch(endpoints[i]);
+      if(!r||!r.ok)continue;
+      var j=await r.json();
+      if(j&&(j.title||j.author_name)){
+        out.title=String(j.title||'');
+        out.author=String(j.author_name||'').replace(/\s*-\s*Topic$/i,'').trim();
+        return out;
+      }
+    }catch(e){}
+  }
+  return out;
+};
+window.musicParseTitleArtist = function(rawTitle,author){
+  var t=String(rawTitle||'').trim();
+  /* 흔한 노이즈 제거: (Official Video), [MV], M/V, Lyrics, 가사, Audio 등 */
+  t=t.replace(/[\(\[][^\)\]]*(official|mv|m\/v|lyrics?|audio|visualizer|video|가사|뮤직비디오|performance|live)[^\)\]]*[\)\]]/gi,' ');
+  /* 괄호 없이 끝에 붙는 흔한 노이즈도 제거 */
+  t=t.replace(/[\s\-–—|:]+(official\s*(music\s*)?(video|audio|mv|m\/v)?|lyrics?\s*(video)?|visualizer|뮤직비디오|가사)\s*$/gi,' ');
+  t=t.replace(/\s{2,}/g,' ').trim();
+  var artist='',title=t;
+  var parts=t.split(/\s+[-–—:|]\s+/);
+  if(parts.length>=2){ artist=parts[0].trim(); title=parts.slice(1).join(' - ').trim(); }
+  if(!artist&&author)artist=author;
+  title=title.replace(/["'‘’“”]/g,'').replace(/\s{2,}/g,' ').trim();
+  return {title:title||t||String(rawTitle||''),artist:(artist||'').trim()};
+};
+window.musicAIEnrichSong = async function(title,artist){
+  var key=localStorage.getItem('groq_api_key')||''; if(!key)return null;
+  var sys='너는 음악 큐레이션 도우미다. 곡 제목/아티스트로 분위기·태그·용도를 추정해 JSON만 반환한다.\n'
+    +'스키마: {"mood":"차분|잔잔|설렘|신남|몽환|아늑 중 하나 또는 유사한 한 단어","tags":["장르나 키워드 2~4개"],"useCase":"공부|작업|휴식|운동|수면|산책 중 하나"}\n'
+    +'JSON 외 다른 텍스트 금지.';
+  var usr='곡: '+title+(artist?(' — '+artist):'');
+  var ctrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var tm=ctrl?setTimeout(function(){ctrl.abort();},15000):null;
+  try{
+    var r=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:200,temperature:0.3,messages:[{role:'system',content:sys},{role:'user',content:usr}]}),signal:ctrl?ctrl.signal:undefined});
+    if(tm)clearTimeout(tm);
+    var d=await r.json();
+    var c=(d.choices&&d.choices[0]&&d.choices[0].message&&d.choices[0].message.content||'{}').replace(/```json|```/g,'').trim();
+    var p=JSON.parse(c);
+    return {mood:String(p.mood||'').trim(),tags:Array.isArray(p.tags)?p.tags.map(function(x){return String(x).trim();}).filter(Boolean):[],useCase:String(p.useCase||'').trim()};
+  }catch(e){ if(tm)clearTimeout(tm); return null; }
+};
+/* URL + (선택) 사용자 입력으로 노래 객체를 만든다. 빈 칸은 자동으로 채운다. */
+window.musicCreateSongFromUrl = async function(url,ov){
+  ov=ov||{}; url=String(url||'').trim();
+  var song={id:musicId(),youtubeUrl:url,title:(ov.title||'').trim(),artist:(ov.artist||'').trim(),
+    thumbnail:ov.thumbnail||musicThumb(url),tags:Array.isArray(ov.tags)?ov.tags:[],mood:(ov.mood||'').trim(),
+    useCase:(ov.useCase||'').trim(),startTime:ov.startTime||0,endTime:ov.endTime||0,volume:ov.volume==null?80:ov.volume,
+    notes:(ov.notes||'').trim(),createdAt:Date.now(),updatedAt:Date.now()};
+  if(!song.title||!song.artist){
+    var meta=await window.musicFetchYtMeta(url);
+    if(meta.title||meta.author){
+      var tp=window.musicParseTitleArtist(meta.title,meta.author);
+      if(!song.title)song.title=tp.title||meta.title||'';
+      if(!song.artist)song.artist=tp.artist||meta.author||'';
+    }
+  }
+  if(!song.title)song.title='YouTube song';
+  if(!song.mood||!song.tags.length||!song.useCase){
+    var enr=await window.musicAIEnrichSong(song.title,song.artist);
+    if(enr){
+      if(!song.mood)song.mood=enr.mood||'';
+      if(!song.tags.length)song.tags=enr.tags||[];
+      if(!song.useCase)song.useCase=enr.useCase||'';
+    }
+  }
+  return song;
+};
 function musicShowAddSongFlow(songId,playlistId){
   musicLoad();
   var song=songId?musicSongById(songId):null;
@@ -43717,26 +43827,68 @@ function musicShowAddSongFlow(songId,playlistId){
       });
     });
   }
-  /* Picking song for a playlist */
+  /* Picking song for a playlist — 새 노래를 바로 담을 수 있고, 저장된 노래에서도 고른다. */
   if(pl&&!song){
-    if(!musicLibrary.songs.length){if(typeof showToast==='function')showToast('노래를 먼저 추가해 주세요.');return;}
-    var songHtml=musicLibrary.songs.map(function(s){
-      var already=(pl.songIds||[]).indexOf(s.id)>=0;
-      return '<button class="music-pl-pick-btn" type="button" data-pick-song="'+musicEsc(s.id)+'"'+(already?' disabled':'')+'>'+
-        '<div class="music-pl-pick-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div>'+
-        '<div style="min-width:0;flex:1"><div style="font-size:var(--text-sm);font-weight:var(--fw-semibold)">'+musicEsc(s.title)+'</div>'+
-        '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+musicEsc(s.artist||'YouTube')+(already?' · 이미 담김':'')+'</div></div></button>';
-    }).join('');
-    picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">노래 선택</div><div class="music-note">'+musicEsc(pl.title)+'에 담기</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div><div class="music-pl-picker-list">'+songHtml+'</div>';
+    var newBox='<div class="music-newsong-box">'
+      +'<div class="music-newsong-title">새 노래 바로 담기</div>'
+      +'<input class="set-inp" id="music-addnew-url" placeholder="YouTube 링크 붙여넣기">'
+      +'<div class="music-newsong-row"><input class="set-inp" id="music-addnew-title" placeholder="제목 (비우면 자동)"><input class="set-inp" id="music-addnew-artist" placeholder="아티스트 (비우면 자동)"></div>'
+      +'<div class="music-newsong-hint">제목·아티스트를 비우면 링크에서 자동으로 채우고, 분위기·태그·용도는 AI가 기본값을 넣어줘요.</div>'
+      +'<button class="set-btn btn-primary" type="button" id="music-addnew-btn">＋ 새 노래로 담기</button>'
+      +'<div class="music-newsong-status" id="music-addnew-status" hidden></div>'
+    +'</div>';
+    picker.innerHTML='<div class="music-panel-head"><div><div class="music-panel-title">노래 담기</div><div class="music-note">'+musicEsc(pl.title)+'</div></div><button class="set-btn btn-ghost" type="button" id="music-picker-close">✕</button></div>'
+      +newBox
+      +'<div class="music-pl-picker-sub">저장된 노래에서 담기</div>'
+      +'<div class="music-pl-picker-list" id="music-pl-picker-list"></div>';
     _musicPickerPanel=musicMountModal(picker,musicClosePickerPanel,'music-picker-backdrop');
     picker.querySelector('#music-picker-close').addEventListener('click',musicClosePickerPanel);
-    picker.querySelectorAll('[data-pick-song]').forEach(function(btn){
-      btn.addEventListener('click',function(){
-        var s=musicSongById(btn.dataset.pickSong);if(!s||!pl)return;
-        pl.songIds=pl.songIds||[];
-        if(pl.songIds.indexOf(s.id)<0){pl.songIds.push(s.id);if(!pl.coverImage)pl.coverImage=s.thumbnail||'';pl.updatedAt=Date.now();musicSave();musicRender();if(typeof showToast==='function')showToast('"'+s.title+'"을(를) 추가했어요.');}
-        musicClosePickerPanel();
+    var listEl=picker.querySelector('#music-pl-picker-list');
+    function renderPickerSongs(){
+      var cur=musicPlaylistById(pl.id)||pl;
+      if(!musicLibrary.songs.length){ listEl.innerHTML='<div class="music-note" style="padding:var(--sp-3) var(--sp-1)">저장된 노래가 없어요. 위에서 새 노래를 담아보세요.</div>'; return; }
+      listEl.innerHTML=musicLibrary.songs.map(function(s){
+        var already=(cur.songIds||[]).indexOf(s.id)>=0;
+        return '<button class="music-pl-pick-btn" type="button" data-pick-song="'+musicEsc(s.id)+'"'+(already?' disabled':'')+'>'+
+          '<div class="music-pl-pick-cover">'+(s.thumbnail?'<img src="'+musicEsc(s.thumbnail)+'" alt="">':'')+'</div>'+
+          '<div style="min-width:0;flex:1"><div style="font-size:var(--text-sm);font-weight:var(--fw-semibold)">'+musicEsc(s.title)+'</div>'+
+          '<div style="font-size:var(--text-2xs);color:var(--fg-4)">'+musicEsc(s.artist||'YouTube')+(already?' · 이미 담김':'')+'</div></div></button>';
+      }).join('');
+      listEl.querySelectorAll('[data-pick-song]').forEach(function(btn){
+        btn.addEventListener('click',function(){
+          var s=musicSongById(btn.dataset.pickSong);var cur2=musicPlaylistById(pl.id);if(!s||!cur2)return;
+          cur2.songIds=cur2.songIds||[];
+          if(cur2.songIds.indexOf(s.id)<0){cur2.songIds.push(s.id);if(!cur2.coverImage)cur2.coverImage=s.thumbnail||'';cur2.updatedAt=Date.now();musicSave();musicRender();if(typeof showToast==='function')showToast('"'+s.title+'"을(를) 추가했어요.');}
+          renderPickerSongs();
+        });
       });
+    }
+    renderPickerSongs();
+    var addBtn=picker.querySelector('#music-addnew-btn');
+    addBtn.addEventListener('click',async function(){
+      var urlEl=picker.querySelector('#music-addnew-url');
+      var statusEl=picker.querySelector('#music-addnew-status');
+      var url=(urlEl.value||'').trim();
+      if(!url){urlEl.focus();return;}
+      if(!musicVideoId(url)){statusEl.hidden=false;statusEl.textContent='재생 가능한 YouTube 영상 링크가 필요해요.';return;}
+      addBtn.disabled=true;statusEl.hidden=false;statusEl.textContent='가져오는 중…';
+      try{
+        var title=(picker.querySelector('#music-addnew-title').value||'').trim();
+        var artist=(picker.querySelector('#music-addnew-artist').value||'').trim();
+        var vid=musicVideoId(url);
+        musicLoad();
+        var existing=musicLibrary.songs.find(function(x){return x.youtubeUrl&&musicVideoId(x.youtubeUrl)===vid;});
+        var songObj=existing||await musicCreateSongFromUrl(url,{title:title,artist:artist});
+        if(!existing)musicLibrary.songs.unshift(songObj);
+        var cur=musicPlaylistById(pl.id);
+        cur.songIds=cur.songIds||[];
+        if(cur.songIds.indexOf(songObj.id)<0){cur.songIds.push(songObj.id);if(!cur.coverImage)cur.coverImage=songObj.thumbnail||'';cur.updatedAt=Date.now();}
+        musicSave();musicRender();
+        statusEl.textContent='"'+songObj.title+'" 담았어요'+(songObj.artist?(' · '+songObj.artist):'');
+        urlEl.value='';picker.querySelector('#music-addnew-title').value='';picker.querySelector('#music-addnew-artist').value='';
+        renderPickerSongs();
+      }catch(e){ statusEl.textContent='추가 실패: '+(e&&e.message||'오류'); }
+      addBtn.disabled=false;
     });
   }
   picker.scrollIntoView({behavior:'smooth',block:'nearest'});
