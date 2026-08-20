@@ -828,6 +828,30 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .sit-msg { font-size:var(--text-md); font-weight:var(--fw-medium); color:var(--fg); line-height:var(--lh-snug); margin-bottom:var(--sp-3); }
 .sit-signals { display:flex; flex-wrap:wrap; gap:var(--sp-2); }
 /* 얼마 남지 않은 일정 — upcoming-deadline mini-list inside 오늘 상황 */
+/* 다음 준비 (next-up readiness) */
+.sit-next{margin-top:var(--sp-4);padding-top:var(--sp-4);border-top:.5px solid var(--border-subtle);display:flex;flex-direction:column;gap:var(--sp-2)}
+.sit-nx-head{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);letter-spacing:.3px}
+.sit-nx-row{display:flex;flex-direction:column;gap:var(--sp-2);padding:var(--sp-3);border-radius:var(--r-lg);background:var(--bg-raised);border:.5px solid var(--border-subtle);border-left:3px solid var(--fg-4)}
+.sit-nx-row.nx-calm{border-left-color:var(--t-400,var(--fg-4))}
+.sit-nx-row.nx-soon{border-left-color:var(--w-400,var(--a-400));background:color-mix(in srgb,var(--w-400,var(--a-400)) 7%,var(--bg-raised))}
+.sit-nx-row.nx-now{border-left-color:var(--danger,var(--a-500));background:color-mix(in srgb,var(--danger,var(--a-500)) 8%,var(--bg-raised))}
+.sit-nx-main{display:flex;align-items:center;gap:var(--sp-2);width:100%;text-align:left;background:none;border:none;padding:0;cursor:pointer;font-family:inherit;min-width:0}
+.sit-nx-dot{width:8px;height:8px;border-radius:var(--r-full);flex-shrink:0;background:var(--t-400,var(--fg-4))}
+.nx-soon .sit-nx-dot{background:var(--w-400,var(--a-400))}
+.nx-now .sit-nx-dot{background:var(--danger,var(--a-500))}
+.sit-nx-time{font-size:var(--text-xs);font-weight:var(--fw-bold);font-family:var(--font-mono,inherit);color:var(--fg-2);flex-shrink:0}
+.sit-nx-title{flex:1;min-width:0;font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sit-nx-when{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-3);flex-shrink:0}
+.nx-now .sit-nx-when{color:var(--danger,var(--a-600))}
+.sit-nx-readout{font-size:var(--text-2xs);color:var(--fg-4);padding-left:calc(8px + var(--sp-2));display:flex;align-items:center;gap:var(--sp-2)}
+.sit-nx-flag{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--danger,var(--a-600));background:color-mix(in srgb,var(--danger,var(--a-500)) 12%,transparent);padding:1px 6px;border-radius:var(--r-full)}
+.sit-nx-preps{display:flex;flex-wrap:wrap;gap:4px;padding-left:calc(8px + var(--sp-2))}
+.sit-nx-prep{display:inline-flex;align-items:center;gap:5px;font-size:var(--text-2xs);color:var(--fg-2);background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-full);padding:3px 9px 3px 7px;cursor:pointer;font-family:inherit;transition:background var(--t-snap),color var(--t-snap)}
+.sit-nx-prep .sit-nx-pcheck{width:13px;height:13px;border-radius:4px;border:1.5px solid var(--border-strong);flex-shrink:0;position:relative;transition:all var(--t-snap)}
+.sit-nx-prep.done{color:var(--fg-4);text-decoration:line-through}
+.sit-nx-prep.done .sit-nx-pcheck{background:var(--accent);border-color:var(--accent)}
+.sit-nx-prep.done .sit-nx-pcheck::after{content:'✓';position:absolute;inset:0;color:#fff;font-size:9px;line-height:11px;text-align:center}
+.home-banner .sit-on-banner .sit-next{border-top-color:color-mix(in srgb,var(--fg) 12%,transparent)}
 .sit-upcoming{margin-top:var(--sp-4);padding-top:var(--sp-4);border-top:.5px solid var(--border-subtle)}
 .sit-up-head{font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--fg-4);letter-spacing:.3px;margin-bottom:var(--sp-2)}
 .sit-up-empty{font-size:var(--text-xs);color:var(--fg-4)}
@@ -8978,6 +9002,7 @@ to{opacity:1;transform:translateY(0)}}
         <div class="sit-body">
           <p class="sit-greet">오늘 상황</p>
           <p class="sit-msg">마감이 이틀 뒤입니다. 연결 안 된 할일이 2개 있어요.</p>
+          <div class="sit-next" id="sit-next" aria-label="다음 준비" style="display:none"></div>
           <div class="sit-signals">
             <button class="signal sig-danger">📅 마감 D-2 · 연결 필요</button>
             <button class="signal sig-warn">📥 인박스 4개 처리 필요</button>
@@ -13071,6 +13096,24 @@ function scheduleTargetHasLinkedTask(target, taskList){
   }
   return false;
 }
+/* "다음 준비" 헬퍼 — 남은 시간 표기 + 준비물 인라인 체크 토글(원본에 반영). */
+function _fmtMinsLeft(m){
+  if(m<=0)return '지금';
+  if(m<60)return m+'분 뒤';
+  var h=Math.floor(m/60), mm=m%60;
+  return h+'시간'+(mm?' '+mm+'분':'')+' 뒤';
+}
+function _homePrepToggle(t,idx){
+  if(!t)return;
+  var pi=Array.isArray(t.prepItems)?t.prepItems.filter(function(p){return p&&p.text;}):[];
+  if(pi.length && pi[idx]){ pi[idx].done=!pi[idx].done; }
+  else {
+    var su=Array.isArray(t.subs)?t.subs.filter(function(p){return p&&p.text;}):[];
+    if(su[idx]) su[idx].done=!su[idx].done;
+  }
+  t.updatedAt=Date.now();
+  if(typeof saveTaskData==='function')saveTaskData();
+}
 function renderHomeSituation(){
   var card = document.querySelector('.sit-card');
   if (!card || typeof tasks === 'undefined') return;
@@ -13247,6 +13290,69 @@ function renderHomeSituation(){
     if (upcomingToday[0]) sig('sig-danger', '다가오는 일정 ' + upcomingToday.length, function(){ openHomeSignalList('다가오는 일정', upcomingToday.slice(0,5).map(function(x){return {label:Math.max(0,x.mins)+'분 · '+x.task.text, task:x.task};})); });
     if (inboxNeed.length) sig('sig-warn', '처리 필요 인박스 ' + inboxNeed.length, function(){ openHomeSignalList('처리 필요 인박스', inboxNeed.map(function(x){return {label:x.text, inbox:x};})); });
     if (!urgent.length && !inboxNeed.length && !upcomingToday.length) sig('sig-ok', '쉬어도 되는 구간', function(){ goPage('recharge'); });
+  }
+  /* 다음 준비 — 오늘 시간이 잡힌 다음 일정을 (멀어도) 항상 띄워, 이동/준비물을
+     미리 챙기게 한다. 리드타임으로 숨기지 않고, 가까워질수록 색만 격상한다.
+     각 준비물은 여기서 바로 체크할 수 있다(반응형 처리). */
+  var nextEl = document.getElementById('sit-next');
+  if (nextEl) {
+    var nextList = upcomingToday.filter(function(x){ return x.mins >= -20; }).slice(0, 2);
+    if (!nextList.length) {
+      nextEl.style.display = 'none';
+      nextEl.innerHTML = '';
+    } else {
+      nextEl.style.display = '';
+      var nxRows = nextList.map(function(x, ri){
+        var t = x.task;
+        var prep = taskPrepList(t);
+        var prepDoneN = prep.filter(function(p){ return p.done; }).length;
+        var prepUndone = prep.length - prepDoneN;
+        var travel = travelMinutes(t);
+        var eventTime = (t.deadlineDate === TK) ? (t.deadlineTime || t.timeStart) : t.timeStart;
+        /* 준비 마감(이 시각까지 이동+준비물 끝내야 함)까지 필요한 리드 시간 */
+        var lead = travel + prep.length * 5 + 10;
+        var mins = x.mins, tone, whenLbl;
+        if (mins <= lead) { tone = 'nx-now'; whenLbl = mins <= 0 ? '지금' : _fmtMinsLeft(mins); }
+        else if (mins <= lead + 90) { tone = 'nx-soon'; whenLbl = _fmtMinsLeft(mins); }
+        else { tone = 'nx-calm'; whenLbl = _fmtMinsLeft(mins); }
+        var bits = [];
+        if (travel) bits.push('이동 ' + travel + '분');
+        if (prep.length) bits.push('준비물 ' + prepDoneN + '/' + prep.length);
+        var readout = bits.join(' · ');
+        var prepChips = prep.length ? ('<div class="sit-nx-preps">' + prep.map(function(p, pi){
+          return '<button type="button" class="sit-nx-prep' + (p.done ? ' done' : '') + '" data-nx="' + ri + '" data-pi="' + pi + '"><span class="sit-nx-pcheck"></span>' + tEscHtml(p.text) + '</button>';
+        }).join('') + '</div>') : '';
+        var needTag = (tone === 'nx-now' && prepUndone) ? '<span class="sit-nx-flag">지금 챙기기</span>' : '';
+        return '<div class="sit-nx-row ' + tone + '">'
+          + '<button type="button" class="sit-nx-main" data-nx-open="' + ri + '">'
+            + '<span class="sit-nx-dot"></span>'
+            + (eventTime ? '<span class="sit-nx-time">' + tEscHtml(eventTime) + '</span>' : '')
+            + '<span class="sit-nx-title">' + tEscHtml(t.text) + '</span>'
+            + '<span class="sit-nx-when">' + whenLbl + '</span>'
+          + '</button>'
+          + ((readout || needTag) ? ('<div class="sit-nx-readout">' + (readout ? tEscHtml(readout) : '') + needTag + '</div>') : '')
+          + prepChips
+          + '</div>';
+      }).join('');
+      nextEl.innerHTML = '<div class="sit-nx-head">다음 준비</div>' + nxRows;
+      nextEl.querySelectorAll('.sit-nx-prep').forEach(function(btn){
+        btn.addEventListener('click', function(e){
+          e.stopPropagation();
+          var ri = Number(btn.getAttribute('data-nx')), pi = Number(btn.getAttribute('data-pi'));
+          var t = nextList[ri] && nextList[ri].task; if (!t) return;
+          _homePrepToggle(t, pi);
+          if (typeof renderHomeTimeBlocks === 'function') { try{ renderHomeTimeBlocks(); }catch(_e){} }
+          renderHomeSituation();
+        });
+      });
+      nextEl.querySelectorAll('[data-nx-open]').forEach(function(btn){
+        btn.addEventListener('click', function(){
+          var ri = Number(btn.getAttribute('data-nx-open'));
+          var t = nextList[ri] && nextList[ri].task;
+          if (t && typeof tasksOpenModal === 'function') tasksOpenModal(t);
+        });
+      });
+    }
   }
   /* 얼마 남지 않은 일정 — compact upcoming-deadline list inside 오늘 상황
      (reuses the `deadlines` computed above; future/today only, nearest first). */
