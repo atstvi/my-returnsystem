@@ -997,6 +997,8 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 .sig-warn { background:var(--w-50); color:var(--w-600); border-color:var(--w-200); }
 .sig-ok { background:var(--t-50); color:var(--t-600); border-color:var(--t-200); }
 .sig-now { background:var(--accent-light); color:var(--accent); border-color:var(--a-200); font-weight:var(--fw-semibold); }
+.sit-lane-ok { background:transparent; color:var(--fg-4); border-color:var(--border-subtle); }
+.sit-lane-ok:hover { color:var(--fg-3); }
 .sit-card[data-sit-state="rest"] .sit-avatar{background:var(--t-50);border-color:var(--t-200)}
 .sit-card[data-sit-state="focus"] .sit-avatar{background:var(--w-50);border-color:var(--w-200)}
 
@@ -13282,14 +13284,23 @@ function renderHomeSituation(){
       b.addEventListener('click', fn);
       signals.appendChild(b);
     }
+    /* 가장 중요한 다음 한 걸음 */
     sig('sig-now ' + primary.tone, '지금은 ' + primary.label, primary.open);
-    if (urgent.length) sig('sig-danger', '마감 임박 ' + urgent.length, function(){ openHomeSignalList('마감 임박', urgent.map(function(x){return {label:(x.days<0?'D+'+Math.abs(x.days):x.days===0?'오늘':'D-'+x.days)+' · '+x.task.text, task:x.task};})); });
-    if (unlinked.length) sig('sig-warn', '연결 필요 ' + unlinked.length, function(){ openHomeSignalList('연결이 필요한 마감', unlinked.map(function(x){return {label:x.task.text, task:x.task};})); });
-    if (skippedUnlinked.length) sig('sig-ok', '패스한 연결 ' + skippedUnlinked.length, function(){ openHomeSignalList('패스한 연결', skippedUnlinked.map(function(x){return {label:x.task.text, task:x.task, skipped:true};})); });
-    if (prepMissing.length) sig('sig-warn', '준비물 확인 ' + prepMissing.length, function(){ openHomeSignalList('준비물 확인', prepMissing.map(function(x){return {label:x.task.text, task:x.task};})); });
-    if (upcomingToday[0]) sig('sig-danger', '다가오는 일정 ' + upcomingToday.length, function(){ openHomeSignalList('다가오는 일정', upcomingToday.slice(0,5).map(function(x){return {label:Math.max(0,x.mins)+'분 · '+x.task.text, task:x.task};})); });
-    if (inboxNeed.length) sig('sig-warn', '처리 필요 인박스 ' + inboxNeed.length, function(){ openHomeSignalList('처리 필요 인박스', inboxNeed.map(function(x){return {label:x.text, inbox:x};})); });
-    if (!urgent.length && !inboxNeed.length && !upcomingToday.length) sig('sig-ok', '쉬어도 되는 구간', function(){ goPage('recharge'); });
+    /* 빈틈없이 — 각 영역은 정리됐어도 ✓로 '항상' 보여줘 놓친 게 없음을 눈으로
+       확인시키고, 남았으면 개수를 띄워 그 자리에서 처리하게 한다.
+       (다가오는 일정·준비물은 위 "다음 준비" 블록이 자세히 다루므로 칩에서 제외.) */
+    function lane(label, count, danger, fn){
+      sig(count > 0 ? (danger ? 'sig-danger' : 'sig-warn') : 'sit-lane-ok', (count > 0 ? label + ' ' + count : '✓ ' + label), fn);
+    }
+    /* 마감: 임박(≤2일) 있으면 가장 가까운 D-day, 아니면 이번 주 개수, 없으면 ✓ */
+    if (urgent.length) sig('sig-danger', '마감 ' + (urgent[0].days < 0 ? 'D+' + Math.abs(urgent[0].days) : urgent[0].days === 0 ? '오늘' : 'D-' + urgent[0].days), function(){ openHomeSignalList('마감 임박', urgent.map(function(x){ return { label:(x.days<0?'D+'+Math.abs(x.days):x.days===0?'오늘':'D-'+x.days)+' · '+x.task.text, task:x.task }; })); });
+    else if (weekDeadlines.length) sig('sig-warn', '마감 ' + weekDeadlines.length, function(){ openHomeSignalList('이번 주 마감', weekDeadlines.map(function(x){ return { label:'D-'+x.days+' · '+x.task.text, task:x.task }; })); });
+    else sig('sit-lane-ok', '✓ 마감', function(){ goPage('tasks'); });
+    /* 인박스 · 연결 · 루틴 — 항상 표시(✓ 또는 개수), 눌러서 바로 처리 */
+    lane('인박스', inboxNeed.length, false, function(){ if (inboxNeed.length) openHomeSignalList('처리 필요 인박스', inboxNeed.map(function(x){ return { label:x.text, inbox:x }; })); else goPage('inbox'); });
+    lane('연결', unlinked.length, false, function(){ if (unlinked.length) openHomeSignalList('연결이 필요한 마감', unlinked.map(function(x){ return { label:x.task.text, task:x.task }; })); else goPage('tasks'); });
+    lane('루틴', routineDueCount, false, function(){ goPage('routine'); });
+    if (skippedUnlinked.length) sig('sig-ok', '패스한 연결 ' + skippedUnlinked.length, function(){ openHomeSignalList('패스한 연결', skippedUnlinked.map(function(x){ return { label:x.task.text, task:x.task, skipped:true }; })); });
   }
   /* 다음 준비 — 오늘 시간이 잡힌 다음 일정을 (멀어도) 항상 띄워, 이동/준비물을
      미리 챙기게 한다. 리드타임으로 숨기지 않고, 가까워질수록 색만 격상한다.
