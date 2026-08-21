@@ -3103,8 +3103,13 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .task-cat-grip:active{cursor:grabbing}
 .cat-row-dragging{opacity:.6;background:var(--bg-raised);border-radius:var(--r-md)}
 .cat-color-picker{display:flex;gap:var(--sp-2);align-items:center}
-.cat-color-swatch{width:24px;height:24px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--border);background:var(--swatch)}
+.cat-color-swatch{width:24px;height:24px;border-radius:var(--r-full);box-shadow:inset 0 0 0 1px var(--border);background:var(--swatch);border:0;cursor:pointer;padding:0;transition:transform var(--t-snap)}
+.cat-color-swatch:hover{transform:scale(1.14)}
 .cat-color-swatch.active{box-shadow:0 0 0 2px var(--bg-card),0 0 0 4px var(--accent)}
+/* 카테고리 행의 단일 색 점(누르면 팝오버) */
+.cat-color-dot{width:26px;height:26px;border-radius:var(--r-full);border:0;cursor:pointer;padding:0;flex-shrink:0;background:var(--swatch);box-shadow:inset 0 0 0 1px var(--border);transition:box-shadow var(--t-snap),transform var(--t-snap)}
+.cat-color-dot:hover{transform:scale(1.08);box-shadow:inset 0 0 0 1px var(--border),0 0 0 3px var(--accent-light)}
+.cat-color-pop{position:fixed;z-index:400;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:10px;display:grid;grid-template-columns:repeat(6,26px);gap:8px;animation:pop-in .12s ease-out}
 
 /* Grid scroll */
 .cal-grid-outer{flex:1;overflow-y:auto;padding:var(--sp-4) clamp(16px,3vw,40px) var(--sp-8)}
@@ -21658,6 +21663,25 @@ function bindCatRowReorder(body){
     grip.addEventListener('pointercancel',end);
   });
 }
+/* 카테고리 색 선택 팝오버 — 스와치를 줄줄이 늘어놓지 않고, 색 점을 누르면 그 자리에
+   팔레트 그리드가 떠서 고른다(행이 길어지지 않게). */
+function openCatColorPopover(anchor, current, onPick){
+  var old=document.getElementById('cat-color-pop'); if(old)old.remove();
+  var cur=(typeof normalizeTaskCatColor==='function')?normalizeTaskCatColor(current):current;
+  var pop=document.createElement('div'); pop.id='cat-color-pop'; pop.className='cat-color-pop';
+  pop.innerHTML=TASK_CAT_PALETTE.map(function(p){
+    return '<button type="button" class="cat-color-swatch'+(p.value===cur?' active':'')+'" data-color="'+p.value+'" title="'+p.label+'" style="--swatch:'+p.value+'"></button>';
+  }).join('');
+  document.body.appendChild(pop);
+  var r=anchor.getBoundingClientRect(), pw=pop.offsetWidth, ph=pop.offsetHeight;
+  var left=Math.max(8, Math.min(window.innerWidth-pw-8, r.right-pw));
+  var top=r.bottom+6; if(top+ph>window.innerHeight-8) top=Math.max(8, r.top-ph-6);
+  pop.style.left=left+'px'; pop.style.top=top+'px';
+  function closePop(){ if(pop.parentNode)pop.remove(); document.removeEventListener('click',onDoc,true); window.removeEventListener('resize',closePop); }
+  function onDoc(e){ if(!pop.contains(e.target)&&e.target!==anchor&&!anchor.contains(e.target))closePop(); }
+  pop.addEventListener('click',function(e){ var sw=e.target.closest('.cat-color-swatch'); if(!sw)return; e.stopPropagation(); if(typeof onPick==='function')onPick(sw.getAttribute('data-color')); closePop(); });
+  setTimeout(function(){ document.addEventListener('click',onDoc,true); window.addEventListener('resize',closePop); },0);
+}
 function openTaskCatManager(){
   var old=document.getElementById('task-cat-manager');
   if(old)old.remove();
@@ -21680,7 +21704,7 @@ function openTaskCatManager(){
       + '<span class="task-cat-grip" title="드래그로 순서 변경">⠿</span>'
       + '<input class="field-inp task-cat-emoji" value="'+tEscHtml(c.emoji)+'" style="width:48px;text-align:center">'
       + '<input class="field-inp task-cat-label" value="'+tEscHtml(c.label)+'" style="flex:1;min-width:80px">'
-      + '<div class="cat-color-picker">'+swatches(c.color)+'</div>'
+      + '<button type="button" class="cat-color-dot" data-cat-color style="--swatch:'+normalizeTaskCatColor(c.color)+'" title="색 바꾸기" aria-label="색 바꾸기"></button>'
       + '<label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)">'+prioOpts(c.defaultPriority)+'</select></label>'
       + '<button class="btn btn-ghost task-cat-del" style="flex-shrink:0" '+(locked?'disabled title="일정·프로젝트 카테고리는 삭제할 수 없어요."':'')+'>삭제</button>'
       + '</div>';
@@ -21696,16 +21720,18 @@ function openTaskCatManager(){
     row.className='modal-row task-cat-row';
     row.dataset.id='cat_'+Date.now();
     row.dataset.color='var(--a-400)';
-    row.innerHTML='<span class="task-cat-grip" title="드래그로 순서 변경">⠿</span><input class="field-inp task-cat-emoji" value="📌" style="width:48px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1;min-width:80px"><div class="cat-color-picker">'+swatches('var(--a-400)')+'</div><label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)"><option value="">없음</option><option value="high">높음 🔴</option><option value="mid">중간 🟡</option><option value="low">낮음 🔵</option></select></label><button class="btn btn-ghost task-cat-del" style="flex-shrink:0">삭제</button>';
+    row.innerHTML='<span class="task-cat-grip" title="드래그로 순서 변경">⠿</span><input class="field-inp task-cat-emoji" value="📌" style="width:48px;text-align:center"><input class="field-inp task-cat-label" value="새 카테고리" style="flex:1;min-width:80px"><button type="button" class="cat-color-dot" data-cat-color style="--swatch:var(--a-400)" title="색 바꾸기" aria-label="색 바꾸기"></button><label style="display:flex;align-items:center;gap:4px;font-size:var(--text-2xs);color:var(--fg-3);white-space:nowrap;flex-shrink:0">기본<select class="task-cat-defprio" style="font-size:var(--text-xs);padding:2px 4px;background:var(--bg-raised);border-radius:var(--r-sm);color:var(--fg)"><option value="">없음</option><option value="high">높음 🔴</option><option value="mid">중간 🟡</option><option value="low">낮음 🔵</option></select></label><button class="btn btn-ghost task-cat-del" style="flex-shrink:0">삭제</button>';
     ov.querySelector('#task-cat-manager-body').appendChild(row);
     var inp=row.querySelector('.task-cat-label'); setTimeout(function(){inp.select();inp.focus();},30);
   };
   ov.addEventListener('click',function(e){
-    var sw=e.target.closest('.cat-color-swatch');
-    if(sw){
-      var row=sw.closest('.task-cat-row');
-      row.dataset.color=sw.dataset.color;
-      row.querySelectorAll('.cat-color-swatch').forEach(function(b){b.classList.toggle('active',b===sw);});
+    var dot=e.target.closest('.cat-color-dot');
+    if(dot){
+      var row=dot.closest('.task-cat-row');
+      openCatColorPopover(dot, row.dataset.color, function(color){
+        row.dataset.color=color;
+        dot.style.setProperty('--swatch',color);
+      });
       return;
     }
     var del=e.target.closest('.task-cat-del');
