@@ -543,6 +543,36 @@ html[data-mode="light"]{
   --elev-2:0 4px 12px rgba(49,43,37,0.08),0 1px 3px rgba(49,43,37,0.05),0 0 0 0.5px rgba(49,43,37,0.08);
   --elev-3:0 12px 32px rgba(49,43,37,0.12),0 4px 8px rgba(49,43,37,0.06),0 0 0 0.5px rgba(49,43,37,0.10);
 }
+/* ── 항목(프로젝트·목표·카테고리 등) 라벨 팔레트 ──────────────────────────────
+   16개의 뚜렷한 색상(hue). 색상 자체(빨강은 빨강)는 고정이고, 라이트/다크 모드에
+   따라 채도·명도만 바뀌어 배경과 어울리고 가독성을 지킨다. 항목은 hex 대신
+   var(--pal-N) 값을 저장해 테마가 바뀌어도 자동으로 톤이 따라오고 hue는 유지된다.
+   16색을 넘으면 returnPaletteVar가 명도를 조금씩 달리해 자동 확장한다. */
+:root{
+  --pal-0:hsl(350 48% 53%); --pal-1:hsl(6 50% 52%); --pal-2:hsl(20 52% 51%); --pal-3:hsl(32 55% 48%);
+  --pal-4:hsl(43 56% 45%); --pal-5:hsl(52 52% 43%); --pal-6:hsl(85 40% 42%); --pal-7:hsl(135 36% 41%);
+  --pal-8:hsl(160 40% 40%); --pal-9:hsl(178 44% 39%); --pal-10:hsl(192 50% 41%); --pal-11:hsl(205 52% 47%);
+  --pal-12:hsl(220 50% 55%); --pal-13:hsl(246 46% 58%); --pal-14:hsl(270 42% 56%); --pal-15:hsl(322 44% 54%);
+}
+html[data-mode="dark"]{
+  --pal-0:hsl(350 55% 71%); --pal-1:hsl(6 58% 69%); --pal-2:hsl(20 60% 68%); --pal-3:hsl(32 60% 65%);
+  --pal-4:hsl(43 60% 62%); --pal-5:hsl(52 56% 60%); --pal-6:hsl(85 46% 60%); --pal-7:hsl(135 42% 60%);
+  --pal-8:hsl(160 46% 60%); --pal-9:hsl(178 50% 58%); --pal-10:hsl(192 54% 61%); --pal-11:hsl(205 58% 67%);
+  --pal-12:hsl(220 60% 73%); --pal-13:hsl(246 56% 75%); --pal-14:hsl(270 52% 74%); --pal-15:hsl(322 54% 73%);
+}
+@media (prefers-color-scheme:dark){
+  html:not([data-mode="light"]){
+    --pal-0:hsl(350 55% 71%); --pal-1:hsl(6 58% 69%); --pal-2:hsl(20 60% 68%); --pal-3:hsl(32 60% 65%);
+    --pal-4:hsl(43 60% 62%); --pal-5:hsl(52 56% 60%); --pal-6:hsl(85 46% 60%); --pal-7:hsl(135 42% 60%);
+    --pal-8:hsl(160 46% 60%); --pal-9:hsl(178 50% 58%); --pal-10:hsl(192 54% 61%); --pal-11:hsl(205 58% 67%);
+    --pal-12:hsl(220 60% 73%); --pal-13:hsl(246 56% 75%); --pal-14:hsl(270 52% 74%); --pal-15:hsl(322 54% 73%);
+  }
+}
+/* 팔레트 스와치 피커(openFormDialog 'palette' 필드) */
+.pal-picker{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
+.pal-sw{width:26px;height:26px;border-radius:var(--r-full);border:0;cursor:pointer;padding:0;background:var(--sw);box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);transition:transform var(--t-snap)}
+.pal-sw:hover{transform:scale(1.14)}
+.pal-sw.active{box-shadow:0 0 0 2px var(--bg-card),0 0 0 4px var(--accent);transform:scale(1.08)}
 html.focus-mode .sidebar{opacity:0;transform:translateX(calc(-100% + var(--sp-3)));transition:opacity var(--t-enter),transform var(--t-enter);z-index:220}
 html.focus-mode .sidebar:hover,html.focus-mode .sidebar:focus-within{opacity:1;transform:translateX(0)}
 html.focus-mode .app-layout{display:flex}
@@ -14024,6 +14054,98 @@ function taskCreateRangePicker(mount, initialRanges, opts){
   render();
   return { getRanges:function(){return ranges.slice();} };
 }
+/* ── 항목 라벨 팔레트 헬퍼 (프로젝트·목표·카테고리 색) ─────────────────────────
+   색은 hex가 아니라 var(--pal-N) 문자열로 저장한다 → 인라인 스타일에서 그대로
+   렌더되고, 라이트/다크(테마)에 따라 톤이 자동으로 바뀌며 hue는 유지된다. 16색을
+   넘어가면 명도를 조금씩 달리해 자동 확장하므로 항목이 늘어도 잘 겹치지 않는다.
+   returnNearestPaletteIndex/Var 는 기존 hex를 가장 가까운 팔레트 색으로 옮길 때
+   쓴다(순수 함수 — tests/palette.test.js). */
+var RETURN_PAL_N=16;
+var RETURN_PAL_HUES=[350,6,20,32,43,52,85,135,160,178,192,205,220,246,270,322];
+function returnPaletteVar(i){
+  i=Math.max(0,Math.floor(Number(i)||0));
+  var base=i%RETURN_PAL_N, ring=Math.floor(i/RETURN_PAL_N);
+  var v='var(--pal-'+base+')';
+  if(ring<=0)return v;
+  /* 16색을 넘으면 명도를 번갈아 어둡게/밝게 섞어 새 색을 만든다(모드-인지 중립색으로
+     섞어 라이트·다크 모두 가독성 유지). */
+  var toward=(ring%2===1)?'var(--n-800)':'var(--n-0)';
+  var amt=Math.max(46,80-Math.floor((ring+1)/2)*14);
+  return 'color-mix(in srgb, '+v+' '+amt+'%, '+toward+')';
+}
+function returnPaletteSwatches(count){
+  count=count||RETURN_PAL_N; var out=[];
+  for(var i=0;i<count;i++)out.push(returnPaletteVar(i));
+  return out;
+}
+function _returnHexToRgb(hex){
+  hex=String(hex||'').trim();
+  var m=/^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.exec(hex);
+  if(!m)return null;
+  var h=m[1]; if(h.length===3)h=h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+}
+function _returnRgbToHsl(r,g,b){
+  r/=255;g/=255;b/=255;
+  var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
+  if(d!==0){ if(mx===r)h=((g-b)/d)%6; else if(mx===g)h=(b-r)/d+2; else h=(r-g)/d+4; }
+  h*=60; if(h<0)h+=360;
+  var l=(mx+mn)/2, s=d===0?0:d/(1-Math.abs(2*l-1));
+  return {h:h,s:s,l:l};
+}
+/* hex(또는 #rgb) → 가장 가까운 팔레트 색상 인덱스. 회색(채도 낮음)이면 -1. */
+function returnNearestPaletteIndex(color){
+  var rgb=_returnHexToRgb(color); if(!rgb)return -1;
+  var hsl=_returnRgbToHsl(rgb[0],rgb[1],rgb[2]);
+  if(hsl.s<0.12)return -1;
+  var best=0,bd=999;
+  for(var i=0;i<RETURN_PAL_HUES.length;i++){
+    var dh=Math.abs(((RETURN_PAL_HUES[i]-hsl.h+540)%360)-180);
+    if(dh<bd){bd=dh;best=i;}
+  }
+  return best;
+}
+function returnNearestPaletteVar(color){
+  var i=returnNearestPaletteIndex(color);
+  return i<0?color:returnPaletteVar(i);
+}
+/* 이미 팔레트 값(var(--pal-…)/color-mix)이면 그대로, hex면 가까운 팔레트로 옮긴다. */
+function returnToPaletteValue(color){
+  var s=String(color||'');
+  if(s.indexOf('var(--pal-')>=0||s.indexOf('color-mix')>=0)return s;
+  var i=returnNearestPaletteIndex(s);
+  return i<0?s:returnPaletteVar(i);
+}
+window.returnPaletteVar=returnPaletteVar;
+window.returnNearestPaletteIndex=returnNearestPaletteIndex;
+/* 기존에 hex로 저장된 프로젝트·목표·취미 카테고리 색을 새 팔레트(var(--pal-N))로 한 번
+   옮긴다 — 이후엔 테마(라이트/다크)에 따라 톤이 자동으로 따라오고 색상(hue)은 유지된다.
+   회색 계열은 팔레트에 없으므로 그대로 둔다. 플래그로 1회만 실행. */
+function returnMigratePaletteColors(){
+  try{ if(localStorage.getItem('return_palette_v1_migrated')==='1')return false; }catch(e){}
+  var changed=false;
+  try{
+    if(typeof loadProjects==='function')loadProjects();
+    if(typeof projects!=='undefined'&&Array.isArray(projects)){
+      projects.forEach(function(p){
+        if(p&&p.color){ var nv=returnToPaletteValue(p.color); if(nv!==p.color){p.color=nv;p.updatedAt=Date.now();changed=true;} }
+        if(p&&Array.isArray(p.goals))p.goals.forEach(function(g){ if(g&&g.color){ var gv=returnToPaletteValue(g.color); if(gv!==g.color){g.color=gv;g.updatedAt=Date.now();changed=true;} } });
+      });
+      if(changed&&typeof saveProjects==='function')saveProjects();
+    }
+  }catch(e){ console.warn('[palette] project migrate',e); }
+  try{
+    var raw=JSON.parse(localStorage.getItem('hobby_cats_v2')||'[]');
+    if(Array.isArray(raw)&&raw.length){
+      var hchg=false;
+      raw.forEach(function(c){ if(c&&c.color){ var cv=returnToPaletteValue(c.color); if(cv!==c.color){c.color=cv;hchg=true;} } });
+      if(hchg&&typeof setReturnStorageItem==='function'){ setReturnStorageItem('hobby_cats_v2',JSON.stringify(raw)); changed=true; }
+    }
+  }catch(e){ console.warn('[palette] hobby migrate',e); }
+  try{ localStorage.setItem('return_palette_v1_migrated','1'); }catch(e){}
+  return changed;
+}
+(function(){ if(typeof document==='undefined')return; function _m(){ try{ returnMigratePaletteColors(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_m,300);}); else setTimeout(_m,300); })();
 function openFormDialog(title, fields, onSave, opts){
   opts = opts || {};
   var old = document.getElementById('simple-form-dialog');
@@ -14038,6 +14160,11 @@ function openFormDialog(title, fields, onSave, opts){
     if (f.type === 'textarea') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<textarea class="field-ta" data-key="'+f.key+'" rows="'+(f.rows||7)+'">'+val.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</textarea></div>';
     if (f.type === 'checkbox') return '<div class="field" data-field-key="'+f.key+'"><label class="field-help" style="display:flex;align-items:center;gap:var(--sp-3);cursor:pointer;font-size:var(--text-sm);margin:var(--sp-1) 0"><input type="checkbox" data-key="'+f.key+'"'+(val==='on'?' checked':'')+' style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0"> '+f.label+'</label></div>';
     if (f.type === 'dateranges') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<div class="mrp" data-mrp-key="'+f.key+'"></div></div>';
+    if (f.type === 'palette') {
+      var pv = String(f.value||'');
+      var sws = Array.isArray(f.options)&&f.options.length ? f.options : returnPaletteSwatches();
+      return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<div class="pal-picker" data-pal-key="'+f.key+'">'+sws.map(function(c){return '<button type="button" class="pal-sw'+(c===pv?' active':'')+'" data-pal="'+c+'" style="--sw:'+c+'"></button>';}).join('')+'</div><input type="hidden" data-key="'+f.key+'" value="'+pv.replace(/"/g,'&quot;')+'"></div>';
+    }
     if (f.type === 'weekdays') {
       var selected = val.split(',').filter(Boolean);
       return '<div class="field"><label class="field-label">'+f.label+'</label>'+help+'<div class="weekday-picker" data-weekday-key="'+f.key+'">'+['일','월','화','수','목','금','토'].map(function(d,i){return '<button type="button" class="weekday-btn'+(selected.indexOf(String(i))>=0?' active':'')+'" data-day="'+i+'">'+d+'</button>';}).join('')+'</div><input type="hidden" data-key="'+f.key+'" value="'+val+'"></div>';
@@ -14065,6 +14192,16 @@ function openFormDialog(title, fields, onSave, opts){
       var key=wrap.getAttribute('data-weekday-key');
       var hidden=ov.querySelector('[data-key="'+key+'"]');
       hidden.value=Array.from(wrap.querySelectorAll('.weekday-btn.active')).map(function(b){return b.getAttribute('data-day');}).join(',');
+    });
+  });
+  ov.querySelectorAll('.pal-picker').forEach(function(wrap){
+    wrap.addEventListener('click', function(e){
+      var b=e.target.closest('.pal-sw'); if(!b)return;
+      wrap.querySelectorAll('.pal-sw').forEach(function(x){x.classList.remove('active');});
+      b.classList.add('active');
+      var key=wrap.getAttribute('data-pal-key');
+      var hidden=ov.querySelector('input[data-key="'+key+'"]');
+      if(hidden)hidden.value=b.getAttribute('data-pal');
     });
   });
   ov.querySelector('#sfd-cancel').addEventListener('click', close);
@@ -20198,7 +20335,7 @@ function _initInbox(){
   }
   var IB2_SEND_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>';
   var IB2_LINK_SVG='<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>';
-  var IB2_PALETTE=['#BE727A','#CE8A55','#8296C8','#5C9E86','#A76F8F','#7C8AA0','#C58F6B','#9A7BB0'];
+  var IB2_PALETTE=(typeof returnPaletteSwatches==='function')?returnPaletteSwatches():['var(--pal-0)','var(--pal-1)','var(--pal-2)','var(--pal-3)','var(--pal-4)','var(--pal-5)','var(--pal-6)','var(--pal-7)','var(--pal-8)','var(--pal-9)','var(--pal-10)','var(--pal-11)','var(--pal-12)','var(--pal-13)','var(--pal-14)','var(--pal-15)'];
   function catColor(c){ if(c&&c.color)return c.color; var i=cats().findIndex(function(x){return x.id===(c&&c.id);}); return IB2_PALETTE[(i<0?0:i)%IB2_PALETTE.length]; }
   function catTint(c){ var col=catColor(c); return col+'22'; } /* 13% alpha tint */
   /* Cover for a kanban card: first image if any, else — for a URL item — a
@@ -21393,12 +21530,13 @@ function refreshTaskCatSelect(){
 function getCat(id){return CATS.find(function(c){return c.id===id;})||{label:id,emoji:'📌',color:'#999'};}
 var TASK_CAT_PALETTE=[
   {id:'accent',label:'기본',value:'var(--a-400)'},
-  {id:'teal',label:'초록',value:'var(--t-400)'},
-  {id:'purple',label:'보라',value:'var(--p-400)'},
-  {id:'warm',label:'노랑',value:'var(--w-400)'},
-  {id:'danger',label:'빨강',value:'var(--danger)'},
   {id:'neutral',label:'회색',value:'var(--fg-4)'}
-];
+].concat((function(){
+  /* 넓은 라벨 팔레트 16색(테마-인지)을 카테고리 색 선택지에 함께 제공. */
+  var names=['로즈','레드','코랄','오렌지','앰버','골드','라임','그린','에메랄드','틸','시안','스카이','블루','인디고','바이올렛','퍼플'];
+  var out=[]; for(var i=0;i<16;i++)out.push({id:'pal'+i,label:names[i]||('색 '+(i+1)),value:'var(--pal-'+i+')'});
+  return out;
+})());
 function taskCategoryPaletteSnapshot(){
   var out={};
   (CATS||[]).forEach(function(c){if(c&&c.id)out[c.id]=normalizeTaskCatColor(c.color);});
@@ -25392,10 +25530,9 @@ function _initCheck(){
    ───────────────────────────────────────────────────────────── */
 
 /* ── Color palette for categories ── */
-var CAT_COLORS = [
-  '#7E7BC0','#BE727A','#4E9A84','#B0863F',
-  '#9985C2','#B0726A','#5E8A6E','#A96E93',
-  '#897E74','#B87A50','#6E9463','#C48A8F'
+var CAT_COLORS = (typeof returnPaletteSwatches==='function')?returnPaletteSwatches():[
+  'var(--pal-0)','var(--pal-1)','var(--pal-2)','var(--pal-3)','var(--pal-4)','var(--pal-5)','var(--pal-6)','var(--pal-7)',
+  'var(--pal-8)','var(--pal-9)','var(--pal-10)','var(--pal-11)','var(--pal-12)','var(--pal-13)','var(--pal-14)','var(--pal-15)'
 ];
 
 /* ── Preset category names/icons ── */
@@ -29964,7 +30101,7 @@ function projectProgress(project){var linked=projectTaskItems(project);return li
    task in a goal is also that project's task (task.projectId = goal's project).
    Goals show on the project timeline as ranged bars with their tasks as
    Notion-style sub-items, and group their tasks (collapsed) in the 할일 탭. */
-var GOAL_COLORS=['#BE727A','#8296C8','#5C9E86','#CE8A55','#A76F8F','#7C8AA0','#C58F6B','#9A7BB0'];
+var GOAL_COLORS=(typeof returnPaletteSwatches==='function')?returnPaletteSwatches():['var(--pal-0)','var(--pal-1)','var(--pal-2)','var(--pal-3)','var(--pal-4)','var(--pal-5)','var(--pal-6)','var(--pal-7)','var(--pal-8)','var(--pal-9)','var(--pal-10)','var(--pal-11)','var(--pal-12)','var(--pal-13)','var(--pal-14)','var(--pal-15)'];
 function projectGoals(p){ if(!p)return []; if(!Array.isArray(p.goals))p.goals=[]; return p.goals; }
 function findGoal(goalId){
   if(!goalId)return null;
@@ -30022,7 +30159,7 @@ function openGoalEditor(project,goal){
   var ranges=(goal&&Array.isArray(goal.dateRanges))?goal.dateRanges.filter(function(r){return r&&r.start&&r.end;}):[];
   openFormDialog(goal?'목표 편집':'새 목표',[
     {key:'title',label:'목표',value:goal?goal.title:''},
-    {key:'color',label:'색상',type:'select',value:goal?(goal.color||GOAL_COLORS[0]):GOAL_COLORS[0],options:[{value:'#BE727A',label:'로즈'},{value:'#8296C8',label:'블루'},{value:'#5C9E86',label:'그린'},{value:'#CE8A55',label:'오렌지'},{value:'#A76F8F',label:'플럼'},{value:'#7C8AA0',label:'슬레이트'}]},
+    {key:'color',label:'색상',type:'palette',value:goal?returnToPaletteValue(goal.color||GOAL_COLORS[0]):returnPaletteVar((project.goals||[]).length)},
     {key:'dateRanges',label:'기간',type:'dateranges',value:ranges,help:'달력에서 시작일→종료일을 골라요. 여러 기간을 더할 수 있고, 비워두면 담긴 할일들의 날짜로 자동 표시돼요.'},
     {key:'defaultPriority',label:'기본 우선순위',type:'select',value:goal?(goal.defaultPriority||''):'',options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}],help:'이 목표에 담기는 할일의 기본 우선순위예요. 할일에서 우선순위를 직접 정하면 그게 우선돼요.'}
   ].concat(goal?[{key:'del',label:'이 목표 삭제(담긴 할일은 연결만 해제)',type:'checkbox',value:''}]:[]),function(d){
@@ -30081,7 +30218,7 @@ function openProjectEditor(project){
   openFormDialog(project?'프로젝트 편집':'새 프로젝트', [
     {key:'title',label:'제목',value:project?project.title:''},
     {key:'description',label:'설명',value:project?project.description:''},
-    {key:'color',label:'색상',type:'select',value:project?(project.color||'#BE727A'):'#BE727A',options:[{value:'#BE727A',label:'로즈'},{value:'#8296c8',label:'블루'},{value:'#5c9e86',label:'그린'},{value:'#ce8a55',label:'오렌지'},{value:'#a76f8f',label:'플럼'},{value:'#7c8aa0',label:'슬레이트'}]},
+    {key:'color',label:'색상',type:'palette',value:project?returnToPaletteValue(project.color||GOAL_COLORS[0]):returnPaletteVar((typeof projects!=='undefined'&&Array.isArray(projects))?projects.length:0)},
     {key:'stage',label:'상태',type:'select',value:project?projectStageOf(project):'notstarted',options:PROJECT_STAGES.map(function(s){return {value:s.id,label:s.label};})},
     {key:'deadline',label:'마감일',type:'date',value:project?project.deadline:''},
     {key:'icon',label:'아이콘',value:project?project.icon:'🗂️'}
@@ -30089,8 +30226,8 @@ function openProjectEditor(project){
     var title=(data.title||'').trim(); if(!title)return;
     /* status는 보관(archive) 플래그 전용으로 두고, 사용자 상태는 stage로 관리 —
        편집 시 status를 덮어써 보관이 풀리던 문제를 피한다. */
-    if(project){project.title=title;project.description=data.description||'';project.stage=data.stage||projectStageOf(project);project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.color=data.color||project.color||'#BE727A';project.updatedAt=Date.now();}
-    else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:'active',stage:data.stage||'notstarted',deadline:data.deadline||'',icon:data.icon||'🗂️',color:data.color||'#BE727A',resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
+    if(project){project.title=title;project.description=data.description||'';project.stage=data.stage||projectStageOf(project);project.deadline=data.deadline||'';project.icon=data.icon||'🗂️';project.color=data.color||project.color||GOAL_COLORS[0];project.updatedAt=Date.now();}
+    else{project={id:'project_'+Date.now(),title:title,description:data.description||'',status:'active',stage:data.stage||'notstarted',deadline:data.deadline||'',icon:data.icon||'🗂️',color:data.color||GOAL_COLORS[0],resources:[],createdAt:Date.now(),updatedAt:Date.now()};projects.unshift(project);activeProjectId=project.id;}
     saveProjects();
     renderProjects();
     /* 인박스 등 프로젝트 열을 쓰는 화면도 새 프로젝트가 바로 보이도록 갱신
