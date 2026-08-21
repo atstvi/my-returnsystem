@@ -5250,6 +5250,10 @@ to{opacity:1;transform:translateY(0)}}
 /* 처리 필요/완료 컨트롤(인박스 탭과 동일) + ⋯ */
 .pji-acts{flex:none;display:flex;align-items:center;gap:10px}
 .pji-acts .ib2-donelbl{font-size:11px}
+/* 오늘 상황 '처리 필요 인박스' 다이얼로그: 처리 완료(급하지 않다고 확인)한 줄은
+   흐리게만 표시해 다시 눌러 해제할 수 있게 한다(완료 아님). */
+.home-inbox-dialog-row.triaged{opacity:.5}
+.home-inbox-dialog-row.triaged .ops-title{text-decoration:none}
 /* ⋯ 만 메뉴 버튼 */
 .pji-go{flex:none;color:var(--fg-4);font-size:var(--text-md);font-weight:var(--fw-bold);letter-spacing:1px;background:transparent;border:none;cursor:pointer;width:30px;height:30px;border-radius:var(--r-full);display:inline-flex;align-items:center;justify-content:center;transition:background var(--t-snap),color var(--t-snap)}
 .pji-go:hover{background:var(--bg-card);color:var(--fg-2)}
@@ -13521,20 +13525,21 @@ function openHomeSignalList(title, entries){
   if(isInboxList){
     var inboxRows=(entries||[]).map(function(e,i){
       var item=e.inbox||{};
-      var need=!!(item.unread&&!item.done);
-      return '<div class="ops-row home-inbox-dialog-row" data-idx="'+i+'">'
+      var need=!!(item.unread&&!item.done);   /* 아직 '당장 급한지' 판단이 안 된 항목 */
+      var triaged=!need;                       /* 처리 완료(급하지 않다고 확인) 표시 상태 */
+      return '<div class="ops-row home-inbox-dialog-row'+(triaged?' triaged':'')+'" data-idx="'+i+'">'
         +'<div><div class="ops-title">'+tEscHtml(item.text||e.label||'Inbox item')+'</div><div class="ops-meta">'+tEscHtml(item.cat||'inbox')+'</div></div>'
         +'<div class="ops-actions pji-acts">'
-        +'<button type="button" class="ib2-donebtn" data-inbox-done="'+i+'" title="처리 완료"><span class="ib2-donebox"></span><span class="ib2-donelbl">완료</span></button>'
-        +'<button type="button" class="ib2-needbtn'+(need?' on':'')+'" data-inbox-need="'+i+'">'+(need?'★ 처리 필요':'☆ 처리 필요')+'</button>'
+        +'<button type="button" class="ib2-donebtn'+(triaged?' on':'')+'" data-inbox-triage="'+i+'" title="당장 급한 일인지 확인하고 \'처리 완료\'를 표시/해제해요 — 항목 자체의 완료와는 무관합니다"><span class="ib2-donebox"></span><span class="ib2-donelbl">처리 완료</span></button>'
         +'<button type="button" class="pji-go" data-open="'+i+'" title="열기">↗</button>'
         +'</div></div>';
     }).join('') || '<div class="ops-row"><div><div class="ops-title">처리 필요 인박스가 없어요.</div></div><div></div></div>';
     ov.innerHTML='<div class="modal" style="max-width:640px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title)+'</div></div><div class="modal-body">'+inboxRows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="home-signal-close">닫기</button></div></div>';
     document.body.appendChild(ov);
     function closeInboxDialog(){ov.remove();}
-    /* 인박스 탭과 동일하게: 완료=아예 완료 처리(목록에서 사라짐), ★ 처리 필요=플래그
-       토글. 여러 개를 이어서 처리할 수 있게 창은 닫지 않고 카드만 새로고침한다. */
+    /* '처리 완료'는 당장 급한 일인지 확인하고 '처리 필요' 플래그(unread)만 끄고/켜는
+       분류 표시다 — 항목 자체의 완료(done)와는 무관하다(예전엔 done까지 켜서 그냥
+       완료돼 버렸음). 여러 개를 이어서 볼 수 있게 창은 닫지 않고 카드만 새로고침한다. */
     function saveAndRefresh(){
       if(typeof saveInboxItems==='function')saveInboxItems();
       if(typeof renderFeed==='function')renderFeed();
@@ -13551,27 +13556,17 @@ function openHomeSignalList(title, entries){
     }
     ov.addEventListener('click',function(e){if(e.target===ov)closeInboxDialog();});
     ov.querySelector('#home-signal-close').addEventListener('click',closeInboxDialog);
-    ov.querySelectorAll('[data-inbox-done]').forEach(function(btn){
+    ov.querySelectorAll('[data-inbox-triage]').forEach(function(btn){
       btn.addEventListener('click',function(){
-        var idx=parseInt(btn.getAttribute('data-inbox-done'),10);
+        var idx=parseInt(btn.getAttribute('data-inbox-triage'),10);
         var it=liveInboxItem(entries[idx]);
         if(it){
-          it.done=true;it.unread=false;
-          var row=ov.querySelector('.home-inbox-dialog-row[data-idx="'+idx+'"]');
-          if(row){row.style.opacity='.4';row.style.pointerEvents='none';}
-        }
-        saveAndRefresh();
-      });
-    });
-    ov.querySelectorAll('[data-inbox-need]').forEach(function(btn){
-      btn.addEventListener('click',function(){
-        var idx=parseInt(btn.getAttribute('data-inbox-need'),10);
-        var it=liveInboxItem(entries[idx]);
-        if(it){
+          /* '처리 필요'(unread)만 토글 — done은 절대 건드리지 않는다. */
           it.unread=!it.unread;
-          var on=!!(it.unread&&!it.done);
-          btn.classList.toggle('on',on);
-          btn.textContent=on?'★ 처리 필요':'☆ 처리 필요';
+          var triaged=!(it.unread&&!it.done);   /* unread가 꺼지면 '처리 완료' 표시 */
+          btn.classList.toggle('on',triaged);
+          var row=ov.querySelector('.home-inbox-dialog-row[data-idx="'+idx+'"]');
+          if(row)row.classList.toggle('triaged',triaged);   /* 흐리게만, 다시 눌러 해제 가능 */
         }
         saveAndRefresh();
       });
