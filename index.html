@@ -4170,6 +4170,16 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .stm-thumb.filled .stm-rm{display:grid}
 .stm-plabel{font-size:10px;font-weight:var(--fw-semibold);color:var(--fg-4);line-height:1.15}
 .stm-pslot.on .stm-plabel{color:var(--accent)}
+/* 오늘 상황 아바타 — 상태별 사진 슬롯 */
+.sitav-photos{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);max-width:320px}
+.sitav-slot{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center}
+.sitav-thumb{position:relative;width:100%;aspect-ratio:1;max-width:74px;border-radius:50%;background:var(--bg-raised);border:1.5px dashed color-mix(in srgb,var(--accent) 28%,var(--border-subtle));display:grid;place-items:center;cursor:pointer;overflow:hidden;background-size:cover;background-position:center}
+.sitav-thumb.filled{border-style:solid;border-color:transparent}
+.sitav-thumb .sitav-g{font-size:22px}
+.sitav-thumb .sitav-rm{position:absolute;top:2px;right:2px;width:18px;height:18px;border-radius:50%;border:none;background:rgba(20,14,16,.55);color:#fff;cursor:pointer;display:none;place-items:center;font-size:11px;line-height:1}
+.sitav-thumb.filled .sitav-rm{display:grid}
+.sitav-plabel{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--fg-2)}
+.sitav-phint{font-size:9px;color:var(--fg-4);line-height:1.2}
 .energy-levels.stm-mount{display:flex;flex-direction:column;gap:8px}
 /* bundles */
 .rt-bundles{display:flex;flex-direction:column;gap:var(--sp-5)}
@@ -10505,6 +10515,18 @@ to{opacity:1;transform:translateY(0)}}
           </div>
         </div>
 
+        <!-- 오늘 상황 아바타 사진 (상태별) -->
+        <div class="set-card">
+          <div class="set-row" style="align-items:flex-start">
+            <div class="set-row-icon" style="background:var(--accent-light)">🙂</div>
+            <div class="set-row-body">
+              <div class="set-row-label">오늘 상황 아바타</div>
+              <div class="set-row-desc">홈 "오늘 상황"의 아바타가 상태에 따라 바뀌어요. 집중·정리·여유 각각 내 사진으로 지정할 수 있고, 비워두면 기본 이모지가 나와요.</div>
+              <div id="sit-avatar-settings" style="margin-top:var(--sp-4)"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- 기록 하루 경계 (routine/diary logical-day cutoff) -->
         <div class="set-card">
           <div class="set-row">
@@ -13238,8 +13260,16 @@ function renderHomeSituation(){
   }
   card.setAttribute('data-sit-state', primary.state || 'rest');
   if (avatar) {
-    var defaultAvatar = primary.state === 'focus' ? '🙂' : (inboxNeed.length ? '🫧' : '🌿');
-    try {
+    var avatarState = primary.state === 'focus' ? 'focus' : (inboxNeed.length ? 'inbox' : 'calm');
+    var defaultAvatar = avatarState === 'focus' ? '🙂' : (avatarState === 'inbox' ? '🫧' : '🌿');
+    /* 상태별 아바타 사진(설정에서 지정)이 있으면 이모지/테마 아바타보다 우선. */
+    var _sitStatePhoto = '';
+    try { _sitStatePhoto = (typeof _sitAvatarPhotos === 'function' ? (_sitAvatarPhotos()[avatarState] || '') : ''); } catch(e) {}
+    if (_sitStatePhoto) {
+      if (!avatar.querySelector('img[data-sitav-state="' + avatarState + '"]')) {
+        avatar.innerHTML = '<img src="' + String(_sitStatePhoto).replace(/"/g, '&quot;') + '" data-sitav-state="' + avatarState + '" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">';
+      }
+    } else try {
       var themeState = JSON.parse(localStorage.getItem('return_theme_studio_state_v1') || '{}') || {};
       var customAvatar = themeState.icons && themeState.icons.avatar;
       if (customAvatar && typeof isReturnMediaRef === 'function' && isReturnMediaRef(customAvatar)) {
@@ -30039,7 +30069,7 @@ function switchTab(id, btn) {
   if (btn) btn.classList.add('active');
   if (id === 'data'){ calcDataSize(); _updateRepeatScopeDefaultDesc(); _updateArchiveStatusUI(); }
   if (id === 'widget'){ try{ renderWidgetPanel(); }catch(e){} }
-  if (id === 'profile'){ try{ _syncDayCutoffSel(); }catch(e){} }
+  if (id === 'profile'){ try{ _syncDayCutoffSel(); }catch(e){} try{ sitAvatarRenderPhotos(document.getElementById('sit-avatar-settings')); }catch(e){} }
   /* Mobile: close nav drawer and update header label */
   closeSetNav();
   var curEl = document.getElementById('set-mob-cur');
@@ -34360,6 +34390,46 @@ function staminaRenderPhotos(container){
   staminaPaintPhotos(staminaGet());
 }
 function staminaMountPhotoSettings(){ staminaRenderPhotos(document.getElementById('stamina-photo-settings')); }
+/* ── 오늘 상황 아바타 — 상태별(집중/정리/여유) 사진. 스태미나 손잡이 사진과 같은
+   방식(인라인 dataURL, 설정에서 업로드). 사진이 있으면 그 상태에서 이모지 대신 내 사진. */
+var SIT_AVATAR_KEY='sit_avatar_photos_v1';
+var SIT_AVATAR_STATES=[
+  {id:'focus', glyph:'🙂', label:'집중', hint:'할 일이 있을 때'},
+  {id:'inbox', glyph:'🫧', label:'정리', hint:'인박스 정리'},
+  {id:'calm',  glyph:'🌿', label:'여유', hint:'쉬어도 될 때'}
+];
+function _sitAvatarPhotos(){ try{ return JSON.parse(localStorage.getItem(SIT_AVATAR_KEY)||'{}')||{}; }catch(e){ return {}; } }
+function sitAvatarSetPhoto(state,url){ var p=_sitAvatarPhotos(); if(url)p[state]=url; else delete p[state]; try{ setReturnStorageItem(SIT_AVATAR_KEY,JSON.stringify(p)); }catch(e){} sitAvatarRepaintSlots(); if(typeof renderHomeSituation==='function'){ try{ renderHomeSituation(); }catch(_e){} } if(typeof showToast==='function')showToast(url?'아바타 사진 저장 ✓':'사진을 지웠어요'); }
+function sitAvatarRepaintSlots(){
+  var photos=_sitAvatarPhotos();
+  document.querySelectorAll('.sitav-slot').forEach(function(slot){
+    var st=slot.getAttribute('data-sitav'), th=slot.querySelector('.sitav-thumb'), g=slot.querySelector('.sitav-g');
+    if(!th)return;
+    if(photos[st]){ th.classList.add('filled'); th.style.backgroundImage='url("'+photos[st]+'")'; if(g)g.style.display='none'; }
+    else { th.classList.remove('filled'); th.style.backgroundImage=''; if(g)g.style.display=''; }
+  });
+}
+function sitAvatarRenderPhotos(container){
+  if(!container||container.__sitav)return; container.__sitav=1;
+  container.innerHTML='<div class="sitav-photos">'+SIT_AVATAR_STATES.map(function(s){
+    return '<div class="sitav-slot" data-sitav="'+s.id+'"><label class="sitav-thumb"><span class="sitav-g">'+s.glyph+'</span><input type="file" accept="image/*" hidden><button type="button" class="sitav-rm" aria-label="사진 삭제">×</button></label><div class="sitav-plabel">'+s.label+'</div><div class="sitav-phint">'+s.hint+'</div></div>';
+  }).join('')+'</div>';
+  container.querySelectorAll('.sitav-slot').forEach(function(slot){
+    var st=slot.getAttribute('data-sitav'), input=slot.querySelector('input'), rm=slot.querySelector('.sitav-rm');
+    if(input)input.addEventListener('change',function(){
+      var f=this.files&&this.files[0]; this.value=''; if(!f)return;
+      var r=new FileReader();
+      r.onload=function(ev){
+        var raw=ev.target.result;
+        if(typeof __compressDataUrl==='function'){ __compressDataUrl(raw,480,0.85).then(function(u){ sitAvatarSetPhoto(st,u||raw); }).catch(function(){ sitAvatarSetPhoto(st,raw); }); }
+        else sitAvatarSetPhoto(st,raw);
+      };
+      r.readAsDataURL(f);
+    });
+    if(rm)rm.addEventListener('click',function(e){ e.preventDefault(); e.stopPropagation(); sitAvatarSetPhoto(st,null); });
+  });
+  sitAvatarRepaintSlots();
+}
 function staminaPaintAll(v){ document.querySelectorAll('[data-stamina-bar]').forEach(function(h){staminaPaint(h,v);}); staminaPaintPhotos(v); staminaUpdateSuggestion(v); }
 function _staminaRoutineVisible(){ var p=document.getElementById('page-routine'); return p&&(p.classList.contains('active')||getComputedStyle(p).display!=='none'); }
 function staminaCommit(v){ staminaStore(v); staminaPaintAll(staminaGet()); try{ if(typeof renderRoutineBundles==='function'&&_staminaRoutineVisible())renderRoutineBundles(); }catch(e){} try{ if(typeof renderHomeRoutineQuick==='function')renderHomeRoutineQuick(); }catch(e){} }
