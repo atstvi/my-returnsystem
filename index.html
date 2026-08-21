@@ -21206,6 +21206,7 @@ var selMode   = false;
 var selIds    = new Set();
 var editId    = null;
 var editPrio  = '';
+var _modalPrioTouched = false; /* 할일 편집창에서 사용자가 우선순위를 직접 눌렀는지 — 그래야 목표 기본값을 덮어쓰는 '개별 설정'으로 본다 */
 var dragSrcId = null;
 /* 드래그 손잡이(⠿)로 시작하면 순서 변경, 항목 본문을 잡고 다른 할일 위에 놓으면
    그 할일의 하위로 종속(nest). 카테고리 섹션 위에 놓으면 카테고리 변경 + 종속 해제. */
@@ -23541,9 +23542,13 @@ function confirmAdd(){
   var txt=addInput.value.trim();if(!txt){closeAdd();return;}
   /* If the user hasn't explicitly picked a priority, fall back to the
      category's defaultPriority — old-app behavior. */
-  var effectivePrio = newPrio || (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(newCat) : '');
+  /* 우선순위 우선순위: 사용자가 칩으로 직접 고른 값 > 목표 기본값 > 카테고리 기본값 */
+  var _goalDefPrio='';
+  if(newGoalId && typeof findGoal==='function'){ var _gg=findGoal(newGoalId); if(_gg&&_gg.goal) _goalDefPrio=_gg.goal.defaultPriority||''; }
+  var effectivePrio = newPrio || _goalDefPrio || (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(newCat) : '');
   var _cat=newProjectId?'project':newCat;
   var t={id:Date.now(),text:txt,catId:_cat,date:selDate,priority:effectivePrio,done:false,deadlineDate:newDeadline,deadlineTime:newDeadlineTime,deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+  if(newPrio) t._prioExplicit=true;
   if(newProjectId){ t.projectId=newProjectId; if(newGoalId)t.goalId=newGoalId; }
   tasks.unshift(t);
   if (typeof saveTaskData === 'function') saveTaskData();
@@ -23870,7 +23875,7 @@ function tasksOpenNewModal(seed){
     _repeat:seed._repeat||false,
     prepItems:Array.isArray(seed.prepItems)?seed.prepItems:[]
   };
-  editId=null;editPrio=taskModalDraft.priority||'';
+  editId=null;editPrio=taskModalDraft.priority||'';_modalPrioTouched=false;
   document.getElementById('modalTitle').value=taskModalDraft.text;
   document.getElementById('modalMemo').value=taskModalDraft.note||'';
   renderTaskModalImgs(taskModalDraft);
@@ -23899,7 +23904,7 @@ function tasksOpenNewModal(seed){
   mc.onclick=function(){taskModalDraft.done=!taskModalDraft.done;mc.className='modal-check'+(taskModalDraft.done?' done':'');};
   document.querySelectorAll('.prio-btn').forEach(function(btn){
     btn.classList.toggle('sel',btn.dataset.prio===editPrio);
-    btn.onclick=function(){editPrio=btn.dataset.prio;document.querySelectorAll('.prio-btn').forEach(function(b){b.classList.remove('sel');});btn.classList.add('sel');};
+    btn.onclick=function(){editPrio=btn.dataset.prio;_modalPrioTouched=true;document.querySelectorAll('.prio-btn').forEach(function(b){b.classList.remove('sel');});btn.classList.add('sel');};
   });
   document.getElementById('modal-del-btn').onclick=function(){tasksCloseModal();};
   document.getElementById('modal-clear-time').onclick=function(){document.getElementById('modal-ts').value='';document.getElementById('modal-te').value='';};
@@ -24075,7 +24080,7 @@ function renderTaskModalImgs(task){
 }
 function tasksOpenModal(task){
   taskModalDraft=null;
-  editId=task.id;editPrio=task.priority||'';
+  editId=task.id;editPrio=task.priority||'';_modalPrioTouched=false;
   try{taskModalSnapshot=JSON.parse(JSON.stringify(task));}catch(e){taskModalSnapshot=null;}
   document.getElementById('modalTitle').value=task.text;
   document.getElementById('modalMemo').value=task.note||'';
@@ -24109,7 +24114,7 @@ function tasksOpenModal(task){
   /* Priority buttons */
   document.querySelectorAll('.prio-btn').forEach(function(btn){
     btn.classList.toggle('sel',btn.dataset.prio===editPrio);
-    btn.onclick=function(){editPrio=btn.dataset.prio;document.querySelectorAll('.prio-btn').forEach(function(b){b.classList.remove('sel');});btn.classList.add('sel');};
+    btn.onclick=function(){editPrio=btn.dataset.prio;_modalPrioTouched=true;document.querySelectorAll('.prio-btn').forEach(function(b){b.classList.remove('sel');});btn.classList.add('sel');};
   });
 
   /* Workstation button */
@@ -24306,6 +24311,7 @@ function saveModal(){
     taskModalDraft.text=document.getElementById('modalTitle').value.trim()||'새 할일';
     taskModalDraft.note=document.getElementById('modalMemo').value;
     taskModalDraft.priority=editPrio;
+    if(_modalPrioTouched)taskModalDraft._prioExplicit=true;
     taskModalDraft.date=document.getElementById('modal-date-input').value||taskModalDraft.date||selDate||TK;
     taskModalDraft.deadlineDate=document.getElementById('modal-dl-input').value||'';
     taskModalDraft.deadlineTime=document.getElementById('modal-dl-time-input').value||'';
@@ -24334,6 +24340,7 @@ function _writeTaskFromModal(task,fields){
   task.text=fields.text;
   task.note=fields.note;
   task.priority=fields.priority;
+  if(typeof _modalPrioTouched!=='undefined'&&_modalPrioTouched)task._prioExplicit=true; /* 우선순위를 직접 건드렸으면 목표 기본값을 안 따름 */
   markTaskDateManualChange(task,fields.date);
   task.date=fields.date;
   task.deadlineDate=fields.deadlineDate;
@@ -29880,7 +29887,10 @@ function goalProgress(goalId){ var ts=goalTasks(goalId); if(!ts.length)return 0;
 function goalAddTask(goalId,taskId){
   var g=findGoal(goalId); if(!g)return false;
   var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(taskId);}); if(!t)return false;
-  t.goalId=g.goal.id; t.projectId=g.project.id; t.updatedAt=Date.now();
+  t.goalId=g.goal.id; t.projectId=g.project.id;
+  /* 목표에 담기면 개별로 정하지 않은 할일은 목표 기본 우선순위를 따른다. */
+  if(g.goal.defaultPriority && !t._prioExplicit) t.priority=g.goal.defaultPriority;
+  t.updatedAt=Date.now();
   if(typeof saveTaskData==='function')saveTaskData();
   return true;
 }
@@ -29913,14 +29923,28 @@ function openGoalEditor(project,goal){
   openFormDialog(goal?'목표 편집':'새 목표',[
     {key:'title',label:'목표',value:goal?goal.title:''},
     {key:'color',label:'색상',type:'select',value:goal?(goal.color||GOAL_COLORS[0]):GOAL_COLORS[0],options:[{value:'#BE727A',label:'로즈'},{value:'#8296C8',label:'블루'},{value:'#5C9E86',label:'그린'},{value:'#CE8A55',label:'오렌지'},{value:'#A76F8F',label:'플럼'},{value:'#7C8AA0',label:'슬레이트'}]},
-    {key:'dateRanges',label:'기간',type:'dateranges',value:ranges,help:'달력에서 시작일→종료일을 골라요. 여러 기간을 더할 수 있고, 비워두면 담긴 할일들의 날짜로 자동 표시돼요.'}
+    {key:'dateRanges',label:'기간',type:'dateranges',value:ranges,help:'달력에서 시작일→종료일을 골라요. 여러 기간을 더할 수 있고, 비워두면 담긴 할일들의 날짜로 자동 표시돼요.'},
+    {key:'defaultPriority',label:'기본 우선순위',type:'select',value:goal?(goal.defaultPriority||''):'',options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}],help:'이 목표에 담기는 할일의 기본 우선순위예요. 할일에서 우선순위를 직접 정하면 그게 우선돼요.'}
   ].concat(goal?[{key:'del',label:'이 목표 삭제(담긴 할일은 연결만 해제)',type:'checkbox',value:''}]:[]),function(d){
+    /* 편집창을 열어둔 사이 백그라운드 재적재(loadProjects)가 projects 배열을
+       통째로 갈아끼우면 여기 클로저의 project/goal 참조가 죽은 객체를 가리키게
+       되어 저장이 조용히 사라진다. 저장 시점의 라이브 배열에서 id로 다시 찾아온다. */
+    if(goal&&goal.id){ var _lg=(typeof findGoal==='function')?findGoal(goal.id):null; if(_lg&&_lg.goal){ goal=_lg.goal; project=_lg.project; } }
+    else if(project&&project.id&&typeof projects!=='undefined'&&Array.isArray(projects)){ var _lp=projects.find(function(p){return p&&String(p.id)===String(project.id);}); if(_lp)project=_lp; }
     if(goal&&d.del==='on'){ deleteGoal(project,goal.id); if(typeof renderProjects==='function')renderProjects(); return; }
     var title=(d.title||'').trim(); if(!title)return;
     var rng=(Array.isArray(d.dateRanges)?d.dateRanges:[]).filter(function(x){return x&&x.start&&x.end;});
+    var dp=d.defaultPriority||'';
     if(!Array.isArray(project.goals))project.goals=[];
-    if(goal){ goal.title=title; goal.color=d.color||goal.color||GOAL_COLORS[0]; goal.dateRanges=rng; goal.updatedAt=Date.now(); }
-    else project.goals.unshift({id:'goal_'+Date.now()+'_'+Math.floor(Math.random()*1000),title:title,color:d.color||GOAL_COLORS[0],dateRanges:rng,collapsed:true,createdAt:Date.now(),updatedAt:Date.now()});
+    var savedGoal;
+    if(goal){ goal.title=title; goal.color=d.color||goal.color||GOAL_COLORS[0]; goal.dateRanges=rng; goal.defaultPriority=dp; goal.updatedAt=Date.now(); savedGoal=goal; }
+    else { savedGoal={id:'goal_'+Date.now()+'_'+Math.floor(Math.random()*1000),title:title,color:d.color||GOAL_COLORS[0],dateRanges:rng,defaultPriority:dp,collapsed:true,createdAt:Date.now(),updatedAt:Date.now()}; project.goals.unshift(savedGoal); }
+    /* 기본 우선순위가 정해지면, 개별로 정하지 않은 이 목표의 할일들에 즉시 반영. */
+    if(dp && typeof tasks!=='undefined'){
+      var _changed=false;
+      tasks.forEach(function(t){ if(t&&String(t.goalId||'')===String(savedGoal.id)&&!t._prioExplicit&&t.priority!==dp){ t.priority=dp; t.updatedAt=Date.now(); _changed=true; } });
+      if(_changed&&typeof saveTaskData==='function')saveTaskData();
+    }
     project.updatedAt=Date.now();
     if(typeof saveProjects==='function')saveProjects();
     if(typeof renderProjects==='function')renderProjects();
