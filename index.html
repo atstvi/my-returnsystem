@@ -1903,6 +1903,36 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .pjb-grid .pjb-empty{grid-column:1/-1;position:static;transform:none;left:auto;top:auto;max-width:none;margin:auto}
 .pjb-grid .pjb-img{max-height:200px;overflow:hidden}
 .pjb-grid .pjb-embed-wrap{height:150px}
+/* ── 칸반 뷰(세 번째 보기) — 날짜 또는 프레임 구역별 세로 칸 ── */
+.pjb-kgroup{margin-right:2px}
+.pjb-kanban-wrap{height:480px;overflow:auto;border:.5px solid var(--border);border-radius:var(--r-lg);background:var(--bg-sunken);padding:12px}
+.pjb-kanban{display:flex;gap:12px;align-items:flex-start;min-height:100%;min-width:min-content}
+.pjb-kcol{flex:0 0 262px;width:262px;display:flex;flex-direction:column;max-height:100%;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--shadow-1);transition:border-color var(--t-snap),box-shadow var(--t-snap)}
+.pjb-kcol-frame{background:color-mix(in srgb,var(--bg-card) 92%,transparent);border-style:dashed}
+.pjb-kcol-over{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-light)}
+.pjb-kcol-head{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:.5px solid var(--border-subtle);position:sticky;top:0;z-index:1;background:var(--bg-card);border-radius:var(--r-lg) var(--r-lg) 0 0}
+.pjb-kcol-frame .pjb-kcol-head{background:var(--bg-card)}
+.pjb-kcol-dot{width:8px;height:8px;border-radius:50%;background:var(--kdot,var(--fg-4));flex:none}
+.pjb-kcol-title{font-size:var(--text-xs);font-weight:var(--fw-bold);color:var(--fg-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.pjb-kcol-count{margin-left:auto;flex:none;font-size:var(--text-2xs);font-weight:var(--fw-semibold);color:var(--fg-4);background:var(--bg-sunken);border-radius:var(--r-full);padding:1px 8px}
+.pjb-kcol-body{padding:10px;display:flex;flex-direction:column;gap:10px;overflow:auto}
+.pjb-kcol-empty{font-size:var(--text-2xs);color:var(--fg-4);text-align:center;padding:16px 0;border:1px dashed var(--border-subtle);border-radius:var(--r-md)}
+.pjb-kcard{position:relative}
+.pjb-kcard .pjb-item{position:static;width:auto;height:auto;z-index:auto}
+.pjb-kcard .pjb-img{max-height:180px;overflow:hidden}
+.pjb-kcard .pjb-embed-wrap{height:140px}
+.pjb-kcard.pjb-kdragging{opacity:.45}
+.pjb-kcol-frame .pjb-kcard{cursor:grab}
+.pjb-kanban-wrap.pjb-favonly .pjb-kcard:not(:has(.pjb-item.fav)){display:none}
+/* ── 카드 크기 조절 손잡이(자유 캔버스 전용) ── */
+.pjb-resize{position:absolute;right:0;bottom:0;width:16px;height:16px;cursor:nwse-resize;z-index:6;opacity:0;transition:opacity var(--t-snap);background:linear-gradient(135deg,transparent 45%,var(--border-strong) 45%,var(--border-strong) 62%,transparent 62%);border-bottom-right-radius:var(--r-md)}
+.pjb-item:hover .pjb-resize{opacity:.6}
+.pjb-resize:hover{opacity:1}
+.pjb-item.pjb-resizing .pjb-resize{opacity:1}
+.pjb-frame .pjb-resize{pointer-events:auto;opacity:.4}
+.pjb-resized .pjb-img{flex:1;max-height:none}
+.pjb-resized .pjb-img img{width:100%;height:100%;object-fit:cover}
+.pjb-resized .pjb-bm-thumb{flex:1;aspect-ratio:auto;min-height:0}
 .pjb-edges{position:absolute;left:0;top:0;overflow:visible;pointer-events:none;z-index:0}
 .pjb-edge{stroke:var(--border-strong);stroke-width:2;fill:none;stroke-linecap:round}
 .pjb-edge-hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer}
@@ -30614,14 +30644,18 @@ function projectBoardItemHtml(it,grid){
     else { body='<div class="pjb-img pjb-img-load"><span class="pjb-img-ph">'+(it._loading?'업로드 중…':'이미지 없음')+'</span></div>'; }
   }
   /* 그리드 뷰에서는 절대좌표·고정폭·고정높이를 빼고 CSS 그리드가 배치·크기를 맡는다. */
-  var posStyle=grid?'':('left:'+(it.x||0)+'px;top:'+(it.y||0)+'px;width:'+(it.w||200)+'px;'+((it.type==='image'||it.type==='bookmark')?'':'height:'+(it.h||150)+'px;'));
-  return '<div class="pjb-item pjb-'+projectEsc(it.type)+(it.fav?' fav':'')+'" data-bd-item="'+projectEsc(it.id)+'" '+
+  /* 이미지·북마크는 기본적으로 높이를 비워 내용 비율대로 자동. 단 사용자가 모서리로
+     크기를 조절했으면(_resized) 지정한 높이를 고정한다. */
+  var _autoH=(it.type==='image'||it.type==='bookmark')&&!it._resized;
+  var posStyle=grid?'':('left:'+(it.x||0)+'px;top:'+(it.y||0)+'px;width:'+(it.w||200)+'px;'+(_autoH?'':'height:'+(it.h||150)+'px;'));
+  var resizeH=grid?'':'<span class="pjb-resize" data-bd-resize="'+projectEsc(it.id)+'" aria-hidden="true"></span>';
+  return '<div class="pjb-item pjb-'+projectEsc(it.type)+(it.fav?' fav':'')+(it._resized?' pjb-resized':'')+'" data-bd-item="'+projectEsc(it.id)+'" '+
     'style="'+posStyle+'--bd-accent:'+projectEsc(accent)+'">'+
-    '<div class="pjb-bar">'+head+'</div>'+body+'</div>';
+    '<div class="pjb-bar">'+head+'</div>'+body+resizeH+'</div>';
 }
 /* 정리 그리드 뷰의 카드 목록 — 프레임(공간 배치 전용)은 빼고, 즐겨찾기 먼저 →
    링크류(허브)를 앱별로 → 나머지(메모·체크·이미지)를 제목순으로 정렬한다. */
-function pjbViewMode(){ try{ return localStorage.getItem('pjb_view_mode')==='grid'?'grid':'canvas'; }catch(e){ return 'canvas'; } }
+function pjbViewMode(){ try{ var m=localStorage.getItem('pjb_view_mode'); return (m==='grid'||m==='kanban')?m:'canvas'; }catch(e){ return 'canvas'; } }
 function pjbGridItemsHtml(b){
   if(!b||!Array.isArray(b.items))return '';
   var items=b.items.filter(function(it){return it&&it.type!=='frame';});
@@ -30648,6 +30682,7 @@ var PJB_ICO={
   fit:'<path d="M15 4h5v5M20 4l-6 6M9 20H4v-5M4 20l6-6"/>',
   grid:'<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>',
   free:'<path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4"/>',
+  kanban:'<rect x="4" y="4.5" width="4.4" height="15" rx="1"/><rect x="9.8" y="4.5" width="4.4" height="9.5" rx="1"/><rect x="15.6" y="4.5" width="4.4" height="12.5" rx="1"/>',
   hub:'<path d="M12 3l7 4v6c0 4-3 6.5-7 8-4-1.5-7-4-7-8V7z"/><path d="M9.5 12l1.6 1.6L15 10"/>'
 };
 function _pjbSvg(k,cls){ return '<svg class="'+(cls||'')+'" viewBox="0 0 24 24" aria-hidden="true">'+(PJB_ICO[k]||'')+'</svg>'; }
@@ -30659,7 +30694,8 @@ var PJB_EMPTY_HTML='<div class="pjb-empty">'+
   '</div>';
 function projectBoardHtml(project){
   var b=projectBoardEnsure(project);
-  var mode=pjbViewMode(), grid=mode==='grid';
+  var mode=pjbViewMode(), grid=mode==='grid', kanban=mode==='kanban', canvas=(!grid&&!kanban);
+  var kgroup=pjbKanbanGroup();
   /* 추가 드롭다운 — 알약 버튼 나열 대신 primary '추가' 하나로 묶는다(전문 도구 톤). */
   var mi=function(type,ico,label,hint){ return '<button type="button" class="pjb-mi" data-bd-add="'+type+'"><span class="pjb-mi-ic">'+_pjbSvg(ico)+'</span><span class="pjb-mi-t"><b>'+label+'</b><small>'+hint+'</small></span></button>'; };
   var addMenu='<div class="pjb-addwrap">'+
@@ -30669,22 +30705,32 @@ function projectBoardHtml(project){
         mi('note','note','메모','짧은 텍스트')+
         mi('check','check','체크리스트','할 일·점검 목록')+
         mi('image','image','이미지','사진·캡처')+
-        (grid?'':mi('frame','frame','프레임','자유 배치 구역'))+
+        (canvas?mi('frame','frame','프레임','자유 배치 구역'):'')+
       '</div></div>';
+  var segBtn=function(m,ico,label){ var on=(m===mode); return '<button type="button" class="pjb-seg-btn'+(on?' on':'')+'" data-bd-setview="'+m+'" role="tab" aria-selected="'+(on?'true':'false')+'">'+_pjbSvg(ico)+'<span>'+label+'</span></button>'; };
   var seg='<div class="pjb-seg" role="tablist" aria-label="보기 방식">'+
-      '<button type="button" class="pjb-seg-btn'+(grid?'':' on')+'" data-bd-setview="canvas" role="tab" aria-selected="'+(grid?'false':'true')+'">'+_pjbSvg('free')+'<span>자유</span></button>'+
-      '<button type="button" class="pjb-seg-btn'+(grid?' on':'')+'" data-bd-setview="grid" role="tab" aria-selected="'+(grid?'true':'false')+'">'+_pjbSvg('grid')+'<span>정리</span></button>'+
+      segBtn('canvas','free','자유')+segBtn('grid','grid','정리')+segBtn('kanban','kanban','칸반')+
     '</div>';
+  /* 칸반 그룹 기준 토글(날짜 / 프레임) — 칸반 모드에서만 노출 */
+  var kgBtn=function(g,label){ var on=(g===kgroup); return '<button type="button" class="pjb-seg-btn'+(on?' on':'')+'" data-bd-kgroup="'+g+'" role="tab" aria-selected="'+(on?'true':'false')+'">'+label+'</button>'; };
+  var kgroupSeg=kanban?('<div class="pjb-seg pjb-kgroup" role="tablist" aria-label="그룹 기준">'+kgBtn('date','날짜')+kgBtn('frame','프레임')+'</div>'):'';
+  var hint=grid?'앱별로 자동 정렬됩니다':(kanban?(kgroup==='frame'?'카드를 다른 프레임 칸으로 옮기면 보드에도 반영돼요':'추가·수정한 날짜로 묶여요'):'드래그로 이동 · 모서리로 크기 조절');
   var tb='<div class="pjb-bar">'+
     '<div class="pjb-bar-l">'+addMenu+
-      '<span class="pjb-bar-hint">'+(grid?'앱별로 자동 정렬됩니다':'드래그로 이동 · 휠/핀치로 확대')+'</span>'+
+      '<span class="pjb-bar-hint">'+hint+'</span>'+
     '</div>'+
     '<div class="pjb-bar-r">'+
+      kgroupSeg+
       '<button type="button" class="pjb-ibtn pjb-ibtn-sq" data-bd-favfilter aria-pressed="false" title="즐겨찾기만 보기">'+_pjbSvg('star')+'</button>'+
-      (grid?'':'<button type="button" class="pjb-ibtn pjb-ibtn-sq" data-bd-link aria-pressed="false" title="항목 잇기">'+_pjbSvg('connect')+'</button>')+
-      (grid?'':'<button type="button" class="pjb-ibtn pjb-ibtn-sq" data-bd-fit title="화면 맞춤">'+_pjbSvg('fit')+'</button>')+
+      (canvas?'<button type="button" class="pjb-ibtn pjb-ibtn-sq" data-bd-link aria-pressed="false" title="항목 잇기">'+_pjbSvg('connect')+'</button>':'')+
+      (canvas?'<button type="button" class="pjb-ibtn pjb-ibtn-sq" data-bd-fit title="화면 맞춤">'+_pjbSvg('fit')+'</button>':'')+
       seg+
     '</div></div>';
+  if(kanban){
+    var kan=pjbKanbanHtml(b);
+    return '<div class="pjb-root" id="pjb-root" data-mode="kanban">'+tb+
+      '<div class="pjb-kanban-wrap" id="pjb-kanban-wrap">'+(kan||PJB_EMPTY_HTML)+'</div></div>';
+  }
   if(grid){
     var cards=pjbGridItemsHtml(b);
     return '<div class="pjb-root" id="pjb-root" data-mode="grid">'+tb+
@@ -30702,9 +30748,10 @@ var _pjbPasteCtx=null;
 function projectBoardBind(detail,project){
   var b=projectBoardEnsure(project);
   var root=detail.querySelector('#pjb-root'); if(!root)return;
-  var grid=root.getAttribute('data-mode')==='grid';
-  var view=detail.querySelector('#pjb-view'), world=detail.querySelector('#pjb-world'), gridEl=detail.querySelector('#pjb-grid');
-  var favTarget=grid?gridEl:view;
+  var mode=root.getAttribute('data-mode');
+  var grid=mode==='grid', kanban=mode==='kanban';
+  var view=detail.querySelector('#pjb-view'), world=detail.querySelector('#pjb-world'), gridEl=detail.querySelector('#pjb-grid'), kanEl=detail.querySelector('#pjb-kanban-wrap');
+  var favTarget=grid?gridEl:(kanban?kanEl:view);
   var V=b.view;
   var _linkMode=false, _linkSrc=null;   /* connector (엣지) 만들기 모드 (캔버스 전용) */
   function clampScale(s){return Math.max(0.3,Math.min(3,s));}
@@ -30712,6 +30759,7 @@ function projectBoardBind(detail,project){
   apply();
   if(world)projectBoardResolveMedia(world); /* resolve any return-media image refs already in the initial HTML */
   if(gridEl)projectBoardResolveMedia(gridEl);
+  if(kanEl)projectBoardResolveMedia(kanEl);
   /* 이 보드를 붙여넣기 대상으로 등록(save/repaint/addItem은 아래에서 호이스팅됨). */
   _pjbPasteCtx={ addImage:function(f){ projectBoardUploadImageFile(f,addItem,save,repaint); } };
   if(!window._pjbPasteInstalled){
@@ -30763,6 +30811,12 @@ function projectBoardBind(detail,project){
     addEdge(_linkSrc,id); _linkSrc=null; markLinkSrc();
   }
   function repaint(){
+    if(kanban){
+      if(!kanEl)return;
+      kanEl.innerHTML=pjbKanbanHtml(b)||PJB_EMPTY_HTML;
+      projectBoardResolveMedia(kanEl);
+      return;
+    }
     if(grid){
       if(!gridEl)return;
       gridEl.innerHTML=pjbGridItemsHtml(b)||PJB_EMPTY_HTML;
@@ -30784,7 +30838,8 @@ function projectBoardBind(detail,project){
        center (looked like "추가가 안 됨" because the 2nd card hid behind the 1st). */
     var off=(b.items.length%8); pos.x+=off*26; pos.y+=off*24;
     /* Unique id (Date.now() alone collided on rapid adds → wrong-item targeting). */
-    var it=Object.assign({id:'bd_'+Date.now()+'_'+Math.floor(Math.random()*100000),x:pos.x,y:pos.y,w:w,h:h,fav:false,accent:''},extra);
+    var _now=Date.now();
+    var it=Object.assign({id:'bd_'+_now+'_'+Math.floor(Math.random()*100000),x:pos.x,y:pos.y,w:w,h:h,fav:false,accent:'',createdAt:_now,updatedAt:_now},extra);
     b.items.push(it); save(); repaint(); return it;
   }
   /* toolbar */
@@ -30808,8 +30863,10 @@ function projectBoardBind(detail,project){
   });});
   var ff=detail.querySelector('[data-bd-favfilter]');
   if(ff)ff.addEventListener('click',function(){ if(!favTarget)return; var on=favTarget.classList.toggle('pjb-favonly'); ff.setAttribute('aria-pressed',on?'true':'false'); ff.classList.toggle('on',on); });
-  /* 뷰 전환 세그먼트(자유 캔버스 ↔ 정리 그리드) — 기기 로컬 저장 후 상세 재렌더. */
-  detail.querySelectorAll('[data-bd-setview]').forEach(function(sb){ sb.addEventListener('click',function(){ var m=sb.getAttribute('data-bd-setview'); if(m===(grid?'grid':'canvas'))return; try{ localStorage.setItem('pjb_view_mode',m); }catch(e){} if(typeof renderProjects==='function')renderProjects(); }); });
+  /* 뷰 전환 세그먼트(자유 · 정리 · 칸반) — 기기 로컬 저장 후 상세 재렌더. */
+  detail.querySelectorAll('[data-bd-setview]').forEach(function(sb){ sb.addEventListener('click',function(){ var m=sb.getAttribute('data-bd-setview'); if(m===mode)return; try{ localStorage.setItem('pjb_view_mode',m); }catch(e){} if(typeof renderProjects==='function')renderProjects(); }); });
+  /* 칸반 그룹 기준(날짜 ↔ 프레임) 토글 — 기기 로컬 저장 후 재렌더. */
+  detail.querySelectorAll('[data-bd-kgroup]').forEach(function(gb){ gb.addEventListener('click',function(){ var g=gb.getAttribute('data-bd-kgroup'); if(g===pjbKanbanGroup())return; try{ localStorage.setItem('pjb_kanban_group',g); }catch(e){} if(typeof renderProjects==='function')renderProjects(); }); });
   /* '추가' 드롭다운 — 토글 + 바깥 클릭/항목 선택 시 닫기 */
   var addBtn=detail.querySelector('[data-bd-addtoggle]'), addMenu=detail.querySelector('#pjb-addmenu');
   if(addBtn&&addMenu){
@@ -30839,6 +30896,45 @@ function projectBoardBind(detail,project){
     else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); b.edges=(b.edges||[]).filter(function(ed){return String(ed.from)!==String(id)&&String(ed.to)!==String(id);}); save(); repaint(); } }
     else if(kind==='edit'){ projectBoardEditItem(project,it,repaint,save); }
   });
+  /* 칸반(프레임 그룹) — 카드를 다른 프레임 칸으로 끌어다 놓으면 그 프레임 안 좌표로
+     재배치해 자유 보드에도 반영. 프레임 소속이 좌표로만 결정되므로 별도 동기화 없이
+     양방향이 성립한다. 날짜 그룹은 날짜가 카드에 내재된 값이라 칸 간 이동 없음. */
+  if(kanban){
+    var kg=pjbKanbanGroup();
+    if(kanEl&&kg==='frame'){
+      var kd=null;
+      var kColUnder=function(x,y){ var els=kanEl.querySelectorAll('.pjb-kcol'); for(var i=0;i<els.length;i++){ var r=els[i].getBoundingClientRect(); if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom)return els[i]; } return null; };
+      var kClearOver=function(){ kanEl.querySelectorAll('.pjb-kcol-over').forEach(function(c){c.classList.remove('pjb-kcol-over');}); };
+      var moveToFrame=function(it,frameId){
+        if(frameId){ var f=findItem(frameId); if(!f)return; var p=_boardDropPos(b,f); it.x=p.x; it.y=p.y; }
+        else { var q=_pjbFreeSpot(b); it.x=q.x; it.y=q.y; }
+        save(); repaint();
+      };
+      kanEl.addEventListener('pointerdown',function(e){
+        if(e.target.closest('[data-bd-ctl],a,input,label,.pjb-resize'))return;
+        var card=e.target.closest('[data-bd-kcard]'); if(!card)return;
+        var it=findItem(card.getAttribute('data-bd-kcard')); if(!it)return;
+        kd={it:it,card:card,sx:e.clientX,sy:e.clientY,moved:false,pid:e.pointerId};
+        try{card.setPointerCapture(e.pointerId);}catch(_){}
+      });
+      kanEl.addEventListener('pointermove',function(e){
+        if(!kd)return;
+        if(!kd.moved){ if(Math.hypot(e.clientX-kd.sx,e.clientY-kd.sy)<6)return; kd.moved=true; kd.card.classList.add('pjb-kdragging'); }
+        if(e.cancelable)e.preventDefault();
+        var col=kColUnder(e.clientX,e.clientY);
+        kanEl.querySelectorAll('.pjb-kcol').forEach(function(c){ c.classList.toggle('pjb-kcol-over', c===col); });
+      });
+      var kEnd=function(e){
+        if(!kd)return; var moved=kd.moved, it=kd.it, card=kd.card; card.classList.remove('pjb-kdragging'); kClearOver();
+        var col=moved?kColUnder(e.clientX,e.clientY):null; kd=null;
+        if(!moved||!col)return;
+        moveToFrame(it, col.getAttribute('data-frame')||'');
+      };
+      kanEl.addEventListener('pointerup',kEnd);
+      kanEl.addEventListener('pointercancel',kEnd);
+    }
+    return;
+  }
   /* pointer pan / drag / pinch — 자유 캔버스 전용 (그리드 뷰엔 배치가 없음) */
   if(grid||!view)return;
   var ptrs={}, drag=null, pinch=null;
@@ -30848,6 +30944,10 @@ function projectBoardBind(detail,project){
     try{view.setPointerCapture(e.pointerId);}catch(_){}
     var ids=Object.keys(ptrs);
     if(ids.length>=2){ drag=null; var p1=ptrs[ids[0]],p2=ptrs[ids[1]]; pinch={d:Math.hypot(p2.x-p1.x,p2.y-p1.y),scale:V.scale,mx:(p1.x+p2.x)/2,my:(p1.y+p2.y)/2,tx:V.tx,ty:V.ty}; return; }
+    /* 모서리 손잡이로 시작하면 이동이 아니라 크기 조절. 이미지·북마크는 높이가
+       자동이라 현재 렌더된 크기(offsetW/H, 배율 무관 레이아웃 px)를 시작값으로 쓴다. */
+    var rzEl=e.target.closest('[data-bd-resize]');
+    if(rzEl&&!_linkMode){ var rit=findItem(rzEl.getAttribute('data-bd-resize')); var rEl=rzEl.closest('.pjb-item'); if(rit&&rEl){ drag={mode:'resize',it:rit,el:rEl,sx:e.clientX,sy:e.clientY,ow:rEl.offsetWidth,oh:rEl.offsetHeight}; rEl.classList.add('pjb-resizing'); } return; }
     var itEl=e.target.closest('.pjb-item');
     if(itEl&&_linkMode){ return; } /* link mode: let click pick items, don't drag */
     if(itEl){ var it=findItem(itEl.getAttribute('data-bd-item')); if(it){ drag={mode:'item',it:it,el:itEl,sx:e.clientX,sy:e.clientY,ox:it.x,oy:it.y}; itEl.classList.add('dragging'); } }
@@ -30859,17 +30959,28 @@ function projectBoardBind(detail,project){
     if(!drag)return;
     if(drag.mode==='pan'){ V.tx=drag.tx+(e.clientX-drag.sx); V.ty=drag.ty+(e.clientY-drag.sy); apply(); }
     else if(drag.mode==='item'){ drag.it.x=Math.round(drag.ox+(e.clientX-drag.sx)/V.scale); drag.it.y=Math.round(drag.oy+(e.clientY-drag.sy)/V.scale); drag.el.style.left=drag.it.x+'px'; drag.el.style.top=drag.it.y+'px'; if(b.edges&&b.edges.length)paintEdges(); }
+    else if(drag.mode==='resize'){ var nw=Math.max(120,Math.round(drag.ow+(e.clientX-drag.sx)/V.scale)); var nh=Math.max(64,Math.round(drag.oh+(e.clientY-drag.sy)/V.scale)); drag.it.w=nw; drag.it.h=nh; drag.el.style.width=nw+'px'; drag.el.style.height=nh+'px'; if(b.edges&&b.edges.length)paintEdges(); }
   });
   function endPtr(e){
     delete ptrs[e.pointerId];
     if(pinch&&Object.keys(ptrs).length<2){ pinch=null; save(); }
-    if(drag&&Object.keys(ptrs).length===0){ if(drag.mode==='item'&&drag.el)drag.el.classList.remove('dragging'); view.classList.remove('panning'); save(); drag=null; }
+    if(drag&&Object.keys(ptrs).length===0){
+      if(drag.mode==='item'&&drag.el)drag.el.classList.remove('dragging');
+      /* 크기 조절이 끝나면 이 카드는 '지정 크기' 상태(_resized)로 굳혀, 이미지·북마크도
+         이후 렌더에서 자동 높이로 되돌아가지 않고 조절한 크기를 유지한다. */
+      if(drag.mode==='resize'){ if(drag.el)drag.el.classList.remove('pjb-resizing'); if(drag.it){ drag.it._resized=true; drag.el&&drag.el.classList.add('pjb-resized'); } }
+      view.classList.remove('panning'); save(); drag=null;
+    }
   }
   view.addEventListener('pointerup',endPtr);
   view.addEventListener('pointercancel',endPtr);
   view.addEventListener('wheel',function(e){ e.preventDefault(); var r=view.getBoundingClientRect(); var mx=e.clientX-r.left,my=e.clientY-r.top; var wx=(mx-V.tx)/V.scale, wy=(my-V.ty)/V.scale; var ns=clampScale(V.scale*(e.deltaY<0?1.1:0.9)); V.scale=ns; V.tx=mx-wx*ns; V.ty=my-wy*ns; apply(); clearTimeout(view._wsave); view._wsave=setTimeout(save,400); },{passive:false});
 }
 function projectBoardEditItem(project,it,repaint,save){
+  /* 내용을 편집해 저장할 때마다 이 카드의 '수정 시각'을 찍는다(칸반 날짜 그룹이
+     최근 수정으로 옮겨가도록). 위치·크기 변경은 내용 편집이 아니므로 제외. */
+  var _origSave=save;
+  save=function(){ if(it)it.updatedAt=Date.now(); return _origSave&&_origSave(); };
   if(it.type==='note')openFormDialog('메모 편집',[{key:'text',label:'내용',type:'textarea',value:it.text||''}],function(d){it.text=(d.text||'').trim();save();repaint();});
   else if(it.type==='check')openFormDialog('체크리스트 편집',[{key:'title',label:'제목',value:it.title||''},{key:'items',label:'항목(줄바꿈)',type:'textarea',value:(Array.isArray(it.list)?it.list:[]).map(function(c){return (c.done?'[x] ':'')+c.text;}).join('\n')}],function(d){it.title=(d.title||'체크리스트').trim();it.list=(d.items||'').split('\n').map(function(s){return s.trim();}).filter(Boolean).map(function(s){var done=/^\[x\]\s*/i.test(s);return {text:s.replace(/^\[x\]\s*/i,''),done:done};});save();repaint();});
   else if(it.type==='frame')openFormDialog('프레임 편집',[{key:'label',label:'이름',value:it.label||''}],function(d){it.label=(d.label||'프레임').trim();save();repaint();});
@@ -30895,6 +31006,84 @@ function projectBoardEditItem(project,it,repaint,save){
       if(!_uploaded)projectBoardExtractColor(it.src,function(c){if(c){it.accent=c;save();repaint();}});
     });
   }
+}
+/* ── 자료 보드 칸반 뷰 ───────────────────────────────────────────────────────
+   세 번째 보기 방식. 기본은 카드를 '추가·수정한 날짜'로 묶은 칸반, 그룹 기준을
+   '프레임'으로 바꾸면 프레임 구역별 칸으로 본다. 프레임 소속은 별도 상태 없이
+   카드 중심점이 어느 프레임 사각형 안에 있는지로 판단하므로(_pjbItemFrame),
+   칸반에서 카드를 다른 프레임 칸으로 옮기면(=그 프레임 안 좌표로 재배치) 자유
+   보드에도 그대로 반영되고, 자유 보드에서 프레임 안으로 끌어다 놓으면 칸반의
+   소속도 저절로 바뀐다(양방향이 좌표 하나로 성립). */
+function pjbKanbanGroup(){ try{ return localStorage.getItem('pjb_kanban_group')==='frame'?'frame':'date'; }catch(e){ return 'date'; } }
+/* 카드의 '추가·수정 시각' — updatedAt(내용 편집 시 갱신) > createdAt > id 안의 타임스탬프. */
+function _pjbItemTime(it){
+  if(!it)return 0;
+  if(it.updatedAt)return Number(it.updatedAt)||0;
+  if(it.createdAt)return Number(it.createdAt)||0;
+  var m=String(it.id||'').match(/^bd_(\d+)/); return m?Number(m[1]):0;
+}
+function _pjbDateKey(ts){ if(!ts)return ''; var d=new Date(Number(ts)); if(isNaN(d.getTime()))return ''; return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
+function _pjbDateLabel(key){
+  if(!key||key==='날짜 없음')return '날짜 없음';
+  try{
+    var p=key.split('-'), d=new Date(+p[0],+p[1]-1,+p[2]); d.setHours(0,0,0,0);
+    var today=new Date(); today.setHours(0,0,0,0);
+    var diff=Math.round((today-d)/86400000);
+    var wd=['일','월','화','수','목','금','토'][d.getDay()];
+    if(diff===0)return '오늘 · '+(+p[1])+'.'+(+p[2]);
+    if(diff===1)return '어제 · '+(+p[1])+'.'+(+p[2]);
+    if(diff>=2&&diff<=6)return diff+'일 전 · '+(+p[1])+'.'+(+p[2]);
+    return (+p[1])+'.'+(+p[2])+' ('+wd+')'+(d.getFullYear()!==today.getFullYear()?' '+d.getFullYear():'');
+  }catch(e){ return key; }
+}
+/* 카드 중심점을 품는 프레임(가장 나중 것 우선 — 배열 뒤쪽이 위에 그려짐). */
+function _pjbItemFrame(b,it){
+  if(!it||it.type==='frame')return null;
+  var cx=(it.x||0)+((it.w||200)/2), cy=(it.y||0)+((it.h||150)/2), best=null;
+  _boardFrames(b).forEach(function(f){
+    var fx=f.x||0, fy=f.y||0, fw=f.w||320, fh=f.h||240;
+    if(cx>=fx&&cx<=fx+fw&&cy>=fy&&cy<=fy+fh)best=f;
+  });
+  return best;
+}
+/* 어느 프레임에도 안 겹치는 빈 자리(프레임 오른쪽 바깥). '미분류'로 옮길 때 사용. */
+function _pjbFreeSpot(b){
+  var frames=_boardFrames(b);
+  if(!frames.length){ var n=(b.items||[]).length%8; return {x:40+n*26,y:40+n*24}; }
+  var maxR=0; frames.forEach(function(f){ maxR=Math.max(maxR,(f.x||0)+(f.w||320)); });
+  var stray=(b.items||[]).filter(function(x){return x&&x.type!=='frame'&&!_pjbItemFrame(b,x);}).length%8;
+  return {x:maxR+40+stray*10, y:40+stray*24};
+}
+function pjbKanbanHtml(b){
+  if(!b||!Array.isArray(b.items))return '';
+  var group=pjbKanbanGroup();
+  var cards=b.items.filter(function(it){return it&&it.type!=='frame';});
+  var cols=[];
+  if(group==='frame'){
+    _boardFrames(b).forEach(function(f){ cols.push({key:'f_'+f.id, frameId:String(f.id), label:f.label||'프레임', accent:f.accent||'var(--fg-4)', items:[]}); });
+    var none={key:'none', frameId:'', label:'미분류', accent:'var(--fg-4)', items:[]};
+    cards.forEach(function(it){
+      var fr=_pjbItemFrame(b,it);
+      var col=fr?cols.find(function(c){return c.frameId===String(fr.id);}):null;
+      (col||none).items.push(it);
+    });
+    cols.push(none);
+  } else {
+    var map={};
+    cards.forEach(function(it){ var k=_pjbDateKey(_pjbItemTime(it))||'날짜 없음'; if(!map[k])map[k]=[]; map[k].push(it); });
+    Object.keys(map).sort(function(a,c){ if(a==='날짜 없음')return 1; if(c==='날짜 없음')return -1; return a<c?1:(a>c?-1:0); })
+      .forEach(function(k){ cols.push({key:'d_'+k, label:_pjbDateLabel(k), accent:'var(--accent)', items:map[k]}); });
+  }
+  if(!cols.length)return '';
+  var frameMode=(group==='frame');
+  return '<div class="pjb-kanban" id="pjb-kanban" data-kgroup="'+group+'">'+cols.map(function(col){
+    var body=col.items.length
+      ? col.items.map(function(it){ return '<div class="pjb-kcard" data-bd-kcard="'+projectEsc(it.id)+'">'+projectBoardItemHtml(it,true)+'</div>'; }).join('')
+      : '<div class="pjb-kcol-empty">비어 있음</div>';
+    return '<div class="pjb-kcol'+(frameMode?' pjb-kcol-frame':'')+'" data-bd-kcol="'+projectEsc(col.key)+'"'+(frameMode?' data-frame="'+projectEsc(col.frameId||'')+'"':'')+'>'+
+      '<div class="pjb-kcol-head"><span class="pjb-kcol-dot" style="--kdot:'+projectEsc(col.accent)+'"></span><span class="pjb-kcol-title">'+projectEsc(col.label)+'</span><span class="pjb-kcol-count">'+col.items.length+'</span></div>'+
+      '<div class="pjb-kcol-body">'+body+'</div></div>';
+  }).join('')+'</div>';
 }
 function projectGroupTasksByDate(list){
   var groups={};
