@@ -11152,6 +11152,26 @@ to{opacity:1;transform:translateY(0)}}
                 <button class="set-btn btn-ghost" onclick="gcalDiagnoseDuplicates()">중복 진단</button>
                 <button class="set-btn btn-ghost" onclick="gcalClearConfig()">연동 해제</button>
               </div>
+              <!-- 집중 기록 가져오기: 공부 전용 앱이 남긴 캘린더 세션을 이 앱 집중 기록으로 통합 -->
+              <div style="margin-top:var(--sp-5);padding-top:var(--sp-4);border-top:.5px solid var(--border-subtle)">
+                <div class="field-label">집중 기록 가져오기 · 공부 앱 통합</div>
+                <div class="field-help" style="margin:2px 0 var(--sp-3)">공부 전용 앱이 세션을 저장하는 <b>전용 캘린더 ID</b>를 넣으면, 그 캘린더의 시간 이벤트를 이 앱 집중 기록으로 가져와 함께 볼 수 있어요.</div>
+                <input class="set-inp mono" id="gcal-focus-cal" placeholder="공부 앱 캘린더 ID (예: xxxx@group.calendar.google.com)">
+                <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;margin-top:var(--sp-3)">
+                  <input class="set-inp" id="gcal-focus-label" placeholder="출처 라벨 (예: 공부앱)" style="flex:1;min-width:130px">
+                  <input class="set-inp" id="gcal-focus-keyword" placeholder="제목 필터(선택)" style="flex:1;min-width:130px">
+                </div>
+                <div style="display:flex;gap:var(--sp-3);align-items:center;flex-wrap:wrap;margin-top:var(--sp-3)">
+                  <label class="field-help"><input type="checkbox" id="gcal-focus-auto"> 동기화할 때 자동으로 가져오기</label>
+                  <select class="set-inp" id="gcal-focus-days" style="width:120px">
+                    <option value="7">최근 7일</option>
+                    <option value="30">최근 30일</option>
+                    <option value="90">최근 90일</option>
+                    <option value="365">최근 1년</option>
+                  </select>
+                  <button class="set-btn btn-primary" type="button" onclick="gcalSaveConfig(true);gcalImportFocus()">지금 가져오기</button>
+                </div>
+              </div>
               <div class="field-help" id="gcal-sync-status" style="margin-top:var(--sp-3)"></div>
             </div>
           </div>
@@ -40370,6 +40390,13 @@ function gcalLoadConfig(){
   if(tcal)tcal.value=_gcalCfg.taskCalendarId||'';
   if(auto)auto.checked=!!_gcalCfg.autoSync;
   if(rem)rem.value=String(_gcalCfg.reminderMin||0);
+  /* 집중 기록 가져오기 설정 */
+  var _fi=_gcalCfg.focusImport||{};
+  var fcal=document.getElementById('gcal-focus-cal'); if(fcal)fcal.value=_fi.calendarId||'';
+  var flbl=document.getElementById('gcal-focus-label'); if(flbl)flbl.value=_fi.label||'공부앱';
+  var fkw=document.getElementById('gcal-focus-keyword'); if(fkw)fkw.value=_fi.keyword||'';
+  var fauto=document.getElementById('gcal-focus-auto'); if(fauto)fauto.checked=!!_fi.enabled;
+  var fdays=document.getElementById('gcal-focus-days'); if(fdays)fdays.value=String(_fi.days||30);
   /* Show the EXACT values to register on the Google "웹 애플리케이션" client —
      a one-character redirect_uri mismatch is the #1 cause of login failure. */
   try{
@@ -40410,6 +40437,13 @@ function gcalSaveConfig(silent){
   _gcalCfg.taskCalendarId=elVal('gcal-task-calendar-id',_gcalCfg.taskCalendarId||'')||'';
   _gcalCfg.autoSync=elChecked('gcal-auto-sync',_gcalCfg.autoSync);
   _gcalCfg.reminderMin=reminderEl?(parseInt(reminderEl.value||'0',10)||0):(_gcalCfg.reminderMin||0);
+  /* 집중 기록 가져오기 설정 저장 */
+  _gcalCfg.focusImport=_gcalCfg.focusImport||{};
+  _gcalCfg.focusImport.calendarId=(elVal('gcal-focus-cal',_gcalCfg.focusImport.calendarId||'')||'').trim();
+  _gcalCfg.focusImport.label=(elVal('gcal-focus-label',_gcalCfg.focusImport.label||'공부앱')||'공부앱').trim()||'공부앱';
+  _gcalCfg.focusImport.keyword=(elVal('gcal-focus-keyword',_gcalCfg.focusImport.keyword||'')||'').trim();
+  _gcalCfg.focusImport.enabled=elChecked('gcal-focus-auto',_gcalCfg.focusImport.enabled);
+  _gcalCfg.focusImport.days=parseInt(elVal('gcal-focus-days',String(_gcalCfg.focusImport.days||30)),10)||30;
   if(_gcalToken){_gcalCfg._savedToken=_gcalToken;_gcalCfg._savedTokenExp=_gcalTokenExp;}
   var gcalOk=setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
   gcalLoadConfig(); if(!silent)showToast(gcalOk?'Google Calendar 설정 저장됨':'저장 실패 — 저장공간을 확인해주세요');
@@ -41412,6 +41446,8 @@ async function _gcalSyncInner(opts){
     _gcalDedupedThisSession = true;
     try{ await gcalRepairDuplicates({fromSync:true,silent:opts.silent}); }catch(repairErr){ console.warn('gcal post-sync duplicate repair failed:',repairErr&&repairErr.message); }
   }
+  /* 공부 앱 → 집중 기록 자동 가져오기(설정에서 켰을 때). 밀어넣기 동기화 직후 실행. */
+  try{ if(_gcalCfg&&_gcalCfg.focusImport&&_gcalCfg.focusImport.enabled&&typeof gcalImportFocus==='function'){ await gcalImportFocus({silent:true}); } }catch(fiErr){ console.warn('gcal focus import failed:',fiErr&&fiErr.message); }
 }
 
 
@@ -47717,6 +47753,100 @@ function buildManualFocusRecord(opts){
   var start=new Date(Number(p[0]),Number(p[1])-1,Number(p[2]),hh,mm,0,0);
   var completedAt=start.getTime()+durMin*60000;
   return {id:opts.id||('ftm_'+completedAt+'_'+Math.floor(Math.random()*1296).toString(36)),mode:opts.mode||'stopwatch',phase:'work',durationMs:durMin*60000,taskId:opts.taskId||'',taskText:opts.taskText||'',completedAt:completedAt,source:'manual'};
+}
+/* ── 구글 캘린더 → 집중 기록 가져오기 (공부 타이머 등 외부 앱 통합) ──────────
+   공부 전용 앱이 세션을 구글 캘린더 이벤트로 남기면, 그 전용 캘린더를 읽어 이 앱
+   집중 기록으로 통합한다. 이벤트 id로 안정적 id(gcalimp_<id>)를 만들어 다시 가져와도
+   중복되지 않고, 시간·길이가 바뀌면 그 기록만 갱신한다. 가져온 기록은 출처 라벨과
+   색으로 직접 잰 기록과 구분해 보여준다.
+   gcalEventToFocusRecord / gcalMergeFocusImports 는 네트워크와 무관한 순수 함수라
+   테스트로 고정한다(tests/gcal-focus-import.test.js). */
+function gcalEventToFocusRecord(ev,opts){
+  opts=opts||{};
+  if(!ev||typeof ev!=='object')return null;
+  if(ev.status==='cancelled')return null;
+  var s=ev.start&&ev.start.dateTime, e=ev.end&&ev.end.dateTime;
+  if(!s||!e)return null;                         /* 종일 이벤트(날짜만)는 집중 세션이 아님 */
+  var startMs=Date.parse(s), endMs=Date.parse(e);
+  if(!(endMs>startMs))return null;
+  var durMs=endMs-startMs;
+  var minMs=Math.max(0,(opts.minMinutes!=null?opts.minMinutes:1))*60000;
+  if(durMs<minMs)return null;
+  var maxMs=(opts.maxHours||24)*3600000;
+  if(durMs>maxMs)return null;                     /* 비정상적으로 긴 이벤트(잘못된 종일 등) 제외 */
+  var priv=(ev.extendedProperties&&ev.extendedProperties.private)||{};
+  if(priv.returnSyncSource==='return')return null;/* 이 앱이 밀어넣은 할일 이벤트는 되가져오지 않음 */
+  var summary=String(ev.summary||'').trim();
+  var kw=String(opts.keyword||'').trim();
+  if(kw&&summary.toLowerCase().indexOf(kw.toLowerCase())<0)return null;
+  return {
+    id:'gcalimp_'+String(ev.id||(startMs+'_'+endMs)),
+    mode:'countdown', phase:'work',
+    durationMs:durMs,
+    taskText:summary||'(제목 없음)',
+    categoryName:opts.label||'공부앱',
+    categoryColor:opts.color||'#5B8DEF',
+    completedAt:endMs,
+    source:'gcal',
+    _gcalEventId:String(ev.id||''),
+    _gcalCalId:String(opts.calId||'')
+  };
+}
+function gcalMergeFocusImports(events,log,opts){
+  log=Array.isArray(log)?log:[];
+  var byId={},i,l; for(i=0;i<log.length;i++){l=log[i];if(l&&l.id)byId[l.id]=l;}
+  var added=[],updated=0,skipped=0,seen={};
+  (events||[]).forEach(function(ev){
+    var rec=gcalEventToFocusRecord(ev,opts);
+    if(!rec){skipped++;return;}
+    if(seen[rec.id])return; seen[rec.id]=1;
+    var ex=byId[rec.id];
+    if(ex){
+      if(ex.durationMs!==rec.durationMs||ex.completedAt!==rec.completedAt||ex.taskText!==rec.taskText||ex.categoryName!==rec.categoryName||ex.categoryColor!==rec.categoryColor){
+        ex.durationMs=rec.durationMs;ex.completedAt=rec.completedAt;ex.taskText=rec.taskText;ex.categoryName=rec.categoryName;ex.categoryColor=rec.categoryColor;ex.source='gcal';updated++;
+      }
+      return;
+    }
+    added.push(rec); byId[rec.id]=rec;
+  });
+  return {added:added,updated:updated,skipped:skipped};
+}
+async function gcalImportFocus(o){
+  o=o||{}; var silent=!!o.silent;
+  var fi=(typeof _gcalCfg!=='undefined'&&_gcalCfg&&_gcalCfg.focusImport)||{};
+  var calId=o.calId||fi.calendarId||(typeof _gcalCfg!=='undefined'&&_gcalCfg&&_gcalCfg.calendarId)||'primary';
+  if(!calId){ if(!silent&&typeof showToast==='function')showToast('먼저 공부 앱 캘린더 ID를 넣어주세요'); return null; }
+  var days=Number(o.days||fi.days||30)||30;
+  try{
+    if(typeof gcalEnsureToken==='function')await gcalEnsureToken(!silent);
+    if(typeof _gcalToken==='undefined'||!_gcalToken){ if(!silent&&typeof showToast==='function')showToast('먼저 설정 > Google Calendar에서 로그인해주세요'); return null; }
+    var now=Date.now();
+    var timeMin=new Date(now-days*86400000).toISOString();
+    var timeMax=new Date(now+86400000).toISOString();
+    var events=[],pageToken='',guard=0;
+    do{
+      var path='?singleEvents=true&orderBy=startTime&maxResults=2500&timeMin='+encodeURIComponent(timeMin)+'&timeMax='+encodeURIComponent(timeMax)+(pageToken?'&pageToken='+encodeURIComponent(pageToken):'');
+      var data=await gcalApiCal('GET',path,null,calId);
+      if(data&&Array.isArray(data.items))events=events.concat(data.items);
+      pageToken=(data&&data.nextPageToken)||'';
+    }while(pageToken&&(++guard)<6);
+    var opts={keyword:fi.keyword||'',label:fi.label||'공부앱',color:fi.color||'#5B8DEF',calId:calId,minMinutes:(fi.minMinutes!=null?fi.minMinutes:1),maxHours:24};
+    var res=gcalMergeFocusImports(events,focusTimerLog,opts);
+    if(res.added.length)focusTimerLog.push.apply(focusTimerLog,res.added);
+    if(res.added.length||res.updated){
+      focusTimerLog.sort(function(a,b){return (a.completedAt||0)-(b.completedAt||0);});
+      focusTimerSaveLog();
+      try{ if(typeof _currentPage!=='undefined'&&_currentPage==='timer'&&typeof renderFocusTimer==='function')renderFocusTimer(); }catch(e){}
+      try{ if(typeof renderFocusTimerMini==='function')renderFocusTimerMini(); }catch(e){}
+    }
+    if(!silent&&typeof showToast==='function')showToast(res.added.length?('집중 기록 '+res.added.length+'개 가져왔어요'+(res.updated?(' · '+res.updated+' 갱신'):'')):(res.updated?(res.updated+'개 기록을 갱신했어요'):'새로 가져올 기록이 없어요'));
+    try{ var st=document.getElementById('gcal-sync-status'); if(st&&!silent)st.textContent='집중 기록 가져오기 — 새 '+res.added.length+'개 · 갱신 '+res.updated+'개 · 건너뜀 '+res.skipped+'개'; }catch(e){}
+    return res;
+  }catch(err){
+    if(!silent&&typeof showToast==='function')showToast('가져오기 실패: '+(err&&err.message||'오류'));
+    console.warn('[gcal] focus import',err);
+    return null;
+  }
 }
 function _ftModeColor(mode){return mode==='countdown'?'#4FB0A6':mode==='stopwatch'?'#9B8CF0':'#E08A5B';}
 function _ftModeLabel(mode){return mode==='countdown'?'카운트다운':mode==='stopwatch'?'스톱워치':'포모도로';}
