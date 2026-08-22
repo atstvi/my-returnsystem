@@ -6551,15 +6551,6 @@ to{opacity:1;transform:translateY(0)}}
 .subj-head:hover{background:var(--bg-hover)}
 .subj-dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
 .subj-name{font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.subj-swatches{display:flex;gap:var(--sp-1)}
-.swatch-btn{
-  width:13px;height:13px;border-radius:50%;cursor:pointer;
-  border:1.5px solid transparent;
-  transition:transform var(--t-snap),border-color var(--t-snap);
-  flex-shrink:0;
-}
-.swatch-btn:hover{transform:scale(1.2)}
-.swatch-btn.active{border-color:var(--bg-card);outline:2px solid currentColor}
 
 /* Session rows */
 .session-row{
@@ -28574,6 +28565,29 @@ function getTodayDayIdx() {
   return dow === 0 ? 6 : dow - 1;
 }
 
+/* 시간표 과목 색 팝오버 — 할일 카테고리처럼 색 점을 누르면 팔레트 그리드가 떠서
+   고른다(과목마다 스와치를 가로로 길게 늘어놓지 않게). 시간표 색은 팔레트 슬롯
+   인덱스(colorIdx)로 저장되므로, 지금 시간표 팔레트 16색을 그리드로 보여주고
+   고른 인덱스를 돌려준다. */
+function openTtColorPopover(anchor, curIdx, onPick){
+  var old=document.getElementById('cat-color-pop'); if(old)old.remove();
+  var vals=(typeof ttPaletteValues==='function')?ttPaletteValues():[];
+  if(!vals.length){ for(var i=0;i<16;i++)vals.push('var(--pal-'+i+')'); }
+  var cur=((curIdx%vals.length)+vals.length)%vals.length;
+  var pop=document.createElement('div'); pop.id='cat-color-pop'; pop.className='cat-color-pop';
+  pop.innerHTML='<div class="cat-color-grid">'+vals.map(function(c,i){
+    return '<button type="button" class="cat-color-swatch'+(i===cur?' active':'')+'" data-idx="'+i+'" title="'+(i+1)+'번 색" style="--swatch:'+c+'"></button>';
+  }).join('')+'</div>';
+  document.body.appendChild(pop);
+  var r=anchor.getBoundingClientRect(), pw=pop.offsetWidth, ph=pop.offsetHeight;
+  var left=Math.max(8, Math.min(window.innerWidth-pw-8, r.right-pw));
+  var top=r.bottom+6; if(top+ph>window.innerHeight-8) top=Math.max(8, r.top-ph-6);
+  pop.style.left=left+'px'; pop.style.top=top+'px';
+  function closePop(){ if(pop.parentNode)pop.remove(); document.removeEventListener('click',onDoc,true); window.removeEventListener('resize',closePop); }
+  function onDoc(e){ if(!pop.contains(e.target)&&e.target!==anchor&&!anchor.contains(e.target))closePop(); }
+  pop.addEventListener('click',function(e){ var sw=e.target.closest('.cat-color-swatch'); if(!sw)return; e.stopPropagation(); if(typeof onPick==='function')onPick(Number(sw.getAttribute('data-idx'))); closePop(); });
+  setTimeout(function(){ document.addEventListener('click',onDoc,true); window.addEventListener('resize',closePop); },0);
+}
 /* ── SEMESTER LIST ── */
 function renderSemList() {
   var el = document.getElementById('sem-list');
@@ -28855,27 +28869,27 @@ function renderSlotList(tt) {
     nameEl.className = 'subj-name';
     nameEl.textContent = title;
 
-    /* Color swatches */
-    var swatches = document.createElement('div');
-    swatches.className = 'subj-swatches';
-    TT_COLORS.forEach(function(c, ci) {
-      var sw = document.createElement('button');
-      sw.className = 'swatch-btn' + (ci === g.colorIdx % TT_COLORS.length ? ' active' : '');
-      sw.style.background = c;
-      sw.style.color = c;
-      sw.title = '색상 변경';
-      ;(function(colorIdx, subjectTitle) {
-        sw.addEventListener('click', function(e) {
-          e.stopPropagation();
-          changeSubjectColor(subjectTitle, colorIdx);
-        });
-      })(ci, title);
-      swatches.appendChild(sw);
-    });
+    /* Color picker — 한 개의 색 점을 누르면 팔레트 팝오버가 뜬다(할일 카테고리와 동일). */
+    var colorBtn = document.createElement('button');
+    colorBtn.type = 'button';
+    colorBtn.className = 'cat-color-dot';
+    colorBtn.style.setProperty('--swatch', color);
+    colorBtn.title = '색 바꾸기';
+    colorBtn.setAttribute('aria-label', '색 바꾸기');
+    ;(function(subjectTitle) {
+      colorBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var tt = getActiveTt();
+        var g2 = null;
+        (tt && tt.slots || []).some(function(s){ if(s.title===subjectTitle){ g2=s; return true; } return false; });
+        var curIdx = g2 ? g2.colorIdx : 0;
+        openTtColorPopover(colorBtn, curIdx, function(idx) { changeSubjectColor(subjectTitle, idx); });
+      });
+    })(title);
 
     head.appendChild(dot);
     head.appendChild(nameEl);
-    head.appendChild(swatches);
+    head.appendChild(colorBtn);
     group.appendChild(head);
 
     /* Session rows */
