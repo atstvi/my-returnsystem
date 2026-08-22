@@ -13644,16 +13644,29 @@ function renderHomeSituation(){
       });
     }
   }
-  /* 얼마 남지 않은 일정 — compact upcoming-deadline list inside 오늘 상황
-     (reuses the `deadlines` computed above; future/today only, nearest first). */
+  /* 다가오는 할일 — 마감뿐 아니라 시간/날짜가 잡힌 '모든' 할일을 가장 가까운 날짜순으로.
+     (마감만 보이던 것을 넓힘.) 오늘·미래만, 여행 패딩(_travelOnly) 제외, '다음 준비'에
+     이미 뜬 임박 할일은 중복 제외. 마감·시작날짜 중 더 가까운 예정일을 기준으로 정렬. */
   var upEl = document.getElementById('sit-upcoming');
   if (upEl) {
-    var upcomingDl = deadlines.filter(function(x){ return x.days >= 0; }).slice(0, 3);
+    var _nextIds = {};
+    try { (typeof nextList !== 'undefined' && nextList || []).forEach(function(x){ if (x && x.task) _nextIds[String(x.task.id)] = 1; }); } catch(e) {}
+    var upcomingAll = openTasks.map(function(t){
+      if (t._travelOnly) return null;
+      var cands = [];
+      if (t.deadlineDate && t.deadlineDate >= TK) cands.push({ d:t.deadlineDate, dl:true });
+      if (t.date && t.date >= TK) cands.push({ d:t.date, dl:false });
+      if (!cands.length) return null;
+      cands.sort(function(a,b){ return a.d < b.d ? -1 : (a.d > b.d ? 1 : 0); });
+      var pick = cands[0], dd = new Date(pick.d + 'T00:00');
+      return { task:t, days:Math.round((dd - now) / 86400000), isDeadline:pick.dl };
+    }).filter(function(x){ return x && !_nextIds[String(x.task.id)]; })
+      .sort(function(a,b){ return (a.days - b.days) || (a.isDeadline === b.isDeadline ? 0 : (a.isDeadline ? -1 : 1)); });
+    var upcomingDl = upcomingAll.slice(0, 3);
     if (!upcomingDl.length) {
-      /* No upcoming deadlines — show a calm note (pinned to the bottom of the
-         card via margin-top:auto) instead of leaving a void. */
+      /* 다가오는 할일이 없으면 빈 자리 대신 차분한 문구(카드 하단 고정). */
       upEl.style.display = '';
-      upEl.innerHTML = '<div class="sit-up-empty">✦ 다가오는 마감이 없어요 · 여유로운 하루예요</div>';
+      upEl.innerHTML = '<div class="sit-up-empty">✦ 다가오는 할일이 없어요 · 여유로운 하루예요</div>';
     }
     else {
       upEl.style.display = '';
@@ -13664,10 +13677,10 @@ function renderHomeSituation(){
           + '<span class="sit-up-title">' + tEscHtml(x.task.text) + '</span>'
           + '<span class="sit-up-dday ' + tone + '">' + dl + '</span></button>';
       }).join('');
-      upEl.innerHTML = '<div class="sit-up-head">얼마 남지 않은 일정</div><div class="sit-up-list">' + rows + '</div>';
+      upEl.innerHTML = '<div class="sit-up-head">다가오는 할일</div><div class="sit-up-list">' + rows + '</div>';
       upEl.querySelectorAll('.sit-up-row').forEach(function(btn){
         btn.addEventListener('click', function(){
-          openHomeSignalList('얼마 남지 않은 일정', upcomingDl.map(function(x){
+          openHomeSignalList('다가오는 할일', upcomingAll.map(function(x){
             return { label: (x.days === 0 ? '오늘' : 'D-' + x.days) + ' · ' + x.task.text, task: x.task };
           }));
         });
