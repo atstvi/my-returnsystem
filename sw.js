@@ -104,9 +104,57 @@ self.addEventListener('push', function(e) {
   e.waitUntil(self.registration.showNotification(title, opts));
 });
 
+/* 알림창 액션 핸드오프용 초경량 IndexedDB 큐 — 열린 창이 없을 때(닫힌 상태에서
+   스누즈/완료를 눌렀을 때) 다음 앱 실행에서 처리하도록 남겨 둔다. */
+function _swQueueAction(item) {
+  return new Promise(function(resolve) {
+    try {
+      var r = indexedDB.open('return-notif', 1);
+      r.onupgradeneeded = function() { try { r.result.createObjectStore('pending', { keyPath: 'id', autoIncrement: true }); } catch (_) {} };
+      r.onsuccess = function() {
+        try {
+          var db = r.result, tx = db.transaction('pending', 'readwrite');
+          tx.objectStore('pending').add(item);
+          tx.oncomplete = function() { resolve(); };
+          tx.onerror = function() { resolve(); };
+        } catch (_) { resolve(); }
+      };
+      r.onerror = function() { resolve(); };
+    } catch (_) { resolve(); }
+  });
+}
+
 self.addEventListener('notificationclick', function(e) {
+  var action = e.action || '';
+  var data = (e.notification && e.notification.data) || {};
   e.notification.close();
-  var url = (e.notification.data && e.notification.data.url) || './';
+
+  /* 틱틱식 알림창 액션: 미루기(스누즈)·완료. 열린 창이 있으면 즉시 전달, 없으면
+     절대 시각(dueAt)을 담아 큐에 넣어 다음 실행에서 반영(스누즈가 사라지지 않게). */
+  if (action === 'snooze-10' || action === 'snooze-60' || action === 'done') {
+    var isDone = action === 'done';
+    var minutes = action === 'snooze-60' ? 60 : 10;
+    var payload = {
+      type: 'notif-action',
+      action: isDone ? 'done' : 'snooze',
+      minutes: minutes,
+      dueAt: isDone ? 0 : (Date.now() + minutes * 60000),
+      data: data, ts: Date.now()
+    };
+    e.waitUntil(
+      self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
+        if (list && list.length) {
+          list.forEach(function(c) { try { c.postMessage(payload); } catch (_) {} });
+          return;
+        }
+        return _swQueueAction(payload); /* 창이 없으면 조용히 큐에만(앱을 강제로 열지 않음) */
+      })
+    );
+    return;
+  }
+
+  /* 본문 클릭 → 앱 열기/포커스 */
+  var url = (data && data.url) || './';
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function(list) {
       for (var i = 0; i < list.length; i++) {
