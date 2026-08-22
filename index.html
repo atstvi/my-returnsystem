@@ -3110,6 +3110,11 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 .cat-color-dot{width:26px;height:26px;border-radius:var(--r-full);border:0;cursor:pointer;padding:0;flex-shrink:0;background:var(--swatch);box-shadow:inset 0 0 0 1px var(--border);transition:box-shadow var(--t-snap),transform var(--t-snap)}
 .cat-color-dot:hover{transform:scale(1.08);box-shadow:inset 0 0 0 1px var(--border),0 0 0 3px var(--accent-light)}
 .cat-color-pop{position:fixed;z-index:400;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:10px;display:grid;grid-template-columns:repeat(6,26px);gap:8px;animation:pop-in .12s ease-out}
+/* Theme Studio 색 허브의 팔레트 점 편집기 */
+.tt-palette-editor{flex-wrap:wrap;align-items:center;gap:8px}
+.tt-palette-editor .pal-dot{width:24px;height:24px}
+.pal-cat-chip{display:inline-flex;align-items:center;gap:6px}
+.pal-cat-name{font-size:var(--text-xs);color:var(--fg-2);white-space:nowrap}
 
 /* Grid scroll */
 .cal-grid-outer{flex:1;overflow-y:auto;padding:var(--sp-4) clamp(16px,3vw,40px) var(--sp-8)}
@@ -14175,7 +14180,27 @@ function returnMigratePaletteColors(){
   try{ localStorage.setItem('return_palette_v1_migrated','1'); }catch(e){}
   return changed;
 }
-(function(){ if(typeof document==='undefined')return; function _m(){ try{ returnMigratePaletteColors(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_m,300);}); else setTimeout(_m,300); })();
+/* 색 허브 정리: 예전 Theme Studio/시간표 hex 오버라이드를 새 팔레트(가장 가까운 hue의
+   토큰)로 옮겨, 새 테마-인지 팔레트를 따르게 한다(색상은 보존). 1회만. */
+function returnMigrateColorHub(){
+  try{ if(localStorage.getItem('return_palette_hub_v1')==='1')return false; }catch(e){}
+  function mapHexArr(arr){ var ch=false; if(Array.isArray(arr))for(var i=0;i<arr.length;i++){ var v=String(arr[i]||''); if(/^#[0-9a-f]{6}$/i.test(v)){ var nv=returnNearestPaletteVar(v); if(nv!==v){arr[i]=nv;ch=true;} } } return ch; }
+  try{ var tt=JSON.parse(localStorage.getItem('timetable_palette_v1')||'null'); if(Array.isArray(tt)&&mapHexArr(tt)&&typeof setReturnStorageItem==='function')setReturnStorageItem('timetable_palette_v1',JSON.stringify(tt)); }catch(e){}
+  try{
+    var s=JSON.parse(localStorage.getItem('return_theme_studio_state_v1')||'null');
+    if(s&&s.palettes){
+      var changed=false;
+      if(mapHexArr(s.palettes.timetable))changed=true;
+      if(s.palettes.task&&typeof s.palettes.task==='object'){ Object.keys(s.palettes.task).forEach(function(k){ var v=String(s.palettes.task[k]||''); if(/^#[0-9a-f]{6}$/i.test(v)){ var nv=returnNearestPaletteVar(v); if(nv!==v){s.palettes.task[k]=nv;changed=true;} } }); }
+      if(changed&&typeof setReturnStorageItem==='function')setReturnStorageItem('return_theme_studio_state_v1',JSON.stringify(s));
+    }
+  }catch(e){}
+  try{ if(typeof CATS!=='undefined'&&Array.isArray(CATS)){ var cch=false; CATS.forEach(function(c){ if(c&&c.color&&/^#[0-9a-f]{6}$/i.test(String(c.color))){ var nv=returnNearestPaletteVar(c.color); if(nv!==c.color){c.color=nv;cch=true;} } }); if(cch&&typeof saveTaskCatsData==='function')saveTaskCatsData(); } }catch(e){}
+  try{ if(typeof applyTtPalette==='function')applyTtPalette(); }catch(e){}
+  try{ localStorage.setItem('return_palette_hub_v1','1'); }catch(e){}
+  return true;
+}
+(function(){ if(typeof document==='undefined')return; function _m(){ try{ returnMigratePaletteColors(); }catch(e){} try{ returnMigrateColorHub(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_m,300);}); else setTimeout(_m,300); })();
 /* 부팅 시 저장된 테마의 톤을 라벨 팔레트에 반영(초기 IIFE는 body 이전이라 여기서). */
 (function(){ if(typeof document==='undefined')return; function _t(){ try{ returnSyncPaletteTone(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_t); else _t(); try{ window.addEventListener('load',_t); }catch(e){} })();
 function openFormDialog(title, fields, onSave, opts){
@@ -28029,10 +28054,13 @@ var TT_COLORS_CSS = (function(){var o=[];for(var i=0;i<16;i++)o.push('var(--tt-p
 var TT_COLORS = (function(){var o=[];for(var i=0;i<16;i++)o.push('var(--tt-palette-'+i+', color-mix(in srgb, var(--pal-'+i+') 84%, var(--n-0)))');return o;})();
 var TT_PALETTE_KEY = 'timetable_palette_v1';
 var TT_DEFAULT_PALETTE = ['#c14e61','#c25447','#c36c41','#be7f37','#b38f32','#a79735','#729640','#438e56','#3d8f74','#388f8c','#34889d','#3a82b6','#5379c6','#6c63c5','#8f60be','#bd5697'];
+/* 시간표 팔레트 색 값은 hex 또는 앱 팔레트 토큰(var(--pal-N)/color-mix)을 허용한다
+   — 새 팔레트 토큰을 그대로 저장할 수 있게. */
+function _ttValidColor(c){ c=String(c||''); return /^#[0-9a-f]{6}$/i.test(c)||/var\(--/.test(c)||/color-mix/.test(c); }
 function ttReadPalette(){
   try{
     var raw = JSON.parse(localStorage.getItem(TT_PALETTE_KEY) || '[]');
-    if(Array.isArray(raw)) return raw.filter(function(c){return /^#[0-9a-f]{6}$/i.test(String(c||''));}).slice(0, TT_COLORS.length);
+    if(Array.isArray(raw)) return raw.filter(_ttValidColor).slice(0, TT_COLORS.length);
   }catch(e){}
   return [];
 }
@@ -28040,7 +28068,7 @@ function ttReadThemePalette(){
   try{
     var raw=JSON.parse(localStorage.getItem('return_theme_studio_state_v1')||'{}');
     var list=raw&&raw.palettes&&raw.palettes.timetable;
-    if(Array.isArray(list))return list.filter(function(c){return /^#[0-9a-f]{6}$/i.test(String(c||''));}).slice(0,TT_COLORS.length);
+    if(Array.isArray(list))return list.filter(_ttValidColor).slice(0,TT_COLORS.length);
   }catch(e){}
   return [];
 }
@@ -28076,11 +28104,15 @@ function applyTtPalette(){
   document.head.appendChild(style);
 }
 function saveTtPalette(colors){
-  var clean = (colors||[]).map(function(c,i){return /^#[0-9a-f]{6}$/i.test(String(c||'')) ? c : TT_DEFAULT_PALETTE[i];}).slice(0, TT_COLORS.length);
+  var clean = (colors||[]).map(function(c,i){return _ttValidColor(c) ? String(c) : TT_DEFAULT_PALETTE[i];}).slice(0, TT_COLORS.length);
   if(clean.length) setReturnStorageItem(TT_PALETTE_KEY, JSON.stringify(clean));
   else localStorage.removeItem(TT_PALETTE_KEY);
+  /* TT_PALETTE_KEY를 단일 출처로: Theme Studio의 옛 timetable 오버라이드가 이 값을
+     가리지 않도록 제거(둘 다 있으면 헷갈림). */
+  try{ var s=(typeof themeStudioGet==='function')?themeStudioGet():null; if(s&&s.palettes&&s.palettes.timetable){ delete s.palettes.timetable; if(typeof themeStudioSet==='function')themeStudioSet(s,true); } }catch(e){}
   applyTtPalette();
   renderTtPaletteEditor();
+  if(typeof themeStudioRenderTimetablePalette==='function')try{themeStudioRenderTimetablePalette();}catch(e){}
   if(activeId){ renderGrid(); renderSlotPanel(); renderSemList(); }
   if(typeof scheduleCloudSave==='function') scheduleCloudSave();
 }
@@ -28151,86 +28183,74 @@ function bindThemePalettePresetButtons(box){
   box.querySelectorAll('[data-palette-delete]').forEach(function(btn){btn.addEventListener('click',function(){themePaletteDeletePreset(btn.dataset.paletteDelete,btn.dataset.paletteId);});});
   box.querySelectorAll('[data-palette-save]').forEach(function(btn){btn.addEventListener('click',function(){themePaletteSaveCurrent(btn.dataset.paletteSave);});});
 }
+/* 시간표 팔레트의 현재 값(저장된 오버라이드 우선, 없으면 앱 팔레트 기본 var(--pal-i)). */
+function ttPaletteValues(){
+  var saved=ttReadThemePalette(); if(!saved.length)saved=ttReadPalette();
+  var out=[]; for(var i=0;i<TT_COLORS.length;i++){ out.push(saved[i]||('var(--pal-'+i+')')); }
+  return out;
+}
+/* 팔레트 편집기(스와치 그리드 대신 색 점 → 팝오버). box: 컨테이너, values: 색 배열,
+   note: 라벨, onPick(i,color): 변경 콜백, onReset: 기본값 버튼. */
+function _paletteDotEditor(box,note,values,onPick,onReset){
+  if(!box)return;
+  box.innerHTML='<span class="tt-palette-note">'+note+'</span>'+values.map(function(c,i){
+    return '<button type="button" class="cat-color-dot pal-dot" data-pal-idx="'+i+'" style="--swatch:'+c+'" title="'+(i+1)+'번 색"></button>';
+  }).join('')+(onReset?'<button class="tb-btn tb-btn-ghost pal-reset" type="button">기본값</button>':'');
+  box.querySelectorAll('.pal-dot').forEach(function(dot){
+    dot.addEventListener('click',function(){
+      openCatColorPopover(dot, dot.style.getPropertyValue('--swatch'), function(color){
+        dot.style.setProperty('--swatch',color);
+        onPick(Number(dot.getAttribute('data-pal-idx')), color);
+      });
+    });
+  });
+  if(onReset){ var r=box.querySelector('.pal-reset'); if(r)r.addEventListener('click',onReset); }
+}
 function renderTtPaletteEditor(){
   var box = document.getElementById('tt-palette-editor');
   if(!box) return;
-  var colors = ttFallbackPalette();
-  box.innerHTML = '<span class="tt-palette-note">과목 색상 팔레트</span>' + colors.map(function(c,i){
-    return '<label class="tt-palette-chip"><span>'+(i+1)+'</span><input type="color" data-tt-palette="'+i+'" value="'+c+'"></label>';
-  }).join('') + '<button class="tb-btn tb-btn-ghost" type="button" id="tt-palette-reset">기본값</button>';
-  box.querySelectorAll('[data-tt-palette]').forEach(function(inp){
-    inp.addEventListener('change', function(){
-      var next = ttFallbackPalette();
-      next[Number(inp.dataset.ttPalette)] = inp.value;
-      saveTtPalette(next);
-    });
-  });
-  var reset = document.getElementById('tt-palette-reset');
-  if(reset) reset.addEventListener('click', resetTtPalette);
+  _paletteDotEditor(box,'과목 색상 팔레트',ttPaletteValues(),function(i,color){
+    var next=ttPaletteValues(); next[i]=color; saveTtPalette(next);
+  },resetTtPalette);
 }
 function themeStudioRenderTimetablePalette(){
   var box = document.getElementById('theme-tt-palette-editor');
-  if(!box || typeof ttFallbackPalette!=='function') return;
-  var cur=themeStudioGet();
-  var colors = (((cur.palettes||{}).timetable||[]).length?(cur.palettes.timetable||[]):ttFallbackPalette());
-  box.innerHTML = '<span class="tt-palette-note">Time table</span>' + colors.map(function(c,i){
-    return '<label class="tt-palette-chip"><span>'+(i+1)+'</span><input type="color" data-theme-tt-palette="'+i+'" value="'+c+'"></label>';
-  }).join('') + '<button class="tb-btn tb-btn-ghost" type="button" id="theme-tt-palette-reset">Use theme colors</button><button class="tb-btn tb-btn-ghost" type="button" data-palette-save="timetable">Save palette</button>'+themePalettePresetButtons('timetable');
-  box.querySelectorAll('[data-theme-tt-palette]').forEach(function(inp){
-    inp.addEventListener('change', function(){
-      var next = colors.slice();
-      next[Number(inp.dataset.themeTtPalette)] = inp.value;
-      var s=themeStudioGet();
-      s.palettes=s.palettes||{};
-      s.palettes.timetable=next;
-      setReturnStorageItem(TT_PALETTE_KEY,JSON.stringify(next));
-      themeStudioSet(s,true);
-      themeStudioRenderTimetablePalette();
-    });
-  });
-  var reset = document.getElementById('theme-tt-palette-reset');
-  if(reset) reset.addEventListener('click', function(){
-    var s=themeStudioGet();
-    s.palettes=s.palettes||{};
-    s.palettes.timetable=themeStudioPaletteFromAccent((s.colors||{}).accent);
+  if(!box || typeof ttPaletteValues!=='function') return;
+  _paletteDotEditor(box,'시간표 색상',ttPaletteValues(),function(i,color){
+    var next=ttPaletteValues(); next[i]=color; saveTtPalette(next); themeStudioRenderTimetablePalette();
+  },function(){ /* 기본값: 오버라이드 제거 → 앱 팔레트를 그대로 따름 */
+    try{ var s=themeStudioGet&&themeStudioGet(); if(s&&s.palettes){ delete s.palettes.timetable; themeStudioSet&&themeStudioSet(s,true); } }catch(e){}
     try{localStorage.removeItem(TT_PALETTE_KEY);}catch(e){}
-    themeStudioSet(s,true);
+    if(typeof applyTtPalette==='function')applyTtPalette();
+    if(typeof activeId!=='undefined'&&activeId){ try{renderGrid();renderSlotPanel();renderSemList();}catch(e){} }
     themeStudioRenderTimetablePalette();
   });
-  bindThemePalettePresetButtons(box);
 }
 function themeStudioRenderTaskPalette(){
   var box=document.getElementById('theme-task-palette-editor');
   if(!box)return;
-  var cur=themeStudioGet();
-  var pal=(typeof taskCategoryPaletteSnapshot==='function')?taskCategoryPaletteSnapshot():(((cur.palettes||{}).task)||{});
-  var items=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return [c.id,(c.emoji?c.emoji+' ':'')+c.label,normalizeTaskCatColor(c.color)];});
-  box.innerHTML='<span class="tt-palette-note">Task categories</span>'+items.map(function(x){
-    return '<label class="tt-palette-chip"><span>'+themeStudioEsc(x[1])+'</span><input type="color" data-theme-task-palette="'+themeStudioEsc(x[0])+'" value="'+themeStudioEsc(taskCategoryColorInputValue(pal[x[0]]||x[2]))+'"></label>';
-  }).join('')+'<button class="tb-btn tb-btn-ghost" type="button" id="theme-task-palette-reset">Use theme colors</button><button class="tb-btn tb-btn-ghost" type="button" data-palette-save="task">Save palette</button>'+themePalettePresetButtons('task');
-  box.querySelectorAll('[data-theme-task-palette]').forEach(function(inp){
-    inp.addEventListener('change',function(){
-      var s=themeStudioGet();
-      s.palettes=s.palettes||{};
-      s.palettes.task=(typeof taskCategoryPaletteSnapshot==='function'?taskCategoryPaletteSnapshot():themeStudioClone((s.palettes||{}).task||{}));
-      s.palettes.task[inp.dataset.themeTaskPalette]=inp.value;
-      if(typeof applyTaskCategoryPalette==='function')applyTaskCategoryPalette(s.palettes.task);
-      themeStudioSet(s,true);
-      themeStudioRenderTaskPalette();
+  var items=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {id:c.id,label:(c.emoji?c.emoji+' ':'')+c.label,color:normalizeTaskCatColor(c.color)};});
+  box.innerHTML='<span class="tt-palette-note">할일 카테고리</span>'+items.map(function(x){
+    return '<span class="pal-cat-chip"><button type="button" class="cat-color-dot pal-dot" data-task-cat="'+themeStudioEsc(x.id)+'" style="--swatch:'+x.color+'" title="색 바꾸기"></button><span class="pal-cat-name">'+themeStudioEsc(x.label)+'</span></span>';
+  }).join('')+'<button class="tb-btn tb-btn-ghost" type="button" id="theme-task-palette-reset">앱 팔레트로</button>';
+  box.querySelectorAll('.pal-dot[data-task-cat]').forEach(function(dot){
+    dot.addEventListener('click',function(){
+      var id=dot.getAttribute('data-task-cat');
+      openCatColorPopover(dot, dot.style.getPropertyValue('--swatch'), function(color){
+        dot.style.setProperty('--swatch',color);
+        var c=(typeof CATS!=='undefined'?CATS:[]).find(function(x){return x.id===id;});
+        if(c){ c.color=(typeof normalizeTaskCatColor==='function')?normalizeTaskCatColor(color):color; if(typeof saveTaskCatsData==='function')saveTaskCatsData(); try{renderTaskCatFilter();renderCal();renderList();}catch(e){} try{if(typeof homeRefreshCards==='function')homeRefreshCards();}catch(e){} }
+      });
     });
   });
   var reset=document.getElementById('theme-task-palette-reset');
   if(reset)reset.addEventListener('click',function(){
-    var s=themeStudioGet();
-    s.palettes=s.palettes||{};
-    var base=themeStudioPaletteFromAccent((s.colors||{}).accent);
-    s.palettes.task={};
-    (typeof CATS!=='undefined'?CATS:[]).forEach(function(c,i){s.palettes.task[c.id]=base[i%base.length];});
-    if(typeof applyTaskCategoryPalette==='function')applyTaskCategoryPalette(s.palettes.task);
-    themeStudioSet(s,true);
+    /* 앱 팔레트로: 각 카테고리를 팔레트 색으로 순서대로 재배정. */
+    (typeof CATS!=='undefined'?CATS:[]).forEach(function(c,i){ c.color=returnPaletteVar(i); });
+    if(typeof saveTaskCatsData==='function')saveTaskCatsData();
+    try{renderTaskCatFilter();renderCal();renderList();}catch(e){}
     themeStudioRenderTaskPalette();
   });
-  bindThemePalettePresetButtons(box);
 }
 function bindTtPaletteToggle(){
   var btn = document.getElementById('tt-palette-toggle');
