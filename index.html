@@ -14212,7 +14212,23 @@ function returnMigrateColorHub(){
   try{ localStorage.setItem('return_palette_hub_v1','1'); }catch(e){}
   return true;
 }
-(function(){ if(typeof document==='undefined')return; function _m(){ try{ returnMigratePaletteColors(); }catch(e){} try{ returnMigrateColorHub(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_m,300);}); else setTimeout(_m,300); })();
+/* 이미 저장해 둔 프리셋의 팔레트가 옛 hex로 굳어 테마에 안 맞춰지던 문제 정리:
+   저장/가져온 프리셋 스냅샷의 시간표·할일 팔레트 hex를 가장 가까운 앱 팔레트 토큰으로
+   1회 이관 → 그 프리셋을 적용해도 var(--pal-N)이라 테마 톤을 따라간다. */
+function returnMigratePresetPalettes(){
+  try{ if(localStorage.getItem('return_preset_pal_v1')==='1')return false; }catch(e){}
+  function mapHex(v){ v=String(v||''); return /^#[0-9a-f]{6}$/i.test(v)?returnNearestPaletteVar(v):v; }
+  function fixList(list){ var ch=false; (list||[]).forEach(function(p){ var snap=p&&p.snapshot&&p.snapshot.palettes; if(!snap)return; if(Array.isArray(snap.timetable)){ snap.timetable=snap.timetable.map(function(v){var nv=mapHex(v); if(nv!==v)ch=true; return nv;}); } if(snap.task&&typeof snap.task==='object'){ Object.keys(snap.task).forEach(function(k){ if(k==='deadline'||k==='schedule'||k==='task')return; /* 의미색은 유지 */ var nv=mapHex(snap.task[k]); if(nv!==snap.task[k]){snap.task[k]=nv;ch=true;} }); } }); return ch; }
+  try{
+    ['return_theme_studio_presets_v1','return_theme_studio_imported_presets_v1'].forEach(function(key){
+      var list=JSON.parse(localStorage.getItem(key)||'null');
+      if(Array.isArray(list)&&fixList(list)&&typeof setReturnStorageItem==='function')setReturnStorageItem(key,JSON.stringify(list));
+    });
+  }catch(e){ console.warn('[palette] preset migrate',e); }
+  try{ localStorage.setItem('return_preset_pal_v1','1'); }catch(e){}
+  return true;
+}
+(function(){ if(typeof document==='undefined')return; function _m(){ try{ returnMigratePaletteColors(); }catch(e){} try{ returnMigrateColorHub(); }catch(e){} try{ returnMigratePresetPalettes(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(_m,300);}); else setTimeout(_m,300); })();
 /* 부팅 시 저장된 테마의 톤을 라벨 팔레트에 반영(초기 IIFE는 body 이전이라 여기서). */
 (function(){ if(typeof document==='undefined')return; function _t(){ try{ returnSyncPaletteTone(); }catch(e){} } if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',_t); else _t(); try{ window.addEventListener('load',_t); }catch(e){} })();
 function openFormDialog(title, fields, onSave, opts){
@@ -42818,7 +42834,11 @@ function themeStudioApplyPalettes(state){
     if(categoryHits>=2&&typeof applyTaskCategoryPalette==='function')applyTaskCategoryPalette(taskPal);
   }catch(e){}
   var task=themeStudioMerge(THEME_STUDIO_DEFAULT.palettes.task,pal.task||{});
-  var css=':root{'+tt.map(function(c,i){return '--tt-palette-'+i+':'+themeStudioCleanHex(c,TT_DEFAULT_PALETTE[i]||TT_DEFAULT_PALETTE[0])+';';}).join('')+
+  /* 시간표 팔레트(--tt-palette-N)는 여기서 강조색으로 만들지 않는다 — 곧이어 호출되는
+     applyTtPalette()가 단일 출처(저장된 오버라이드)만 적용하고, 없으면 var(--pal-N)
+     앱 팔레트를 그대로 따라 테마 톤에 맞춰 자동 조정되게 둔다. deadline/schedule/task
+     의미색만 여기서 설정. */
+  var css=':root{'+
     '--task-pal-deadline:'+themeStudioCleanHex(task.deadline,THEME_STUDIO_DEFAULT.palettes.task.deadline)+';'+
     '--task-pal-schedule:'+themeStudioCleanHex(task.schedule,THEME_STUDIO_DEFAULT.palettes.task.schedule)+';'+
     '--task-pal-task:'+themeStudioCleanHex(task.task,THEME_STUDIO_DEFAULT.palettes.task.task)+';}'+
@@ -42857,7 +42877,7 @@ function themeStudioApply(state){
   /* Accent + typography + card-media vars go on :root and self-adapt to dark
      because their color-mix() references (--bg-card / --fg) resolve to the
      dark palette in dark mode. */
-  var css=':root{--accent:'+c.accent+';--accent-hover:'+c.accent+';--accent-light:color-mix(in srgb,'+c.accent+' 12%,var(--bg-card));--a-50:color-mix(in srgb,'+c.accent+' 8%,var(--bg-card));--a-100:color-mix(in srgb,'+c.accent+' 18%,var(--bg-card));--a-200:color-mix(in srgb,'+c.accent+' 34%,var(--bg-card));--a-400:'+c.accent+';--a-600:color-mix(in srgb,'+c.accent+' 78%,var(--fg));--a-700:color-mix(in srgb,'+c.accent+' 88%,var(--fg));--bg-hover:color-mix(in srgb,'+c.accent+' 8%,var(--bg-card));--tt-palette-0:color-mix(in srgb, var(--accent) 76%, var(--n-0));--tt-palette-1:color-mix(in srgb, var(--sidebar-active) 72%, var(--n-0));--tt-palette-2:color-mix(in srgb, var(--border) 50%, var(--accent-light));--tt-palette-3:color-mix(in srgb, var(--accent) 54%, var(--w-50));--tt-palette-4:color-mix(in srgb, var(--accent) 58%, var(--p-50));--tt-palette-5:color-mix(in srgb, var(--sidebar-fg) 50%, var(--t-50));--tt-palette-6:color-mix(in srgb, var(--accent) 38%, var(--bg-card));--tt-palette-7:color-mix(in srgb, var(--fg-2) 34%, var(--accent-light));--font-ui:'+font+';--text-xs:'+size.xs+';--text-sm:'+size.sm+';--text-base:'+size.base+';--text-md:'+size.md+';--text-lg:'+size.lg+';--text-xl:'+size.xl+';--lh-normal:'+line+';--lh-snug:'+(Math.max(1.25,parseFloat(line)-.18))+';--theme-card-bg:'+cardBg+';--theme-card-frame:'+frame+';--theme-card-corner-tl:'+ctl+';--theme-card-corner-tr:'+ctr+';--theme-card-corner-bl:'+cbl+';--theme-card-corner-br:'+cbr+';--theme-card-bg-opacity:'+(res.background?bgOpacity:0)+';--theme-card-frame-border:'+(res.frame?'1px':'0')+'}';
+  var css=':root{--accent:'+c.accent+';--accent-hover:'+c.accent+';--accent-light:color-mix(in srgb,'+c.accent+' 12%,var(--bg-card));--a-50:color-mix(in srgb,'+c.accent+' 8%,var(--bg-card));--a-100:color-mix(in srgb,'+c.accent+' 18%,var(--bg-card));--a-200:color-mix(in srgb,'+c.accent+' 34%,var(--bg-card));--a-400:'+c.accent+';--a-600:color-mix(in srgb,'+c.accent+' 78%,var(--fg));--a-700:color-mix(in srgb,'+c.accent+' 88%,var(--fg));--bg-hover:color-mix(in srgb,'+c.accent+' 8%,var(--bg-card));--font-ui:'+font+';--text-xs:'+size.xs+';--text-sm:'+size.sm+';--text-base:'+size.base+';--text-md:'+size.md+';--text-lg:'+size.lg+';--text-xl:'+size.xl+';--lh-normal:'+line+';--lh-snug:'+(Math.max(1.25,parseFloat(line)-.18))+';--theme-card-bg:'+cardBg+';--theme-card-frame:'+frame+';--theme-card-corner-tl:'+ctl+';--theme-card-corner-tr:'+ctr+';--theme-card-corner-bl:'+cbl+';--theme-card-corner-br:'+cbr+';--theme-card-bg-opacity:'+(res.background?bgOpacity:0)+';--theme-card-frame-border:'+(res.frame?'1px':'0')+'}';
   /* The user's light surface/ink/sidebar colors must NOT override dark mode —
      scope them to non-dark so html[data-mode="dark"]'s palette (and the base
      var(--n-*) fallbacks) take over when dark is active. This is what makes
@@ -42883,6 +42903,9 @@ function themeStudioApply(state){
   themeStudioApplyPreview(state);
   themeStudioApplyPalettes(state);
   try{ if(typeof applyTtPalette==='function') applyTtPalette(); }catch(e){}
+  /* 테마(강조색)가 바뀌었으니 라벨 팔레트 톤(--pal-chroma/--pal-lift)을 다시 맞춘다.
+     이게 없으면 프리셋을 적용해 강조색이 바뀌어도 팔레트가 예전 톤 그대로였다. */
+  try{ if(typeof returnSyncPaletteTone==='function') returnSyncPaletteTone(); }catch(e){}
 }
 function themeStudioApplyResolvedSkinMedia(res){
   var root=document.documentElement;
