@@ -3109,7 +3109,14 @@ button.htb-vprep:hover { box-shadow:var(--shadow-1); filter:brightness(.98); }
 /* 카테고리 행의 단일 색 점(누르면 팝오버) */
 .cat-color-dot{width:26px;height:26px;border-radius:var(--r-full);border:0;cursor:pointer;padding:0;flex-shrink:0;background:var(--swatch);box-shadow:inset 0 0 0 1px var(--border);transition:box-shadow var(--t-snap),transform var(--t-snap)}
 .cat-color-dot:hover{transform:scale(1.08);box-shadow:inset 0 0 0 1px var(--border),0 0 0 3px var(--accent-light)}
-.cat-color-pop{position:fixed;z-index:400;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:10px;display:grid;grid-template-columns:repeat(6,26px);gap:8px;animation:pop-in .12s ease-out}
+.cat-color-pop{position:fixed;z-index:400;background:var(--bg-card);border:.5px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:10px;display:flex;flex-direction:column;gap:10px;animation:pop-in .12s ease-out}
+.cat-color-grid{display:grid;grid-template-columns:repeat(6,26px);gap:8px}
+.cat-color-custom{display:flex;align-items:center;gap:6px;border-top:.5px solid var(--border);padding-top:9px}
+.cat-color-custom input[type=color]{width:30px;height:30px;padding:0;border:.5px solid var(--border);border-radius:var(--r-md);background:none;cursor:pointer;flex-shrink:0}
+.cat-color-custom input[type=color]::-webkit-color-swatch-wrapper{padding:2px}
+.cat-color-custom input[type=color]::-webkit-color-swatch{border:none;border-radius:calc(var(--r-md) - 2px)}
+.cat-color-hex-input{flex:1;min-width:0;width:82px;font-size:var(--text-xs);font-family:ui-monospace,monospace;letter-spacing:.3px;padding:5px 7px;border:.5px solid var(--border);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg);text-transform:uppercase}
+.cat-color-hex-apply{flex-shrink:0;font-size:var(--text-xs);padding:5px 10px;border:none;border-radius:var(--r-md);background:var(--accent);color:#fff;cursor:pointer}
 /* Theme Studio 색 허브의 팔레트 점 편집기 */
 .tt-palette-editor{flex-wrap:wrap;align-items:center;gap:8px}
 .tt-palette-editor .pal-dot{width:24px;height:24px}
@@ -21722,9 +21729,18 @@ function openCatColorPopover(anchor, current, onPick){
   var old=document.getElementById('cat-color-pop'); if(old)old.remove();
   var cur=(typeof normalizeTaskCatColor==='function')?normalizeTaskCatColor(current):current;
   var pop=document.createElement('div'); pop.id='cat-color-pop'; pop.className='cat-color-pop';
-  pop.innerHTML=TASK_CAT_PALETTE.map(function(p){
+  var swatches=TASK_CAT_PALETTE.map(function(p){
     return '<button type="button" class="cat-color-swatch'+(p.value===cur?' active':'')+'" data-color="'+p.value+'" title="'+p.label+'" style="--swatch:'+p.value+'"></button>';
   }).join('');
+  /* 현재 색을 #rrggbb로 풀어 직접 입력(hex)·네이티브 색 선택의 초기값으로 쓴다. */
+  var hexVal='#A75F66';
+  try{ if(typeof taskCategoryColorInputValue==='function') hexVal=taskCategoryColorInputValue(cur); }catch(e){}
+  pop.innerHTML='<div class="cat-color-grid">'+swatches+'</div>'
+    +'<div class="cat-color-custom">'
+    +  '<input type="color" class="cat-color-hex-native" value="'+hexVal+'" title="색 직접 선택" aria-label="색 직접 선택">'
+    +  '<input type="text" class="cat-color-hex-input" value="'+hexVal.toUpperCase()+'" maxlength="7" spellcheck="false" placeholder="#RRGGBB" aria-label="색 코드 직접 입력">'
+    +  '<button type="button" class="cat-color-hex-apply">적용</button>'
+    +'</div>';
   document.body.appendChild(pop);
   var r=anchor.getBoundingClientRect(), pw=pop.offsetWidth, ph=pop.offsetHeight;
   var left=Math.max(8, Math.min(window.innerWidth-pw-8, r.right-pw));
@@ -21732,7 +21748,28 @@ function openCatColorPopover(anchor, current, onPick){
   pop.style.left=left+'px'; pop.style.top=top+'px';
   function closePop(){ if(pop.parentNode)pop.remove(); document.removeEventListener('click',onDoc,true); window.removeEventListener('resize',closePop); }
   function onDoc(e){ if(!pop.contains(e.target)&&e.target!==anchor&&!anchor.contains(e.target))closePop(); }
-  pop.addEventListener('click',function(e){ var sw=e.target.closest('.cat-color-swatch'); if(!sw)return; e.stopPropagation(); if(typeof onPick==='function')onPick(sw.getAttribute('data-color')); closePop(); });
+  function pick(color){ if(typeof onPick==='function')onPick(color); closePop(); }
+  /* '#abc'/'abc'/'#aabbcc' 등을 #RRGGBB로 정규화, 아니면 null. */
+  function parseHex(v){
+    v=String(v||'').trim().replace(/^#/,'');
+    if(/^[0-9a-fA-F]{3}$/.test(v)) v=v[0]+v[0]+v[1]+v[1]+v[2]+v[2];
+    return /^[0-9a-fA-F]{6}$/.test(v)?('#'+v.toUpperCase()):null;
+  }
+  var native=pop.querySelector('.cat-color-hex-native');
+  var hexInp=pop.querySelector('.cat-color-hex-input');
+  pop.addEventListener('click',function(e){
+    var sw=e.target.closest('.cat-color-swatch');
+    if(sw){ e.stopPropagation(); pick(sw.getAttribute('data-color')); return; }
+    if(e.target.closest('.cat-color-hex-apply')){ e.stopPropagation(); var h=parseHex(hexInp.value); if(h)pick(h); else hexInp.focus(); }
+  });
+  if(native){
+    native.addEventListener('input',function(){ if(hexInp)hexInp.value=String(native.value).toUpperCase(); });
+    native.addEventListener('change',function(e){ e.stopPropagation(); var h=parseHex(native.value); if(h)pick(h); });
+  }
+  if(hexInp){
+    hexInp.addEventListener('input',function(){ var h=parseHex(hexInp.value); if(h&&native)native.value=h; });
+    hexInp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); var h=parseHex(hexInp.value); if(h)pick(h); } });
+  }
   setTimeout(function(){ document.addEventListener('click',onDoc,true); window.addEventListener('resize',closePop); },0);
 }
 function openTaskCatManager(){
