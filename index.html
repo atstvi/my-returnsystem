@@ -536,10 +536,11 @@ input,textarea { outline:none; }
 .nc-empty-sub{font-size:var(--text-2xs);margin-top:4px}
 /* ══ 머니(가계부) 탭 ══ */
 .money-page{height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px clamp(16px,4vw,44px) 90px}
-.money-inner{max-width:960px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-/* 넓은 화면에선 카드들을 2열 메이슨리로 채워 가로 여백을 없애고 대시보드처럼. */
+.money-inner{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+/* 넓은 화면에선 카드들을 여러 열 메이슨리로 채워 가로 여백을 없애고 대시보드처럼. */
 .mny-cols{column-gap:16px;column-count:1}
 @media(min-width:720px){ .mny-cols{column-count:2} }
+@media(min-width:1140px){ .mny-cols{column-count:3} }
 .mny-cols > .mny-card{break-inside:avoid;margin:0 0 16px;display:inline-block;width:100%}
 /* 넓은 화면: 순수익 히어로와 추이 차트를 나란히(좌 히어로 / 우 차트). */
 .mny-herowrap{display:flex;flex-direction:column;gap:16px}
@@ -49568,6 +49569,30 @@ function moneySaveSubs(){ try{ setReturnStorageItem(MONEY_SUBS_KEY, JSON.stringi
 function moneySaveBudget(){ try{ setReturnStorageItem(MONEY_BUDGET_KEY, JSON.stringify(moneyBudget)); }catch(e){} }
 function moneyFmt(n){ n=Math.round(Number(n)||0); return '₩'+n.toLocaleString('en-US'); }
 function moneyFmtShort(n){ n=Math.round(Number(n)||0); if(n>=10000000)return '₩'+(n/10000000).toFixed(1).replace(/\.0$/,'')+'천만'; if(n>=10000)return '₩'+Math.round(n/10000)+'만'; return '₩'+n.toLocaleString('en-US'); }
+/* ── 통화 · 환율 ── 달러 등 외화를 입력하면 환율로 원화 환산(집계는 항상 원화 기준).
+   환율은 무료 API(frankfurter.app, ECB 기준)를 12시간 캐시로 가져오고, 실패 시 기본값. */
+var MONEY_CUR=[{c:'KRW',sym:'₩',label:'원 (KRW)'},{c:'USD',sym:'$',label:'달러 (USD)'},{c:'EUR',sym:'€',label:'유로 (EUR)'},{c:'JPY',sym:'¥',label:'엔 (JPY)'},{c:'GBP',sym:'£',label:'파운드 (GBP)'},{c:'CNY',sym:'元',label:'위안 (CNY)'}];
+var MONEY_FX_DEFAULT={KRW:1,USD:1380,EUR:1480,JPY:9.2,GBP:1740,CNY:190};
+function moneyCurSym(c){ for(var i=0;i<MONEY_CUR.length;i++)if(MONEY_CUR[i].c===c)return MONEY_CUR[i].sym; return '₩'; }
+function moneyFx(){ var r={}; try{ var o=JSON.parse(localStorage.getItem('money_fx_v1')||'{}'); if(o&&o.rates)r=o.rates; }catch(e){} var out={}; Object.keys(MONEY_FX_DEFAULT).forEach(function(k){ out[k]=Number(r[k])>0?Number(r[k]):MONEY_FX_DEFAULT[k]; }); return out; }
+function moneyToKRW(amount, cur){ amount=Number(amount)||0; if(!cur||cur==='KRW')return Math.round(amount); return Math.round(amount*(moneyFx()[cur]||1)); }
+function moneyFmtCur(amount, cur){ if(!cur||cur==='KRW')return moneyFmt(amount); var n=Number(amount)||0; return moneyCurSym(cur)+(n%1===0?n.toLocaleString('en-US'):n.toFixed(2)); }
+var _moneyFxBusy=false;
+function moneyFxRefresh(){
+  try{
+    var o={}; try{ o=JSON.parse(localStorage.getItem('money_fx_v1')||'{}'); }catch(e){}
+    if(o&&o.ts&&(Date.now()-o.ts)<12*3600*1000)return;
+    if(_moneyFxBusy||typeof fetch==='undefined')return; _moneyFxBusy=true;
+    fetch('https://api.frankfurter.app/latest?from=KRW&to=USD,EUR,JPY,GBP,CNY').then(function(r){return r.json();}).then(function(j){
+      _moneyFxBusy=false;
+      if(!j||!j.rates)return; var rates={KRW:1};
+      Object.keys(j.rates).forEach(function(k){ var v=Number(j.rates[k]); if(v>0)rates[k]=1/v; }); /* KRW→X 이므로 역수 = X 1단위당 원화 */
+      try{ setReturnStorageItem('money_fx_v1', JSON.stringify({rates:rates, ts:Date.now()})); }catch(e){}
+      try{ if(document.getElementById('money-root')&&typeof _currentPage!=='undefined'&&_currentPage==='money')renderMoney(); }catch(e){}
+    }).catch(function(){ _moneyFxBusy=false; });
+  }catch(e){ _moneyFxBusy=false; }
+}
+window.moneyToKRW=moneyToKRW;
 function moneyTodayKey(){ try{ return (typeof TK!=='undefined'&&TK)?TK:new Date().toISOString().slice(0,10); }catch(e){ return new Date().toISOString().slice(0,10); } }
 function moneyYMlabel(ym){ var p=String(ym).split('-'); return p[0]+'년 '+Number(p[1])+'월'; }
 function moneyShiftYM(ym,delta){ var p=String(ym).split('-'); var d=new Date(+p[0],(+p[1]-1)+delta,1); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -49598,8 +49623,11 @@ function moneyMonthlySeries(list, endYM, n){
 }
 function moneyParseSms(text, type){
   text=String(text||''); if(!text.trim())return null;
-  var am=text.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})\s*원/); if(!am)return null;
-  var amount=Number(am[1].replace(/,/g,''));
+  var cur='KRW', amount;
+  var usd=text.match(/(?:US\$|USD|\$)\s?([0-9][0-9,]*(?:\.[0-9]{1,2})?)|([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s?(?:USD|달러)/i);
+  if(usd){ cur='USD'; amount=parseFloat(String(usd[1]||usd[2]).replace(/,/g,'')); }
+  else { var am=text.match(/([0-9]{1,3}(?:,[0-9]{3})+|[0-9]{3,})\s*원/); if(!am)return null; amount=Number(am[1].replace(/,/g,'')); }
+  if(!(amount>0))return null;
   var dm=text.match(/(\d{1,2})[\/.\-](\d{1,2})(?:\s+(\d{1,2}:\d{2}))?/);
   var date;
   if(dm){ var y=new Date().getFullYear(); date=y+'-'+String(dm[1]).padStart(2,'0')+'-'+String(dm[2]).padStart(2,'0'); }
@@ -49608,7 +49636,7 @@ function moneyParseSms(text, type){
      남는 마지막 토큰을 상점으로(단일 줄 문자도 잘 잡히게). */
   var lines=text.split(/\n+/).map(function(s){return s.trim();}).filter(Boolean);
   var toks=text.replace(/\[[^\]]*\]/g,' ').split(/[\s\n]+/).filter(Boolean);
-  var badTok=/^\(?\d|원$|승인|발신|일시불|할부|잔액|누적|출금|입금|결제|카드$|카드\(|님$|코리아$|주식회사|\d{1,2}[\/.\-]\d{1,2}|\d{1,2}:\d{2}/;
+  var badTok=/^\(?\d|원$|[$€£¥₩]|USD|달러|승인|발신|일시불|할부|잔액|누적|출금|입금|결제|카드$|카드\(|님$|코리아$|주식회사|\d{1,2}[\/.\-]\d{1,2}|\d{1,2}:\d{2}/;
   var cand=toks.map(function(w){return w.replace(/[()㈜]/g,'').replace(/(코리아|주식회사|\(주\))$/,'').trim();})
     .filter(function(w){ return w.length>=2 && !badTok.test(w) && !/^[\d,]+$/.test(w); });
   var merchant=cand.length?cand[cand.length-1]:'';
@@ -49618,7 +49646,7 @@ function moneyParseSms(text, type){
   var cat;
   if(type==='in'){ cat='기타수입'; for(var k=0;k<IN.length;k++)if(IN[k][1].test(text)){cat=IN[k][0];break;} }
   else { cat='기타'; for(var j=0;j<MAP.length;j++)if(MAP[j][1].test(text)){cat=MAP[j][0];break;} }
-  return { amount:amount, merchant:merchant||(type==='in'?'수입':'지출'), date:date, catId:cat };
+  return { amount:amount, currency:cur, merchant:merchant||(type==='in'?'수입':'지출'), date:date, catId:cat };
 }
 function moneyLooksPayment(text){ return /[0-9]{3,}\s*원/.test(String(text||''))&&/(승인|결제|출금|입금|카드|사용)/.test(String(text||'')); }
 window.moneyParseSms=moneyParseSms; window.moneyAdvanceCycle=moneyAdvanceCycle; window.moneySummary=moneySummary; window.moneyMonthlySeries=moneyMonthlySeries;
@@ -49636,7 +49664,7 @@ function moneyAutoLogSubs(){
     var guard=0;
     while(s.nextDate && s.nextDate<=today && guard<36){
       var exists=moneyTx.some(function(t){return t.subId===s.id&&t.date===s.nextDate;});
-      if(!exists){ moneyTxAdd({type:'out', amount:Number(s.amount)||0, catId:s.catId||'구독', merchant:s.name||'구독', date:s.nextDate, source:'auto', subId:s.id}); added++; }
+      if(!exists){ var foreign=(s.currency&&s.currency!=='KRW'); moneyTxAdd({type:'out', amount:moneyToKRW(s.amount,s.currency), origAmount:foreign?Number(s.amount):undefined, currency:s.currency||'KRW', catId:s.catId||'구독', merchant:s.name||'구독', date:s.nextDate, source:'auto', subId:s.id}); added++; }
       s.nextDate=moneyAdvanceCycle(s.nextDate, s.cycle||'month'); s.updatedAt=Date.now(); changed=true; guard++;
     }
   });
@@ -49651,7 +49679,7 @@ function moneySubAlerts(){
   moneySubs.forEach(function(s){
     if(!s||s.status==='canceled'||s.status==='paused')return;
     if(s.trialEnd){ var dt=daysTo(s.trialEnd); if(dt>=0&&dt<=2){ var k1='trial:'+s.id+':'+today; if(!shown[k1]){ shown[k1]=1; try{_showNotif('💳 무료체험 종료 '+(dt===0?'오늘':'D-'+dt), (s.name||'구독')+' — 계속 두면 과금돼요. 해지할까요?', 'money-trial-'+s.id, {kind:'money', refId:s.id});}catch(e){} } } }
-    var dn=daysTo(s.nextDate); if(dn>=0&&dn<=1){ var k2='due:'+s.id+':'+today; if(!shown[k2]){ shown[k2]=1; try{_showNotif('💳 정기결제 '+(dn===0?'오늘':'내일'), (s.name||'구독')+' '+moneyFmt(s.amount)+' 결제 예정', 'money-due-'+s.id, {kind:'money', refId:s.id});}catch(e){} } }
+    var dn=daysTo(s.nextDate); if(dn>=0&&dn<=1){ var k2='due:'+s.id+':'+today; if(!shown[k2]){ shown[k2]=1; try{_showNotif('💳 정기결제 '+(dn===0?'오늘':'내일'), (s.name||'구독')+' '+moneyFmtCur(s.amount,s.currency)+' 결제 예정', 'money-due-'+s.id, {kind:'money', refId:s.id});}catch(e){} } }
   });
   try{ setReturnStorageItem(MONEY_ALERT_KEY, JSON.stringify(shown)); }catch(e){}
 }
@@ -49671,7 +49699,7 @@ function renderMoney(){
   var sum=moneySummary(moneyTx, ym);
   var series=moneyMonthlySeries(moneyTx, ym, 6);
   var maxV=1; series.forEach(function(m){ maxV=Math.max(maxV, m.income, m.expense); });
-  var recMonthly=moneySubs.filter(function(s){return s&&s.status!=='canceled'&&s.status!=='paused';}).reduce(function(a,s){ var amt=Number(s.amount)||0; return a+(s.cycle==='year'?amt/12:s.cycle==='week'?amt*4.345:amt); },0);
+  var recMonthly=moneySubs.filter(function(s){return s&&s.status!=='canceled'&&s.status!=='paused';}).reduce(function(a,s){ var amt=moneyToKRW(s.amount, s.currency); return a+(s.cycle==='year'?amt/12:s.cycle==='week'?amt*4.345:amt); },0);
   var netSign=sum.net>=0?'+':'−';
   var html='';
   html+='<div class="mny-topbar"><div class="mny-title"><span class="ic">💳</span> 머니</div>'
@@ -49730,7 +49758,10 @@ function renderMoney(){
     else if(dn>=0&&dn<=3){ cls=' due'; meta='<span class="mny-tag auto">결제일 자동 기록</span> '+(dn===0?'오늘':'D-'+dn); }
     else { meta='<span class="mny-tag">'+(dn>=0?'D-'+dn:'지남')+'</span> <span class="mny-tag auto">자동</span>'; }
     var c=moneyCat(s.catId||'구독');
-    html+='<div class="mny-sub'+cls+'" data-mny-sub="'+moneyEsc(s.id)+'"><div class="mny-slogo" style="background:'+c.color+'">'+(s.emoji||c.emoji)+'</div><div class="mny-smain"><div class="mny-snm">'+moneyEsc(s.name||'구독')+'</div><div class="mny-smeta">'+meta+'</div></div><div class="mny-sright"><div class="mny-scost">'+moneyFmt(s.amount)+'</div><div class="mny-scyc">'+(s.cycle==='year'?'매년':s.cycle==='week'?'매주':'매월')+'</div></div></div>';
+    var cyc=(s.cycle==='year'?'매년':s.cycle==='week'?'매주':'매월');
+    var foreign=(s.currency&&s.currency!=='KRW');
+    var costSub=(foreign?('≈'+moneyFmt(moneyToKRW(s.amount,s.currency))+' · '):'')+cyc;
+    html+='<div class="mny-sub'+cls+'" data-mny-sub="'+moneyEsc(s.id)+'"><div class="mny-slogo" style="background:'+c.color+'">'+(s.emoji||c.emoji)+'</div><div class="mny-smain"><div class="mny-snm">'+moneyEsc(s.name||'구독')+'</div><div class="mny-smeta">'+meta+'</div></div><div class="mny-sright"><div class="mny-scost">'+moneyFmtCur(s.amount,s.currency)+'</div><div class="mny-scyc">'+costSub+'</div></div></div>';
   }); html+='</div>'; }
   html+='</div>';
   /* recent ledger */
@@ -49741,14 +49772,14 @@ function renderMoney(){
     var lastDay=''; monthTx.slice(0,40).forEach(function(t){
       if(t.date!==lastDay){ lastDay=t.date; html+='<div class="mny-day">'+moneyDayLabel(t.date)+'</div>'; }
       var c=moneyCat(t.catId), inc=(t.type==='in');
-      html+='<div class="mny-led" data-mny-tx="'+moneyEsc(t.id)+'"><div class="mny-lic" style="background:color-mix(in srgb,'+c.color+' 16%,transparent)">'+c.emoji+'</div><div class="mny-lm"><div class="mny-lnm">'+moneyEsc(t.merchant||c.id)+'</div><div class="mny-lcat">'+moneyEsc(c.id)+(t.source==='auto'?' · 자동':t.method?(' · '+moneyEsc(t.method)):'')+'</div></div><div class="mny-lamt '+(inc?'inc':'exp')+'">'+(inc?'+':'−')+moneyFmt(t.amount).replace('₩','')+'</div></div>';
+      html+='<div class="mny-led" data-mny-tx="'+moneyEsc(t.id)+'"><div class="mny-lic" style="background:color-mix(in srgb,'+c.color+' 16%,transparent)">'+c.emoji+'</div><div class="mny-lm"><div class="mny-lnm">'+moneyEsc(t.merchant||c.id)+'</div><div class="mny-lcat">'+moneyEsc(c.id)+((t.currency&&t.currency!=='KRW'&&t.origAmount)?(' · '+moneyFmtCur(t.origAmount,t.currency)):'')+(t.source==='auto'?' · 자동':t.method?(' · '+moneyEsc(t.method)):'')+'</div></div><div class="mny-lamt '+(inc?'inc':'exp')+'">'+(inc?'+':'−')+moneyFmt(t.amount).replace('₩','')+'</div></div>';
     });
   }
   html+='</div>';
   html+='</div>'; /* /mny-cols */
   /* quick capture */
   html+='<div class="mny-card"><div class="mny-ch"><span class="lbl">빠른 기록 · 결제 문자</span><span class="more">거의 자동</span></div>';
-  if(_moneyClip){ html+='<div class="mny-clip"><span class="ci">📋</span><div class="cm"><div class="ct">클립보드에서 결제 문자를 발견했어요</div><div class="cs">'+moneyEsc(_moneyClip.merchant)+' · '+moneyFmt(_moneyClip.amount)+'</div></div><button class="cb" data-mny-clip-save>기록</button></div>'; }
+  if(_moneyClip){ html+='<div class="mny-clip"><span class="ci">📋</span><div class="cm"><div class="ct">클립보드에서 결제 문자를 발견했어요</div><div class="cs">'+moneyEsc(_moneyClip.merchant)+' · '+moneyFmtCur(_moneyClip.amount,_moneyClip.currency)+((_moneyClip.currency&&_moneyClip.currency!=='KRW')?(' ≈'+moneyFmt(moneyToKRW(_moneyClip.amount,_moneyClip.currency))):'')+'</div></div><button class="cb" data-mny-clip-save>기록</button></div>'; }
   html+='<div class="mny-tog"><button class="on exp" data-mny-qatype="out">지출</button><button class="inc" data-mny-qatype="in">수입</button></div>';
   html+='<textarea class="mny-paste" id="mny-paste" spellcheck="false" placeholder="결제 문자를 붙여넣으면 금액·상점·날짜·분야를 자동으로 읽어요"></textarea>';
   html+='<div id="mny-parsed"></div></div>';
@@ -49771,17 +49802,25 @@ function moneyRenderParsed(){
   var p=moneyParseSms(ta.value, _moneyQaType);
   if(!p){ slot.innerHTML=''; return; }
   var inc=_moneyQaType==='in', col=inc?'var(--t-600)':'var(--accent)';
+  var pcur=p.currency||'KRW';
   var opts=moneyCatsByType(_moneyQaType).map(function(c){return '<option value="'+c.id+'"'+(c.id===p.catId?' selected':'')+'>'+c.emoji+' '+c.id+'</option>';}).join('');
+  var curOpts=MONEY_CUR.map(function(x){return '<option value="'+x.c+'"'+(x.c===pcur?' selected':'')+'>'+x.sym+' '+x.c+'</option>';}).join('');
   slot.innerHTML='<div class="mny-parsed"><div class="mny-ph">✓ 이렇게 읽었어요 — 맞으면 저장</div>'
-    +'<div class="mny-pf"><span class="pk">금액</span><input class="pv amt" id="mny-p-amt" type="number" value="'+p.amount+'" style="color:'+col+';font-weight:700"></div>'
+    +'<div class="mny-pf"><span class="pk">금액</span><input class="pv amt" id="mny-p-amt" type="number" step="any" value="'+p.amount+'" style="color:'+col+';font-weight:700"><select id="mny-p-cur">'+curOpts+'</select></div>'
+    +'<div class="mny-pf" id="mny-p-krwrow" style="'+(pcur==='KRW'?'display:none':'')+'"><span class="pk">환산</span><span class="pv" id="mny-p-krw" style="color:var(--fg-3)"></span></div>'
     +'<div class="mny-pf"><span class="pk">'+(inc?'출처':'상점')+'</span><input class="pv" id="mny-p-mer" type="text" value="'+moneyEsc(p.merchant)+'"></div>'
     +'<div class="mny-pf"><span class="pk">날짜</span><input class="pv" id="mny-p-date" type="date" value="'+moneyEsc(p.date)+'"></div>'
     +'<div class="mny-pf"><span class="pk">분야</span><select id="mny-p-cat">'+opts+'</select></div>'
     +'<div class="mny-qa-actions"><button class="mny-btn primary" id="mny-p-save" style="background:'+col+'">기록에 저장</button><button class="mny-btn ghost" id="mny-p-clear">지우기</button></div></div>';
+  function updKrw(){ var a=Number((document.getElementById('mny-p-amt')||{}).value)||0, cur=(document.getElementById('mny-p-cur')||{}).value||'KRW'; var row=document.getElementById('mny-p-krwrow'); if(cur==='KRW'){ if(row)row.style.display='none'; } else { if(row)row.style.display=''; var k=document.getElementById('mny-p-krw'); if(k)k.textContent='≈ '+moneyFmt(moneyToKRW(a,cur))+' (환율 자동)'; } }
+  document.getElementById('mny-p-cur').addEventListener('change',updKrw);
+  document.getElementById('mny-p-amt').addEventListener('input',updKrw);
+  updKrw();
   document.getElementById('mny-p-save').addEventListener('click',function(){
-    var amt=Number((document.getElementById('mny-p-amt')||{}).value)||0; if(amt<=0){showToast&&showToast('금액을 확인해 주세요');return;}
-    moneyTxAdd({type:_moneyQaType, amount:amt, merchant:(document.getElementById('mny-p-mer')||{}).value||'', date:(document.getElementById('mny-p-date')||{}).value||moneyTodayKey(), catId:(document.getElementById('mny-p-cat')||{}).value||'기타', source:'paste'});
-    if(typeof showToast==='function')showToast((inc?'수입':'지출')+' 기록에 추가됐어요 ✓');
+    var raw=Number((document.getElementById('mny-p-amt')||{}).value)||0; if(raw<=0){showToast&&showToast('금액을 확인해 주세요');return;}
+    var cur=(document.getElementById('mny-p-cur')||{}).value||'KRW', foreign=(cur!=='KRW');
+    moneyTxAdd({type:_moneyQaType, amount:moneyToKRW(raw,cur), origAmount:foreign?raw:undefined, currency:cur, merchant:(document.getElementById('mny-p-mer')||{}).value||'', date:(document.getElementById('mny-p-date')||{}).value||moneyTodayKey(), catId:(document.getElementById('mny-p-cat')||{}).value||'기타', source:'paste'});
+    if(typeof showToast==='function')showToast((inc?'수입':'지출')+' 기록에 추가됐어요 ✓'+(foreign?(' ('+moneyFmt(moneyToKRW(raw,cur))+')'):''));
     _moneyClip=null; renderMoney();
   });
   document.getElementById('mny-p-clear').addEventListener('click',function(){ ta.value=''; moneyRenderParsed(); });
@@ -49795,27 +49834,30 @@ function moneyBind(root){
   var addsub=root.querySelector('[data-mny-addsub]'); if(addsub)addsub.addEventListener('click',function(){ moneyEditSub(null); });
   root.querySelectorAll('[data-mny-sub]').forEach(function(el){ el.addEventListener('click',function(){ moneyEditSub(el.getAttribute('data-mny-sub')); }); });
   root.querySelectorAll('[data-mny-tx]').forEach(function(el){ el.addEventListener('click',function(){ moneyEditTx(el.getAttribute('data-mny-tx')); }); });
-  var cs=root.querySelector('[data-mny-clip-save]'); if(cs)cs.addEventListener('click',function(){ if(_moneyClip){ moneyTxAdd({type:'out',amount:_moneyClip.amount,merchant:_moneyClip.merchant,date:_moneyClip.date,catId:_moneyClip.catId,source:'clip'}); if(typeof showToast==='function')showToast('지출 기록에 추가됐어요 ✓'); _moneyClip=null; renderMoney(); } });
+  var cs=root.querySelector('[data-mny-clip-save]'); if(cs)cs.addEventListener('click',function(){ if(_moneyClip){ var cur=_moneyClip.currency||'KRW'; moneyTxAdd({type:'out',amount:moneyToKRW(_moneyClip.amount,cur),origAmount:cur!=='KRW'?_moneyClip.amount:undefined,currency:cur,merchant:_moneyClip.merchant,date:_moneyClip.date,catId:_moneyClip.catId,source:'clip'}); if(typeof showToast==='function')showToast('지출 기록에 추가됐어요 ✓'); _moneyClip=null; renderMoney(); } });
 }
 function moneyAddManual(type){
   var cats=moneyCatsByType(type);
   openFormDialog(type==='in'?'수입 기록':'지출 기록',[
     {key:'amount',label:'금액',type:'number',value:''},
+    {key:'currency',label:'통화',type:'select',value:'KRW',options:MONEY_CUR.map(function(x){return {value:x.c,label:x.label};})},
     {key:'catId',label:'분야',type:'select',value:cats[0].id,options:cats.map(function(c){return {value:c.id,label:c.emoji+' '+c.id};})},
     {key:'merchant',label:type==='in'?'출처':'상점',value:''},
     {key:'date',label:'날짜',type:'date',value:moneyTodayKey()},
     {key:'method',label:'결제수단(선택)',value:''}
-  ],function(d){ var amt=Number(d.amount)||0; if(amt<=0){showToast&&showToast('금액을 확인해 주세요');return;} moneyTxAdd({type:type,amount:amt,catId:d.catId||cats[0].id,merchant:(d.merchant||'').trim(),date:d.date||moneyTodayKey(),method:(d.method||'').trim(),source:'manual'}); if(typeof showToast==='function')showToast('기록에 추가됐어요 ✓'); renderMoney(); });
+  ],function(d){ var raw=Number(d.amount)||0; if(raw<=0){showToast&&showToast('금액을 확인해 주세요');return;} var cur=d.currency||'KRW', foreign=(cur!=='KRW'); moneyTxAdd({type:type,amount:moneyToKRW(raw,cur),origAmount:foreign?raw:undefined,currency:cur,catId:d.catId||cats[0].id,merchant:(d.merchant||'').trim(),date:d.date||moneyTodayKey(),method:(d.method||'').trim(),source:'manual'}); if(typeof showToast==='function')showToast('기록에 추가됐어요 ✓'+(foreign?(' ('+moneyFmt(moneyToKRW(raw,cur))+')'):'')); renderMoney(); });
 }
 function moneyEditTx(id){
   var t=moneyTx.find(function(x){return x.id===id;}); if(!t)return;
   var cats=moneyCatsByType(t.type);
+  var tcur=t.currency||'KRW', tval=(tcur!=='KRW'&&t.origAmount)?t.origAmount:t.amount;
   openFormDialog('기록 편집',[
-    {key:'amount',label:'금액',type:'number',value:t.amount},
+    {key:'amount',label:'금액',type:'number',value:tval},
+    {key:'currency',label:'통화',type:'select',value:tcur,options:MONEY_CUR.map(function(x){return {value:x.c,label:x.label};})},
     {key:'catId',label:'분야',type:'select',value:t.catId,options:cats.map(function(c){return {value:c.id,label:c.emoji+' '+c.id};})},
     {key:'merchant',label:t.type==='in'?'출처':'상점',value:t.merchant||''},
     {key:'date',label:'날짜',type:'date',value:t.date}
-  ],function(d){ t.amount=Number(d.amount)||0; t.catId=d.catId; t.merchant=(d.merchant||'').trim(); t.date=d.date||t.date; t.updatedAt=Date.now(); moneySaveTx(); renderMoney(); },
+  ],function(d){ var raw=Number(d.amount)||0, cur=d.currency||'KRW'; t.amount=moneyToKRW(raw,cur); t.currency=cur; t.origAmount=(cur!=='KRW')?raw:undefined; t.catId=d.catId; t.merchant=(d.merchant||'').trim(); t.date=d.date||t.date; t.updatedAt=Date.now(); moneySaveTx(); renderMoney(); },
   {actions:[{label:'삭제',danger:true,onClick:function(close){ t.deleted=true; t.updatedAt=Date.now(); moneySaveTx(); close(); renderMoney(); }}]});
 }
 function moneyEditSub(id){
@@ -49824,6 +49866,7 @@ function moneyEditSub(id){
   openFormDialog(s?'구독 편집':'구독 추가',[
     {key:'name',label:'이름',value:s?s.name:''},
     {key:'amount',label:'금액',type:'number',value:s?s.amount:''},
+    {key:'currency',label:'통화',type:'select',value:s?(s.currency||'KRW'):'KRW',options:MONEY_CUR.map(function(x){return {value:x.c,label:x.label};}),help:'달러 등 외화를 고르면 원화로 자동 환산해 기록돼요.'},
     {key:'cycle',label:'주기',type:'select',value:s?s.cycle:'month',options:[{value:'month',label:'매월'},{value:'year',label:'매년'},{value:'week',label:'매주'}]},
     {key:'nextDate',label:'다음 결제일',type:'date',value:s?s.nextDate:moneyTodayKey()},
     {key:'catId',label:'분야',type:'select',value:s?(s.catId||'구독'):'구독',options:cats.map(function(c){return {value:c.id,label:c.emoji+' '+c.id};})},
@@ -49831,8 +49874,8 @@ function moneyEditSub(id){
     {key:'emoji',label:'아이콘(선택)',value:s?(s.emoji||''):''}
   ],function(d){
     var name=(d.name||'').trim(); if(!name){showToast&&showToast('이름을 입력해 주세요');return;}
-    if(s){ s.name=name; s.amount=Number(d.amount)||0; s.cycle=d.cycle; s.nextDate=d.nextDate||moneyTodayKey(); s.catId=d.catId||'구독'; s.trialEnd=d.trialEnd||''; s.emoji=(d.emoji||'').trim(); s.updatedAt=Date.now(); }
-    else { moneySubs.push({id:'msub_'+Date.now()+'_'+Math.floor(Math.random()*9999),name:name,amount:Number(d.amount)||0,cycle:d.cycle,nextDate:d.nextDate||moneyTodayKey(),catId:d.catId||'구독',trialEnd:d.trialEnd||'',emoji:(d.emoji||'').trim(),autolog:true,status:'active',createdAt:Date.now(),updatedAt:Date.now()}); }
+    if(s){ s.name=name; s.amount=Number(d.amount)||0; s.currency=d.currency||'KRW'; s.cycle=d.cycle; s.nextDate=d.nextDate||moneyTodayKey(); s.catId=d.catId||'구독'; s.trialEnd=d.trialEnd||''; s.emoji=(d.emoji||'').trim(); s.updatedAt=Date.now(); }
+    else { moneySubs.push({id:'msub_'+Date.now()+'_'+Math.floor(Math.random()*9999),name:name,amount:Number(d.amount)||0,currency:d.currency||'KRW',cycle:d.cycle,nextDate:d.nextDate||moneyTodayKey(),catId:d.catId||'구독',trialEnd:d.trialEnd||'',emoji:(d.emoji||'').trim(),autolog:true,status:'active',createdAt:Date.now(),updatedAt:Date.now()}); }
     moneySaveSubs(); renderMoney();
   }, {actions: s?[{label:'해지',danger:true,onClick:function(close){ s.status='canceled'; s.updatedAt=Date.now(); moneySaveSubs(); close(); if(typeof showToast==='function')showToast('구독을 해지했어요'); renderMoney(); }}]:[]});
 }
@@ -49845,6 +49888,7 @@ function moneyEditBudget(){
 }
 function _initMoney(){
   moneyLoad();
+  try{ moneyFxRefresh(); }catch(e){}
   try{ moneyAutoLogSubs(); }catch(e){}
   try{ moneySubAlerts(); }catch(e){}
   /* 공유 시트(안드로이드)로 넘어온 결제 문자 소비 */
@@ -49857,6 +49901,7 @@ function _initMoney(){
 window.addEventListener('load', function(){
   try{
     moneyLoad();
+    moneyFxRefresh();
     moneyAutoLogSubs();
     moneySubAlerts();
     /* 공유 시트로 들어온 텍스트(?text=) 감지 → 머니 탭 열기 */
