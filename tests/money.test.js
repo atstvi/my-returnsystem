@@ -78,6 +78,26 @@ const t = runner('머니 · 가계부 로직');
   t.ok('수입 분야 급여', inc && inc.catId === '급여', inc && inc.catId);
 
   t.ok('금액 없으면 null', sb.moneyParseSms('안녕하세요 오늘 점심 뭐먹지', 'out') === null);
+  t.ok('원화는 currency KRW', r && r.currency === 'KRW', r && r.currency);
+
+  // 달러(USD) 감지 — 정기구독 등 외화
+  const usd = sb.moneyParseSms('ChatGPT Plus $20.00 결제', 'out');
+  t.ok('USD 금액 소수 파싱', usd && usd.amount === 20, usd && usd.amount);
+  t.ok('USD 통화 인식', usd && usd.currency === 'USD', usd && usd.currency);
+  const usd2 = sb.moneyParseSms('넷플릭스 USD 17 결제', 'out');
+  t.ok('USD 표기(뒤)', usd2 && usd2.amount === 17 && usd2.currency === 'USD', usd2 && (usd2.amount + ':' + usd2.currency));
+}
+
+// ── 환율 환산 ───────────────────────────────────────────────────────────────
+{
+  // 캐시된 환율을 흉내내기 위해 localStorage 스텁 교체
+  const store = { money_fx_v1: JSON.stringify({ rates: { KRW: 1, USD: 1400, JPY: 9 }, ts: Date.now() }) };
+  const sb2 = { window: {}, console: { warn() {} }, localStorage: { getItem: (k) => store[k] || null, setItem() {}, removeItem() {} }, Date, Math, JSON, Number, String, Array, Object, parseInt, isNaN };
+  const block2 = sliceBlock(html, 'var MONEY_CUR=[', '\nvar _moneyFxBusy=false;');
+  vm.createContext(sb2); vm.runInContext(block2 + '\nfunction moneyFmt(n){return "₩"+Math.round(n);}', sb2);
+  t.ok('USD→KRW 환산', sb2.moneyToKRW(20, 'USD') === 28000, sb2.moneyToKRW(20, 'USD'));
+  t.ok('원화는 그대로', sb2.moneyToKRW(5000, 'KRW') === 5000);
+  t.ok('통화 기호', sb2.moneyCurSym('USD') === '$' && sb2.moneyCurSym('JPY') === '¥');
 }
 
 // ── moneyLooksPayment ───────────────────────────────────────────────────────
