@@ -33828,8 +33828,11 @@ function notifBuildFeed(st){
   var soonMs = 180*60000; /* 3시간 이내 = 임박 */
   function hmToMs(hm){ if(!hm) return NaN; var p=String(hm).split(':'); var d=new Date(now); d.setHours(parseInt(p[0],10)||0,parseInt(p[1],10)||0,0,0); return d.getTime(); }
   var actionable = [], upcoming = [];
+  /* 미뤄둔(스누즈, 아직 다시 뜰 때 안 됨) 대상은 '지금 챙길 것'에서 빼서 배지가 줄게 한다. */
+  var snoozedRefs = {};
+  snooze.forEach(function(s){ if(s && Number(s.dueAt) > now) snoozedRefs[String(s.refId)] = 1; });
   tasks.forEach(function(t){
-    if(!t || t.done) return;
+    if(!t || t.done || snoozedRefs[String(t.id)]) return;
     var ev = (typeof taskNotifEventTime==='function') ? taskNotifEventTime(t, today) : (t.date===today?t.timeStart:'');
     if(!ev) return;
     var atMs = hmToMs(ev); if(isNaN(atMs)) return;
@@ -33840,13 +33843,13 @@ function notifBuildFeed(st){
   });
   /* 마감 지난/오늘 마감 할일(시간 미지정 포함) */
   tasks.forEach(function(t){
-    if(!t || t.done || !t.deadlineDate) return;
+    if(!t || t.done || !t.deadlineDate || snoozedRefs[String(t.id)]) return;
     if(t.deadlineDate > today) return;
     if(actionable.some(function(r){return r.kind==='task'&&r.refId===String(t.id);})) return;
     actionable.push({ kind:'deadline', refId:String(t.id), title:(t.text||'할일'), sub:(t.deadlineDate<today?'마감 지남':'오늘 마감'), time:'', atMs:now, overdue:t.deadlineDate<today });
   });
   var inboxNeed = inbox.filter(function(x){ return x && !x.done && x.needsAction; }).length;
-  if(inboxNeed>0) actionable.unshift({ kind:'inbox', refId:'inbox', title:'처리가 필요한 인박스', sub:inboxNeed+'개', time:'', atMs:now-1 });
+  if(inboxNeed>0 && !snoozedRefs['inbox']) actionable.unshift({ kind:'inbox', refId:'inbox', title:'처리가 필요한 인박스', sub:inboxNeed+'개', time:'', atMs:now-1 });
   /* 다시 뜰 때가 된 스누즈도 지금 챙길 것으로 */
   snooze.forEach(function(s){ if(Number(s.dueAt)<=now) actionable.push({ kind:s.kind, refId:String(s.refId), title:s.title, body:s.body, sub:'미뤄둔 알림', time:'', atMs:Number(s.dueAt), snoozeId:s.id }); });
   actionable.sort(function(a,b){ return (a.atMs||0)-(b.atMs||0); });
