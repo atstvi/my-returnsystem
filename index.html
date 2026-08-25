@@ -2354,6 +2354,9 @@ html.pjb-fs-lock{overflow:hidden}
 .modal-deadline-time{width:106px}
 .modal-time-sep{color:var(--fg-4);font-size:var(--text-xs)}
 .modal-clear-time-btn{white-space:nowrap;height:34px}
+.modal-lunar-btn{white-space:nowrap;height:34px;flex:none;font-size:var(--text-xs);padding:0 var(--sp-3)}
+.modal-lunar-btn.on{background:var(--accent-light);color:var(--accent);box-shadow:var(--focus-ring)}
+.modal-lunar-hint{flex:none;font-size:var(--text-xs);color:var(--fg-4);font-family:var(--font-mono);white-space:nowrap}
 .ic-warn { background:var(--w-50); color:var(--w-600); }
 .ic-accent { background:var(--accent-light); color:var(--a-600); }
 .ic-teal { background:var(--t-50); color:var(--t-600); }
@@ -8966,7 +8969,11 @@ to{opacity:1;transform:translateY(0)}}
         <div class="modal-row" style="cursor:default">
           <div class="mr-icon ic-warn"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></div>
           <span class="mr-label">날짜</span>
-          <input class="modal-date-inp" type="date" id="modal-date-input">
+          <div class="modal-time-group">
+            <input class="modal-date-inp" type="date" id="modal-date-input">
+            <button class="btn btn-ghost modal-lunar-btn" id="modal-lunar-btn" type="button" title="음력으로 날짜 입력">음력</button>
+            <span class="modal-lunar-hint" id="modal-lunar-hint"></span>
+          </div>
         </div>
         <div class="modal-row" style="cursor:default">
           <div class="mr-icon ic-purple"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></div>
@@ -14664,6 +14671,109 @@ function openConfirmDialog(title, message, onConfirm, opts){
   ov.querySelector('#scd-cancel').addEventListener('click',close);
   ov.querySelector('#scd-ok').addEventListener('click',function(){if(typeof onConfirm==='function')onConfirm();close();});
 }
+/* ════════ 음력(陰曆) ↔ 양력 변환 ════════
+   할일 날짜를 음력으로 입력할 수 있게 하는 변환기. 1900~2100년 각 해를
+   packed hex로 담은 표(각 비트 = 그 달이 큰달(30)/작은달(29)인지, 하위 4비트 =
+   윤달 위치(0=없음), 0x10000 비트 = 윤달 크기). 기준: 1900-01-31(양) = 1900-01-01(음).
+   표는 널리 쓰이는 표준 음력표(KST 기준 KASI 값과 개인용 범위에서 사실상 일치).
+   순수 함수라 tests/lunar.test.js에서 고정한다. */
+var LUNAR_INFO=[0x04bd8,0x04ae0,0x0a570,0x054d5,0x0d260,0x0d950,0x16554,0x056a0,0x09ad0,0x055d2,
+0x04ae0,0x0a5b6,0x0a4d0,0x0d250,0x1d255,0x0b540,0x0d6a0,0x0ada2,0x095b0,0x14977,
+0x04970,0x0a4b0,0x0b4b5,0x06a50,0x06d40,0x1ab54,0x02b60,0x09570,0x052f2,0x04970,
+0x06566,0x0d4a0,0x0ea50,0x06e95,0x05ad0,0x02b60,0x186e3,0x092e0,0x1c8d7,0x0c950,
+0x0d4a0,0x1d8a6,0x0b550,0x056a0,0x1a5b4,0x025d0,0x092d0,0x0d2b2,0x0a950,0x0b557,
+0x06ca0,0x0b550,0x15355,0x04da0,0x0a5b0,0x14573,0x052b0,0x0a9a8,0x0e950,0x06aa0,
+0x0aea6,0x0ab50,0x04b60,0x0aae4,0x0a570,0x05260,0x0f263,0x0d950,0x05b57,0x056a0,
+0x096d0,0x04dd5,0x04ad0,0x0a4d0,0x0d4d4,0x0d250,0x0d558,0x0b540,0x0b5a0,0x195a6,
+0x095b0,0x049b0,0x0a974,0x0a4b0,0x0b27a,0x06a50,0x06d40,0x0af46,0x0ab60,0x09570,
+0x04af5,0x04970,0x064b0,0x074a3,0x0ea50,0x06b58,0x055c0,0x0ab60,0x096d5,0x092e0,
+0x0c960,0x0d954,0x0d4a0,0x0da50,0x07552,0x056a0,0x0abb7,0x025d0,0x092d0,0x0cab5,
+0x0a950,0x0b4a0,0x0baa4,0x0ad50,0x055d9,0x04ba0,0x0a5b0,0x15176,0x052b0,0x0a930,
+0x07954,0x06aa0,0x0ad50,0x05b52,0x04b60,0x0a6e6,0x0a4e0,0x0d260,0x0ea65,0x0d530,
+0x05aa0,0x076a3,0x096d0,0x04afb,0x04ad0,0x0a4d0,0x1d0b6,0x0d250,0x0d520,0x0dd45,
+0x0b5a0,0x056d0,0x055b2,0x049b0,0x0a577,0x0a4b0,0x0aa50,0x1b255,0x06d20,0x0ada0,
+0x14b63,0x09370,0x049f8,0x04970,0x064b0,0x168a6,0x0ea50,0x06b20,0x1a6c4,0x0aae0,
+0x0a2e0,0x0d2e3,0x0c960,0x0d557,0x0d4a0,0x0da50,0x05d55,0x056a0,0x0a6d0,0x055d4,
+0x052d0,0x0a9b8,0x0a950,0x0b4a0,0x0b6a6,0x0ad50,0x055a0,0x0aba4,0x0a5b0,0x052b0,
+0x0b273,0x06930,0x07337,0x06aa0,0x0ad50,0x14b55,0x04b60,0x0a570,0x054e4,0x0d160,
+0x0e968,0x0d520,0x0daa0,0x16aa6,0x056d0,0x04ae0,0x0a9d4,0x0a2d0,0x0d150,0x0f252,
+0x0d520];
+function lunarLeapMonth(y){return LUNAR_INFO[y-1900]&0xf;}
+function lunarLeapDays(y){return lunarLeapMonth(y)?((LUNAR_INFO[y-1900]&0x10000)?30:29):0;}
+function lunarMonthDays(y,m){return (LUNAR_INFO[y-1900]&(0x10000>>m))?30:29;}
+function lunarYearDays(y){var sum=348,i;for(i=0x8000;i>0x8;i>>=1){sum+=(LUNAR_INFO[y-1900]&i)?1:0;}return sum+lunarLeapDays(y);}
+/* 음력(y,m,d,윤달?) → 양력 Date(UTC 자정) */
+function lunarToSolar(y,m,d,isLeap){
+  if(y<1900||y>2100)return null;
+  var days=0,i;
+  for(i=1900;i<y;i++)days+=lunarYearDays(i);
+  var leap=lunarLeapMonth(y);
+  for(var mm=1;mm<m;mm++)days+=lunarMonthDays(y,mm);
+  if(leap>0){ if(m>leap)days+=lunarLeapDays(y); else if(m===leap&&isLeap)days+=lunarMonthDays(y,m); }
+  days+=(Number(d)||1)-1;
+  return new Date(Date.UTC(1900,0,31)+days*86400000);
+}
+/* 양력 Date → {y,m,d,leap} 음력 */
+function solarToLunar(dt){
+  var base=Date.UTC(1900,0,31);
+  var offset=Math.floor((Date.UTC(dt.getFullYear(),dt.getMonth(),dt.getDate())-base)/86400000);
+  var i,temp=0;
+  for(i=1900;i<2101&&offset>0;i++){temp=lunarYearDays(i);offset-=temp;}
+  if(offset<0){offset+=temp;i--;}
+  var year=i, leap=lunarLeapMonth(i), isLeap=false, j;
+  for(j=1;j<13&&offset>0;j++){
+    if(leap>0&&j===leap+1&&!isLeap){--j;isLeap=true;temp=lunarLeapDays(year);}
+    else{temp=lunarMonthDays(year,j);}
+    if(isLeap&&j===leap+1)isLeap=false;
+    offset-=temp;
+  }
+  if(offset===0&&leap>0&&j===leap+1){ if(isLeap){isLeap=false;} else {isLeap=true;--j;} }
+  if(offset<0){offset+=temp;--j;}
+  return {y:year,m:j,d:offset+1,leap:isLeap?1:0};
+}
+/* 음력 날짜의 그 달 총 일수(일 선택 상한용) */
+function lunarDaysInMonth(y,m,isLeap){return isLeap?lunarLeapDays(y):lunarMonthDays(y,m);}
+/* 'YYYY-MM-DD'(양력) → 음력 라벨 '음력 M.D'(윤달이면 '윤M.D') */
+function lunarLabelFromSolarKey(key){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(key||'')))return '';
+  var p=key.split('-'), dt=new Date(Number(p[0]),Number(p[1])-1,Number(p[2]));
+  var l=solarToLunar(dt); if(!l)return '';
+  return '음력 '+(l.leap?'윤':'')+l.m+'.'+l.d;
+}
+window.lunarToSolar=lunarToSolar;window.solarToLunar=solarToLunar;
+/* 할일 편집창 날짜 옆 음력 힌트를 현재 양력 값으로 갱신 */
+function taskLunarUpdateHint(){
+  var inp=document.getElementById('modal-date-input'), hint=document.getElementById('modal-lunar-hint');
+  if(!inp||!hint)return;
+  hint.textContent=lunarLabelFromSolarKey(inp.value);
+}
+/* '음력' 버튼 → 음력 년/월/일/윤달 입력받아 양력으로 변환해 날짜 칸에 채운다 */
+function openTaskLunarPicker(){
+  var inp=document.getElementById('modal-date-input'); if(!inp||typeof openFormDialog!=='function')return;
+  var cur=/^\d{4}-\d{2}-\d{2}$/.test(inp.value)?inp.value:null;
+  var seed=cur?solarToLunar(new Date(Number(cur.slice(0,4)),Number(cur.slice(5,7))-1,Number(cur.slice(8,10)))):null;
+  var defY=seed?seed.y:(new Date()).getFullYear(), defM=seed?seed.m:1, defD=seed?seed.d:1, defLeap=seed?seed.leap:0;
+  var monthOpts=[],dayOpts=[],m,d;
+  for(m=1;m<=12;m++)monthOpts.push({value:String(m),label:m+'월'});
+  for(d=1;d<=30;d++)dayOpts.push({value:String(d),label:d+'일'});
+  openFormDialog('음력 날짜 입력',[
+    {key:'ly',type:'number',label:'년',value:String(defY),help:'변환할 양력 해 (예: 올해 음력 생일이면 올해)'},
+    {key:'lm',type:'select',label:'월',value:String(defM),options:monthOpts},
+    {key:'ld',type:'select',label:'일',value:String(defD),options:dayOpts},
+    {key:'leap',type:'checkbox',label:'윤달(그 해에 있을 때만)',value:defLeap?'on':''}
+  ],function(data){
+    var y=parseInt(data.ly,10), mm=parseInt(data.lm,10)||1, dd=parseInt(data.ld,10)||1, leap=(data.leap==='on');
+    if(!(y>=1900&&y<=2100)){ if(typeof homeToast==='function')homeToast('1900~2100년만 변환할 수 있어요'); return; }
+    if(leap && lunarLeapMonth(y)!==mm){ if(typeof homeToast==='function')homeToast(y+'년에는 윤'+mm+'월이 없어요'); return; }
+    var maxD=lunarDaysInMonth(y,mm,leap); if(dd>maxD)dd=maxD;
+    var dt=lunarToSolar(y,mm,dd,leap); if(!dt)return;
+    var key=dt.getUTCFullYear()+'-'+String(dt.getUTCMonth()+1).padStart(2,'0')+'-'+String(dt.getUTCDate()).padStart(2,'0');
+    inp.value=key;
+    try{ inp.dispatchEvent(new Event('change',{bubbles:true})); }catch(_e){}
+    taskLunarUpdateHint();
+    if(typeof homeToast==='function')homeToast('음력 '+(leap?'윤':'')+mm+'월 '+dd+'일 → '+key);
+  });
+}
 /* openRepeatEditScopeDialog — shown when saving a recurring, TT, or 활성 규칙
    (active-rule generated) task to let the user pick how far the edit should
    reach.
@@ -16213,6 +16323,8 @@ document.getElementById('modal-clear-time') && document.getElementById('modal-cl
   if(ts)ts.value='';
   if(te)te.value='';
 });
+document.getElementById('modal-lunar-btn') && document.getElementById('modal-lunar-btn').addEventListener('click',function(e){ e.preventDefault(); if(typeof openTaskLunarPicker==='function')openTaskLunarPicker(); });
+document.getElementById('modal-date-input') && document.getElementById('modal-date-input').addEventListener('change',function(){ if(typeof taskLunarUpdateHint==='function')taskLunarUpdateHint(); });
 function getHomeTimeBlockPrefs(){
   var pref={start:0,end:24,slotH:40};
   try{pref=Object.assign(pref,JSON.parse(localStorage.getItem('home_timeblock_prefs_v1')||'{}'));}catch(e){}
@@ -24627,6 +24739,7 @@ function tasksOpenNewModal(seed){
   document.getElementById('modal-del-btn').onclick=function(){tasksCloseModal();};
   document.getElementById('modal-clear-time').onclick=function(){document.getElementById('modal-ts').value='';document.getElementById('modal-te').value='';};
   bindTaskModalRows(taskModalDraft);
+  if(typeof taskLunarUpdateHint==='function')taskLunarUpdateHint();
   taskModalEl.classList.add('open');
   setTimeout(function(){document.getElementById('modalTitle').focus();},50);
 }
@@ -24862,6 +24975,7 @@ function tasksOpenModal(task){
   if(_focBtn){ var _hasTime=/^\d{1,2}:\d{2}$/.test(String(task.timeStart||'')); _focBtn.disabled=!_hasTime; _focBtn.title=_hasTime?'계획된 시간 그대로 집중 기록 추가':'시작 시간을 정하면 사용할 수 있어요'; _focBtn.onclick=function(){ focusAddRecordForTask(task); }; }
 
   bindTaskModalRows(task);
+  if(typeof taskLunarUpdateHint==='function')taskLunarUpdateHint();
   taskModalEl.classList.add('open');
   setTimeout(function(){document.getElementById('modalTitle').focus();},50);
 }
