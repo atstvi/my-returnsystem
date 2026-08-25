@@ -14626,10 +14626,13 @@ function openFormDialog(title, fields, onSave, opts){
       var freq=freqSel.value||'daily';
       var weekdays=ov.querySelector('[data-key="weekdays"]');
       var monthDay=ov.querySelector('[data-key="monthDay"]');
+      var lunarYear=ov.querySelector('[data-key="lunarYear"]');
       var weekdayField=weekdays&&weekdays.closest('.field');
       var monthField=monthDay&&monthDay.closest('.field');
+      var lunarField=lunarYear&&lunarYear.closest('.field');
       if(weekdayField)weekdayField.style.display=(freq==='weekly'||freq==='biweekly')?'':'none';
       if(monthField)monthField.style.display=freq==='monthly'?'':'none';
+      if(lunarField)lunarField.style.display=freq==='yearly'?'':'none';
     }
     freqSel.addEventListener('change',syncRepeatFields);
     syncRepeatFields();
@@ -14974,7 +14977,7 @@ function openHomeRepeatModal(){
     {key:'text', label:'반복할 할일', value:''},
     {key:'catId', label:'카테고리', type:'select', value:'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:'', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'얼마나 자주?', type:'select', value:'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
+    {key:'freq', label:'얼마나 자주?', type:'select', value:'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'},{value:'yearly',label:'매년'}]},
     {key:'weekdays', label:'무슨 요일에?', type:'weekdays', value:''},
     {key:'monthDay', label:'매월 며칠에?', type:'number', value:String(new Date().getDate())},
     {key:'dateRanges', label:'활성 기간', type:'dateranges', single:true, emptyLabel:'기간 제한 없음 · 계속 반복', value:[], help:'이 기간에만 반복해요. 달력에서 시작일→종료일을 고르고, 비워두면 계속 반복돼요.'}
@@ -15171,8 +15174,45 @@ repeatMatchesDate=function(rep,dkey){
     return days2.length?days2.indexOf(d.getDay())>=0:d.getDay()===startDate.getDay();
   }
   if(freq==='monthly')return d.getDate()===(parseInt(rep.monthDay,10)||startDate.getDate());
+  if(freq==='yearly'){
+    /* 매년 — 같은 (월,일) 기념일. rep.lunar면 그 날의 음력이 저장된 음력 월·일과
+       같은지로 판단(해마다 양력 날짜가 바뀜 = 음력 생일). */
+    if(rep.lunar){
+      if(typeof solarToLunar!=='function')return false;
+      var lu=solarToLunar(d);
+      return lu.m===(parseInt(rep.lunarMonth,10)||lu.m)&&lu.d===(parseInt(rep.lunarDay,10)||lu.d)&&((lu.leap?1:0)===(rep.lunarLeap?1:0));
+    }
+    var ym=(parseInt(rep.month,10)>0?parseInt(rep.month,10)-1:startDate.getMonth());
+    return d.getMonth()===ym&&d.getDate()===(parseInt(rep.monthDay,10)||startDate.getDate());
+  }
   return true;
 };
+/* 매년 반복은 60일 창(window)으로는 못 잡으므로 기념일 날짜를 직접 계산한다.
+   fromKey 기준 작년·올해·내년 occurrence 키(양력)를 돌려준다(음력이면 그 해 음력→양력). */
+function repeatYearlyOccurrences(rep, fromKey){
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var fromD=(typeof taskDateFromKey==='function'&&taskDateFromKey(fromKey))||new Date();
+  var baseD=(typeof taskDateFromKey==='function'&&taskDateFromKey(rep&&rep.startDate))||fromD;
+  var y0=fromD.getFullYear(), out=[], yy;
+  for(yy=y0-1; yy<=y0+1; yy++){
+    var key='';
+    if(rep&&rep.lunar){
+      if(typeof lunarToSolar!=='function')continue;
+      var dt=lunarToSolar(yy, parseInt(rep.lunarMonth,10)||1, parseInt(rep.lunarDay,10)||1, !!rep.lunarLeap);
+      if(!dt)continue;
+      key=dt.getUTCFullYear()+'-'+pad(dt.getUTCMonth()+1)+'-'+pad(dt.getUTCDate());
+    }else{
+      var mo=(parseInt(rep&&rep.month,10)>0?parseInt(rep.month,10):baseD.getMonth()+1);
+      var da=parseInt(rep&&rep.monthDay,10)||baseD.getDate();
+      var probe=new Date(yy, mo-1, da);
+      if(probe.getMonth()!==mo-1)continue; /* 그 해에 없는 날(예: 2/29 평년) → 건너뜀 */
+      key=yy+'-'+pad(mo)+'-'+pad(da);
+    }
+    if(key)out.push(key);
+  }
+  return out;
+}
+window.repeatYearlyOccurrences=repeatYearlyOccurrences;
 generateRepeatTasks=function(rep,fromDate,days){
   if(typeof tasks==='undefined'||!rep||!rep.id)return;
   var baseKey=taskDateKeyLocal(fromDate)||taskTodayKeyLocal();
@@ -15445,7 +15485,7 @@ function editHomeRepeat(id){
     {key:'text', label:'반복할 할일', value:r.text || ''},
     {key:'catId', label:'카테고리', type:'select', value:r.catId || 'etc', options:catOptions},
     {key:'priority', label:'우선순위', type:'select', value:r.priority || '', options:[{value:'',label:'없음'},{value:'high',label:'높음'},{value:'mid',label:'중간'},{value:'low',label:'낮음'}]},
-    {key:'freq', label:'얼마나 자주?', type:'select', value:r.freq || 'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
+    {key:'freq', label:'얼마나 자주?', type:'select', value:r.freq || 'daily', help:'매일·매주·격주·매월 중에서 골라요.', options:[{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'},{value:'yearly',label:'매년'}]},
     {key:'weekdays', label:'무슨 요일에?', type:'weekdays', value:r.weekdays || ''},
     {key:'monthDay', label:'매월 며칠에?', type:'number', value:String(r.monthDay || new Date().getDate())},
     {key:'dateRanges', label:'활성 기간', type:'dateranges', single:true, emptyLabel:'기간 제한 없음 · 계속 반복', value:(r.startDate&&r.endDate)?[{start:r.startDate,end:r.endDate}]:[], help:'이 기간에만 반복해요. 달력에서 시작일→종료일을 고르고, 비워두면 계속 반복돼요.'},
@@ -15793,10 +15833,11 @@ renderHomeOpsPanel=function(){
   });
   var repeatSection=section('반복 할일',repeats.length);
   repeats.forEach(function(rep){
-    var freqMap={daily:'매일',weekly:'매주',biweekly:'격주',monthly:'매월'};
+    var freqMap={daily:'매일',weekly:'매주',biweekly:'격주',monthly:'매월',yearly:'매년'};
     var meta=['반복 '+(freqMap[rep.freq]||rep.freq||'매일')];
     if(rep.weekdays)meta.push('요일 '+ruleWeekdayLabel(rep.weekdays));
     if(rep.freq==='monthly'&&rep.monthDay)meta.push('매월 '+rep.monthDay+'일');
+    if(rep.freq==='yearly')meta.push(rep.lunar?('음력 '+(rep.lunarLeap?'윤':'')+rep.lunarMonth+'.'+rep.lunarDay):((rep.month||new Date((rep.startDate||TK)+'T00:00').getMonth()+1)+'/'+(rep.monthDay||new Date((rep.startDate||TK)+'T00:00').getDate())));
     if(rep.startDate&&rep.endDate)meta.push('기간 '+opsFmtRange({start:rep.startDate,end:rep.endDate}));
     else if(rep.endDate)meta.push('종료 '+opsFmtRange({end:rep.endDate}));
     var cat=(typeof getCat==='function')?getCat(rep.catId||'etc'):null;
@@ -16086,6 +16127,21 @@ function buildExpectedGeneratedMap(opts){
   var genSuppressions=loadGeneratedTaskSuppressions();
   loadRepeatItems().forEach(function(rep){
     if(!rep||!rep.id)return;
+    /* 매년(생일·기념일)은 60일 창 밖이라 occurrence를 직접 계산해 넣는다.
+       올해·내년 기념일 중 오늘 이후(오늘 포함)의 것만 expected에 추가. */
+    if((rep.freq||rep.kind)==='yearly'){
+      var startK=taskDateKeyLocal(rep.startDate), endK=taskDateKeyLocal(rep.endDate||rep.until);
+      repeatYearlyOccurrences(rep, from).forEach(function(dk){
+        if(dk<from)return;
+        if(startK&&dk<startK)return;
+        if(endK&&dk>endK)return;
+        var exp=buildRepeatExpected(rep,dk);
+        if(!exp)return;
+        if(repeatSuppressions[exp.scheduleKey]||repeatSuppressions[repeatGenerationKey(rep,dk)]||genSuppressions[exp.scheduleKey])return;
+        expected[exp.scheduleKey]=exp;
+      });
+      return;
+    }
     for(var i=0;i<=horizon;i++){
       var dk=taskAddDaysKey(from,i);
       if(!repeatMatchesDate(rep,dk))continue;
@@ -16182,6 +16238,16 @@ function reconcileGeneratedTasks(opts){
   var expected=buildExpectedGeneratedMap(opts);
   var genSuppressions=loadGeneratedTaskSuppressions();
   var changed=0, seen={}, next=[];
+  /* 규칙의 원본(비생성) 할일이 이미 어떤 occurrence 날짜에 있으면 그 슬롯에
+     생성본을 또 만들지 않는다 — 매년(생일) 반복에서 원본+생성본이 같은 날 겹치는
+     중복을 막는다. monthly/weekly에도 동일하게 적용되는 보수적 중복 제거. */
+  var sourceOccupied={};
+  tasks.forEach(function(t){
+    if(t&&!isGeneratedTask(t)&&t._repeatId){
+      var occ=taskDateKeyLocal(t.date);
+      if(occ){ var sk=generatedScheduleKey('repeat',String(t._repeatId),occ,''); if(sk)sourceOccupied[sk]=1; }
+    }
+  });
   tasks.forEach(function(t){
     if(!t){return;}
     if(!isGeneratedTask(t)){next.push(t);return;}
@@ -16215,6 +16281,8 @@ function reconcileGeneratedTasks(opts){
     var _occKey=generatedTaskKey(t);
     var _moved=isGeneratedManual(t)&&exp&&taskDateKeyLocal(t.date)!==taskDateKeyLocal(exp.occurrenceDate);
     var mergeKey=_moved?(_occKey+'|manual:'+taskDateKeyLocal(t.date)):_occKey;
+    /* 원본 할일이 차지한 날짜의 생성 중복본은 버리고 원본을 남긴다(자가 치유). */
+    if(mergeKey&&sourceOccupied[mergeKey]){ changed++; return; }
     if(mergeKey&&seen[mergeKey]){
       mergeGeneratedTaskInto(seen[mergeKey],t);
       changed++;
@@ -16224,7 +16292,7 @@ function reconcileGeneratedTasks(opts){
     next.push(t);
   });
   Object.keys(expected).forEach(function(k){
-    if(seen[k])return;
+    if(seen[k]||sourceOccupied[k])return;
     next.push(createGeneratedTaskFromExpected(expected[k]));
     changed++;
   });
@@ -24667,6 +24735,12 @@ function syncTaskRepeatItem(task){
   item.freq=rep.kind||'daily';
   item.weekdays=Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||'');
   item.monthDay=parseInt(rep.monthDay,10)||new Date((task.date||TK)+'T00:00').getDate();
+  /* 매년(생일) — 양력 월/일 또는 음력 월/일 앵커를 규칙에 함께 저장 */
+  item.month=parseInt(rep.month,10)||0;
+  item.lunar=rep.lunar?1:0;
+  item.lunarMonth=parseInt(rep.lunarMonth,10)||0;
+  item.lunarDay=parseInt(rep.lunarDay,10)||0;
+  item.lunarLeap=rep.lunarLeap?1:0;
   item.startDate=item.startDate||task.date||TK;
   item.endDate=rep.until||rep.endDate||'';
   item.timeStart=task.timeStart||'';
@@ -25488,15 +25562,26 @@ function bindTaskModalRows(task){
   };
   repeatRow.onclick=function(){
     var rep=task._repeat||{};
+    var baseKey=task.date||TK;
     openFormDialog('반복 설정', [
-      {key:'kind', label:'반복 주기', type:'select', value:rep.kind||'', options:[{value:'',label:'반복 없음'},{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'}]},
+      {key:'kind', label:'반복 주기', type:'select', value:rep.kind||'', options:[{value:'',label:'반복 없음'},{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'},{value:'yearly',label:'매년 (생일·기념일)'}]},
       {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||'')},
-      {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(rep.monthDay || new Date((task.date||TK)+'T00:00').getDate())},
+      {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(rep.monthDay || new Date(baseKey+'T00:00').getDate())},
+      {key:'lunarYear', label:'음력 기준 (매년 음력 그날 — 음력 생일)', type:'checkbox', value:rep.lunar?'on':'', help:'할일 날짜를 기준 삼아 매년 음력 같은 날에 반복해요'},
       {key:'until', label:'반복 종료일', type:'date', value:rep.until||''}
     ], function(data){
       if(!data.kind){task._repeat=false;delete task._repeatId;}
-      else task._repeat={kind:data.kind,weekdays:(data.weekdays||'').split(',').filter(Boolean),monthDay:parseInt(data.monthDay,10)||new Date((task.date||TK)+'T00:00').getDate(),until:data.until||''};
-      document.getElementById('modal-repeat-val').textContent=task._repeat?'설정됨':'없음';
+      else if(data.kind==='yearly'){
+        var bd=new Date(baseKey+'T00:00');
+        if(data.lunarYear==='on' && typeof solarToLunar==='function'){
+          var lu=solarToLunar(bd);
+          task._repeat={kind:'yearly',lunar:1,lunarMonth:lu.m,lunarDay:lu.d,lunarLeap:lu.leap,until:data.until||''};
+        }else{
+          task._repeat={kind:'yearly',month:bd.getMonth()+1,monthDay:bd.getDate(),until:data.until||''};
+        }
+      }
+      else task._repeat={kind:data.kind,weekdays:(data.weekdays||'').split(',').filter(Boolean),monthDay:parseInt(data.monthDay,10)||new Date(baseKey+'T00:00').getDate(),until:data.until||''};
+      document.getElementById('modal-repeat-val').textContent=task._repeat?(data.kind==='yearly'?(data.lunarYear==='on'?'매년 (음력)':'매년'):'설정됨'):'없음';
     });
     return;
     var cur=task._repeat&&task._repeat.kind?task._repeat.kind:'';
