@@ -75,4 +75,30 @@ const t = runner('위시리스트 · 로직');
   t.ok('달러 환산 > 원금', sb.wishKRW({ price: 10, currency: 'USD' }) > 10);
 }
 
+// ── 이미지 목록 정규화 ───────────────────────────────────────────────────────
+{
+  t.ok('images 배열 사용', sb.wishImages({ images: [{ ref: 'a' }, { sync: 'b' }] }).length === 2);
+  t.ok('구버전 imageRef 흡수', sb.wishImages({ imageRef: 'x' }).length === 1 && sb.wishImages({ imageRef: 'x' })[0].ref === 'x');
+  t.ok('빈 항목 제거', sb.wishImages({ images: [{ ref: '' }, { ref: 'y' }] }).length === 1);
+  t.ok('없으면 빈 배열', sb.wishImages({}).length === 0);
+}
+
+// ── 추가 비용 + 합산 ─────────────────────────────────────────────────────────
+{
+  const w = { price: 399000, currency: 'KRW', extras: [{ label: '배송비', amount: 3000 }, { label: '보증', amount: 5000 }] };
+  t.ok('추가비용 합', sb.wishExtrasSum(w) === 8000, sb.wishExtrasSum(w));
+  t.ok('합산 = 원금+추가', sb.wishTotalOrig(w) === 407000, sb.wishTotalOrig(w));
+  t.ok('합산 원화(KRW)', sb.wishTotalKRW(w) === 407000);
+  // 0원 항목은 제외
+  t.ok('0원 추가 제외', sb.wishExtras({ extras: [{ label: 'x', amount: 0 }, { label: 'y', amount: 100 }] }).length === 1);
+  // 가격 없이 추가만 있어도 합산
+  t.ok('가격없이 추가만', sb.wishTotalOrig({ extras: [{ label: '배송', amount: 2500 }] }) === 2500);
+  // 아무 금액도 없으면 null
+  t.ok('금액 전무 → null', sb.wishTotalOrig({ title: 'x' }) === null);
+  // 외화 합산 원화 환산
+  const usd = { price: 100, currency: 'USD', extras: [{ label: 'ship', amount: 20 }] };
+  t.ok('USD 합산 120', sb.wishTotalOrig(usd) === 120);
+  t.ok('USD 합산 원화 > 120', sb.wishTotalKRW(usd) > 120);
+}
+
 t.done();
