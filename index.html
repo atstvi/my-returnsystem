@@ -10707,7 +10707,11 @@ to{opacity:1;transform:translateY(0)}}
     <aside class="project-list-pane">
       <div class="project-list-head">
         <span class="sec-label">Projects</span>
-        <button class="btn btn-primary" id="project-new-btn">＋ 새 프로젝트</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn btn-ghost" id="project-import-btn" title="보관 파일(HTML) 불러와 프로젝트 되살리기" aria-label="보관 파일 불러오기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M12 3v13M7 8l5-5 5 5"/></svg></button>
+          <button class="btn btn-primary" id="project-new-btn">＋ 새 프로젝트</button>
+        </div>
+        <input type="file" id="project-import-file" accept=".html,text/html" hidden>
       </div>
       <div id="project-list" class="project-mini-list"></div>
     </aside>
@@ -31263,6 +31267,159 @@ function deleteProjectSafely(project){
   if(typeof openConfirmDialog==='function')openConfirmDialog('프로젝트 삭제','프로젝트만 삭제하고 연결된 할일/기록/일기 데이터는 그대로 보관하며 연결만 해제합니다.',run);
   else if(confirm('프로젝트를 삭제할까요? 연결된 데이터는 삭제하지 않고 연결만 해제합니다.'))run();
 }
+/* ════════ 프로젝트 보관(파일로 내보내고 앱에서 삭제) / 불러오기(되살리기) ════════
+   완료한 프로젝트를 레이아웃이 있는 단독 HTML 파일로 저장한다. 파일은 (1) 사람이
+   바로 열어 볼 수 있는 스냅샷 뷰(목표·작업 로그·자료 보드·할일, 링크·이미지 포함)
+   이면서 (2) 되살리기용 원본 JSON을 <script id="return-archive-data">에 품는다.
+   저장 후 앱에서는 프로젝트+연결 할일을 지워 용량을 아끼고, 파일을 다시 불러오면
+   그대로 활성화된다. */
+function projectArchiveResolveSrc(src, fb){
+  if(!src)return Promise.resolve('');
+  if(typeof isReturnDisplayableImageUrl==='function'&&isReturnDisplayableImageUrl(src))return Promise.resolve(src);
+  if(typeof returnMediaResolveUrlWithFallback==='function')return returnMediaResolveUrlWithFallback(src, fb||'');
+  if(typeof MediaStore!=='undefined'&&MediaStore.resolve)return MediaStore.resolve(src, fb||'').then(function(u){return u||'';}).catch(function(){return '';});
+  return Promise.resolve('');
+}
+function projectDownloadHtml(html, filename){
+  try{
+    var blob=new Blob([html],{type:'text/html;charset=utf-8'});
+    var url=URL.createObjectURL(blob);
+    var a=document.createElement('a'); a.href=url; a.download=filename; document.body.appendChild(a); a.click();
+    setTimeout(function(){ try{URL.revokeObjectURL(url);}catch(_e){} a.remove(); }, 1500);
+    return true;
+  }catch(e){ return false; }
+}
+function _pjaEsc(v){return String(v==null?'':v).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function _pjaDate(ms){ if(!ms)return ''; try{ var d=new Date(Number(ms)); if(isNaN(d))return ''; return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }catch(e){return '';} }
+function projectBuildArchiveHtml(bundle){
+  var p=bundle.project||{}, ts=bundle.tasks||[], esc=_pjaEsc;
+  var goals=Array.isArray(p.goals)?p.goals:[];
+  var logs=Array.isArray(p.logs)?p.logs:[];
+  var board=(p.board&&Array.isArray(p.board.items))?p.board.items:[];
+  var stage=esc(p.stage||p.status||'');
+  function done(t){return !!(t&&t.done);}
+  var goalsHtml=goals.map(function(g){
+    var mem=ts.filter(function(t){return String(t.goalId||'')===String(g.id);});
+    var rng=(Array.isArray(g.dateRanges)?g.dateRanges:[]).map(function(r){return esc((r.start||'')+' ~ '+(r.end||''));}).join(', ');
+    return '<div class="g"><div class="g-h"><b>'+esc(g.title||'목표')+'</b>'+(rng?'<span class="muted"> · '+rng+'</span>':'')+'</div>'
+      +(mem.length?'<ul class="g-t">'+mem.map(function(t){return '<li>'+(done(t)?'✓ ':'○ ')+esc(t.text||'')+(t.deadlineDate?' <span class="muted">D '+esc(t.deadlineDate)+'</span>':'')+'</li>';}).join('')+'</ul>':'<div class="muted">연결된 할일 없음</div>')
+      +'</div>';
+  }).join('') || '<div class="muted">목표 없음</div>';
+  var logsHtml=logs.map(function(l){
+    var reps=(Array.isArray(l.replies)?l.replies:[]).map(function(r){return '<div class="rep">↳ '+esc(r.text||'')+'</div>';}).join('');
+    return '<div class="log"><div class="log-h"><b>'+esc(l.title||'로그')+'</b><span class="muted">'+esc(_pjaDate(l.createdAt))+'</span></div>'+(l.text?'<div class="log-b">'+esc(l.text).replace(/\n/g,'<br>')+'</div>':'')+reps+'</div>';
+  }).join('') || '<div class="muted">작업 로그 없음</div>';
+  var boardHtml=board.map(function(it){
+    if(!it)return '';
+    if(it.type==='image'&&it.src)return '<figure class="bd"><img src="'+esc(it.src)+'" alt="'+esc(it.title||'')+'" loading="lazy">'+(it.title?'<figcaption>'+esc(it.title)+'</figcaption>':'')+'</figure>';
+    if(it.type==='link'&&it.url)return '<a class="bd bd-link" href="'+esc(it.url)+'" target="_blank" rel="noopener"><b>'+esc(it.title||it.url)+'</b><span class="muted">'+esc(it.url)+'</span></a>';
+    if(it.type==='note')return '<div class="bd bd-note">'+esc(it.text||'').replace(/\n/g,'<br>')+'</div>';
+    return '';
+  }).join('') || '<div class="muted">자료 없음</div>';
+  var tRow=function(t){var link=t.url?' · <a href="'+esc(t.url)+'" target="_blank" rel="noopener">링크</a>':'';return '<tr class="'+(done(t)?'done':'')+'"><td>'+(done(t)?'✓':'○')+'</td><td>'+esc(t.text||'')+'</td><td>'+esc(t.date||'')+'</td><td>'+esc(t.deadlineDate||'')+'</td><td>'+esc(t.catId||'')+'</td><td>'+(t.note?esc(t.note):'')+link+'</td></tr>';};
+  var tasksTable=ts.length?'<table class="tt"><thead><tr><th></th><th>할일</th><th>날짜</th><th>마감</th><th>분야</th><th>메모</th></tr></thead><tbody>'+ts.map(tRow).join('')+'</tbody></table>':'<div class="muted">할일 없음</div>';
+  var doneN=ts.filter(done).length;
+  var json=JSON.stringify(bundle).replace(/<\//g,'<\\/');
+  var css='*{box-sizing:border-box}body{margin:0;background:#f4f2ee;color:#2a2724;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Apple SD Gothic Neo",Roboto,sans-serif;line-height:1.55}'
+    +'.wrap{max-width:900px;margin:0 auto;padding:28px 20px 80px}'
+    +'.reimport{background:#fff7ed;border:1px solid #f0d9b8;color:#8a5a1a;border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:20px}'
+    +'.hd{display:flex;align-items:center;gap:14px;margin-bottom:24px}.hd .ic{width:52px;height:52px;border-radius:14px;background:#e9e4dc;display:flex;align-items:center;justify-content:center;font-size:26px;flex:none}'
+    +'h1{font-size:24px;margin:0 0 4px}h2{font-size:15px;margin:28px 0 12px;color:#6b6560;border-bottom:1px solid #e2ddd5;padding-bottom:6px}'
+    +'.muted{color:#9b948c;font-size:13px}'
+    +'.g{background:#fff;border:1px solid #e7e2da;border-radius:12px;padding:12px 14px;margin-bottom:10px}.g-h b{font-size:15px}.g-t{margin:8px 0 0;padding-left:18px}.g-t li{margin:3px 0;font-size:14px}'
+    +'.log{background:#fff;border:1px solid #e7e2da;border-left:3px solid #be727a;border-radius:10px;padding:12px 14px;margin-bottom:10px}.log-h{display:flex;justify-content:space-between;gap:10px;align-items:baseline}.log-b{margin-top:6px;font-size:14px;white-space:pre-wrap}.rep{margin-top:6px;font-size:13px;color:#6b6560;padding-left:8px}'
+    +'.bd-grid{columns:3 200px;column-gap:12px}.bd{break-inside:avoid;display:block;margin:0 0 12px;background:#fff;border:1px solid #e7e2da;border-radius:12px;overflow:hidden;text-decoration:none;color:inherit}'
+    +'figure.bd img{width:100%;display:block}figure.bd figcaption{padding:8px 10px;font-size:13px}'
+    +'.bd-link{padding:12px 14px}.bd-link b{display:block;font-size:14px;margin-bottom:2px}.bd-link .muted{word-break:break-all;font-size:12px}'
+    +'.bd-note{padding:12px 14px;font-size:14px;white-space:normal;background:#fffdf7}'
+    +'.tt{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e7e2da;border-radius:10px;overflow:hidden;font-size:14px}.tt th,.tt td{text-align:left;padding:8px 10px;border-bottom:1px solid #eee7de;vertical-align:top}.tt th{background:#f7f4ef;font-size:12px;color:#8a847c}.tt tr.done td{color:#a49e96}a{color:#b5566f}'
+    +'@media(max-width:560px){.tt thead{display:none}.tt td{display:block;border:none;padding:2px 10px}.tt tr{display:block;border-bottom:1px solid #eee7de;padding:8px 0}}';
+  return '<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+    +'<title>'+esc(p.title||'프로젝트')+' · 보관</title><style>'+css+'</style></head><body>'
+    +'<div class="wrap">'
+    +'<div class="reimport">이 파일을 앱의 <b>＋ 새 프로젝트 옆 보관 파일 불러오기</b>로 업로드하면 프로젝트를 다시 활성화할 수 있어요.</div>'
+    +'<header class="hd"><div class="ic">'+esc(p.icon||'🗂️')+'</div><div><h1>'+esc(p.title||'프로젝트')+'</h1>'
+    +'<div class="muted">'+stage+' · 할일 '+ts.length+'개 · 완료 '+doneN+'개 · 보관일 '+esc((bundle.exportedAt||'').slice(0,10))+'</div></div></header>'
+    +'<section><h2>목표</h2>'+goalsHtml+'</section>'
+    +'<section><h2>할일</h2>'+tasksTable+'</section>'
+    +'<section><h2>작업 로그</h2>'+logsHtml+'</section>'
+    +'<section><h2>자료 보드</h2><div class="bd-grid">'+boardHtml+'</div></section>'
+    +'</div>'
+    +'<script id="return-archive-data" type="application/json">'+json+'<\/script>'
+    +'</body></html>';
+}
+function projectArchiveToFile(project){
+  if(!project){return;}
+  var proj; try{ proj=JSON.parse(JSON.stringify(project)); }catch(e){ proj=project; }
+  var linkedTasks=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&String(t.projectId||'')===String(project.id);}).map(function(t){try{return JSON.parse(JSON.stringify(t));}catch(e){return t;}});
+  /* 이미지 미디어 ref → data URL 로 풀어 파일을 자기완결적으로 만든다 */
+  var jobs=[];
+  try{
+    ((proj.board&&proj.board.items)||[]).forEach(function(it){ if(it&&it.type==='image'&&it.src){ jobs.push(projectArchiveResolveSrc(it.src,it.syncDataUrl).then(function(u){ if(u)it.src=u; if(it.syncDataUrl)delete it.syncDataUrl; })); } });
+    (proj.resources||[]).forEach(function(r){ if(r&&r.image){ jobs.push(projectArchiveResolveSrc(r.image,'').then(function(u){ if(u)r.image=u; })); } });
+  }catch(e){}
+  Promise.all(jobs).then(function(){
+    var bundle={ v:1, type:'return-project-archive', exportedAt:new Date().toISOString(), project:proj, tasks:linkedTasks };
+    var html=projectBuildArchiveHtml(bundle);
+    var safe=String(proj.title||'archive').replace(/[^\w가-힣\-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'archive';
+    var ok=projectDownloadHtml(html, 'project-'+safe+'-'+new Date().toISOString().slice(0,10)+'.html');
+    if(!ok){ if(typeof showToast==='function')showToast('파일 저장에 실패했어요'); return; }
+    var doDelete=function(){
+      var ids={}; linkedTasks.forEach(function(t){ if(t)ids[String(t.id)]=1; });
+      if(typeof tasks!=='undefined') tasks=tasks.filter(function(t){ return !(t&&ids[String(t.id)]); });
+      projects=projects.filter(function(x){ return String(x.id)!==String(project.id); });
+      if(typeof activeProjectId!=='undefined'&&String(activeProjectId)===String(project.id)) activeProjectId=projects[0]?projects[0].id:null;
+      saveProjects(); if(typeof saveTaskData==='function')saveTaskData();
+      renderProjects();
+      if(typeof showToast==='function')showToast('보관 파일을 저장하고 앱에서 비웠어요');
+    };
+    var msg='보관 파일(HTML)을 저장했어요. 이제 이 프로젝트와 연결된 할일('+linkedTasks.length+'개)을 앱에서 지워 용량을 아낄까요? 파일을 다시 불러오면 되살릴 수 있어요.';
+    if(typeof openConfirmDialog==='function')openConfirmDialog('앱에서 비우기', msg, doDelete, {danger:true, confirmText:'앱에서 삭제', cancelText:'파일만 저장'});
+  });
+}
+function projectParseArchive(txt){
+  try{
+    var m=String(txt||'').match(/<script[^>]*id=["']return-archive-data["'][^>]*>([\s\S]*?)<\/script>/i);
+    var json=m?m[1]:txt; json=String(json).replace(/<\\\//g,'</');
+    var b=JSON.parse(json);
+    if(b&&b.type==='return-project-archive'&&b.project)return b;
+  }catch(e){}
+  return null;
+}
+function projectImportFromFile(file){
+  if(!file)return;
+  var r=new FileReader();
+  r.onload=function(e){
+    var bundle=projectParseArchive(e.target.result);
+    if(!bundle){ if(typeof showToast==='function')showToast('보관 파일을 읽지 못했어요 (형식 확인)'); return; }
+    projectApplyImport(bundle);
+  };
+  r.onerror=function(){ if(typeof showToast==='function')showToast('파일 읽기에 실패했어요'); };
+  r.readAsText(file);
+}
+function projectApplyImport(bundle){
+  if(typeof loadProjects==='function')loadProjects();
+  var proj=bundle.project, impTasks=Array.isArray(bundle.tasks)?bundle.tasks:[];
+  var liveDup=projects.some(function(p){return p&&String(p.id)===String(proj.id)&&!p.deletedAt;});
+  if(liveDup){
+    var newId='p_'+Date.now()+'_'+Math.floor(Math.random()*9999);
+    impTasks.forEach(function(t){ if(t&&String(t.projectId||'')===String(proj.id))t.projectId=newId; });
+    (proj.goals||[]).forEach(function(){});
+    proj.id=newId; proj.title=(proj.title||'프로젝트')+' (복원)';
+  }
+  delete proj.deletedAt; proj.status='active'; proj.updatedAt=Date.now();
+  /* 같은 id가 (tombstone 등으로) 남아 있으면 교체 */
+  projects=projects.filter(function(p){return String(p.id)!==String(proj.id);});
+  projects.push(proj);
+  if(typeof tasks!=='undefined'){
+    var have={}; tasks.forEach(function(t){ if(t)have[String(t.id)]=1; });
+    impTasks.forEach(function(t){ if(!t)return; if(have[String(t.id)]) t.id='t_'+Date.now()+'_'+Math.floor(Math.random()*99999); delete t.deletedAt; t.updatedAt=Date.now(); tasks.push(t); });
+  }
+  saveProjects(); if(typeof saveTaskData==='function')saveTaskData();
+  activeProjectId=proj.id;
+  if(typeof projectsOpenDetail==='function')projectsOpenDetail(proj.id); else renderProjects();
+  if(typeof showToast==='function')showToast('"'+(proj.title||'프로젝트')+'"을(를) 되살렸어요');
+}
 function openProjectEditor(project){
   openFormDialog(project?'프로젝트 편집':'새 프로젝트', [
     {key:'title',label:'제목',value:project?project.title:''},
@@ -31322,6 +31479,8 @@ function renderProjects(){
   if(!activeProjectId&&projects.length)activeProjectId=projects[0].id;
   list.innerHTML=projects.map(function(p){return '<div class="project-card '+(p.id===activeProjectId?'active':'')+'" data-id="'+p.id+'"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+' · '+(p.deadline||'마감 없음')+' · '+projectProgress(p)+'%</div></div></div>';}).join('') || '<div class="project-empty">아직 프로젝트가 없어요.</div>';
   list.querySelectorAll('[data-id]').forEach(function(row){row.addEventListener('click',function(){activeProjectId=row.getAttribute('data-id');renderProjects();});});
+  var _impBtn=document.getElementById('project-import-btn'); if(_impBtn&&!_impBtn.dataset.bound){_impBtn.dataset.bound='1';_impBtn.addEventListener('click',function(){var f=document.getElementById('project-import-file');if(f)f.click();});}
+  var _impFile=document.getElementById('project-import-file'); if(_impFile&&!_impFile.dataset.bound){_impFile.dataset.bound='1';_impFile.addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';if(file&&typeof projectImportFromFile==='function')projectImportFromFile(file);});}
   var p=projects.find(function(x){return x.id===activeProjectId;});
   if(!p&&projects.length){activeProjectId=projects[0].id;p=projects[0];}
   if(!p){detail.innerHTML='<div class="project-empty">프로젝트를 선택하거나 새로 만들어 주세요.</div>';return;}
@@ -32715,6 +32874,8 @@ renderProjects=function(){
   if(!activeProjectId&&projects.length)activeProjectId=projects[0].id;
   list.innerHTML=projects.map(function(p){return '<div class="project-card '+(p.id===activeProjectId?'active':'')+'" data-id="'+p.id+'"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+' · '+(p.deadline||'마감 없음')+' · '+projectProgress(p)+'%</div></div></div>';}).join('') || '<div class="project-empty">아직 프로젝트가 없어요.</div>';
   list.querySelectorAll('[data-id]').forEach(function(row){row.addEventListener('click',function(){activeProjectId=row.getAttribute('data-id');renderProjects();});});
+  var _impBtn=document.getElementById('project-import-btn'); if(_impBtn&&!_impBtn.dataset.bound){_impBtn.dataset.bound='1';_impBtn.addEventListener('click',function(){var f=document.getElementById('project-import-file');if(f)f.click();});}
+  var _impFile=document.getElementById('project-import-file'); if(_impFile&&!_impFile.dataset.bound){_impFile.dataset.bound='1';_impFile.addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';if(file&&typeof projectImportFromFile==='function')projectImportFromFile(file);});}
   var p=projects.find(function(x){return x.id===activeProjectId;});
   if(!p){detail.innerHTML='<div class="project-empty">프로젝트를 선택하거나 새로 만들어 주세요.</div>';return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
@@ -32761,6 +32922,8 @@ renderProjects=function(){
     return '<div class="project-card '+(p.id===activeProjectId?'active':'')+'" data-id="'+p.id+'"><div class="project-dot">'+projectEsc(p.icon||'🗂️')+'</div><div class="project-head-main"><div class="project-title">'+projectEsc(p.title)+'</div><div class="project-meta">'+projectStatusLabel(p.status)+' · '+(p.deadline||'마감 없음')+' · '+pct+'%</div><div class="project-progress" style="margin-top:var(--sp-3)"><span style="width:'+pct+'%"></span></div></div></div>';
   }).join('') || projectIntentionalEmpty('아직 프로젝트가 없어요','목표나 과제를 하나 만들면 관련 할일과 기록을 모아둘 수 있어요.',null,'');
   list.querySelectorAll('[data-id]').forEach(function(row){row.addEventListener('click',function(){activeProjectId=row.getAttribute('data-id');renderProjects();});});
+  var _impBtn=document.getElementById('project-import-btn'); if(_impBtn&&!_impBtn.dataset.bound){_impBtn.dataset.bound='1';_impBtn.addEventListener('click',function(){var f=document.getElementById('project-import-file');if(f)f.click();});}
+  var _impFile=document.getElementById('project-import-file'); if(_impFile&&!_impFile.dataset.bound){_impFile.dataset.bound='1';_impFile.addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';if(file&&typeof projectImportFromFile==='function')projectImportFromFile(file);});}
   var p=projects.find(function(x){return x.id===activeProjectId;});
   if(!p){detail.innerHTML=projectIntentionalEmpty('프로젝트를 선택해 주세요','왼쪽에서 프로젝트를 고르거나 새 프로젝트를 만들면 작업 공간이 열립니다.',null,'');return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
@@ -32796,6 +32959,7 @@ renderProjects=function(){
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
   bind('project-edit',function(){openProjectEditor(p);});
   bind('project-capture',function(){openProjectLogEditor(p);});
+  bind('project-archive-file',function(){projectArchiveToFile(p);});
   bind('project-archive',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   bind('project-delete',function(){deleteProjectSafely(p);});
   bind('project-add-task',function(){ if(typeof tasksOpenNewModal==='function')tasksOpenNewModal({projectId:p.id,date:(typeof TK!=='undefined'?TK:'')}); else if(typeof goPage==='function')goPage('tasks'); });
@@ -33214,6 +33378,8 @@ renderProjects=function(){
     +'</div>';
   }).join('') || projectStudioEmpty('아직 프로젝트가 없어요','목표나 과제를 하나 만들면 관련 할일, 기록, 자료를 모아볼 수 있어요.',null,'');
   list.querySelectorAll('[data-id]').forEach(function(row){row.addEventListener('click',function(){activeProjectId=row.getAttribute('data-id');renderProjects();});});
+  var _impBtn=document.getElementById('project-import-btn'); if(_impBtn&&!_impBtn.dataset.bound){_impBtn.dataset.bound='1';_impBtn.addEventListener('click',function(){var f=document.getElementById('project-import-file');if(f)f.click();});}
+  var _impFile=document.getElementById('project-import-file'); if(_impFile&&!_impFile.dataset.bound){_impFile.dataset.bound='1';_impFile.addEventListener('change',function(){var file=this.files&&this.files[0];this.value='';if(file&&typeof projectImportFromFile==='function')projectImportFromFile(file);});}
   var p=projects.find(function(x){return x.id===activeProjectId;});
   if(!p){detail.innerHTML=projectStudioEmpty('프로젝트를 선택해 주세요','왼쪽에서 프로젝트를 고르거나 새 프로젝트를 만들어 주세요.',null,'');return;}
   var linked=projectTaskItems(p), pct=projectProgress(p);
@@ -33245,7 +33411,7 @@ renderProjects=function(){
           +'<span class="pjd-stat">'+_pjIco('task')+'할일 '+linked.length+'</span>'
           +'<span class="pjd-stat">'+_pjIco('done')+'완료 '+doneN+'</span>'
           +'<span class="pjd-stat">'+_pjIco('board')+'자료 '+resN+'</span></div></div>'
-      +'<div class="pjd-actions"><button class="btn btn-ghost pjd-icon-btn" id="project-delete" title="프로젝트 삭제" aria-label="프로젝트 삭제">'+_pjIco('trash')+'</button><button class="btn btn-ghost" id="project-edit">'+_pjIco('edit')+'편집</button><button class="btn btn-primary" id="project-capture">'+_pjIco('plus')+'담기</button></div>'
+      +'<div class="pjd-actions"><button class="btn btn-ghost pjd-icon-btn" id="project-delete" title="프로젝트 삭제" aria-label="프로젝트 삭제">'+_pjIco('trash')+'</button><button class="btn btn-ghost" id="project-archive-file" title="파일로 보관하고 앱에서 비우기"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4"/></svg>보관</button><button class="btn btn-ghost" id="project-edit">'+_pjIco('edit')+'편집</button><button class="btn btn-primary" id="project-capture">'+_pjIco('plus')+'담기</button></div>'
     +'</section>'
     +'<div class="pjd-work">'
       +'<div class="pjd-flow">'
@@ -33265,6 +33431,7 @@ renderProjects=function(){
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
   bind('project-edit',function(){openProjectEditor(p);});
   bind('project-capture',function(){openProjectLogEditor(p);});
+  bind('project-archive-file',function(){projectArchiveToFile(p);});
   bind('project-archive',function(){p.status=p.status==='archived'?'active':'archived';saveProjects();renderProjects();});
   bind('pjd-stage',function(){openProjectStagePicker(p,function(){renderProjects();});});
   bind('project-delete',function(){deleteProjectSafely(p);});
