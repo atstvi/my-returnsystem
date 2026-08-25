@@ -534,6 +534,17 @@ input,textarea { outline:none; }
 .nc-empty{text-align:center;padding:34px 16px;color:var(--fg-4)}
 .nc-empty-ic{font-size:30px;margin-bottom:8px;opacity:.7}
 .nc-empty-sub{font-size:var(--text-2xs);margin-top:4px}
+/* 목표 타임블록 편집 다이얼로그 — 시간 + 소속 할일 목록(클릭 시 편집창) */
+.gtb-tasklist{display:flex;flex-direction:column;gap:4px;margin-top:4px;max-height:300px;overflow-y:auto}
+.gtb-task{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:var(--bg-raised);border:.5px solid var(--border-subtle);border-radius:var(--r-md);padding:9px 11px;cursor:pointer;font-family:inherit;transition:background var(--t-snap)}
+.gtb-task:hover{background:var(--bg-hover)}
+.gtb-check{width:15px;height:15px;border-radius:5px;border:1.5px solid var(--border-strong);flex-shrink:0}
+.gtb-check.on{background:var(--accent);border-color:var(--accent);position:relative}
+.gtb-check.on::after{content:'';position:absolute;left:4px;top:1px;width:5px;height:8px;border:solid var(--n-0,#fff);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.gtb-ttitle{flex:1;min-width:0;font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.gtb-task.done .gtb-ttitle{color:var(--fg-4);text-decoration:line-through}
+.gtb-twhen{font-size:var(--text-2xs);color:var(--fg-4);flex-shrink:0;font-weight:var(--fw-semibold)}
+.gtb-task .gtb-arw{color:var(--fg-4);font-size:13px;flex-shrink:0}
 /* ══ 머니(가계부) 탭 ══ */
 .money-page{height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:20px clamp(16px,4vw,44px) 90px}
 .money-inner{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
@@ -13810,7 +13821,16 @@ function renderHomeSituation(){
       return { task:t, days:Math.round((dd - now) / 86400000), isDeadline:pick.dl };
     }).filter(function(x){ return x && !_nextIds[String(x.task.id)]; })
       .sort(function(a,b){ return (a.days - b.days) || (a.isDeadline === b.isDeadline ? 0 : (a.isDeadline ? -1 : 1)); });
-    var upcomingDl = upcomingAll.slice(0, 3);
+    /* 미리보기는 '제일 가까운 것 하나 + 중요한 할일(마감·일정·시간 지정)'만 — 나머지는
+       전체 보기로. 카드가 다가오는 할일로 길어지지 않게. */
+    var upcomingDl = [];
+    if (upcomingAll[0]) upcomingDl.push(upcomingAll[0]);
+    upcomingAll.forEach(function(x){
+      var t = x.task, important = !!(t.deadlineDate || t.catId === 'schedule' || t.timeStart);
+      if (important && !upcomingDl.some(function(y){ return String(y.task.id) === String(x.task.id); })) upcomingDl.push(x);
+    });
+    upcomingDl.sort(function(a,b){ return (a.days - b.days) || (a.isDeadline === b.isDeadline ? 0 : (a.isDeadline ? -1 : 1)); });
+    upcomingDl = upcomingDl.slice(0, 4);
     if (!upcomingDl.length) {
       /* 다가오는 할일이 없으면 빈 자리 대신 차분한 문구(카드 하단 고정). */
       upEl.style.display = '';
@@ -16236,16 +16256,38 @@ function homePullOverdueToToday(){
 /* 목표의 타임블록 전용 시간(tbStart/tbEnd) 편집. 목표엔 다른 화면에 시간 속성이
    없으므로 이 시간은 오직 나 탭 타임블록 표시·조절용이다. 비우면 종일 칩으로. */
 function openGoalTbTimeEditor(g){
-  if(!g||!g.goal||typeof openFormDialog!=='function')return;
-  openFormDialog('목표 시간 · 타임블록',[
-    {key:'ts',label:'시작',type:'time',value:g.goal.tbStart||''},
-    {key:'te',label:'종료',type:'time',value:g.goal.tbEnd||'',help:'비우면 종일 칩으로 표시돼요. 타임블록에서만 쓰는 시간이에요.'}
-  ],function(d){
-    var ts=(d.ts||'').trim(), te=(d.te||'').trim();
-    g.goal.tbStart=ts; g.goal.tbEnd=te; g.goal.updatedAt=Date.now(); if(g.project)g.project.updatedAt=Date.now();
+  if(!g||!g.goal)return;
+  var goal=g.goal;
+  var mine=(typeof goalTasks==='function')?goalTasks(goal.id):[];
+  var old=document.getElementById('goal-tb-editor'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='goal-tb-editor';
+  var ico=(typeof GOAL_ICO_SVG!=='undefined')?GOAL_ICO_SVG:'◎';
+  function whenLabel(t){
+    if(t.timeStart)return (t.date===TK?'오늘 ':(t.date?(Number(t.date.slice(5,7))+'.'+Number(t.date.slice(8,10))+' '):''))+t.timeStart;
+    if(t.deadlineDate)return '마감 '+Number(t.deadlineDate.slice(5,7))+'.'+Number(t.deadlineDate.slice(8,10));
+    if(t.date)return (t.date===TK?'오늘':Number(t.date.slice(5,7))+'.'+Number(t.date.slice(8,10)));
+    return '';
+  }
+  var rows=mine.length?('<div class="gtb-tasklist">'+mine.map(function(t){
+    var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
+    return '<button type="button" class="gtb-task'+(done?' done':'')+'" data-gtb-task="'+tEscHtml(String(t.id))+'"><span class="gtb-check'+(done?' on':'')+'"></span><span class="gtb-ttitle">'+tEscHtml(t.text||'할일')+'</span><span class="gtb-twhen">'+tEscHtml(whenLabel(t))+'</span><span class="gtb-arw">›</span></button>';
+  }).join('')+'</div>'):'<div class="field-help" style="padding:6px 2px">이 목표에 담긴 할일이 없어요.</div>';
+  ov.innerHTML='<div class="modal" style="max-width:440px"><div class="modal-head"><div class="modal-title">'+ico+' '+tEscHtml(goal.title||'목표')+'</div></div><div class="modal-body">'
+    +'<div class="field"><label class="field-label">타임블록 시간</label><div style="display:flex;gap:8px;align-items:center"><input class="field-inp" id="gtb-ts" type="time" value="'+tEscHtml(goal.tbStart||'')+'" style="flex:1"><span style="color:var(--fg-4)">~</span><input class="field-inp" id="gtb-te" type="time" value="'+tEscHtml(goal.tbEnd||'')+'" style="flex:1"></div><div class="field-help">비우면 종일 칩으로 표시돼요. 나 탭 타임블록에서만 쓰는 시간이에요.</div></div>'
+    +'<div class="field"><label class="field-label">소속 할일 '+mine.length+'</label>'+rows+'</div>'
+    +'</div><div class="modal-foot"><button class="btn btn-ghost" id="gtb-cancel">닫기</button><button class="btn btn-primary" id="gtb-save">시간 저장</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelector('#gtb-cancel').onclick=close;
+  ov.querySelector('#gtb-save').onclick=function(){
+    var ts=(ov.querySelector('#gtb-ts').value||'').trim(), te=(ov.querySelector('#gtb-te').value||'').trim();
+    goal.tbStart=ts; goal.tbEnd=te; goal.updatedAt=Date.now(); if(g.project)g.project.updatedAt=Date.now();
     if(typeof saveProjects==='function')saveProjects();
     if(typeof renderHomeTimeBlocks==='function')renderHomeTimeBlocks();
-  });
+    close();
+  };
+  ov.querySelectorAll('[data-gtb-task]').forEach(function(btn){ btn.addEventListener('click',function(){ var id=btn.getAttribute('data-gtb-task'); var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);}); close(); if(t&&typeof tasksOpenModal==='function')setTimeout(function(){tasksOpenModal(t);},40); }); });
 }
 function renderHomeTimeBlocks(){
   if (typeof tasks === 'undefined') return;
@@ -32733,12 +32775,12 @@ renderProjects=function(){
           +'<section class="section-card pjd-unfiledcol"><div class="project-section-head">'+_sl('inbox','미분류 인박스')+'<span class="pjd-subtle">드래그해서 분류</span></div>'+projectUnfiledInboxHtml(p)+'</section>'
         +'</div>'
         +'<section class="section-card pjd-goals-section"><div class="project-section-head">'+_sl('goal','목표')+'<button class="btn btn-ghost" id="project-add-goal">＋ 목표</button></div>'+goalsHtml+'</section>'
-        +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
       +'</div>'
       +'<aside class="pjd-side">'
         +'<section class="section-card pjd-logcol"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">'+logN+'개</span></div>'+logsHtml+'</section>'
       +'</aside>'
     +'</div>'
+    +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
     +'<section class="section-card pjb-section"><div class="project-section-head">'+_sl('board','자료 보드')+'</div>'+projectBoardHtml(p)+'</section>'
   +'</div>';
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
