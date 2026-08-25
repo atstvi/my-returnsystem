@@ -624,6 +624,22 @@ input,textarea { outline:none; }
 .mny-pill.ok{background:var(--t-50);color:var(--t-600)}
 /* subs */
 .mny-subs{display:flex;flex-direction:column;gap:9px}
+/* 곧 결제 · 계속할까요 리뷰 */
+.mny-renew{margin-bottom:12px;border-radius:var(--r-md);border:.5px solid color-mix(in srgb,var(--accent) 35%,transparent);background:color-mix(in srgb,var(--accent) 7%,var(--bg-raised));overflow:hidden}
+.mny-renew-h{padding:9px 12px 4px;font-size:11.5px;font-weight:var(--fw-bold);color:var(--accent)}
+.mny-renew-row{display:flex;align-items:center;gap:10px;padding:8px 12px}
+.mny-renew-row+.mny-renew-row{border-top:.5px solid color-mix(in srgb,var(--accent) 14%,transparent)}
+.mny-rlogo{width:30px;height:30px;border-radius:9px;flex-shrink:0;display:grid;place-items:center;font-size:14px}
+.mny-rmain{flex:1;min-width:0}
+.mny-rnm{font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mny-rsub{font-size:11.5px;color:var(--fg-3);margin-top:1px}
+.mny-rsub b{color:var(--fg-2)}
+.mny-ractions{display:flex;gap:6px;flex-shrink:0}
+.mny-rbtn{height:30px;padding:0 12px;border-radius:99px;font-size:12px;font-weight:var(--fw-semibold);border:.5px solid var(--border);background:var(--bg-card);color:var(--fg-2);cursor:pointer;white-space:nowrap}
+.mny-rbtn.keep{background:var(--accent);color:#fff;border-color:transparent}
+.mny-rbtn.cancel{background:var(--bg-card);color:var(--danger);border-color:color-mix(in srgb,var(--danger) 35%,transparent)}
+.mny-rbtn.undo{background:var(--bg-card);color:var(--fg-3)}
+@media(max-width:520px){.mny-renew-row{flex-wrap:wrap}.mny-ractions{width:100%;justify-content:flex-end}}
 .mny-sub{display:flex;align-items:center;gap:11px;padding:10px;border-radius:var(--r-md);background:var(--bg-raised);border:.5px solid transparent;cursor:pointer}
 .mny-sub.trial{border-color:color-mix(in srgb,var(--w-600) 45%,transparent);background:var(--w-50)}
 .mny-sub.due{border-color:color-mix(in srgb,var(--accent) 40%,transparent);background:var(--accent-light)}
@@ -50197,9 +50213,11 @@ function moneyTxAdd(tx){
 function moneyAutoLogSubs(){
   var today=moneyTodayKey(), changed=false, added=0;
   moneySubs.forEach(function(s){
-    if(!s||s.status==='canceled'||s.status==='paused'||s.autolog===false)return;
+    if(!s||s.status==='canceled'||s.status==='ended'||s.status==='paused'||s.autolog===false)return;
     var guard=0;
     while(s.nextDate && s.nextDate<=today && guard<36){
+      /* 해지 예정일 이후의 결제일은 기록하지 않고 '종료'로 마감한다. */
+      if(s.cancelDate && s.nextDate>=s.cancelDate){ s.status='ended'; s.endDate=s.cancelDate; s.updatedAt=Date.now(); changed=true; break; }
       var exists=moneyTx.some(function(t){return t.subId===s.id&&t.date===s.nextDate;});
       if(!exists){ var foreign=(s.currency&&s.currency!=='KRW'); moneyTxAdd({type:'out', amount:moneyToKRW(s.amount,s.currency), origAmount:foreign?Number(s.amount):undefined, currency:s.currency||'KRW', catId:s.catId||'구독', merchant:s.name||'구독', date:s.nextDate, source:'auto', subId:s.id}); added++; }
       s.nextDate=moneyAdvanceCycle(s.nextDate, s.cycle||'month'); s.updatedAt=Date.now(); changed=true; guard++;
@@ -50216,9 +50234,53 @@ function moneySubAlerts(){
   moneySubs.forEach(function(s){
     if(!s||s.status==='canceled'||s.status==='paused')return;
     if(s.trialEnd){ var dt=daysTo(s.trialEnd); if(dt>=0&&dt<=2){ var k1='trial:'+s.id+':'+today; if(!shown[k1]){ shown[k1]=1; try{_showNotif('💳 무료체험 종료 '+(dt===0?'오늘':'D-'+dt), (s.name||'구독')+' — 계속 두면 과금돼요. 해지할까요?', 'money-trial-'+s.id, {kind:'money', refId:s.id});}catch(e){} } } }
-    var dn=daysTo(s.nextDate); if(dn>=0&&dn<=1){ var k2='due:'+s.id+':'+today; if(!shown[k2]){ shown[k2]=1; try{_showNotif('💳 정기결제 '+(dn===0?'오늘':'내일'), (s.name||'구독')+' '+moneyFmtCur(s.amount,s.currency)+' 결제 예정', 'money-due-'+s.id, {kind:'money', refId:s.id});}catch(e){} } }
+    if(s.cancelDate){ var dc=daysTo(s.cancelDate); if(dc>=0&&dc<=2){ var k3='cancel:'+s.id+':'+today; if(!shown[k3]){ shown[k3]=1; try{_showNotif('🚪 해지 예정 '+(dc===0?'오늘':'D-'+dc), (s.name||'구독')+' — 이 날부터 결제가 빠져요. 유지하려면 해지 취소.', 'money-cancel-'+s.id, {kind:'money', refId:s.id});}catch(e){} } } }
+    var dn=daysTo(s.nextDate); if(dn>=0&&dn<=1&&!(s.cancelDate&&String(s.cancelDate)<=String(s.nextDate))){ var k2='due:'+s.id+':'+today; if(!shown[k2]){ shown[k2]=1; try{_showNotif('💳 정기결제 '+(dn===0?'오늘':'내일'), (s.name||'구독')+' '+moneyFmtCur(s.amount,s.currency)+' 결제 예정 — 계속할지 확인해요', 'money-due-'+s.id, {kind:'money', refId:s.id});}catch(e){} } }
   });
   try{ setReturnStorageItem(MONEY_ALERT_KEY, JSON.stringify(shown)); }catch(e){}
+}
+/* 날짜 키에 n일 더하기 */
+function moneyAddDaysKey(k,n){ var d=new Date(String(k)+'T00:00'); if(isNaN(d))return k; d.setDate(d.getDate()+n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+/* 곧 결정이 필요한 구독(계속할지/해지할지)을 추린다 — 무료체험 종료·다가오는 결제·해지 예정.
+   keepStore['keep:id:nextDate']가 있으면 그 결제 주기는 '계속'으로 눌러 숨긴 것. 순수 함수. */
+function moneySubRenewals(subs, today, win, keepStore){
+  win=win||7; keepStore=keepStore||{};
+  function daysTo(dstr){ if(!dstr)return 999; var a=new Date(today+'T00:00'), b=new Date(String(dstr)+'T00:00'); if(isNaN(a)||isNaN(b))return 999; return Math.round((b-a)/86400000); }
+  var out=[];
+  (subs||[]).forEach(function(s){
+    if(!s||s.status==='canceled'||s.status==='ended'||s.status==='paused')return;
+    var trialDn=s.trialEnd?daysTo(s.trialEnd):999;
+    var dueDn=s.nextDate?daysTo(s.nextDate):999;
+    var willCancelBeforeDue=!!(s.cancelDate && s.nextDate && String(s.cancelDate)<=String(s.nextDate));
+    if(trialDn>=0&&trialDn<=win){ if(keepStore['keep:'+s.id+':'+s.trialEnd])return; out.push({sub:s,mode:'trial',days:trialDn,dateKey:s.trialEnd}); return; }
+    if(willCancelBeforeDue){ var cDn=daysTo(s.cancelDate); if(cDn>=0&&cDn<=win)out.push({sub:s,mode:'scheduledCancel',days:cDn,dateKey:s.cancelDate}); return; }
+    if(dueDn>=0&&dueDn<=win){ if(keepStore['keep:'+s.id+':'+s.nextDate])return; out.push({sub:s,mode:'due',days:dueDn,dateKey:s.nextDate}); }
+  });
+  out.sort(function(a,b){ return a.days-b.days; });
+  return out;
+}
+/* ── 구독 결정 액션(계속 / 해지 예정 / 지금 해지 / 해지 취소) ── */
+function moneySubKeep(id, dateKey){
+  var store={}; try{store=JSON.parse(localStorage.getItem(MONEY_ALERT_KEY)||'{}')||{};}catch(e){}
+  store['keep:'+id+':'+dateKey]=1;
+  try{setReturnStorageItem(MONEY_ALERT_KEY,JSON.stringify(store));}catch(e){}
+  if(typeof showToast==='function')showToast('이번 결제는 계속하기로 했어요');
+  renderMoney();
+}
+function moneyScheduleCancel(id){
+  var s=moneySubs.find(function(x){return x.id===id;}); if(!s)return;
+  var def=s.nextDate?moneyAddDaysKey(s.nextDate,-1):moneyTodayKey();
+  openFormDialog('해지 예정일 지정',[{key:'d',label:'이 날부터 결제 안 함',type:'date',value:s.cancelDate||def,help:'다음 결제일('+(s.nextDate||'-')+') 전으로 잡으면 다음 결제가 빠져요.'}],function(v){
+    s.cancelDate=v.d||def; if(s.status==='ended')s.status='active'; s.updatedAt=Date.now(); moneySaveSubs();
+    if(typeof showToast==='function')showToast('해지 예정일을 '+(s.cancelDate)+'로 정했어요');
+    renderMoney();
+  });
+}
+function moneyUnscheduleCancel(id){
+  var s=moneySubs.find(function(x){return x.id===id;}); if(!s)return;
+  s.cancelDate=''; if(s.status==='ended')s.status='active'; s.updatedAt=Date.now(); moneySaveSubs();
+  if(typeof showToast==='function')showToast('해지 예정을 취소했어요 · 계속 유지');
+  renderMoney();
 }
 /* ── 렌더 ── */
 var _moneyYM=null, _moneyQaType='out', _moneyClip=null;
@@ -50285,15 +50347,31 @@ function renderMoney(){
   }); html+='</div>'; }
   html+='</div>';
   /* subscriptions */
-  var subsSorted=moneySubs.filter(function(s){return s&&s.status!=='canceled';}).sort(function(a,b){return String(a.nextDate)<String(b.nextDate)?-1:1;});
+  var subsSorted=moneySubs.filter(function(s){return s&&s.status!=='canceled'&&s.status!=='ended';}).sort(function(a,b){return String(a.nextDate)<String(b.nextDate)?-1:1;});
   html+='<div class="mny-card"><div class="mny-ch"><span class="lbl">구독 · 정기결제</span><button class="more" data-mny-addsub>＋ 추가</button></div>';
+  /* 곧 결정이 필요한 구독: 계속할지 / 해지할지 한눈에 */
+  var _keepStore={}; try{_keepStore=JSON.parse(localStorage.getItem(MONEY_ALERT_KEY)||'{}')||{};}catch(e){}
+  var _renew=moneySubRenewals(moneySubs, today, 7, _keepStore);
+  if(_renew.length){
+    html+='<div class="mny-renew"><div class="mny-renew-h"><span>곧 결제 · 계속할까요?</span></div>';
+    _renew.forEach(function(r){
+      var s=r.sub, dd=(r.days===0?'오늘':'D-'+r.days), c=moneyCat(s.catId||'구독'), line, act;
+      if(r.mode==='trial'){ line='무료체험 <b>'+dd+'</b> 종료 · 두면 '+moneyFmtCur(s.amount,s.currency)+' 과금'; act='<button class="mny-rbtn keep" data-mny-keep="'+moneyEsc(s.id)+'" data-mny-keepk="'+moneyEsc(r.dateKey)+'">계속</button><button class="mny-rbtn cancel" data-mny-schedcancel="'+moneyEsc(s.id)+'">해지</button>'; }
+      else if(r.mode==='scheduledCancel'){ line='해지 예정 <b>'+dd+'</b> · 이후 결제 없음'; act='<button class="mny-rbtn undo" data-mny-unschedule="'+moneyEsc(s.id)+'">해지 취소</button>'; }
+      else { line='<b>'+dd+'</b>에 '+moneyFmtCur(s.amount,s.currency)+' 결제 예정'; act='<button class="mny-rbtn keep" data-mny-keep="'+moneyEsc(s.id)+'" data-mny-keepk="'+moneyEsc(r.dateKey)+'">계속</button><button class="mny-rbtn cancel" data-mny-schedcancel="'+moneyEsc(s.id)+'">해지 예정</button>'; }
+      html+='<div class="mny-renew-row"><div class="mny-rlogo" style="background:'+c.color+'">'+(s.emoji||c.emoji)+'</div><div class="mny-rmain"><div class="mny-rnm">'+moneyEsc(s.name||'구독')+'</div><div class="mny-rsub">'+line+'</div></div><div class="mny-ractions">'+act+'</div></div>';
+    });
+    html+='</div>';
+  }
   if(!subsSorted.length){ html+='<div class="mny-empty">구독을 추가하면 결제일에 자동 기록되고, 결제·해지 알림을 받아요</div>'; }
   else{ html+='<div class="mny-subs">'; subsSorted.forEach(function(s){
     var dn=moneyDaysTo(s.nextDate,today), cls='', meta='';
     var trialDn=s.trialEnd?moneyDaysTo(s.trialEnd,today):999;
-    if(trialDn>=0&&trialDn<=3){ cls=' trial'; meta='<span class="mny-tag alert">무료체험 종료 '+(trialDn===0?'오늘':'D-'+trialDn)+'</span> 해지 알림'; }
+    var cancelDn=s.cancelDate?moneyDaysTo(s.cancelDate,today):999;
+    if(s.cancelDate&&cancelDn<999){ cls=' due'; meta='<span class="mny-tag alert">해지 예정 '+(cancelDn<0?'지남':cancelDn===0?'오늘':'D-'+cancelDn)+'</span> 이후 결제 없음'; }
+    else if(trialDn>=0&&trialDn<=3){ cls=' trial'; meta='<span class="mny-tag alert">무료체험 종료 '+(trialDn===0?'오늘':'D-'+trialDn)+'</span> 해지 알림'; }
     else if(dn>=0&&dn<=3){ cls=' due'; meta='<span class="mny-tag auto">결제일 자동 기록</span> '+(dn===0?'오늘':'D-'+dn); }
-    else { meta='<span class="mny-tag">'+(dn>=0?'D-'+dn:'지남')+'</span> <span class="mny-tag auto">자동</span>'; }
+    else { meta='<span class="mny-tag">'+(dn>=0?'D-'+dn:'지남')+'</span> <span class="mny-tag auto">자동</span>'+(s.startDate?' · <span class="mny-tag">시작 '+moneyEsc(String(s.startDate).slice(2).replace(/-/g,'.'))+'</span>':''); }
     var c=moneyCat(s.catId||'구독');
     var cyc=(s.cycle==='year'?'매년':s.cycle==='week'?'매주':'매월');
     var foreign=(s.currency&&s.currency!=='KRW');
@@ -50370,6 +50448,9 @@ function moneyBind(root){
   var bud=root.querySelector('[data-mny-budget]'); if(bud)bud.addEventListener('click',moneyEditBudget);
   var addsub=root.querySelector('[data-mny-addsub]'); if(addsub)addsub.addEventListener('click',function(){ moneyEditSub(null); });
   root.querySelectorAll('[data-mny-sub]').forEach(function(el){ el.addEventListener('click',function(){ moneyEditSub(el.getAttribute('data-mny-sub')); }); });
+  root.querySelectorAll('[data-mny-keep]').forEach(function(el){ el.addEventListener('click',function(e){ e.stopPropagation(); moneySubKeep(el.getAttribute('data-mny-keep'), el.getAttribute('data-mny-keepk')); }); });
+  root.querySelectorAll('[data-mny-schedcancel]').forEach(function(el){ el.addEventListener('click',function(e){ e.stopPropagation(); moneyScheduleCancel(el.getAttribute('data-mny-schedcancel')); }); });
+  root.querySelectorAll('[data-mny-unschedule]').forEach(function(el){ el.addEventListener('click',function(e){ e.stopPropagation(); moneyUnscheduleCancel(el.getAttribute('data-mny-unschedule')); }); });
   root.querySelectorAll('[data-mny-tx]').forEach(function(el){ el.addEventListener('click',function(){ moneyEditTx(el.getAttribute('data-mny-tx')); }); });
   var cs=root.querySelector('[data-mny-clip-save]'); if(cs)cs.addEventListener('click',function(){ if(_moneyClip){ var cur=_moneyClip.currency||'KRW'; moneyTxAdd({type:'out',amount:moneyToKRW(_moneyClip.amount,cur),origAmount:cur!=='KRW'?_moneyClip.amount:undefined,currency:cur,merchant:_moneyClip.merchant,date:_moneyClip.date,catId:_moneyClip.catId,source:'clip'}); if(typeof showToast==='function')showToast('지출 기록에 추가됐어요 ✓'); _moneyClip=null; renderMoney(); } });
 }
@@ -50405,16 +50486,21 @@ function moneyEditSub(id){
     {key:'amount',label:'금액',type:'number',value:s?s.amount:''},
     {key:'currency',label:'통화',type:'select',value:s?(s.currency||'KRW'):'KRW',options:MONEY_CUR.map(function(x){return {value:x.c,label:x.label};}),help:'달러 등 외화를 고르면 원화로 자동 환산해 기록돼요.'},
     {key:'cycle',label:'주기',type:'select',value:s?s.cycle:'month',options:[{value:'month',label:'매월'},{value:'year',label:'매년'},{value:'week',label:'매주'}]},
+    {key:'startDate',label:'구독 시작일(선택)',type:'date',value:s?(s.startDate||''):''},
     {key:'nextDate',label:'다음 결제일',type:'date',value:s?s.nextDate:moneyTodayKey()},
+    {key:'cancelDate',label:'해지 예정일(선택)',type:'date',value:s?(s.cancelDate||''):'',help:'이 날부터는 결제·자동 기록에서 빠져요. 다음 결제 전에 끊을 계획이면 지정하세요.'},
     {key:'catId',label:'분야',type:'select',value:s?(s.catId||'구독'):'구독',options:cats.map(function(c){return {value:c.id,label:c.emoji+' '+c.id};})},
     {key:'trialEnd',label:'무료체험 종료일(선택)',type:'date',value:s?(s.trialEnd||''):''},
     {key:'emoji',label:'아이콘(선택)',value:s?(s.emoji||''):''}
   ],function(d){
     var name=(d.name||'').trim(); if(!name){showToast&&showToast('이름을 입력해 주세요');return;}
-    if(s){ s.name=name; s.amount=Number(d.amount)||0; s.currency=d.currency||'KRW'; s.cycle=d.cycle; s.nextDate=d.nextDate||moneyTodayKey(); s.catId=d.catId||'구독'; s.trialEnd=d.trialEnd||''; s.emoji=(d.emoji||'').trim(); s.updatedAt=Date.now(); }
-    else { moneySubs.push({id:'msub_'+Date.now()+'_'+Math.floor(Math.random()*9999),name:name,amount:Number(d.amount)||0,currency:d.currency||'KRW',cycle:d.cycle,nextDate:d.nextDate||moneyTodayKey(),catId:d.catId||'구독',trialEnd:d.trialEnd||'',emoji:(d.emoji||'').trim(),autolog:true,status:'active',createdAt:Date.now(),updatedAt:Date.now()}); }
+    if(s){ s.name=name; s.amount=Number(d.amount)||0; s.currency=d.currency||'KRW'; s.cycle=d.cycle; s.startDate=d.startDate||''; s.nextDate=d.nextDate||moneyTodayKey(); s.cancelDate=d.cancelDate||''; s.catId=d.catId||'구독'; s.trialEnd=d.trialEnd||''; s.emoji=(d.emoji||'').trim(); if(s.cancelDate&&s.status==='ended')s.status='active'; s.updatedAt=Date.now(); }
+    else { moneySubs.push({id:'msub_'+Date.now()+'_'+Math.floor(Math.random()*9999),name:name,amount:Number(d.amount)||0,currency:d.currency||'KRW',cycle:d.cycle,startDate:d.startDate||'',nextDate:d.nextDate||moneyTodayKey(),cancelDate:d.cancelDate||'',catId:d.catId||'구독',trialEnd:d.trialEnd||'',emoji:(d.emoji||'').trim(),autolog:true,status:'active',createdAt:Date.now(),updatedAt:Date.now()}); }
     moneySaveSubs(); renderMoney();
-  }, {actions: s?[{label:'해지',danger:true,onClick:function(close){ s.status='canceled'; s.updatedAt=Date.now(); moneySaveSubs(); close(); if(typeof showToast==='function')showToast('구독을 해지했어요'); renderMoney(); }}]:[]});
+  }, {actions: s?[
+    {label:'해지 예정일 지정',onClick:function(close){ close(); moneyScheduleCancel(s.id); }},
+    {label:'지금 해지',danger:true,onClick:function(close){ s.status='canceled'; s.endDate=moneyTodayKey(); s.updatedAt=Date.now(); moneySaveSubs(); close(); if(typeof showToast==='function')showToast('구독을 해지했어요'); renderMoney(); }}
+  ]:[]});
 }
 function moneyEditBudget(){
   var cats=moneyCatsByType('out');
