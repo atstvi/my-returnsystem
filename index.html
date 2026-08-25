@@ -13670,6 +13670,29 @@ function scheduleTargetHasLinkedTask(target, taskList){
   }
   return false;
 }
+/* 일정(target)이 "완료"로 볼 수 있는지 — 연결이 필요한 마감 목록에서 빼기 위함.
+   · target 자체가 done, 또는
+   · 연결된 할일이 하나라도 있고(정/역방향) 그 연결 할일이 전부 done 이면 완료.
+   scheduleTargetHasLinkedTask("열린 연결이 있나")와 달리 여기선 done 연결을 센다.
+   연결 할일이 아예 없으면(연결한 적 없음) 완료가 아니라 여전히 '연결 필요'. */
+function scheduleTargetCompleted(target, taskList){
+  if(!target)return false;
+  if(target.done)return true;
+  taskList=Array.isArray(taskList)?taskList:[];
+  var tid=String(target.id), linked=[], i;
+  for(i=0;i<taskList.length;i++){
+    var t=taskList[i];
+    if(!t||t._travelOnly||String(t.id)===tid)continue;
+    if(String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid)linked.push(t);
+  }
+  if(target.deadlineId){
+    for(i=0;i<taskList.length;i++){
+      var u=taskList[i];
+      if(u&&!u._travelOnly&&String(u.id)===String(target.deadlineId))linked.push(u);
+    }
+  }
+  return linked.length>0 && linked.every(function(x){return !!x.done;});
+}
 /* "다음 준비" 헬퍼 — 남은 시간 표기 + 준비물 인라인 체크 토글(원본에 반영). */
 function _fmtMinsLeft(m){
   if(m<=0)return '지금';
@@ -13715,8 +13738,8 @@ function renderHomeSituation(){
   function hasLinkedTask(target){
     return scheduleTargetHasLinkedTask(target, tasks);
   }
-  var unlinked = scheduleLinks.filter(function(x){ return !skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task); });
-  var skippedUnlinked = scheduleLinks.filter(function(x){ return !!skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task); });
+  var unlinked = scheduleLinks.filter(function(x){ return !skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task) && !scheduleTargetCompleted(x.task, tasks); });
+  var skippedUnlinked = scheduleLinks.filter(function(x){ return !!skippedLinks[String(x.task.id)] && !hasLinkedTask(x.task) && !scheduleTargetCompleted(x.task, tasks); });
   var inboxNeed = (typeof inboxItems !== 'undefined') ? inboxItems.filter(function(i){ return !i.done && i.unread; }) : [];
   var upcomingToday = openTasks.filter(function(t){
     /* 시간이 잡힌 오늘 할일이면 카테고리와 무관하게 모두 '다음 준비'에 잡는다
