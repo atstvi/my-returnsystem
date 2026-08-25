@@ -5298,7 +5298,13 @@ html.pjb-fs-lock{overflow:hidden}
 .wish-title{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-1);line-height:var(--lh-tight,1.3);word-break:break-word}
 .wish-price{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--accent);margin-top:3px;font-variant-numeric:tabular-nums}
 .wish-price .wp-cur{font-size:var(--text-2xs);color:var(--fg-4);font-weight:var(--fw-semibold);margin-left:2px}
-.wish-stars{margin-top:3px;font-size:var(--text-xs);color:var(--w-500,#e0a53a);letter-spacing:1px}
+.wish-stars{margin-top:3px;font-size:var(--text-xs);display:flex;align-items:center}
+/* 소수 별점(겹친 두 층을 width로 클립) */
+.wstars{position:relative;display:inline-block;line-height:1;letter-spacing:1px;color:var(--border-strong,#d8d2c8)}
+.wstars-bg{color:inherit}
+.wstars-fg{position:absolute;left:0;top:0;overflow:hidden;white-space:nowrap;color:var(--w-500,#e0a53a)}
+.wstars-num{margin-left:5px;color:var(--fg-3);font-weight:var(--fw-semibold);font-variant-numeric:tabular-nums}
+.wish-reflinks{font-size:var(--text-2xs,10px);font-weight:var(--fw-semibold);color:var(--fg-4);margin-left:2px}
 .wish-note{font-size:var(--text-xs);color:var(--fg-3);margin-top:4px;line-height:var(--lh-normal);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .wish-cardfoot{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-3)}
 .wish-link{display:inline-flex;align-items:center;gap:4px;font-size:var(--text-2xs);font-weight:var(--fw-semibold);color:var(--fg-3);text-decoration:none}
@@ -5343,6 +5349,16 @@ html.pjb-fs-lock{overflow:hidden}
 .wish-star{border:none;background:transparent;color:var(--border-strong,#ccc);font-size:20px;cursor:pointer;padding:0 1px;line-height:1}
 .wish-star.on{color:var(--w-500,#e0a53a)}
 .wish-star-clear{border:none;background:transparent;color:var(--fg-4);font-size:var(--text-xs);cursor:pointer;margin-left:var(--sp-2)}
+.wf-ratenum{width:66px;height:30px;margin-left:var(--sp-3);text-align:center}
+/* 편집: 참고 링크 rows */
+.wish-links{display:flex;flex-direction:column;gap:6px;margin-bottom:6px}
+.wish-link-row{display:flex;gap:6px;align-items:center}
+.wish-link-row .wl-label{flex:1;min-width:0}
+.wish-link-row .wl-url{flex:1.6;min-width:0}
+.wish-link-add{height:32px;padding:0 12px;font-size:var(--text-xs)}
+/* 비교: 링크 목록 */
+.wish-clinks{display:flex;flex-direction:column;gap:3px;align-items:flex-start}
+.wish-link.ref{color:var(--fg-3)}
 /* 카드: 추가 이미지 배지 + 원화 환산·합산 분해 */
 .wish-imgwrap{position:relative;line-height:0}
 .wish-moreimg{position:absolute;right:8px;bottom:8px;font-size:var(--text-2xs,10px);font-weight:var(--fw-bold);color:#fff;background:rgba(0,0,0,.55);border-radius:var(--r-full);padding:2px 8px;line-height:1.2}
@@ -50649,6 +50665,14 @@ function wishFmtPrice(price,cur){
   return sym+Number(price).toLocaleString('en-US');
 }
 function wishStars(r){r=Math.max(0,Math.min(5,parseInt(r,10)||0));if(!r)return '';return '★★★★★☆☆☆☆☆'.slice(5-r,10-r);}
+/* 소수점 별점 표시(반칸 정밀) — 겹친 두 층을 width로 잘라 정확히 4.5★ 같은 표현. */
+function wishStarsHtml(r){
+  r=Math.max(0,Math.min(5,Number(r)||0)); if(!r)return '';
+  var pct=(r/5*100).toFixed(1), num=Math.round(r*10)/10;
+  return '<span class="wstars"><span class="wstars-bg">★★★★★</span><span class="wstars-fg" style="width:'+pct+'%">★★★★★</span></span><span class="wstars-num">'+num+'</span>';
+}
+/* 참고 링크 여러 개 — [{label, url}] */
+function wishLinks(w){ return (w&&Array.isArray(w.links))?w.links.filter(function(l){return l&&l.url;}):[]; }
 /* 카테고리 목록(+개수), 무드보드 그룹 순서용 */
 function wishCategories(){
   var map={}, order=[];
@@ -50724,7 +50748,9 @@ function wishCardHtml(w){
     if(foreign)priceHtml+='<div class="wish-krw">≈ '+wishFmtKRW(wishTotalKRW(w))+'</div>';
     if(exSum>0 && w.price!=null && w.price!=='')priceHtml+='<div class="wish-breakdown">원금 '+wishEsc(wishFmtPrice(Number(w.price)||0,cur))+' <span>＋ 추가 '+wishEsc(wishFmtPrice(exSum,cur))+'</span></div>';
   }
+  var refN=wishLinks(w).length;
   var link=w.url?'<a class="wish-link" href="'+wishEsc(w.url)+'" target="_blank" rel="noopener" data-wishstop><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>링크</a>':'';
+  if(refN)link+='<span class="wish-reflinks">참고 '+refN+'</span>';
   return '<article class="wish-card'+(picked?' picked':'')+'" data-wishcard="'+wishEsc(w.id)+'">'
     +'<button class="wish-pick'+(picked?' on':'')+'" type="button" data-wishpick="'+wishEsc(w.id)+'" title="비교에 추가" aria-label="비교 선택"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></button>'
     +'<span class="wish-status-tag" style="background:'+st.color+'">'+wishEsc(st.label)+'</span>'
@@ -50732,7 +50758,7 @@ function wishCardHtml(w){
     +'<div class="wish-body">'
     +'<div class="wish-title">'+wishEsc(w.title||'무제')+'</div>'
     +priceHtml
-    +(stars?'<div class="wish-stars">'+stars+'</div>':'')
+    +(w.rating?'<div class="wish-stars">'+wishStarsHtml(w.rating)+'</div>':'')
     +(w.note?'<div class="wish-note">'+wishEsc(w.note)+'</div>':'')
     +'<div class="wish-cardfoot">'+link+'<span class="wish-spacer"></span><button class="wish-mini" type="button" data-wishedit="'+wishEsc(w.id)+'" data-wishstop>편집</button></div>'
     +'</div></article>';
@@ -50810,7 +50836,7 @@ function renderWishCompare(){
   if(items.length<2){ comp.innerHTML='<button class="wish-cclose" type="button" id="wish-comp-back">← 무드보드</button><div class="wish-empty"><div class="wish-empty-title">비교할 후보를 골라주세요</div><div>무드보드에서 카드의 ○를 눌러 2~4개를 선택하세요.</div></div>'; var bk0=document.getElementById('wish-comp-back'); if(bk0)bk0.addEventListener('click',function(){_wishView='board';renderWishlist();}); return; }
   var krwVals=items.map(wishTotalKRW).filter(function(v){return v>0&&v!==Infinity;});
   var minKRW=krwVals.length?Math.min.apply(null,krwVals):-1;
-  var maxRating=Math.max.apply(null,items.map(function(w){return parseInt(w.rating,10)||0;}));
+  var maxRating=Math.max.apply(null,items.map(function(w){return Number(w.rating)||0;}));
   function cell(w,inner){return '<td>'+inner+'</td>';}
   var head='<tr><th class="wc-rowlabel"></th>'+items.map(function(w){return '<th>'+wishEsc(w.title||'무제')+'</th>';}).join('')+'</tr>';
   function row(label,fn){return '<tr><td class="wc-rowlabel">'+label+'</td>'+items.map(function(w){return cell(w,fn(w));}).join('')+'</tr>';}
@@ -50821,11 +50847,11 @@ function renderWishCompare(){
   rows+=row('상태',function(w){var s=wishStatusMeta(w.status);return '<span style="color:'+s.color+';font-weight:var(--fw-bold)">'+wishEsc(s.label)+'</span>';});
   rows+=row('가격(합산)',function(w){var t=wishTotalOrig(w);if(t==null)return '—';var cur=w.currency||'KRW';var best=(wishTotalKRW(w)===minKRW&&minKRW>0);var h='<span class="wish-cprice">'+wishEsc(wishFmtPrice(t,cur))+'</span>'+(best?'<span class="wc-badge">최저</span>':'');if(cur!=='KRW')h+='<div class="wish-ckrw">≈ '+wishFmtKRW(wishTotalKRW(w))+'</div>';return h;});
   rows+=row('추가비용',function(w){var ex=wishExtras(w);if(!ex.length)return '<span class="wish-cmuted">—</span>';var cur=w.currency||'KRW';return '<div class="wish-cextras">'+ex.map(function(x){return '<div>'+wishEsc(x.label||'추가')+' <b>'+wishEsc(wishFmtPrice(Number(x.amount)||0,cur))+'</b></div>';}).join('')+'</div>';});
-  rows+=row('별점',function(w){var r=parseInt(w.rating,10)||0;var best=(r&&r===maxRating);return (r?'<span class="wish-stars">'+wishStars(r)+'</span>':'—')+(best?'<span class="wc-badge">최고</span>':'');});
+  rows+=row('별점',function(w){var r=Number(w.rating)||0;var best=(r&&r===maxRating);return (r?wishStarsHtml(r):'—')+(best?'<span class="wc-badge">최고</span>':'');});
   rows+=row('장점',function(w){return w.pros?'<span class="wish-cpros">'+wishEsc(w.pros)+'</span>':'—';});
   rows+=row('단점',function(w){return w.cons?'<span class="wish-ccons">'+wishEsc(w.cons)+'</span>':'—';});
   rows+=row('메모',function(w){return w.note?wishEsc(w.note):'—';});
-  rows+=row('링크',function(w){return w.url?'<a class="wish-link" href="'+wishEsc(w.url)+'" target="_blank" rel="noopener">열기 ↗</a>':'—';});
+  rows+=row('링크',function(w){var out=[];if(w.url)out.push('<a class="wish-link" href="'+wishEsc(w.url)+'" target="_blank" rel="noopener">구매처 ↗</a>');wishLinks(w).forEach(function(l){out.push('<a class="wish-link ref" href="'+wishEsc(l.url)+'" target="_blank" rel="noopener">'+wishEsc(l.label||'참고')+' ↗</a>');});return out.length?'<div class="wish-clinks">'+out.join('')+'</div>':'—';});
   comp.innerHTML='<button class="wish-cclose" type="button" id="wish-comp-back">← 무드보드</button><table class="wish-ctable"><thead>'+head+'</thead><tbody>'+rows+'</tbody></table>';
   var bk=document.getElementById('wish-comp-back');if(bk)bk.addEventListener('click',function(){_wishView='board';renderWishlist();});
   comp.querySelectorAll('[data-wcimg]').forEach(function(img){var parts=String(img.getAttribute('data-wcimg')).split(':');var w=wishById(parts[0]);if(!w)return;var im=wishImages(w)[Number(parts[1])||0];wishResolveOne(img,im);img.addEventListener('click',function(){wishLightbox(im);});});
@@ -50865,6 +50891,7 @@ function wishOpenEditor(item){
   var draft=Object.assign({currency:'KRW',status:'candidate',rating:0},item||{});
   draft.images=wishImages(item||{}).map(function(im){return {ref:im.ref||'',sync:im.sync||''};});
   draft.extras=wishExtras(item||{}).map(function(x){return {label:x.label||'',amount:x.amount};});
+  draft.links=wishLinks(item||{}).map(function(l){return {label:l.label||'',url:l.url||''};});
   var old=document.getElementById('wish-editor');if(old)old.remove();
   var ov=document.createElement('div');ov.className='overlay open';ov.id='wish-editor';
   var cats=wishCategories().map(function(c){return '<option value="'+wishEsc(c.name)+'">';}).join('');
@@ -50880,8 +50907,9 @@ function wishOpenEditor(item){
     +'<div class="wish-row2"><div class="field"><label class="field-label">가격(원금)</label><input class="field-inp" id="wf-price" type="number" inputmode="decimal" value="'+(draft.price!=null?wishEsc(draft.price):'')+'" placeholder="0"></div>'
     +'<div class="field"><label class="field-label">통화</label><select class="field-select" id="wf-cur">'+curOpts+'</select></div></div>'
     +'<div class="field"><label class="field-label">추가 비용 <span class="wish-hint">배송비·부속 구매 등</span></label><div class="wish-extras" id="wish-extras"></div><button type="button" class="btn btn-ghost wish-extra-add" id="wish-extra-add">＋ 추가 비용</button><div class="wish-totalline" id="wish-total"></div></div>'
-    +'<div class="field"><label class="field-label">링크(구매처 등)</label><input class="field-inp" id="wf-url" type="url" value="'+wishEsc(draft.url||'')+'" placeholder="https://"></div>'
-    +'<div class="field"><label class="field-label">별점</label><div class="wish-starrow" id="wish-starrow">'+starBtns+'<button type="button" class="wish-star-clear" data-wishstar="0">지움</button></div></div>'
+    +'<div class="field"><label class="field-label">구매처 링크</label><input class="field-inp" id="wf-url" type="url" value="'+wishEsc(draft.url||'')+'" placeholder="https://"></div>'
+    +'<div class="field"><label class="field-label">참고 링크 <span class="wish-hint">리뷰·비교 글 등 여러 개</span></label><div class="wish-links" id="wish-links"></div><button type="button" class="btn btn-ghost wish-link-add" id="wish-link-add">＋ 참고 링크</button></div>'
+    +'<div class="field"><label class="field-label">별점 <span class="wish-hint">0~5, 소수 한 자리</span></label><div class="wish-starrow" id="wish-starrow">'+starBtns+'<input class="field-inp wf-ratenum" id="wf-rating" type="number" min="0" max="5" step="0.1" value="'+(draft.rating?wishEsc(draft.rating):'')+'" placeholder="0.0"><button type="button" class="wish-star-clear" data-wishstar="0">지움</button></div></div>'
     +'<div class="wish-row2"><div class="field"><label class="field-label">장점</label><textarea class="field-ta" id="wf-pros" rows="2" placeholder="줄바꿈으로 여러 개">'+wishEsc(draft.pros||'')+'</textarea></div>'
     +'<div class="field"><label class="field-label">단점</label><textarea class="field-ta" id="wf-cons" rows="2" placeholder="줄바꿈으로 여러 개">'+wishEsc(draft.cons||'')+'</textarea></div></div>'
     +'<div class="field"><label class="field-label">메모</label><textarea class="field-ta" id="wf-note" rows="2">'+wishEsc(draft.note||'')+'</textarea></div>'
@@ -50937,8 +50965,22 @@ function wishOpenEditor(item){
   ov.querySelector('#wish-extra-add').addEventListener('click',function(){draft.extras.push({label:'',amount:''});renderExtras();updateTotals();});
   ov.querySelector('#wf-price').addEventListener('input',updateTotals);
   ov.querySelector('#wf-cur').addEventListener('change',updateTotals);
-  /* 별점 */
-  ov.querySelectorAll('[data-wishstar]').forEach(function(b){b.addEventListener('click',function(){draft.rating=parseInt(b.getAttribute('data-wishstar'),10)||0;ov.querySelectorAll('.wish-star').forEach(function(x){x.classList.toggle('on',(parseInt(x.getAttribute('data-wishstar'),10)||0)<=draft.rating&&draft.rating>0);});});});
+  /* 참고 링크 여러 개 */
+  function renderLinks(){
+    var c=ov.querySelector('#wish-links');if(!c)return;
+    c.innerHTML=draft.links.map(function(l,i){return '<div class="wish-link-row"><input class="field-inp wl-label" data-lnlabel="'+i+'" placeholder="이름(선택)" value="'+wishEsc(l.label||'')+'"><input class="field-inp wl-url" data-lnurl="'+i+'" type="url" placeholder="https://" value="'+wishEsc(l.url||'')+'"><button type="button" class="wish-extra-del" data-lndel="'+i+'" aria-label="삭제">×</button></div>';}).join('');
+    c.querySelectorAll('[data-lnlabel]').forEach(function(inp){inp.addEventListener('input',function(){draft.links[Number(inp.getAttribute('data-lnlabel'))].label=inp.value;});});
+    c.querySelectorAll('[data-lnurl]').forEach(function(inp){inp.addEventListener('input',function(){draft.links[Number(inp.getAttribute('data-lnurl'))].url=inp.value;});});
+    c.querySelectorAll('[data-lndel]').forEach(function(b){b.addEventListener('click',function(){draft.links.splice(Number(b.getAttribute('data-lndel')),1);renderLinks();});});
+  }
+  renderLinks();
+  ov.querySelector('#wish-link-add').addEventListener('click',function(){draft.links.push({label:'',url:''});renderLinks();});
+  /* 별점(소수 한 자리) — 별 클릭은 정수 빠른 선택, 숫자칸으로 소수 미세조정 */
+  var ratingInput=ov.querySelector('#wf-rating');
+  function paintStars(){ var r=Math.max(0,Math.min(5,parseFloat(ratingInput.value)||0)); ov.querySelectorAll('.wish-star').forEach(function(x){var v=parseInt(x.getAttribute('data-wishstar'),10)||0; x.classList.toggle('on', v<=Math.round(r) && r>0);}); }
+  ov.querySelectorAll('[data-wishstar]').forEach(function(b){b.addEventListener('click',function(){var v=parseInt(b.getAttribute('data-wishstar'),10)||0; ratingInput.value=(v===0?'':String(v)); paintStars();});});
+  ratingInput.addEventListener('input',paintStars);
+  paintStars();
   if(editing)ov.querySelector('#wish-del').addEventListener('click',function(){wishDelete(item.id);close();});
   ov.querySelector('#wish-save').addEventListener('click',function(){
     var title=(ov.querySelector('#wf-title').value||'').trim();
@@ -50951,7 +50993,9 @@ function wishOpenEditor(item){
     rec.price=(priceRaw===''||priceRaw==null)?null:Number(priceRaw);
     rec.currency=ov.querySelector('#wf-cur').value||'KRW';
     rec.url=(ov.querySelector('#wf-url').value||'').trim();
-    rec.rating=parseInt(draft.rating,10)||0;
+    var rt=parseFloat(ov.querySelector('#wf-rating').value);
+    rec.rating=isNaN(rt)?0:Math.max(0,Math.min(5,Math.round(rt*10)/10));
+    rec.links=draft.links.map(function(l){return {label:(l.label||'').trim(),url:(l.url||'').trim()};}).filter(function(l){return l.url;});
     rec.pros=(ov.querySelector('#wf-pros').value||'').trim();
     rec.cons=(ov.querySelector('#wf-cons').value||'').trim();
     rec.note=(ov.querySelector('#wf-note').value||'').trim();

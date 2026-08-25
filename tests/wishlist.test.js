@@ -27,6 +27,11 @@ const t = runner('위시리스트 · 로직');
   t.ok('빈 가격 → 빈 문자열', sb.wishFmtPrice(null, 'KRW') === '' && sb.wishFmtPrice('', 'USD') === '');
   t.ok('별점 4', sb.wishStars(4) === '★★★★☆', sb.wishStars(4));
   t.ok('별점 0 → 빈', sb.wishStars(0) === '');
+  // 소수 별점 표시: width % + 숫자
+  t.ok('별점 4.5 → 90% + 4.5', /width:90\.0%/.test(sb.wishStarsHtml(4.5)) && />4\.5</.test(sb.wishStarsHtml(4.5)), sb.wishStarsHtml(4.5));
+  t.ok('별점 3.2 → 64%', /width:64\.0%/.test(sb.wishStarsHtml(3.2)), sb.wishStarsHtml(3.2));
+  t.ok('별점 0 → 빈 HTML', sb.wishStarsHtml(0) === '');
+  t.ok('별점 상한 5', /width:100\.0%/.test(sb.wishStarsHtml(9)));
   t.ok('상태 메타', sb.wishStatusMeta('planned').label === '구매예정' && sb.wishStatusMeta('nope').label === '고민중');
 }
 
@@ -81,6 +86,12 @@ const t = runner('위시리스트 · 로직');
   t.ok('구버전 imageRef 흡수', sb.wishImages({ imageRef: 'x' }).length === 1 && sb.wishImages({ imageRef: 'x' })[0].ref === 'x');
   t.ok('빈 항목 제거', sb.wishImages({ images: [{ ref: '' }, { ref: 'y' }] }).length === 1);
   t.ok('없으면 빈 배열', sb.wishImages({}).length === 0);
+}
+
+// ── 참고 링크 여러 개 ────────────────────────────────────────────────────────
+{
+  t.ok('링크 배열 필터(url 있는 것만)', sb.wishLinks({ links: [{ url: 'a' }, { label: 'x', url: '' }, { url: 'b' }] }).length === 2);
+  t.ok('links 없으면 빈', sb.wishLinks({}).length === 0);
 }
 
 // ── 추가 비용 + 합산 ─────────────────────────────────────────────────────────
