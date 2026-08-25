@@ -82,6 +82,33 @@ t.ok('exposes notifBuildFeed', typeof feed === 'function');
   t.ok('actionable atMs 오름차순', ats.slice().sort((a, b) => a - b).join() === ats.join());
 }
 
+// ── 미룬(스누즈) 대상은 '지금 챙길 것'에서 빠진다 (배지가 줄도록) ───────────────
+{
+  const now = new Date(2026, 7, 22, 14, 0, 0).getTime();
+  const today = '2026-08-22';
+  const state = {
+    now, today,
+    tasks: [
+      { id: 't1', text: '지난 할일', date: today, timeStart: '10:00' },   // overdue
+      { id: 't2', text: '마감 지남', deadlineDate: '2026-08-21' },        // deadline
+    ],
+    inbox: [{ id: 'i1', done: false, needsAction: true }],
+    snooze: [
+      { id: 's1', kind: 'task', refId: 't1', title: '지난 할일', dueAt: now + 3600000 }, // 미룸
+      { id: 's2', kind: 'inbox', refId: 'inbox', title: '인박스', dueAt: now + 1800000 }, // 미룸
+    ],
+    log: [],
+  };
+  const f = feed(state);
+  const ids = f.actionable.map((r) => r.refId);
+  t.ok('미룬 할일은 actionable에서 빠짐', !ids.includes('t1'), JSON.stringify(ids));
+  t.ok('미룬 인박스도 빠짐', !f.actionable.some((r) => r.kind === 'inbox'));
+  t.ok('마감(안 미룸)은 남음', f.actionable.some((r) => r.refId === 't2'));
+  t.ok('미룬 것은 snoozed에 있음', f.snoozed.length === 2);
+  // 배지 관점: 미루기 전 3건(overdue,deadline,inbox) → 미루기 후 1건
+  t.ok('actionable 1건으로 줄어듦', f.actionable.length === 1, f.actionable.length);
+}
+
 // ── empty state doesn't throw ───────────────────────────────────────────────
 {
   const f = feed({});
