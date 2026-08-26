@@ -19096,16 +19096,22 @@ function returnEntityPrepareForSave(collection, arr, prefix, opts){
     if(opts.autoTombstone && res.removed && res.removed.length){
       returnTombstoneMarkMany(res.removed, collection);
     }
-    /* Any entity currently present cancels a stale tombstone for its _eid
-       (e.g. it came back from another device, or was recreated). */
+    /* 재생성/재편집된 항목만 tombstone을 해제한다 — 그 항목의 updatedAt이 삭제
+       시각(deletedAt)보다 '더 최신'일 때만. (returnTombstoneIsActive와 대칭.)
+       예전엔 _eid가 배열에 존재하기만 하면 무조건 해제했는데, _eid는 레거시 id에서
+       결정적으로 파생되므로(ib_<id>) 다른 기기에서 지운 걸 아직 모르는 '스테일 사본'
+       도 같은 _eid를 갖는다. 그 사본이 저장하면 tombstone이 지워져 삭제한 항목이 전
+       기기에서 되살아났다("인박스 삭제해도 다시 생김"의 실제 원인). 최신성 검사로
+       진짜 재생성만 해제하고, 스테일 사본은 삭제를 무효화하지 못하게 한다. */
     if(Array.isArray(arr) && arr.length){
-      var present=[];
-      for(var i=0;i<arr.length;i++){ var e=arr[i]; if(e&&e._eid)present.push(e._eid); }
-      if(present.length){
-        var t=tombstonesLoad(), toClear=[];
-        for(var j=0;j<present.length;j++){ if(t[present[j]])toClear.push(present[j]); }
-        if(toClear.length)returnTombstoneClear(toClear);
+      var t=tombstonesLoad(), toClear=[];
+      for(var i=0;i<arr.length;i++){
+        var e=arr[i]; if(!e||!e._eid)continue;
+        var ts=t[e._eid]; if(!ts)continue;
+        var up=Number(e.updatedAt||e.createdAt||0);
+        if(up>Number(ts.deletedAt||0))toClear.push(e._eid);
       }
+      if(toClear.length)returnTombstoneClear(toClear);
     }
     return res;
   }catch(e){ try{console.warn('[entity] prepare failed for '+collection+':',e&&e.message);}catch(_){} return {stamped:0,removed:[]}; }
