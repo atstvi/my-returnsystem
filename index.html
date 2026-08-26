@@ -13613,6 +13613,9 @@ function homeTodayTasks(includeSchedule){
 }
 function homeRefreshCards(opts){
   opts=opts||{};
+  /* fbApplyData 재수화 단계에서는 홈 카드 페인트를 건너뛴다 — 뒤이어 _fbApplyRenderers가
+     홈 카드까지 한 번에 다시 그리므로 중복이자, 편집 중이면 작업물을 갈아버리는 원인. */
+  if(window._fbApplyReloadPhase)return;
   if(homeRefreshCards._raf&&!opts.force)return;
   homeRefreshCards._raf=requestAnimationFrame(function(){
     homeRefreshCards._raf=0;
@@ -22038,7 +22041,7 @@ function reconcileTimetableTasks(opts){
       tasks=keptEmpty;
       normalizeTimetableTaskCategories();
       setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
-      if(!opts.silent){
+      if(!opts.silent&&!window._fbApplyReloadPhase){
         try{if(typeof homeRefreshCards==='function')homeRefreshCards();}catch(e){}
         try{if(typeof renderCal==='function')renderCal();}catch(e){}
         try{if(typeof renderList==='function')renderList();}catch(e){}
@@ -22115,7 +22118,7 @@ function reconcileTimetableTasks(opts){
   if(changed){
     normalizeTimetableTaskCategories();
     setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
-    if(!opts.silent){
+    if(!opts.silent&&!window._fbApplyReloadPhase){
       try{if(typeof homeRefreshCards==='function')homeRefreshCards();}catch(e){}
       try{if(typeof renderCal==='function')renderCal();}catch(e){}
       try{if(typeof renderList==='function')renderList();}catch(e){}
@@ -29245,7 +29248,8 @@ var editSlotIdx = null;
 var clickDay = 0, clickTime = '09:00';
 
 /* ── Load/Save ── */
-function loadTimetables() {
+function loadTimetables(opts) {
+  opts=opts||{};
   try { timetables = JSON.parse(localStorage.getItem('timetables_v1') || '[]'); } catch(e) { timetables = []; }
   if (!timetables.length && typeof returnAllowSampleSeed==='function' && returnAllowSampleSeed()) {
     /* Seed default (gated: never seed+sync demo before cloud loads) */
@@ -29262,7 +29266,7 @@ function loadTimetables() {
     saveTimetables();
   }
   try{if(typeof ensureTimetableSlotIds==='function'&&ensureTimetableSlotIds(timetables))setReturnStorageItem('timetables_v1',JSON.stringify(timetables));}catch(e){}
-  try { if(typeof reconcileTimetableTasks==='function') reconcileTimetableTasks({timetables:timetables,source:'loadTimetables'}); } catch(e) {}
+  try { if(typeof reconcileTimetableTasks==='function') reconcileTimetableTasks({timetables:timetables,source:'loadTimetables',silent:!!opts.silent}); } catch(e) {}
 }
 function saveTimetables() {
   try{if(typeof ensureTimetableSlotIds==='function')ensureTimetableSlotIds(timetables);}catch(e){}
@@ -32351,6 +32355,7 @@ function projectBoardBind(detail,project){
         var card=e.target.closest('[data-bd-kcard]'); if(!card)return;
         var it=findItem(card.getAttribute('data-bd-kcard')); if(!it)return;
         kd={it:it,card:card,sx:e.clientX,sy:e.clientY,moved:false,pid:e.pointerId};
+        window._pjbDragging=true;
         try{card.setPointerCapture(e.pointerId);}catch(_){}
       });
       kanEl.addEventListener('pointermove',function(e){
@@ -32362,7 +32367,7 @@ function projectBoardBind(detail,project){
       });
       var kEnd=function(e){
         if(!kd)return; var moved=kd.moved, it=kd.it, card=kd.card; card.classList.remove('pjb-kdragging'); kClearOver();
-        var col=moved?kColUnder(e.clientX,e.clientY):null; kd=null;
+        var col=moved?kColUnder(e.clientX,e.clientY):null; kd=null; window._pjbDragging=false;
         if(!moved||!col)return;
         moveToFrame(it, col.getAttribute('data-frame')||'');
       };
@@ -32378,6 +32383,7 @@ function projectBoardBind(detail,project){
     if(e.target.closest('[data-bd-ctl],input,label,a'))return; /* controls/links handle themselves; drag starts elsewhere (grip/body) */
     ptrs[e.pointerId]={x:e.clientX,y:e.clientY};
     try{view.setPointerCapture(e.pointerId);}catch(_){}
+    window._pjbDragging=true; /* 드래그/조작 중 — 이 동안 원격 동기화 재렌더를 미룬다 */
     var ids=Object.keys(ptrs);
     if(ids.length>=2){ drag=null; var p1=ptrs[ids[0]],p2=ptrs[ids[1]]; pinch={d:Math.hypot(p2.x-p1.x,p2.y-p1.y),scale:V.scale,mx:(p1.x+p2.x)/2,my:(p1.y+p2.y)/2,tx:V.tx,ty:V.ty}; return; }
     /* 모서리 손잡이로 시작하면 이동이 아니라 크기 조절. 이미지·북마크는 높이가
@@ -32407,6 +32413,7 @@ function projectBoardBind(detail,project){
       if(drag.mode==='resize'){ if(drag.el)drag.el.classList.remove('pjb-resizing'); if(drag.it){ drag.it._resized=true; drag.el&&drag.el.classList.add('pjb-resized'); } }
       view.classList.remove('panning'); save(); drag=null;
     }
+    if(Object.keys(ptrs).length===0)window._pjbDragging=false;
   }
   view.addEventListener('pointerup',endPtr);
   view.addEventListener('pointercancel',endPtr);
@@ -36721,6 +36728,19 @@ var SyncManager=(function(){
     }
   }
   function failHydration(err){update({cloudLoaded:false,hydrating:false,hydrationComplete:false,savingEnabled:false,lastSyncStatus:'error',lastError:String(err&&err.message||err||'sync error')});}
+  /* Watchdog stop: cloud load took too long (or stalled). Unlike failHydration,
+     this RESUMES saving so local edits made during the "불러오는 중…" window are
+     NOT stranded/dropped — they flush to cloud, and the LWW guards inside
+     fbSaveNow + the union-merge on the eventual snapshot keep this safe. Local
+     data itself is already durable in localStorage; this just makes sync catch
+     up instead of blocking forever. */
+  function timeoutHydration(reason){
+    update({cloudLoaded:false,hydrating:false,hydrationComplete:true,savingEnabled:true,lastSyncStatus:'timeout',lastError:String(reason||'불러오기 시간 초과')});
+    if(postHydrationSaveQueued||state.pendingWrites>0||state.dirty){
+      postHydrationSaveQueued=false;
+      setTimeout(function(){try{if(typeof fbSaveAll==='function')fbSaveAll();}catch(e){markError(e);}},650);
+    }
+  }
   function canQueueSave(){
     if(!state.savingEnabled||state.hydrating||!state.hydrationComplete){
       state.blockedSaves++;
@@ -36794,7 +36814,7 @@ var SyncManager=(function(){
     var btn=host.querySelector('#sync-manager-retry');
     if(btn)btn.onclick=retry;
   }
-  return {state:state,onAuthState:onAuthState,beginHydration:beginHydration,finishHydration:finishHydration,failHydration:failHydration,canQueueSave:canQueueSave,canSave:canSave,protectCloudOverwrite:protectCloudOverwrite,markSaved:markSaved,markIdle:markIdle,markError:markError,queuePostHydrationSave:queuePostHydrationSave,retry:retry,renderPanel:renderPanel};
+  return {state:state,onAuthState:onAuthState,beginHydration:beginHydration,finishHydration:finishHydration,failHydration:failHydration,timeoutHydration:timeoutHydration,canQueueSave:canQueueSave,canSave:canSave,protectCloudOverwrite:protectCloudOverwrite,markSaved:markSaved,markIdle:markIdle,markError:markError,queuePostHydrationSave:queuePostHydrationSave,retry:retry,renderPanel:renderPanel};
 })();
 function shouldFbSyncKey(k){
   if(!k)return false;
@@ -37832,6 +37852,36 @@ function _fbSeedMediaFromSyncedAssets(){
   }
 }
 
+/* 사용자가 지금 편집/조작 중인지 — 열린 모달·에디터, 포커스된 입력칸, 보드 드래그,
+   일기 자동저장 대기 중이면 true. 이 동안엔 fbApplyData의 재렌더를 미뤄, 진행 중이던
+   작업(자료 보드 편집, 작성 중인 폼)이 재렌더로 날아가거나 저장 버튼이 씹히지 않게 한다. */
+function returnUserBusyEditing(){
+  try{
+    if(document.querySelector('.overlay.open'))return true;         /* 폼/편집 모달 열림 */
+    if(window._pjbDragging||window._returnDragging)return true;     /* 보드/타임라인 드래그 중 */
+    var ae=document.activeElement;
+    if(ae){ var tag=ae.tagName||''; if(ae.isContentEditable||tag==='TEXTAREA'||tag==='INPUT'||tag==='SELECT')return true; }
+    if(typeof saveTimer!=='undefined'&&saveTimer)return true;       /* 일기 편집 4s 디바운스 대기 */
+  }catch(e){}
+  return false;
+}
+window.returnUserBusyEditing=returnUserBusyEditing;
+var _fbRenderPending=false, _fbRenderFlushTimer=null;
+/* fbApplyData 재수화(reload) 단계 표시. 이 단계는 모듈 상태만 새로 읽어야 하고,
+   화면 페인트는 하지 않는다 — 실제 재렌더는 뒤이어 _fbApplyRenderers가 (편집 중이면
+   미뤄서) 한 번에 처리한다. 이 플래그가 켜진 동안 홈 카드·타임테이블 정합 등에서
+   튀어나오는 부수적 렌더를 억제해, 편집 중 작업물이 도로 갈리는 일을 막는다. */
+window._fbApplyReloadPhase=false;
+/* 편집이 끝나면(더 이상 busy 아니면) 미뤄둔 재렌더를 한 번 돌린다. */
+function _fbEnsureRenderFlush(){
+  if(_fbRenderFlushTimer)return;
+  _fbRenderFlushTimer=setInterval(function(){
+    if(!_fbRenderPending){ clearInterval(_fbRenderFlushTimer); _fbRenderFlushTimer=null; return; }
+    if(returnUserBusyEditing())return; /* 아직 편집 중 → 계속 대기 */
+    _fbRenderPending=false; clearInterval(_fbRenderFlushTimer); _fbRenderFlushTimer=null;
+    try{ if(typeof _fbApplyRenderers==='function')_fbApplyRenderers(); }catch(e){}
+  }, 600);
+}
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
@@ -37843,7 +37893,7 @@ function fbApplyData(data){
      re-renders — NOT a repair pass. Skipping the repair prevents the
      noop → reconcile → save → snapshot → noop loop that amplifies every
      entity-mirror update into a save storm. */
-  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=_prevRemoteApplyMs; setTimeout(function(){ try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
+  if(data.__noop){ try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','fbApplyData noop: renders only, no repair'); }catch(_e){} _lastRemoteApplyMs=_prevRemoteApplyMs; setTimeout(function(){ if(typeof returnUserBusyEditing==='function'&&returnUserBusyEditing()){ _fbRenderPending=true; if(typeof _fbEnsureRenderFlush==='function')_fbEnsureRenderFlush(); return; } try{ if(typeof renderTaskCatFilter==='function')renderTaskCatFilter(); if(typeof renderCatPills==='function')renderCatPills(); if(typeof renderFilterBar==='function')renderFilterBar(); if(typeof renderCal==='function')renderCal(); if(typeof renderList==='function')renderList(); if(typeof renderFeed==='function')renderFeed(); if(typeof renderProjects==='function')renderProjects(); if(typeof renderRoutine==='function')renderRoutine(); if(typeof renderHomeTasks==='function')renderHomeTasks(); if(typeof renderHomeInbox==='function')renderHomeInbox(); }catch(_e){} },0); return; }
   /* Persist the baseline immediately after a real remote apply (non-noop).
      Survives page reloads so the union-merge guard works correctly even on
      the first fbApplyData call of the next session — prevents cloud data from
@@ -38180,7 +38230,10 @@ function fbApplyData(data){
        actually exist (loadTaskData, loadDiary, rechargeLoadData, …) so
        most state stayed stale.
        Every block below is independently try/catch'd so a broken module
-       doesn't stop the others. */
+       doesn't stop the others.
+       재수화 단계 진입: 이 구간의 부수적 렌더를 억제한다(페인트는 뒤의 _fbApplyRenderers가 담당). */
+    window._fbApplyReloadPhase=true;
+    try {
 
     /* tasks (inline load; no dedicated reload function) */
     try {
@@ -38228,7 +38281,7 @@ function fbApplyData(data){
     try { if(typeof loadPhilCards==='function') loadPhilCards(); } catch(e){ console.warn('[fbApply] loadPhilCards failed:',e&&e.message); }
     /* schedule / timetable */
     try {
-      if(typeof loadTimetables==='function') loadTimetables();
+      if(typeof loadTimetables==='function') loadTimetables({silent:true});
       if(typeof reconcileTimetableTasks==='function') timetableRepairAfterFbApply=reconcileTimetableTasks({silent:true,source:'fbApplyData'});
     } catch(e){ console.warn('[fbApply] loadTimetables/reconcile failed:',e&&e.message); }
     try { if(typeof applyTtPalette==='function') applyTtPalette(); } catch(e){}
@@ -38265,6 +38318,10 @@ function fbApplyData(data){
     /* One-time cleanup of previously-synced demo/sample items (safe to run here:
        real cloud data has just been merged into localStorage arrays). */
     try { if(typeof returnDemoCleanupOnce==='function') returnDemoCleanupOnce(); } catch(e){}
+    } finally {
+      /* 재수화 단계 종료 — 이후 _fbApplyRenderers가 편집 상태를 존중하며 한 번에 페인트한다. */
+      window._fbApplyReloadPhase=false;
+    }
   } finally {
     _applyingFbData = false;
   }
@@ -38282,10 +38339,14 @@ function fbApplyData(data){
     }catch(_e){}
   }
 
-  /* ── Re-render visible tabs ──────────────────────────────────────────
-     Renderers run with the lock released so any real user edit made
-     during a render still triggers a save. Each call is try/catch'd so
-     a broken render path doesn't take down the rest. */
+  /* ── Re-render visible tabs — 편집/드래그 중이면 미뤄서 진행 중 작업이 날아가지 않게 ──
+     (자료 보드 편집 중 갑자기 이전 상태로 돌아가거나, 폼 저장이 씹히던 원인.) */
+  if(typeof returnUserBusyEditing==='function'&&returnUserBusyEditing()){ _fbRenderPending=true; if(typeof _fbEnsureRenderFlush==='function')_fbEnsureRenderFlush(); return; }
+  _fbRenderPending=false;
+  _fbApplyRenderers();
+}
+/* 실제 재렌더 묶음 — 편집이 끝난 뒤 미뤄둔 렌더를 다시 돌릴 수 있게 별도 함수로 뺐다. */
+function _fbApplyRenderers(){
   function safeCall(fnName){
     try {
       var fn = window[fnName];
@@ -38374,17 +38435,41 @@ function fbApplyData(data){
 function fbStatusTime(prefix){
   return prefix+' · '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
 }
+/* 로드 워치독 메시지: 불러오기가 20초 넘게 걸린 원인을 추정해 명확한 조치를 안내한다.
+   - 로컬 저장 용량이 거의 찼으면(≈90%+) 용량 문제로 판단하고 정리 안내.
+   - 오프라인이면 네트워크 문제로 안내.
+   - 그 외엔 서버 응답 지연으로 안내하되, 편집 내용은 이미 기기에 저장돼 있고
+     연결이 돌아오면 자동 동기화된다는 점을 알려 사용자를 안심시킨다. */
+function __hydrateTimeoutMessage(){
+  try{
+    if(typeof returnStorageReport==='function'){
+      var r=returnStorageReport(false);
+      if(r&&Number(r.usedPct)>=90){
+        return '기기 저장 공간이 거의 찼어요('+r.usedPct+'%). 설정 > 데이터에서 오래된 이미지·기록을 정리한 뒤 새로고침해 주세요. 지금까지 작성한 내용은 이 기기에 저장돼 있어요.';
+      }
+    }
+  }catch(_){}
+  try{ if(typeof navigator!=='undefined'&&navigator&&navigator.onLine===false){
+    return '인터넷 연결이 끊겨 클라우드에서 불러오지 못했어요. 작성한 내용은 이 기기에 저장돼 있고, 연결되면 자동으로 동기화돼요.';
+  }}catch(_){}
+  return '클라우드 응답이 늦어 불러오기를 안전하게 멈췄어요. 작성한 내용은 이 기기에 저장돼 있고, 연결이 회복되면 자동으로 동기화돼요. 계속 느리면 새로고침해 주세요.';
+}
 async function fbLoadAll(){
   if(!fbDb||!fbUser)return;
   try{ if(window.SyncManager)SyncManager.beginHydration(); }catch(_e){}
-  /* Safety valve: if hydration doesn't complete or fail within 20 s
-     (e.g. Firestore promise never settles due to network), unblock saves
-     so the user's local edits are not silently queued forever. */
+  /* Safety valve / 로드 워치독: if hydration doesn't complete or fail within 20 s
+     (e.g. Firestore promise never settles due to network), stop safely and
+     RESUME saving so the user's local edits made during "불러오는 중…" are not
+     stranded. Also surface a clear, cause-aware message (network vs 용량) instead
+     of failing silently, so the user knows what happened and what to do. */
   var _hydrateGuard=setTimeout(function(){
     try{
       if(window.SyncManager&&window.SyncManager.state.hydrating){
-        console.warn('[fb] hydration timeout (20s) — unblocking saves');
-        window.SyncManager.failHydration(new Error('hydration timeout'));
+        var _msg=__hydrateTimeoutMessage();
+        console.warn('[fb] hydration timeout (20s) — resuming saves. '+_msg);
+        window.SyncManager.timeoutHydration(_msg);
+        try{ setFbStatus('불러오기 지연 — '+_msg,'err'); }catch(_s){}
+        try{ if(typeof showToast==='function')showToast(_msg); }catch(_t){}
       }
     }catch(_){}
   },20000);
