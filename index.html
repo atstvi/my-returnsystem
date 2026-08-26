@@ -36715,7 +36715,11 @@ var MOVED_CLOUD_SETTING_KEYS=['return_theme_studio_state_v1','return_theme_studi
 var FB_DATA_KEYS = DATA_KEYS.concat(['return_inbox_cats','task_prefs','repeat_items_v1','home_banner_v1','hobby_banner_v1','hobby_banner_sync_v1','hobby_banner_pos_v1','recharge_reflects','recharge_energy',
   /* 타이머 설정 동기화: 카테고리·프리셋·설정은 저빈도 단일값이라 blob LWW로 안전.
      세션 로그(focus_timer_log_v1)는 병합 위험 때문에 계속 기기-로컬 + per-doc(widget_focus_sessions) 방식 유지. */
-  'focus_categories_v1','focus_presets_v1','focus_timer_cfg_v1']).filter(function(k){
+  'focus_categories_v1','focus_presets_v1','focus_timer_cfg_v1',
+  /* 머니(가계부) 데이터 동기화: 거래·구독·예산·분야. 환율 캐시(money_fx_v1)와
+     알림 중복표시(money_alert_shown_v1)는 기기-로컬로 남긴다(동기화하면 알림이
+     다른 기기에서 눌려버리거나 캐시가 서로 덮음). */
+  'money_tx_v1','money_subs_v1','money_budget_v1','money_cats_v1']).filter(function(k){
   return ['diary_notion_cfg','notion_config','groq_api_key','gcal_cfg_v1','app_password'].indexOf(k)<0 && CLOUD_SETTING_KEYS.indexOf(k)<0;
 });
 /* SyncManager v1 is the clean boundary in front of the legacy Firebase
@@ -38010,7 +38014,7 @@ function fbApplyData(data){
            Criterion: item is in local but not in cloud AND was created after the
            last remote apply baseline (i.e. it was created on THIS device after
            the most recent confirmed sync). */
-        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'){
+        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'||k==='money_tx_v1'||k==='money_subs_v1'){
           try{
             var _cloudArr=JSON.parse(data.keys[k]||'[]')||[];
             var _localArr=JSON.parse(localStorage.getItem(k)||'[]')||[];
@@ -38332,6 +38336,13 @@ function fbApplyData(data){
     try { if(typeof loadGlobalStickers==='function') loadGlobalStickers(); } catch(e){ console.warn('[fbApply] loadGlobalStickers failed:',e&&e.message); }
     /* hobby */
     try { if(typeof hobReloadFromStorage==='function') hobReloadFromStorage(); } catch(e){ console.warn('[fbApply] hobReloadFromStorage failed:',e&&e.message); }
+    /* money (가계부): 거래·구독·예산·분야를 새로 읽어 다른 기기 변경이 반영되게. 머니 탭이
+       열려 있고 편집 중이 아니면 다시 그린다(재수화 단계라 여기선 직접 renderMoney 호출). */
+    try {
+      if(typeof moneyLoad==='function') moneyLoad();
+      if(document.getElementById('money-root') && typeof renderMoney==='function'
+         && !(typeof returnUserBusyEditing==='function' && returnUserBusyEditing())) renderMoney();
+    } catch(e){ console.warn('[fbApply] moneyLoad failed:',e&&e.message); }
     /* recharge */
     try { if(typeof loadData==='function') loadData(); } catch(e){}
     /* settings — theme, focus, notif, profile */
@@ -38855,7 +38866,7 @@ async function fbSaveNow(opts){
             valueToAbsorb=JSON.stringify(_merged);
           }catch(_me){}
         }
-        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'){
+        if(k==='task_items_v1'||k==='inbox_v1'||k==='projects_v1'||k==='money_tx_v1'||k==='money_subs_v1'){
           /* Union-merge: preserve locally-created items not yet in cloud, and
              apply per-item LWW for items present in both (local wins when its
              updatedAt is higher — i.e. a local edit beat the outbound debounce). */
