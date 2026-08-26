@@ -942,9 +942,16 @@ html.focus-mode .app-main:hover .app-topbar,html.focus-mode .app-topbar:focus-wi
 .home-banner-editbtn{position:absolute;right:10px;top:10px;z-index:4;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border:none;border-radius:var(--r-full);background:rgba(0,0,0,.5);color:#fff;font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;backdrop-filter:blur(3px);opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity var(--t-snap),transform var(--t-snap)}
 .home-banner-editbtn svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .home-banner-editbtn:hover{background:rgba(0,0,0,.66)}
-.home-banner.has-image:hover .home-banner-editbtn,
+/* '위치 조정' 버튼은 우상단 '그 자리'(핫스팟)에 커서를 올렸을 때만 나타난다.
+   배너 전체 hover로 뜨면 오늘 상황을 볼 때마다 튀어나와 거슬렸다. 터치 기기는
+   ctx-bar의 '배너 위치 조정' 아이콘으로 조정하므로 여기선 항상노출을 뺀다. */
+.home-banner-editzone{position:absolute;right:0;top:0;width:116px;height:56px;z-index:3;pointer-events:auto}
+.home-banner:not(.has-image) .home-banner-editzone,
+.home-banner[data-mode="position"] .home-banner-editzone,
+.home-banner[data-mode="edit"] .home-banner-editzone{pointer-events:none}
+.home-banner.has-image .home-banner-editzone:hover ~ .home-banner-editbtn,
+.home-banner.has-image .home-banner-editbtn:hover,
 .home-banner.has-image:focus-within .home-banner-editbtn{opacity:1;pointer-events:auto;transform:none}
-@media (hover:none),(pointer:coarse){ .home-banner.has-image .home-banner-editbtn{opacity:1;pointer-events:auto;transform:none} }
 .home-banner[data-mode="position"] .home-banner-editbtn{opacity:0!important;pointer-events:none!important}
 /* 위치 조정 중 안내 바 + 완료 */
 .home-banner-poshint{position:absolute;left:50%;top:10px;transform:translateX(-50%);z-index:5;display:none;align-items:center;gap:10px;padding:6px 8px 6px 14px;border-radius:var(--r-full);background:rgba(0,0,0,.62);color:#fff;font-size:var(--text-xs);font-weight:var(--fw-semibold);backdrop-filter:blur(3px);white-space:nowrap;pointer-events:auto;max-width:calc(100% - 20px)}
@@ -1061,7 +1068,7 @@ body.sticker-shadow-off .gs-page-sticker{box-shadow:none}
 }
 .sit-avatar {
   width:40px; height:40px; border-radius:var(--r-full);
-  background:var(--accent-light); border:1.5px solid var(--a-200);
+  background:var(--accent-light); border:none;
   display:flex; align-items:center; justify-content:center;
   font-size:20px; flex-shrink:0; line-height:1;
 }
@@ -9556,6 +9563,7 @@ to{opacity:1;transform:translateY(0)}}
         <div class="home-banner-stickers" id="home-banner-stickers"></div>
         <div class="banner-fade"></div>
         <button class="home-banner-add" id="home-banner-add" type="button" aria-label="배너 사진 추가"><span class="hba-plus">＋</span> 배너 추가</button>
+        <div class="home-banner-editzone" aria-hidden="true"></div>
         <button class="home-banner-editbtn" id="home-banner-editbtn" type="button" aria-label="배너 사진 위치 조정"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4"/></svg>위치 조정</button>
         <div class="home-banner-poshint" id="home-banner-poshint"><span>드래그해서 사진 위치를 맞춰요</span><button type="button" id="home-banner-posdone">완료</button></div>
       </div>
@@ -36368,6 +36376,10 @@ function renderRoutineWeekGrid(){
   var seen={},habits=[];
   routineBundles.forEach(function(b){routineBundleHabits(b).forEach(function(h){if(!seen[h.id]){seen[h.id]=1;habits.push(h);}});});
   if(!habits.length){root.innerHTML='<div class="rt-wk-empty">습관을 추가하면 이번 주 달성이 보여요</div>';if(legend)legend.innerHTML='';return;}
+  /* 행 순서를 설정한(습관 라이브러리 routineHabits) 순서로 맞춘다 — 기존엔 묶음
+     순회 순서라 사용자가 정한 순서와 달랐다. 라이브러리에 없는 습관은 뒤로(안정 정렬). */
+  var _hord={}; (routineHabits||[]).forEach(function(h,i){ _hord[h.id]=i; });
+  habits.sort(function(a,b){ return (_hord[a.id]!=null?_hord[a.id]:9999)-(_hord[b.id]!=null?_hord[b.id]:9999); });
   var base=(typeof returnLogicalNow==='function'?returnLogicalNow():new Date());base.setHours(0,0,0,0);
   var monday=new Date(base);monday.setDate(base.getDate()-((base.getDay()+6)%7));
   var days=[];for(var i=0;i<7;i++){var d=new Date(monday);d.setDate(monday.getDate()+i);days.push(d);}
@@ -36501,9 +36513,13 @@ var STAMINA_RAMP=['#CE9AA0','#D18189','#DA8073','#E89E5C','#F0BC48'];
 function _stmHex(c){return [parseInt(c.slice(1,3),16),parseInt(c.slice(3,5),16),parseInt(c.slice(5,7),16)];}
 function _stmRamp(stops,t){t=Math.max(0,Math.min(1,t));if(t<=0)return 'rgb('+_stmHex(stops[0]).join(',')+')';if(t>=1)return 'rgb('+_stmHex(stops[stops.length-1]).join(',')+')';var s=t*(stops.length-1),i=Math.floor(s),f=s-i,a=_stmHex(stops[i]),b=_stmHex(stops[i+1]);return 'rgb('+Math.round(a[0]+(b[0]-a[0])*f)+','+Math.round(a[1]+(b[1]-a[1])*f)+','+Math.round(a[2]+(b[2]-a[2])*f)+')';}
 function staminaFill(t){ return _stmRamp(STAMINA_RAMP,t); }
+/* 지금 에너지 수준 바는 테마 색 계열을 따라간다 — 낮을수록 옅은 accent, 높을수록
+   진한 accent(같은 색상 계열 안에서 강도만 변함). 루틴 '오늘 강도' 바는 기존
+   rose→gold 램프 유지. */
+function staminaThemeFill(t){ t=Math.max(0,Math.min(1,t)); var amt=Math.round(60+t*40); return 'color-mix(in srgb, var(--accent) '+amt+'%, var(--accent-light))'; }
 function staminaPaint(host,v){
   var mode=host.getAttribute('data-stamina-bar'), isE=mode==='energy', t=v/100;
-  host.style.setProperty('--stm-fill', staminaFill(t));
+  host.style.setProperty('--stm-fill', isE?staminaThemeFill(t):staminaFill(t));
   var fill=host.querySelector('.stm-fill'), knob=host.querySelector('.stm-knob'), kc=host.querySelector('.stm-kc'), cur=host.querySelector('.stm-cur'), sl=host.querySelector('.stm-slider');
   if(fill)fill.style.width=v+'%'; if(knob)knob.style.left=v+'%';
   var photos=_staminaPhotos(), b5=Math.min(4,Math.floor(v/20));
