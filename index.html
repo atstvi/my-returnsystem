@@ -2247,6 +2247,10 @@ html.pjb-fs-lock{overflow:hidden}
 .pjb-img.pjb-img-load{display:flex;align-items:center;justify-content:center;min-height:120px;position:relative}
 .pjb-img-ph{font-size:var(--text-xs);color:var(--fg-4)}
 .pjb-img.pjb-img-load img[data-bd-media]{position:absolute;inset:0;opacity:0}
+/* 이미지 해상 실패: 무한 로딩 대신 원인 문구를 보여주고 깨진 img는 숨긴다. */
+.pjb-img.pjb-img-fail{display:flex;align-items:center;justify-content:center;min-height:96px;text-align:center;padding:var(--sp-4);background:var(--bg-raised)}
+.pjb-img.pjb-img-fail img{display:none}
+.pjb-img.pjb-img-fail .pjb-img-ph{color:var(--fg-3);line-height:1.5}
 /* ── 링크 카드: 북마크(미리보기 카드) · 임베드(iframe) ── */
 .pjb-bm{display:flex;flex-direction:column;text-decoration:none;color:inherit;min-width:0;width:100%;box-sizing:border-box}
 .pjb-bm-thumb{width:100%;aspect-ratio:2/1;overflow:hidden;background:var(--bg-sunken);border-bottom:.5px solid var(--border-subtle)}
@@ -31879,8 +31883,22 @@ function projectBoardResolveMedia(root){
   if(!root||!root.querySelectorAll)return;
   root.querySelectorAll('img[data-bd-media]').forEach(function(img){
     var ref=img.getAttribute('data-bd-media'); img.removeAttribute('data-bd-media');
-    if(!ref||typeof MediaStore==='undefined')return;
-    MediaStore.resolve(ref,'').then(function(url){ if(url)img.src=url; }).catch(function(){});
+    var wrap=(img.closest?img.closest('.pjb-img'):null), settled=false;
+    function ph(){ return wrap?wrap.querySelector('.pjb-img-ph'):null; }
+    /* 성공: '불러오는 중…' 문구 제거하고 로딩 상태 해제. */
+    function ok(){ if(settled)return; settled=true; if(wrap){ var p=ph(); if(p)p.remove(); wrap.classList.remove('pjb-img-load'); } }
+    /* 실패: 무한 '불러오는 중…' 대신 명확한 원인/조치를 보여준다(깨진 img는 숨김). */
+    function fail(msg){ if(settled)return; settled=true; if(wrap){ wrap.classList.add('pjb-img-fail'); var p=ph(); if(p)p.textContent=msg||'이미지를 불러올 수 없어요'; } }
+    if(!ref||typeof MediaStore==='undefined'){ fail('이미지 없음'); return; }
+    img.addEventListener('load',ok);
+    img.addEventListener('error',function(){ fail('이미지를 불러올 수 없어요'); });
+    /* 해상이 너무 오래 걸리면(네트워크/용량) 안전하게 멈추고 실패로 표시. */
+    var to=setTimeout(function(){ fail('불러오지 못했어요 · 다시 열어 주세요'); }, 12000);
+    MediaStore.resolve(ref,'').then(function(url){
+      clearTimeout(to);
+      if(url){ img.src=url; }                              /* load/error 콜백이 마무리 */
+      else { fail('이 기기에서 이미지를 찾을 수 없어요'); } /* 다른 기기에서 추가돼 아직 안 내려온 경우 */
+    }).catch(function(){ clearTimeout(to); fail('이미지를 불러올 수 없어요'); });
   });
 }
 /* ── 링크 카드(북마크/임베드) 공통 헬퍼 ─────────────────────────────────────
@@ -32232,7 +32250,23 @@ function projectBoardBind(detail,project){
       if(typeof showToast==='function')showToast(imgs.length>1?(imgs.length+'개 이미지를 보드에 붙였어요'):'이미지를 보드에 붙였어요');
     },true); /* 캡처 단계: 버블 단계의 전역 붙여넣기 핸들러보다 먼저 실행 */
   }
-  function save(){project.updatedAt=Date.now();saveProjects();}
+  function save(){
+    var now=Date.now(); project.updatedAt=now; window._pjbLastEditMs=now;
+    /* 열린 보드를 편집하는 동안 fbApplyData가 loadProjects()로 projects 배열을 새
+       객체로 통째 교체하면, 이 클로저의 project/b는 배열에서 떨어져 나온(orphan)
+       참조가 된다. 그 상태에서 편집하면 orphan에만 반영되고 saveProjects()는 모듈
+       배열을 직렬화하므로 변경(삭제 등)이 저장에서 누락 → 다음 렌더에서 되돌아온다.
+       그래서 매 저장마다 '현재 배열'의 같은 id 프로젝트에 편집한 board와 시각을
+       반영해 항상 라이브 상태로 저장되게 한다. */
+    try{
+      if(typeof projects!=='undefined'&&Array.isArray(projects)){
+        var live=projects.find(function(p){return p&&String(p.id)===String(project.id);});
+        if(live&&live!==project){ live.board=b; live.updatedAt=now; }
+        else if(!live){ projects.push(project); }
+      }
+    }catch(_e){}
+    saveProjects();
+  }
   function findItem(id){return b.items.find(function(x){return String(x.id)===String(id);});}
   function itemCenter(it){ return {x:(it.x||0)+((it.w||200)/2), y:(it.y||0)+((it.h||150)/2)}; }
   /* Draw connector edges into the world-space SVG (transforms with pan/zoom).
@@ -37901,6 +37935,9 @@ function returnUserBusyEditing(){
   try{
     if(document.querySelector('.overlay.open'))return true;         /* 폼/편집 모달 열림 */
     if(window._pjbDragging||window._returnDragging)return true;     /* 보드/타임라인 드래그 중 */
+    /* 자료 보드 편집 직후 짧은 창(1.5s)은 원격 재렌더를 미룬다 — 방금 지운/바꾼 게
+       동기화 에코로 다시 그려지며 이미지가 재로딩되는 깜빡임을 막는다. */
+    if(window._pjbLastEditMs && (Date.now()-window._pjbLastEditMs<1500) && typeof document.getElementById==='function' && document.getElementById('pjb-root'))return true;
     var ae=document.activeElement;
     if(ae){ var tag=ae.tagName||''; if(ae.isContentEditable||tag==='TEXTAREA'||tag==='INPUT'||tag==='SELECT')return true; }
     if(typeof saveTimer!=='undefined'&&saveTimer)return true;       /* 일기 편집 4s 디바운스 대기 */
