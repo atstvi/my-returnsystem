@@ -229,7 +229,7 @@
   --lh-tight:1.25; --lh-snug:1.4; --lh-normal:1.6;
 
   --sp-1:2px; --sp-2:4px; --sp-3:6px; --sp-4:8px; --sp-5:10px;
-  --sp-6:12px; --sp-8:16px; --sp-10:20px; --sp-12:24px; --sp-16:32px;
+  --sp-6:12px; --sp-7:14px; --sp-8:16px; --sp-10:20px; --sp-12:24px; --sp-16:32px;
 
   --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:20px; --r-full:9999px;
 
@@ -34951,6 +34951,22 @@ function routineIsViewingToday(){return !routineViewDate||routineViewDate===rout
 function routineSetViewDate(key){routineViewDate=(!key||key===routineDateKey())?null:key;if(typeof renderRoutine==='function')renderRoutine();}
 function routineHabitById(id){return routineHabits.find(function(h){return String(h.id)===String(id);});}
 function routineBundleHabits(bundle){return (bundle&&bundle.habitIds||[]).map(routineHabitById).filter(function(h){return h&&!h.archived;});}
+/* 습관의 표준 순서 = '오늘의 루틴'(묶음) 화면에 보이는 순서. 묶음을 차례로 훑어
+   각 묶음의 habitIds 순서대로 매기고(중복 제거), 묶음에 없는 습관은 뒤로 보낸다.
+   보관함·주간 히트맵 등 모든 곳이 이 순서를 따르게 해 통일한다. */
+function routineHabitRank(){
+  var rank={}, n=0;
+  (typeof routineBundles!=='undefined'?routineBundles:[]).forEach(function(b){
+    (b&&b.habitIds||[]).forEach(function(id){ if(rank[id]==null)rank[id]=n++; });
+  });
+  return rank;
+}
+function routineOrderedHabits(list){
+  var arr=(list||(typeof routineHabits!=='undefined'?routineHabits:[])).slice();
+  var rank=routineHabitRank();
+  arr.sort(function(a,b){ return (rank[a.id]!=null?rank[a.id]:9999)-(rank[b.id]!=null?rank[b.id]:9999); });
+  return arr;
+}
 /* 보관(archive)은 "습관"에만 있는 기능이다. 당분간 안 할 습관을 archived=true 로 숨기면
    목록/홈에서 빠지지만 데이터(로그 포함)는 그대로 남고 보관함에서 복원할 수 있다.
    삭제(습관/루틴 모두)는 목록에서만 제거하고 로그는 보존한다 — 파괴적 삭제는 없다. */
@@ -35391,7 +35407,7 @@ openRoutineHabitEditor=function(habit){
 renderRoutineLibrary=function(){
   var root=document.getElementById('routine-habit-list');if(!root)return;
   var wd=(typeof weekStart!=='undefined'&&Number(weekStart)===1)?['월','화','수','목','금','토','일']:['일','월','화','수','목','금','토'];
-  root.innerHTML=(routineHabits||[]).filter(function(h){return h&&!h.archived;}).map(function(h){
+  root.innerHTML=routineOrderedHabits((routineHabits||[]).filter(function(h){return h&&!h.archived;})).map(function(h){
     var opts=routinePlanOptions(h), projectLabel=routineProjectLabel(h.projectId);
     var sc=routineHabitSched(h), ws=routineHabitWeekStatus(h);
     var badge='<span class="rt-sched '+sc.type+'">'+routineEsc(routineSchedLabel(h))+'</span>';
@@ -36370,10 +36386,9 @@ function renderRoutineWeekGrid(){
   var seen={},habits=[];
   routineBundles.forEach(function(b){routineBundleHabits(b).forEach(function(h){if(!seen[h.id]){seen[h.id]=1;habits.push(h);}});});
   if(!habits.length){root.innerHTML='<div class="rt-wk-empty">습관을 추가하면 이번 주 달성이 보여요</div>';if(legend)legend.innerHTML='';return;}
-  /* 행 순서를 설정한(습관 라이브러리 routineHabits) 순서로 맞춘다 — 기존엔 묶음
-     순회 순서라 사용자가 정한 순서와 달랐다. 라이브러리에 없는 습관은 뒤로(안정 정렬). */
-  var _hord={}; (routineHabits||[]).forEach(function(h,i){ _hord[h.id]=i; });
-  habits.sort(function(a,b){ return (_hord[a.id]!=null?_hord[a.id]:9999)-(_hord[b.id]!=null?_hord[b.id]:9999); });
+  /* 행 순서를 '오늘의 루틴'(묶음) 화면과 동일하게 맞춘다 — 보관함·히트맵 모두 같은 순서. */
+  var _hrank=routineHabitRank();
+  habits.sort(function(a,b){ return (_hrank[a.id]!=null?_hrank[a.id]:9999)-(_hrank[b.id]!=null?_hrank[b.id]:9999); });
   var base=(typeof returnLogicalNow==='function'?returnLogicalNow():new Date());base.setHours(0,0,0,0);
   var monday=new Date(base);monday.setDate(base.getDate()-((base.getDay()+6)%7));
   var days=[];for(var i=0;i<7;i++){var d=new Date(monday);d.setDate(monday.getDate()+i);days.push(d);}
