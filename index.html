@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css">
 <!-- Inline SVG favicon prevents the browser from requesting /favicon.ico (404). -->
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23C2433D'/><text x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-family='system-ui,Pretendard,sans-serif' font-size='38' font-weight='700' fill='white'>R</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='14' fill='%23A75F66'/><text x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-family='system-ui,Pretendard,sans-serif' font-size='38' font-weight='700' fill='white'>R</text></svg>">
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
@@ -33887,59 +33887,53 @@ function renderThemeSwatches() {
 function applyThemePalette(id, silent) {
   var presets=getThemePresets();
   var preset = presets.find(function(p){ return p.id === id; }) || presets[0];
-  if (preset.id === 'red') {
-    var existing = document.getElementById('theme-override');
-    if (existing) existing.remove();
-    setReturnStorageItem('return_theme_palette', 'red');
-    localStorage.removeItem('return_theme_color');
-    if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
-    if (!silent) renderThemeSwatches();
-    if (typeof renderScheduleGrid === 'function') { try { renderScheduleGrid(); renderSlotList(); } catch(e) {} }
-    return;
-  }
-  var style = document.getElementById('theme-override') || document.createElement('style');
-  var vars = preset.vars;
-  style.id = 'theme-override';
-  style.textContent = ':root{'
-    + '--a-50:' + vars['--a-50'] + ';'
-    + '--a-100:' + vars['--a-100'] + ';'
-    + '--a-200:' + vars['--a-200'] + ';'
-    + '--a-400:' + vars['--a-400'] + ';'
-    + '--a-500:' + vars['--a-500'] + ';'
-    + '--a-600:' + vars['--a-600'] + ';'
-    + '--accent:' + vars['--a-400'] + ';'
-    + '--accent-light:' + vars['--a-50'] + ';'
-    + '--accent-hover:' + vars['--a-500'] + ';'
-    + '}';
-  document.head.appendChild(style);
+  /* 예전엔 프리셋 램프를 #theme-override에 주입했지만, 나중에 붙는 #theme-studio-style에
+     덮여 강조색·앱 로고가 테마를 따라가지 않았다. 강조색을 테마 스튜디오(단일 소스)로
+     반영해 --accent·theme-color 메타·파비콘·PWA 아이콘까지 일관되게 프리셋 색을 따르게 한다. */
+  var _ov = document.getElementById('theme-override'); if (_ov) _ov.remove();
   setReturnStorageItem('return_theme_palette', preset.id);
   localStorage.removeItem('return_theme_color');
-  if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
+  var accent = (preset.id === 'red')
+    ? ((typeof THEME_STUDIO_DEFAULT !== 'undefined' && THEME_STUDIO_DEFAULT.colors && THEME_STUDIO_DEFAULT.colors.accent) || '#A75F66')
+    : ((preset.vars && preset.vars['--a-400']) || '#A75F66');
+  if (typeof themeStudioSetColor === 'function') themeStudioSetColor('accent', accent);
+  else if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
   if (!silent) renderThemeSwatches();
   if (typeof renderScheduleGrid === 'function') { try { renderScheduleGrid(); renderSlotList(); } catch(e) {} }
 }
 
 function applyThemeColor(hex) {
   if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
-  /* Inject CSS var override */
-  var style = document.getElementById('theme-override') || document.createElement('style');
-  style.id = 'theme-override';
-  style.textContent = ':root{--a-400:' + hex + ';--accent:' + hex + ';--accent-hover:' + hex + '}';
-  document.head.appendChild(style);
-  setReturnStorageItem('return_theme_color', hex);
   localStorage.removeItem('return_theme_palette');
-  if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
+  /* 강조색은 테마 스튜디오(단일 소스)를 통해 반영한다. 이 경로만이 --accent와 함께
+     theme-color 메타·파비콘·PWA 아이콘(=상단바/앱 로고)까지 갱신한다. 예전처럼
+     #theme-override 스타일만 주입하면 나중에 붙는 #theme-studio-style에 덮여
+     강조색도, 앱 로고도 테마 설정을 따라가지 않았다(사용자 리포트). */
+  if (typeof themeStudioSetColor === 'function') {
+    var _ov = document.getElementById('theme-override'); if (_ov) _ov.remove();
+    themeStudioSetColor('accent', hex);   /* → return_theme_color 저장 + 아이콘/메타 갱신 */
+  } else {
+    var style = document.getElementById('theme-override') || document.createElement('style');
+    style.id = 'theme-override';
+    style.textContent = ':root{--a-400:' + hex + ';--accent:' + hex + ';--accent-hover:' + hex + '}';
+    document.head.appendChild(style);
+    setReturnStorageItem('return_theme_color', hex);
+    if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
+  }
   renderThemeSwatches();
-  document.getElementById('theme-custom-picker').value = hex;
-  document.getElementById('theme-custom-hex').value = hex;
+  var _p = document.getElementById('theme-custom-picker'); if (_p) _p.value = hex;
+  var _h = document.getElementById('theme-custom-hex'); if (_h) _h.value = hex;
 }
 
 function resetTheme() {
   var el = document.getElementById('theme-override');
   if (el) el.remove();
-  localStorage.removeItem('return_theme_color');
   localStorage.removeItem('return_theme_palette');
-  if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone();
+  /* 강조색을 기본 로즈로 되돌린다 — 테마 스튜디오를 거쳐야 --accent와 함께
+     theme-color 메타·파비콘·앱 로고까지 기본값으로 복귀한다. */
+  var def = (typeof THEME_STUDIO_DEFAULT !== 'undefined' && THEME_STUDIO_DEFAULT.colors && THEME_STUDIO_DEFAULT.colors.accent) || '#A75F66';
+  if (typeof themeStudioSetColor === 'function') themeStudioSetColor('accent', def);
+  else { localStorage.removeItem('return_theme_color'); if (typeof returnSyncPaletteTone === 'function') returnSyncPaletteTone(); }
   renderThemeSwatches();
 }
 
