@@ -44769,6 +44769,23 @@ function themeStudioBuildThemedIcon(value,fallback,size){
     else drawText(value);
   });
 }
+/* SW가 '실제로 서빙하는' 캐시 이름을 찾는다. 예전엔 테마 매니페스트/아이콘을 항상
+   'return-v1'에 썼는데, sw.js의 CACHE가 'return-v2'로 올라가 있어서(그리고 activate가
+   그 외 return-* 캐시를 지워서) 테마 아이콘이 엉뚱한 캐시에 쓰이고 곧 삭제돼, SW가
+   테마 매니페스트/아이콘을 전혀 못 읽었다 → 설치된 PWA 아이콘이 테마를 안 따라간 근본
+   원인. 활성 캐시를 동적으로 찾으면 이후 SW 버전이 올라가도 자동으로 맞는다. */
+function returnSwCacheName(){
+  try{
+    if(typeof caches==='undefined'||!caches||!caches.keys)return Promise.resolve('return-v2');
+    return caches.keys().then(function(keys){
+      var rk=(keys||[]).filter(function(k){return /^return-v\d+$/.test(k);});
+      if(!rk.length)return 'return-v2';
+      rk.sort(function(a,b){return (parseInt(b.replace(/\D/g,''),10)||0)-(parseInt(a.replace(/\D/g,''),10)||0);});
+      return rk[0];  /* 최신(가장 높은 버전) = SW가 서빙하는 캐시 */
+    }).catch(function(){return 'return-v2';});
+  }catch(e){return Promise.resolve('return-v2');}
+}
+window.returnSwCacheName=returnSwCacheName;
 /* Write a themed manifest + 192/512 icons into the SW cache at real same-origin
    URLs. The service worker serves these cache-first, so the INSTALLED app's
    title-bar color and icon follow the active theme. Desktop/mobile only pick up
@@ -44806,7 +44823,7 @@ function themeStudioApplyPwaManifest(value,fallback){
           {src:'themed-icon-512.png?v='+ver,sizes:'512x512',type:'image/png',purpose:'maskable'}
         ]
       });
-      caches.open('return-v1').then(function(c){
+      returnSwCacheName().then(function(cn){ return caches.open(cn); }).then(function(c){
         return Promise.all([
           c.put(base+'themed-icon-192.png',new Response(blobs[0],{headers:{'Content-Type':'image/png'}})),
           c.put(base+'themed-icon-512.png',new Response(blobs[1],{headers:{'Content-Type':'image/png'}})),
@@ -44829,7 +44846,7 @@ function themeStudioApplyPwaManifest(value,fallback){
 window.returnPwaIconStatus=function(){
   if(typeof caches==='undefined')return Promise.resolve({error:'no caches API'});
   var base=window.location.pathname.replace(/\/[^\/]*$/,'/');
-  return caches.open('return-v1').then(function(c){
+  return returnSwCacheName().then(function(cn){ return caches.open(cn); }).then(function(c){
     return Promise.all([c.match(base+'manifest.json'),c.match(base+'themed-icon-512.png')]).then(function(r){
       var out={manifestCached:!!r[0],icon512Cached:!!r[1]};
       return r[0]?r[0].clone().json().then(function(j){out.themeColor=j.theme_color;out.icons=(j.icons||[]).map(function(i){return i.src;});return out;}).catch(function(){return out;}):out;
