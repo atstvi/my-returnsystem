@@ -37961,6 +37961,37 @@ function _fbEnsureRenderFlush(){
     try{ if(typeof _fbApplyRenderers==='function')_fbApplyRenderers(); }catch(e){}
   }, 600);
 }
+/* ── 스테일 에코(stale-echo) 가드 ──────────────────────────────────────────
+   원격 스냅샷이 '마지막으로 동기화한 값'을 그대로 되돌려보내는데(=클라우드는 그
+   뒤로 바뀐 게 없음) 로컬에는 아직 클라우드로 올라가지 않은 편집이 남아 있는
+   경우를 감지한다. 이 상태에서 apply가 클라우드 값으로 로컬을 덮어쓰면 방금 한
+   편집(취미 체크·프로필 이름/사진 변경·카테고리 편집·배너 등)이 '일정 시간 후'
+   슬그머니 롤백된다. 다른 기기가 무언가를 바꿔 root 문서가 갱신되면, 그 스냅샷은
+   아직 이 기기의 최근 편집을 포함하지 않은(그 키에 대해선 예전 값 그대로인) 상태로
+   도착하기 때문이다.
+
+   판별은 타임스탬프(시계 오차·초기화 쓰기에 취약)가 아니라 마지막 동기화 값
+   스냅샷(_fbLastPushedSnapshot)으로 한다:
+     · cloud === pushed  → 원격은 마지막 동기화 이후 이 키를 안 바꿈
+     · local !== pushed  → 로컬에만 아직 안 올라간 편집이 있음
+   둘 다 참이면 '스테일 에코'다. 이때는 로컬을 지키고 다음 저장에서 되민다.
+   cloud !== pushed(원격이 실제로 바뀜)이면 false를 반환해 정상 병합/적용 경로로
+   보낸다 — 진짜 원격 변경을 놓칠 위험이 전혀 없다(그 경우 cloud===pushed가 깨짐). */
+function returnFbStaleEcho(k, data){
+  try{
+    if(!data||!data.keys)return false;
+    if(typeof _fbLastPushedSnapshot==='undefined'||_fbLastPushedSnapshot===null)return false;
+    if(!Object.prototype.hasOwnProperty.call(_fbLastPushedSnapshot,k))return false;
+    var pushed=_fbLastPushedSnapshot[k];
+    if(pushed==null)return false;
+    var cloudNew=data.keys[k];
+    if(cloudNew!==pushed)return false;              /* 원격이 실제로 바뀜 → 정상 적용 */
+    var localNow=null;
+    try{ localNow=localStorage.getItem(k); }catch(_e){ return false; }
+    if(localNow==null)return false;
+    return localNow!==pushed;                        /* 로컬에만 편집 존재 → 롤백 방지 */
+  }catch(_e){ return false; }
+}
 function fbApplyData(data){
   if(!data||!data.keys) return;
   /* Record when we applied a remote snapshot so the next debounced fbSave
@@ -38021,6 +38052,16 @@ function fbApplyData(data){
     Object.keys(data.keys).forEach(function(k){
       if(_fbApplySkip[k]) return;
       if(typeof shouldFbSyncKey==='function' && !shouldFbSyncKey(k)) return;
+      /* 스테일 에코 가드: 원격은 이 키를 마지막 동기화 이후 안 바꿨는데(cloud===pushed)
+         로컬엔 아직 안 올라간 편집이 있으면(local!==pushed), 클라우드로 덮어쓰면 방금 한
+         편집이 롤백된다(취미 체크·프로필 변경 등). 로컬을 지키고, 다음 저장에서 되민다.
+         union-merge 키를 포함해 모든 키에 안전하다 — cloud===pushed면 원격이 새로 기여할
+         데이터가 없으므로 로컬을 유지해도 잃는 것이 없다. */
+      if(!data.__hydrate && typeof returnFbStaleEcho==='function' && returnFbStaleEcho(k,data)){
+        taskUnionMergeAfterFbApply=true;
+        try{ if(window.__SYNC_DEBUG)window.__SYNC_DEBUG.log('fb','stale-echo: kept local, will push back',{key:k}); }catch(_e){}
+        return;
+      }
       try{
         /* MEDIA_SYNC_KEY is a union-merge key: never let cloud overwrite local
            entries. Cloud may carry an older snapshot (saved before images were
@@ -38571,7 +38612,7 @@ async function fbLoadAll(){
       setFbStatus('설정 동기화 오류: '+(se&&se.message||se),'err');
     }
     var snap=await ref.get();
-    if(snap.exists&&snap.data()&&snap.data().keys){fbApplyData(snap.data());applied+=Object.keys(snap.data().keys||{}).length;}
+    if(snap.exists&&snap.data()&&snap.data().keys){var _snapData=snap.data();_snapData.__hydrate=true;fbApplyData(_snapData);applied+=Object.keys(_snapData.keys||{}).length;}
     var splitData=await fbReadSplitData(ref);
     /* Seed the last-pushed snapshot from cloud state so the first auto-save
        after login uses the delta filter instead of pushing all ~54 keys. */
@@ -38580,7 +38621,7 @@ async function fbLoadAll(){
       Object.assign(_fbLastPushedSnapshot, splitData.keys);
     }
     var splitCount=Object.keys(splitData.keys||{}).length;
-    if(splitCount){fbApplyData(splitData);applied+=splitCount;}
+    if(splitCount){splitData.__hydrate=true;fbApplyData(splitData);applied+=splitCount;}
     clearTimeout(_hydrateGuard);
     try{ if(window.SyncManager)SyncManager.finishHydration({cloudKeyCount:splitCount}); }catch(_e){}
     setFbStatus(applied?fbStatusTime('Firebase 동기화됨'):fbStatusTime('Firebase 연결됨 · 아직 클라우드 데이터 없음'),'ok');
