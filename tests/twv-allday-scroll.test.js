@@ -38,4 +38,14 @@ const t = runner('타임블록 종일 펼치기·스크롤 유지');
     /\[data-twv-allday-toggle\][\s\S]{0,160}_twvAlldayExpanded=!_twvAlldayExpanded;\s*renderTaskWeekView\(true\);/.test(html));
 }
 
+// ── 종일 칩 드래그: sticky 종일/헤더 행이 그리드를 덮어도 시간 지정되게 ──
+{
+  // 드래그 시작 시 종일/헤더 행을 통과(pointer-events:none)시켜 elementFromPoint가 그리드 열을 찾게
+  t.ok('드래그 중 종일/헤더 행 통과',
+    /container\.querySelectorAll\('\.twv-allday-row,\.twv-head-row'\)\.forEach\(function\(r\)\{r\.style\.pointerEvents='none';\}\);/.test(html));
+  // 드래그 종료 시 원복
+  t.ok('드래그 종료 시 pointer-events 원복',
+    /container\.querySelectorAll\('\.twv-allday-row,\.twv-head-row'\)\.forEach\(function\(r\)\{r\.style\.pointerEvents='';\}\);/.test(html));
+}
+
 t.done();
