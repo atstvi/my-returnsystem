@@ -17584,15 +17584,80 @@ function openInboxItemFromHome(id){
   },80);
 }
 
+/* 한국어 자연어 퀵캡처 파서(로컬·결정적) — 시간/날짜를 내용과 분리한다.
+   AI가 없거나(대다수) 실패했을 때, 예전엔 입력 전체가 제목으로 들어가 시간과 내용이
+   섞였다("오후 3시 회의" → 제목 "오후 3시 회의", 시간 없음). 이 파서가 시간·날짜를
+   추출해 제목만 남긴다.
+   반환: {text, timeStart('HH:MM'|''), timeEnd, date('YYYY-MM-DD'|'')}
+   시각 해석: 오전/아침/새벽→AM, 오후/저녁/밤/점심/낮→PM, 없는 1~6시는 오후로(회의 3시=15시).
+   날짜: 오늘/내일/모레/글피, N일 뒤·후, N월 N일, (다음주) 요일. */
+function captureParseNL(input, todayDate){
+  var out={text:String(input||'').trim(), timeStart:'', timeEnd:'', date:''};
+  var t=out.text; if(!t) return out;
+  function pad(n){return (n<10?'0':'')+n;}
+  function hm(h,m){return pad(((h%24)+24)%24)+':'+pad(((m%60)+60)%60);}
+  function fmt(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+  var base=todayDate?new Date(todayDate+'T00:00'):new Date();
+  /* ── 날짜 ── */
+  var rel=[['모레',2],['글피',3],['낼',1],['내일',1],['오늘',0]];
+  for(var i=0;i<rel.length;i++){ if(t.indexOf(rel[i][0])>=0){ var dr=new Date(base); dr.setDate(dr.getDate()+rel[i][1]); out.date=fmt(dr); t=t.replace(rel[i][0],' '); break; } }
+  var nDay=/(\d{1,2})\s*일\s*(뒤|후)/.exec(t);
+  if(nDay && !out.date){ var d2=new Date(base); d2.setDate(d2.getDate()+(+nDay[1])); out.date=fmt(d2); t=t.replace(nDay[0],' '); }
+  var md=/(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(t);
+  if(md){ var mo=+md[1],dy=+md[2],y=base.getFullYear(); var cand=new Date(y,mo-1,dy);
+    var todayMid=new Date(base.getFullYear(),base.getMonth(),base.getDate());
+    if(cand<todayMid) cand=new Date(y+1,mo-1,dy);
+    out.date=fmt(cand); t=t.replace(md[0],' '); }
+  var dowMap={'일':0,'월':1,'화':2,'수':3,'목':4,'금':5,'토':6};
+  var dow=/(다음주|담주|이번주)?\s*([일월화수목금토])요일/.exec(t);
+  if(dow){ var target=dowMap[dow[2]]; var d3=new Date(base); var add=(target-d3.getDay()+7)%7;
+    if(add===0) add=(dow[1]&&/다음|담/.test(dow[1]))?7:0; if(dow[1]&&/다음|담/.test(dow[1])&&add<7) add+=7;
+    d3.setDate(d3.getDate()+add); if(!out.date)out.date=fmt(d3); t=t.replace(dow[0],' '); }
+  /* ── 시간 ── */
+  var MER='오전|오후|아침|저녁|점심|낮|밤|새벽';
+  function resolve(mer,h){ h=+h;
+    if(mer==='오전'||mer==='아침'||mer==='새벽') return h%12;
+    if(mer==='오후'||mer==='저녁'||mer==='밤'||mer==='점심'||mer==='낮') return (h%12)+12;
+    if(h>=1&&h<=6) return h+12;
+    return h%24;
+  }
+  var rr=/(\d{1,2}):(\d{2})\s*[-~]\s*(\d{1,2}):(\d{2})/.exec(t);
+  if(rr){ out.timeStart=hm(+rr[1],+rr[2]); out.timeEnd=hm(+rr[3],+rr[4]); t=t.replace(rr[0],' '); }
+  else { var s1=/(\d{1,2}):(\d{2})/.exec(t); if(s1){ out.timeStart=hm(+s1[1],+s1[2]); t=t.replace(s1[0],' '); } }
+  if(!out.timeStart && /정오/.test(t)){ out.timeStart='12:00'; t=t.replace(/정오/,' '); }
+  if(!out.timeStart && /자정/.test(t)){ out.timeStart='00:00'; t=t.replace(/자정/,' '); }
+  if(!out.timeStart){
+    var kr=new RegExp('('+MER+')?\\s*(\\d{1,2})\\s*시\\s*(?:(\\d{1,2})\\s*분|(반))?');
+    var m=kr.exec(t);
+    if(m){
+      var mer=m[1]||''; out.timeStart=hm(resolve(mer,m[2]), m[3]?+m[3]:(m[4]?30:0));
+      var startMer=mer; t=t.replace(m[0],' ');
+      if(/[-~]|부터|까지/.test(out.text)){
+        var kr2=new RegExp('('+MER+')?\\s*(\\d{1,2})\\s*시\\s*(?:(\\d{1,2})\\s*분|(반))?');
+        var e=kr2.exec(t);
+        if(e){ out.timeEnd=hm(resolve(e[1]||startMer,e[2]), e[3]?+e[3]:(e[4]?30:0)); t=t.replace(e[0],' '); }
+      }
+    }
+  }
+  /* ── 내용 정리(조사·구두점 제거) ── */
+  t=t.split(/\s+/).filter(function(w){ return w && !/^(에|에서|까지|부터|쯤|경|즈음)$/.test(w); }).join(' ');
+  t=t.replace(/^[\s,·\-~]+|[\s,·\-~]+$/g,'').replace(/\s{2,}/g,' ').trim();
+  out.text=t||out.text;
+  return out;
+}
+window.captureParseNL=captureParseNL;
 function homeCapture(raw){
   var text = String(raw || '').trim();
   if (!text) return;
   if (homeCaptureType === 'task' && typeof tasks !== 'undefined') {
     /* AI natural language parse is handled by homeCaptureAI — this plain path
-       is only reached when AI is skipped or unavailable. */
+       is only reached when AI is skipped or unavailable. 로컬 파서로 시간·날짜를
+       내용과 분리한다(AI 없이도 "오후 3시 회의" → 제목 "회의" + 15:00). */
     var defCat = 'etc';
     var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
-    tasks.unshift({id:Date.now(),text:text,catId:defCat,date:TK,priority:defPrio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    var _nl = captureParseNL(text, (typeof TK!=='undefined'?TK:''));
+    var _body = _nl.text || text;
+    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:'',deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     if (typeof saveTaskData === 'function') saveTaskData();
     if (typeof renderList === 'function') renderList();
     renderHomeTasks();
@@ -23916,6 +23981,10 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
         ghost.style.background=chip.style.background||'var(--accent)';
         document.body.appendChild(ghost);
         chip.classList.add('twv-dragging-src');
+        /* sticky 종일/헤더 행이 그리드 상단을 덮고 있어(특히 펼쳤을 때) 그 영역에선
+           elementFromPoint가 그리드 열 대신 종일 행을 반환해 시간 지정이 안 됐다.
+           드래그 중에는 이 행들을 통과시켜(그리드 열이 드롭 대상이 되게) 한다. */
+        container.querySelectorAll('.twv-allday-row,.twv-head-row').forEach(function(r){r.style.pointerEvents='none';});
       }
       if(ghost){ghost.style.left=(ev.clientX+10)+'px';ghost.style.top=(ev.clientY+10)+'px';}
       var under=document.elementFromPoint(ev.clientX,ev.clientY);
@@ -23938,6 +24007,7 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
       document.removeEventListener('pointerup',up);
       document.removeEventListener('pointercancel',up);
       chip.classList.remove('twv-dragging-src');
+      container.querySelectorAll('.twv-allday-row,.twv-head-row').forEach(function(r){r.style.pointerEvents='';});
       clearDrop();
       if(ghost&&ghost.parentNode)ghost.parentNode.removeChild(ghost);
       if(!moved){
