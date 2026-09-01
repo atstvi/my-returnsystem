@@ -391,9 +391,12 @@
     } else {
       document.documentElement.classList.remove("w-light");
     }
-    // Window visibility — only the habits window manages other windows to avoid
-    // a window accidentally hiding itself before it can receive future prefs.
-    if (!VIEW_MODE) {
+    // Window visibility — only the habits (main) window manages the other windows
+    // to avoid a window accidentally hiding itself before it can receive future
+    // prefs. VIEW_MODE defaults to "habits" (never falsy), so the previous
+    // `!VIEW_MODE` guard was ALWAYS false → 창 표시여부/자동시작 설정이 전혀 반영되지
+    // 않았다. 습관 창일 때 적용한다.
+    if (VIEW_MODE === "habits") {
       var WIN_VIS = [
         {label: "timeline",    key: "showTimeline"},
         {label: "workstation", key: "showWorkstation"},
