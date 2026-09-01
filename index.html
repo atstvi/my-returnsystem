@@ -3543,7 +3543,11 @@ html.pjb-fs-lock{overflow:hidden}
 .twv-allday-col{padding:3px 2px;display:flex;flex-direction:column;gap:2px;border-right:.5px solid var(--border-subtle);overflow:hidden;box-sizing:border-box}
 .twv-allday-chip{border-radius:3px;padding:0 4px;height:17px;font-size:10px;font-weight:var(--fw-semibold);color:white;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;display:flex;align-items:center;touch-action:none;user-select:none}
 .twv-allday-chip:hover{opacity:.85}
-.twv-allday-more{font-size:9px;color:var(--fg-4);padding:0 4px}
+.twv-allday-more{font-size:9px;color:var(--fg-4);padding:0 4px;cursor:pointer}
+.twv-allday-more:hover{color:var(--accent)}
+.twv-allday-axis.twv-allday-toggle{cursor:pointer;display:flex;align-items:center;gap:2px}
+.twv-allday-axis.twv-allday-toggle:hover{color:var(--accent)}
+.twv-allday-caret{font-size:8px;line-height:1}
 .twv-allday-row.twv-drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
 .twv-day-col.twv-drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
 .twv-allday-chip.twv-drag-ghost{box-shadow:0 4px 12px rgba(0,0,0,.35);max-width:160px}
@@ -22296,6 +22300,7 @@ function _taskCatMatch(t,cat){
 }
 var _twvDays  = 7;          /* timeblock view: days in viewport (0 = scroll/continuous) */
 var _twvAnchor = null;      /* timeblock view: Date of first column */
+var _twvAlldayExpanded = false; /* timeblock view: 종일 할일 모두 펼치기 토글 */
 var calFull   = false;      /* compact/full toggle */
 var dlView    = false;      /* deadline view toggle */
 var hideTt    = false;      /* hide timetable toggle */
@@ -23542,9 +23547,14 @@ function twvLayoutBlocks(items,H){
   return blocks;
 }
 function twvSnap5(m){return Math.round(m/5)*5;}
-function renderTaskWeekView(){
+function renderTaskWeekView(keepScroll){
   var container=document.getElementById('task-week-view');
   if(!container||!container.classList.contains('twv-active'))return;
+  /* 드래그·완료토글·생성 등 '제자리 편집' 재렌더에서는 스크롤 위치를 유지한다.
+     예전엔 매 재렌더마다 아래 자동 스크롤이 현재 시각으로 되돌려, 드래그할 때마다
+     스크롤이 위로 튀어(새로고침처럼) 보였다. */
+  var _twvPrevScroll=null;
+  if(keepScroll){ var _pv=container.querySelector('#twv-viewport'); if(_pv)_twvPrevScroll={top:_pv.scrollTop,left:_pv.scrollLeft}; }
   /* Share the home timeblock's hour range + slot height so both views match
      and the range is configurable in one place (home_timeblock_prefs_v1). */
   var pref=(typeof getHomeTimeBlockPrefs==='function')?getHomeTimeBlockPrefs():{start:0,end:24,slotH:40};
@@ -23593,18 +23603,23 @@ function renderTaskWeekView(){
   }).join('');
   var headHtml='<div class="twv-head-row" style="height:'+HEAD_H+'px"><div class="twv-axis-spacer"></div>'+headCols+'</div>';
 
-  /* ── All-day row (sticky below header) ── */
+  /* ── All-day row (sticky below header) — 3개까지 접어서 보이고, 토글로 모두 펼침 ── */
+  var _maxNotime=0;
   var alldayCols=cols.map(function(d){
     var key=twvDateKey(d);
     var notime=(byDate[key]||[]).filter(function(t){return !t.timeStart;});
-    var chips=notime.slice(0,3).map(function(t){
+    if(notime.length>_maxNotime)_maxNotime=notime.length;
+    var limit=_twvAlldayExpanded?notime.length:3;
+    var chips=notime.slice(0,limit).map(function(t){
       var col=twvCatColor(t.catId);
       return '<div class="twv-allday-chip" style="background:'+col+'" data-tid="'+t.id+'">'+twvEsc(t.text)+'</div>';
     }).join('');
-    if(notime.length>3)chips+='<div class="twv-allday-more">+' +(notime.length-3)+'개</div>';
+    if(!_twvAlldayExpanded&&notime.length>3)chips+='<div class="twv-allday-more" data-twv-allday-toggle="1" title="모두 펼치기">+' +(notime.length-3)+'개</div>';
     return '<div class="twv-allday-col" data-date="'+key+'" style="'+colStyle()+'">'+chips+'</div>';
   }).join('');
-  var alldayHtml='<div class="twv-allday-row" style="top:'+HEAD_H+'px"><div class="twv-allday-axis">종일</div>'+alldayCols+'</div>';
+  var _canExpand=_maxNotime>3;
+  var axisInner='종일'+(_canExpand?'<span class="twv-allday-caret">'+(_twvAlldayExpanded?'▾':'▸')+'</span>':'');
+  var alldayHtml='<div class="twv-allday-row" style="top:'+HEAD_H+'px"><div class="twv-allday-axis'+(_canExpand?' twv-allday-toggle':'')+'"'+(_canExpand?' data-twv-allday-toggle="1" title="종일 할일 모두 펼치기/접기"':'')+'>'+axisInner+'</div>'+alldayCols+'</div>';
 
   /* ── Time axis + day columns ── */
   var totalPx=(H.end-H.start)*SLOT_H;
@@ -23693,6 +23708,15 @@ function renderTaskWeekView(){
     _twvAnchor=twvAnchorForToday();renderTaskWeekView();
   });
 
+  /* ── All-day 펼치기/접기 토글 (종일 축 라벨 또는 "+N개") — 스크롤 유지하며 재렌더 ── */
+  container.querySelectorAll('[data-twv-allday-toggle]').forEach(function(el){
+    el.addEventListener('click',function(e){
+      e.stopPropagation();
+      _twvAlldayExpanded=!_twvAlldayExpanded;
+      renderTaskWeekView(true);
+    });
+  });
+
   /* ── All-day chips: press → modal, drag into grid → assign a time ── */
   container.querySelectorAll('.twv-allday-chip[data-tid]').forEach(function(el){
     var id=el.getAttribute('data-tid');if(!id)return;
@@ -23716,7 +23740,7 @@ function renderTaskWeekView(){
         e.stopPropagation();
         t.done=!t.done;t.updatedAt=Date.now();
         if(typeof saveTaskData==='function')saveTaskData();
-        renderTaskWeekView();
+        renderTaskWeekView(true);
         if(typeof renderCal==='function')renderCal();
         if(t.done&&typeof focusTimerOfferRecord==='function')focusTimerOfferRecord(t);
       });
@@ -23740,23 +23764,31 @@ function renderTaskWeekView(){
         note:'',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
       tasks.unshift(nt);
       if(typeof saveTaskData==='function')saveTaskData();
-      renderTaskWeekView();
+      renderTaskWeekView(true);
       try{renderCal();}catch(_e){}
     });
   });
 
-  /* ── Auto-scroll to current time + today column ── */
+  /* ── Scroll: 제자리 편집이면 이전 위치 복원, 아니면 현재 시각+오늘 열로 자동 스크롤 ── */
   var vp=container.querySelector('#twv-viewport');
   if(vp){
-    var now2=new Date(),nm=now2.getHours()*60+now2.getMinutes();
-    if(nm>H.start*60){
-      var top=Math.max(0,(nm/60-H.start-1.5)*SLOT_H);
-      setTimeout(function(){vp.scrollTop=top;},0);
-    }
-    if(scrollMode){
-      var todayIdx=cols.findIndex(function(d){return twvDateKey(d)===todayStr;});
-      if(todayIdx>=0){
-        setTimeout(function(){vp.scrollLeft=Math.max(0,(todayIdx-1)*colW);},0);
+    if(keepScroll&&_twvPrevScroll){
+      var _ps=_twvPrevScroll;
+      /* smooth 스크롤이 켜져 있으면 복원이 애니메이션돼 튀어 보인다 — 잠깐 꺼서 즉시 복원. */
+      var _prevBehav=vp.style.scrollBehavior; vp.style.scrollBehavior='auto';
+      vp.scrollTop=_ps.top; vp.scrollLeft=_ps.left;
+      setTimeout(function(){vp.scrollTop=_ps.top; vp.scrollLeft=_ps.left; vp.style.scrollBehavior=_prevBehav||'';},0);
+    }else{
+      var now2=new Date(),nm=now2.getHours()*60+now2.getMinutes();
+      if(nm>H.start*60){
+        var top=Math.max(0,(nm/60-H.start-1.5)*SLOT_H);
+        setTimeout(function(){vp.scrollTop=top;},0);
+      }
+      if(scrollMode){
+        var todayIdx=cols.findIndex(function(d){return twvDateKey(d)===todayStr;});
+        if(todayIdx>=0){
+          setTimeout(function(){vp.scrollLeft=Math.max(0,(todayIdx-1)*colW);},0);
+        }
       }
     }
   }
@@ -23814,7 +23846,7 @@ function twvAttachBlockDrag(block,t,H,SLOT_H){
       else{t.timeStart=twvFmt(pendingSm);t.timeEnd=twvFmt(pendingSm+dur);if(pendingDate)t.date=pendingDate;}
       t.updatedAt=Date.now();
       if(typeof saveTaskData==='function')saveTaskData();
-      renderTaskWeekView();
+      renderTaskWeekView(true);
       try{renderCal();}catch(_e){}
     }
     /* listen on document (not the block) so drag survives even when
@@ -23849,7 +23881,7 @@ function twvAttachBlockDrag(block,t,H,SLOT_H){
       document.removeEventListener('pointercancel',up);
       t.timeEnd=twvFmt(pendingEm);t.updatedAt=Date.now();
       if(typeof saveTaskData==='function')saveTaskData();
-      renderTaskWeekView();
+      renderTaskWeekView(true);
       try{renderCal();}catch(_e){}
     }
     document.addEventListener('pointermove',mv);
@@ -23919,7 +23951,7 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
       if(pendingDate)t.date=pendingDate;
       t.updatedAt=Date.now();
       if(typeof saveTaskData==='function')saveTaskData();
-      renderTaskWeekView();
+      renderTaskWeekView(true);
       try{renderCal();}catch(_e){}
     }
     /* document-level listeners: robust even when pointer capture fails (touch). */
