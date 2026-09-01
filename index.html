@@ -23966,13 +23966,22 @@ function twvAttachBlockDrag(block,t,H,SLOT_H){
 function twvColAtPoint(container,x,y,H,SLOT_H){
   var vp=container.querySelector('#twv-viewport'); if(!vp) return null;
   var vr=vp.getBoundingClientRect();
-  if(y<vr.top||y>vr.bottom||x<vr.left||x>vr.right) return null; /* 뷰포트 밖 → 드롭 아님 */
-  var cols=container.querySelectorAll('.twv-day-col'), pick=null;
-  for(var i=0;i<cols.length;i++){ var r=cols[i].getBoundingClientRect(); if(x>=r.left&&x<r.right){ pick=cols[i]; break; } }
-  if(!pick && cols.length===1) pick=cols[0]; /* 단일일 뷰: 열이 하나뿐 */
+  var cols=container.querySelectorAll('.twv-day-col'); if(!cols.length) return null;
+  /* 그리드에서 '많이' 벗어난 곳에 놓았을 때만 취소한다. 살짝 벗어나거나 열 사이·축 위에
+     놓아도 시간이 배정되도록, 지점을 뷰포트 안으로 클램프하고 가장 가까운 열을 고른다.
+     (예전엔 열 X-범위를 정확히 벗어나면 null → '아무 일도 안 일어남'이 됐다.) */
+  if(x<vr.left-48||x>vr.right+48||y<vr.top-48||y>vr.bottom+96) return null;
+  var cx=Math.max(vr.left+1, Math.min(x, vr.right-1));
+  var cy=Math.max(vr.top+1, Math.min(y, vr.bottom-1));
+  var pick=null;
+  for(var i=0;i<cols.length;i++){ var r=cols[i].getBoundingClientRect(); if(cx>=r.left&&cx<r.right){ pick=cols[i]; break; } }
+  if(!pick){ /* 열을 정확히 못 맞추면 X 기준 가장 가까운 열 */
+    var bestD=Infinity;
+    for(var j=0;j<cols.length;j++){ var rj=cols[j].getBoundingClientRect(); var mid=(rj.left+rj.right)/2; var d=Math.abs(cx-mid); if(d<bestD){ bestD=d; pick=cols[j]; } }
+  }
   if(!pick) return null;
   var rr=pick.getBoundingClientRect();          /* rr.top은 스크롤을 이미 반영 */
-  var mins=twvSnap5(H.start*60+(y-rr.top)/SLOT_H*60);
+  var mins=twvSnap5(H.start*60+(cy-rr.top)/SLOT_H*60);
   mins=Math.max(H.start*60,Math.min(mins,H.end*60-30));
   return { col:pick, date:pick.getAttribute('data-date'), mins:mins };
 }
@@ -23980,6 +23989,9 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
   var container=document.getElementById('task-week-view');
   chip.addEventListener('pointerdown',function(e){
     if(e.button!=null&&e.button!==0)return;
+    /* 데스크톱에서 마우스다운이 텍스트 선택·기본 드래그로 새어 커스텀 드래그를 방해하지
+       않게 막는다(칩은 user-select:none이지만 방어적으로 한 번 더). */
+    if(e.cancelable)e.preventDefault();
     var startX=e.clientX,startY=e.clientY;
     var moved=false,hit=null,ghost=null;
     try{chip.setPointerCapture(e.pointerId);}catch(_e){}

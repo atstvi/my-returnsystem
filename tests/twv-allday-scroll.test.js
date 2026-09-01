@@ -42,7 +42,8 @@ const t = runner('타임블록 종일 펼치기·스크롤 유지');
 {
   // elementFromPoint 대신 뷰포트/열 rect로 좌표→열·시각 계산
   t.ok('twvColAtPoint 기하학 헬퍼 존재', /function twvColAtPoint\(container,x,y,H,SLOT_H\)\{/.test(html));
-  t.ok('단일일 뷰: 열이 하나뿐이면 그 열 선택', /if\(!pick && cols\.length===1\) pick=cols\[0\];/.test(html));
+  t.ok('열 못 맞추면 가장 가까운 열로(관대한 드롭)', /if\(d<bestD\)\{ bestD=d; pick=cols\[j\]; \}/.test(html) && /X 기준 가장 가까운 열/.test(html));
+  t.ok('지점을 뷰포트 안으로 클램프', /var cx=Math\.max\(vr\.left\+1, Math\.min\(x, vr\.right-1\)\);/.test(html));
   t.ok('놓은 지점에서 권위 재계산', /var drop=twvColAtPoint\(container,ev\.clientX,ev\.clientY,H,SLOT_H\)\|\|hit;/.test(html));
   // 터치 캡처를 끊던 pointer-events:none 핵 제거
   t.ok('pointer-events:none 핵 제거', html.indexOf("'.twv-allday-row,.twv-head-row'") < 0);
