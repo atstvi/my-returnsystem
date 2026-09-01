@@ -24988,7 +24988,7 @@ function syncTaskRepeatItem(task){
   var id=task._repeatId||('ri_task_'+task.id);
   task._repeatId=id;
   var item=repeats.find(function(x){return x.id===id;});
-  if(!item){item={id:id,startDate:task.date||TK};repeats.push(item);}
+  if(!item){item={id:id,startDate:rep.startDate||task.date||TK};repeats.push(item);}
   item.text=task.text||'반복 할일';
   item.catId=task.catId||'etc';
   item.priority=task.priority||'';
@@ -25001,7 +25001,8 @@ function syncTaskRepeatItem(task){
   item.lunarMonth=parseInt(rep.lunarMonth,10)||0;
   item.lunarDay=parseInt(rep.lunarDay,10)||0;
   item.lunarLeap=rep.lunarLeap?1:0;
-  item.startDate=item.startDate||task.date||TK;
+  /* 사용자가 반복 설정에서 지정한 시작일을 우선 반영(변경 가능). 없으면 기존값·할일 날짜. */
+  item.startDate=rep.startDate||item.startDate||task.date||TK;
   item.endDate=rep.until||rep.endDate||'';
   item.timeStart=task.timeStart||'';
   item.timeEnd=task.timeEnd||'';
@@ -25009,7 +25010,9 @@ function syncTaskRepeatItem(task){
   item.prepItems=Array.isArray(task.prepItems)?task.prepItems:[];
   item.note=task.note||'반복 할일';
   saveRepeatItems(repeats);
-  generateRepeatTasks(item, task.date||TK, 60);
+  /* 시작일이 할일 날짜보다 미래면 그 시점부터 스캔해 즉시 생성되게 한다(먼 미래 시작일 대응). */
+  var _genFrom=(item.startDate && item.startDate>(task.date||TK)) ? item.startDate : (task.date||TK);
+  generateRepeatTasks(item, _genFrom, 60);
 }
 
 function tasksOpenNewModal(seed){
@@ -25828,19 +25831,21 @@ function bindTaskModalRows(task){
       {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||'')},
       {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(rep.monthDay || new Date(baseKey+'T00:00').getDate())},
       {key:'lunarYear', label:'음력 기준 (매년 음력 그날 — 음력 생일)', type:'checkbox', value:rep.lunar?'on':'', help:'할일 날짜를 기준 삼아 매년 음력 같은 날에 반복해요'},
+      {key:'startDate', label:'반복 시작일', type:'date', value:rep.startDate||baseKey||'', help:'이 날짜부터 반복이 시작돼요. 비우면 할일 날짜부터 시작.'},
       {key:'until', label:'반복 종료일', type:'date', value:rep.until||''}
     ], function(data){
+      var startDate=data.startDate||baseKey||'';
       if(!data.kind){task._repeat=false;delete task._repeatId;}
       else if(data.kind==='yearly'){
-        var bd=new Date(baseKey+'T00:00');
+        var bd=new Date((startDate||baseKey)+'T00:00');
         if(data.lunarYear==='on' && typeof solarToLunar==='function'){
           var lu=solarToLunar(bd);
-          task._repeat={kind:'yearly',lunar:1,lunarMonth:lu.m,lunarDay:lu.d,lunarLeap:lu.leap,until:data.until||''};
+          task._repeat={kind:'yearly',lunar:1,lunarMonth:lu.m,lunarDay:lu.d,lunarLeap:lu.leap,startDate:startDate,until:data.until||''};
         }else{
-          task._repeat={kind:'yearly',month:bd.getMonth()+1,monthDay:bd.getDate(),until:data.until||''};
+          task._repeat={kind:'yearly',month:bd.getMonth()+1,monthDay:bd.getDate(),startDate:startDate,until:data.until||''};
         }
       }
-      else task._repeat={kind:data.kind,weekdays:(data.weekdays||'').split(',').filter(Boolean),monthDay:parseInt(data.monthDay,10)||new Date(baseKey+'T00:00').getDate(),until:data.until||''};
+      else task._repeat={kind:data.kind,weekdays:(data.weekdays||'').split(',').filter(Boolean),monthDay:parseInt(data.monthDay,10)||new Date((startDate||baseKey)+'T00:00').getDate(),startDate:startDate,until:data.until||''};
       document.getElementById('modal-repeat-val').textContent=task._repeat?(data.kind==='yearly'?(data.lunarYear==='on'?'매년 (음력)':'매년'):'설정됨'):'없음';
     });
     return;
