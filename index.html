@@ -17592,27 +17592,37 @@ function openInboxItemFromHome(id){
    시각 해석: 오전/아침/새벽→AM, 오후/저녁/밤/점심/낮→PM, 없는 1~6시는 오후로(회의 3시=15시).
    날짜: 오늘/내일/모레/글피, N일 뒤·후, N월 N일, (다음주) 요일. */
 function captureParseNL(input, todayDate){
-  var out={text:String(input||'').trim(), timeStart:'', timeEnd:'', date:''};
+  var out={text:String(input||'').trim(), timeStart:'', timeEnd:'', date:'', deadlineDate:''};
   var t=out.text; if(!t) return out;
   function pad(n){return (n<10?'0':'')+n;}
   function hm(h,m){return pad(((h%24)+24)%24)+':'+pad(((m%60)+60)%60);}
   function fmt(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
   var base=todayDate?new Date(todayDate+'T00:00'):new Date();
-  /* ── 날짜 ── */
+  /* 마감(데드라인) 문맥: '마감/데드라인/기한/deadline'이 있거나, 날짜 바로 뒤에 '까지'가
+     붙으면 그 날짜는 시작일이 아니라 '마감일'(deadlineDate)로 분류한다. */
+  var deadlineKw=/(마감|데드라인|기한|deadline)/i.test(t);
+  function placeDate(dateStr, matchStr){
+    var idx=t.indexOf(matchStr);
+    var byKkaji=idx>=0 && /^\s*까지/.test(t.slice(idx+matchStr.length));
+    if(deadlineKw||byKkaji){ if(!out.deadlineDate)out.deadlineDate=dateStr; }
+    else if(!out.date){ out.date=dateStr; }
+    t=t.replace(matchStr,' ');
+  }
+  /* ── 날짜(시작일 또는 마감일) ── */
   var rel=[['모레',2],['글피',3],['낼',1],['내일',1],['오늘',0]];
-  for(var i=0;i<rel.length;i++){ if(t.indexOf(rel[i][0])>=0){ var dr=new Date(base); dr.setDate(dr.getDate()+rel[i][1]); out.date=fmt(dr); t=t.replace(rel[i][0],' '); break; } }
+  for(var i=0;i<rel.length;i++){ if(t.indexOf(rel[i][0])>=0){ var dr=new Date(base); dr.setDate(dr.getDate()+rel[i][1]); placeDate(fmt(dr), rel[i][0]); break; } }
   var nDay=/(\d{1,2})\s*일\s*(뒤|후)/.exec(t);
-  if(nDay && !out.date){ var d2=new Date(base); d2.setDate(d2.getDate()+(+nDay[1])); out.date=fmt(d2); t=t.replace(nDay[0],' '); }
+  if(nDay){ var d2=new Date(base); d2.setDate(d2.getDate()+(+nDay[1])); placeDate(fmt(d2), nDay[0]); }
   var md=/(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(t);
   if(md){ var mo=+md[1],dy=+md[2],y=base.getFullYear(); var cand=new Date(y,mo-1,dy);
     var todayMid=new Date(base.getFullYear(),base.getMonth(),base.getDate());
     if(cand<todayMid) cand=new Date(y+1,mo-1,dy);
-    out.date=fmt(cand); t=t.replace(md[0],' '); }
+    placeDate(fmt(cand), md[0]); }
   var dowMap={'일':0,'월':1,'화':2,'수':3,'목':4,'금':5,'토':6};
   var dow=/(다음주|담주|이번주)?\s*([일월화수목금토])요일/.exec(t);
   if(dow){ var target=dowMap[dow[2]]; var d3=new Date(base); var add=(target-d3.getDay()+7)%7;
     if(add===0) add=(dow[1]&&/다음|담/.test(dow[1]))?7:0; if(dow[1]&&/다음|담/.test(dow[1])&&add<7) add+=7;
-    d3.setDate(d3.getDate()+add); if(!out.date)out.date=fmt(d3); t=t.replace(dow[0],' '); }
+    d3.setDate(d3.getDate()+add); placeDate(fmt(d3), dow[0]); }
   /* ── 시간 ── */
   var MER='오전|오후|아침|저녁|점심|낮|밤|새벽';
   function resolve(mer,h){ h=+h;
@@ -17639,7 +17649,8 @@ function captureParseNL(input, todayDate){
       }
     }
   }
-  /* ── 내용 정리(조사·구두점 제거) ── */
+  /* ── 내용 정리(마감 표지·조사·구두점 제거) ── */
+  t=t.replace(/(마감일?|데드라인|기한|deadline)/ig,' ');
   t=t.split(/\s+/).filter(function(w){ return w && !/^(에|에서|까지|부터|쯤|경|즈음)$/.test(w); }).join(' ');
   t=t.replace(/^[\s,·\-~]+|[\s,·\-~]+$/g,'').replace(/\s{2,}/g,' ').trim();
   out.text=t||out.text;
@@ -17657,7 +17668,7 @@ function homeCapture(raw){
     var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
     var _nl = captureParseNL(text, (typeof TK!=='undefined'?TK:''));
     var _body = _nl.text || text;
-    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:'',deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     if (typeof saveTaskData === 'function') saveTaskData();
     if (typeof renderList === 'function') renderList();
     renderHomeTasks();
