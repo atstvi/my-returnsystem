@@ -57,12 +57,12 @@ const noAnchor = fromTask({ id: 8, text: '기념일', date: '2026-07-09',
 t.ok('monthDay 기본값 = task.date의 일', noAnchor.monthDay === 9);
 
 // ── 소스 배선: repairGeneratedTasks가 삭제 대신 복원 분기를 탄다 ──
-t.ok('repair가 원본 판별 후 복원',
-  /if\(repeatTaskIsHealableSource\(t\)\)\{\s*rep=repeatRuleFromSourceTask\(t\);/.test(html));
+t.ok('repair가 원본 판별 후 복원(삭제 tombstone 아닐 때만)',
+  /if\(repeatTaskIsHealableSource\(t\)&&!_srcTomb\)\{\s*rep=repeatRuleFromSourceTask\(t\);/.test(html));
 t.ok('복원 시 규칙을 repeats에 추가',
   /repeats\.push\(rep\); repeatById\[String\(rep\.id\)\]=rep;/.test(html));
-t.ok('생성본은 여전히 삭제(else 분기)',
-  /\}else\{\s*changed\+\+;\s*action='removed missing repeat rule';/.test(html));
+t.ok('생성본(또는 삭제된 원본)은 삭제(else 분기)',
+  /\}else\{[\s\S]{0,200}changed\+\+;\s*action='removed missing repeat rule';/.test(html));
 t.ok('복원한 규칙을 setReturnStorageItem으로 저장(saveRepeatItems 재귀 회피)',
   /if\(_healedRepeats\)\{\s*try\{ setReturnStorageItem\('repeat_items_v1',JSON\.stringify\(repeats\)\); \}/.test(html));
 

@@ -14518,8 +14518,47 @@ function noteGeneratedTaskDeleted(task){
   if(task._repeatId||task.repeatRuleId||task._ruleGen||task.sourceType==='repeat'||task.sourceType==='rule'||task.sourceType==='activeRule'){
     suppressGeneratedTask(task,'deleted');
   }
+  /* 사용자가 직접 지운 할일은 tombstone에 남긴다(_eid='t_'+id, 결정적이라 기기 공통).
+     tasks는 생성 churn 때문에 자동 tombstone(autoTombstone)에서 빠져 있어, 저장 시점의
+     shadow-diff로는 'user 삭제'와 'reconcile 제거'를 구분할 수 없다. 이 함수는 UI 삭제
+     경로에서만 호출되므로(머지/reconcile 경로엔 없음) 여기서 tombstone하면 union-merge가
+     클라우드 블롭에 남은 사본을 되살리지 못하게 하고 다른 기기로도 삭제를 전파한다.
+     ('할일 삭제해도 다시 생김'의 tasks 쪽 미완성 구멍 — Stage 6d.) */
+  if(typeof returnTombstoneMark==='function'){
+    try{ var _eid=task._eid||(task.id!=null&&String(task.id)!==''?('t_'+String(task.id)):''); if(_eid)returnTombstoneMark(_eid,'tasks'); }catch(_e){}
+  }
+  /* 반복 '원본'(생일·기념일 등)을 지우면 규칙(repeat_items_v1)도 함께 제거한다 —
+     안 그러면 규칙이 남아 생성본이 계속 재생성돼 '지운 생일이 다시 나타난다'.
+     단일 occurrence 삭제(_repeatId=다른 규칙 id)는 규칙을 건드리지 않는다(위 suppress로 처리).
+     saveRepeatItems 대신 setReturnStorageItem으로 직접 써서 삭제 루프 중 repair 재진입을
+     피한다 — 삭제 지점들은 뒤이어 saveTaskData를 호출하고, saveTaskData가 repair를 돌려
+     규칙 잃은 생성본을 정리한다. */
+  if(task._repeatId && String(task._repeatId)==='ri_task_'+String(task.id) && typeof loadRepeatItems==='function'){
+    try{
+      var _rid=String(task._repeatId);
+      var _reps=loadRepeatItems();
+      var _next=_reps.filter(function(r){ return r && String(r.id)!==_rid; });
+      if(_next.length!==_reps.length){
+        setReturnStorageItem('repeat_items_v1', JSON.stringify(_next));
+        if(typeof pruneRepeatSuppressions==='function')pruneRepeatSuppressions(_rid);
+      }
+    }catch(_e){}
+  }
   if(typeof gcalQueueTaskEventDeletion==='function')gcalQueueTaskEventDeletion(task);
 }
+/* 반복/규칙 '원본'·마감·특별 할일은 사용자가 만든 오래 사는 항목이라, union-merge의
+   세션-나이 게이트로 버려지면 미동기화 상태에서 통째로 유실된다(생일·기념일·마감 소실).
+   삭제는 noteGeneratedTaskDeleted가 tombstone으로 남기고 union-merge가 그걸 걸러내므로,
+   tombstone 안 된 이런 항목은 되살아나는 위험 없이 로컬 사본을 보존해도 안전하다.
+   완료(done) 항목은 아카이브 대상이라 제외 — 아카이브된 done 항목이 되살아나지 않게. */
+function returnTaskIsProtectedLocalOnly(t){
+  if(!t||t.done)return false;
+  if(t.deadlineDate)return true;
+  if(t.isSpecial)return true;
+  if(t._repeatId&&String(t._repeatId)==='ri_task_'+String(t.id))return true;
+  return false;
+}
+window.returnTaskIsProtectedLocalOnly=returnTaskIsProtectedLocalOnly;
 function isRepeatSuppressed(rep,dkey){
   var key=repeatGenerationKey(rep,dkey);
   return !!loadRepeatSuppressions()[key];
@@ -15643,7 +15682,8 @@ function repairGeneratedTasks(opts){
         /* 규칙이 없다 — 원본이면 '삭제'가 아니라 '규칙 유실'이므로(repeat_items_v1가
            스테일 클라우드로 덮여 규칙만 사라지는 경우) 원본을 지우지 말고 규칙을
            task에서 복원한다. 생성본(occurrence)만 삭제. → 생일이 통째로 사라지던 회귀. */
-        if(repeatTaskIsHealableSource(t)){
+        var _srcTomb=(typeof returnTombstoneIsActive==='function')&&returnTombstoneIsActive(t._eid||('t_'+String(t.id)),t.updatedAt);
+        if(repeatTaskIsHealableSource(t)&&!_srcTomb){
           rep=repeatRuleFromSourceTask(t);
           repeats.push(rep); repeatById[String(rep.id)]=rep; rid=String(rep.id);
           _healedRepeats=true;
@@ -15651,6 +15691,8 @@ function repairGeneratedTasks(opts){
           generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
           /* 아래 정상 처리로 흐르게 둔다(rep 세팅됨) → task 보존 */
         }else{
+          /* 원본이라도 삭제(tombstone)가 편집보다 최신이면 heal하지 않고 삭제 우선 —
+             한 기기에서 지운 생일이 다른 기기의 heal로 되살아나는 것 방지. */
           changed++;
           action='removed missing repeat rule';
           generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
@@ -15863,6 +15905,10 @@ function deleteHomeRepeat(id){
     var repeats = loadRepeatItems().filter(function(x){ return x.id !== id; });
     saveRepeatItems(repeats);
     if (typeof tasks !== 'undefined') {
+      /* 반복 시리즈 삭제도 user 삭제 — 지워지는 항목을 tombstone에 남겨 union-merge가
+         클라우드에서 되살리지 못하게(원본 생일/기념일이 스테일 클라우드로 되살아나던 문제). */
+      var _rmRep = tasks.filter(function(t){ return t._repeatId === id && !t.done; });
+      _rmRep.forEach(function(t){ if(typeof returnTombstoneMark==='function'){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} } });
       tasks = tasks.filter(function(t){ return t._repeatId !== id || t.done; });
       if (typeof saveTaskData === 'function') saveTaskData();
     }
@@ -31632,6 +31678,8 @@ function projectArchiveToFile(project){
     if(!ok){ if(typeof showToast==='function')showToast('파일 저장에 실패했어요'); return; }
     var doDelete=function(){
       var ids={}; linkedTasks.forEach(function(t){ if(t)ids[String(t.id)]=1; });
+      /* 프로젝트 삭제로 함께 지워지는 할일도 tombstone에 남긴다(되살아남 방지). */
+      if(typeof tasks!=='undefined') tasks.forEach(function(t){ if(t&&ids[String(t.id)]&&typeof returnTombstoneMark==='function'){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} } });
       if(typeof tasks!=='undefined') tasks=tasks.filter(function(t){ return !(t&&ids[String(t.id)]); });
       projects=projects.filter(function(x){ return String(x.id)!==String(project.id); });
       if(typeof activeProjectId!=='undefined'&&String(activeProjectId)===String(project.id)) activeProjectId=projects[0]?projects[0].id:null;
@@ -37889,6 +37937,39 @@ function returnSyncSelfTest(){
   return out;
 }
 window.returnSyncSelfTest=returnSyncSelfTest;
+/* 할일 저장/동기화 건강 점검 — F12 콘솔에서 returnTaskSyncReport() 로 확인.
+   총계·생성본·반복원본·규칙유실 원본(heal 대상)·보호(local-only 유지)·중복 id·
+   tombstone 수를 한눈에 보여준다. 읽기 전용(아무 것도 안 바꿈). */
+function returnTaskSyncReport(){
+  var out={};
+  try{
+    var arr=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks:JSON.parse(localStorage.getItem('task_items_v1')||'[]');
+    var reps=(typeof loadRepeatItems==='function')?loadRepeatItems():[];
+    var repIds={}; reps.forEach(function(r){ if(r&&r.id)repIds[String(r.id)]=1; });
+    var ids={}, dup=0, gen=0, src=0, protectedCnt=0, orphanSrc=0, tomb=0;
+    arr.forEach(function(t){
+      if(!t)return;
+      if(t.id!=null){ if(ids[String(t.id)])dup++; ids[String(t.id)]=1; }
+      if(typeof isGeneratedTask==='function'&&isGeneratedTask(t))gen++;
+      if(typeof repeatTaskIsHealableSource==='function'&&repeatTaskIsHealableSource(t)){
+        src++;
+        if(!repIds[String(t._repeatId)])orphanSrc++;
+      }
+      if(typeof returnTaskIsProtectedLocalOnly==='function'&&returnTaskIsProtectedLocalOnly(t))protectedCnt++;
+    });
+    try{ tomb=Object.keys((typeof tombstonesLoad==='function'?tombstonesLoad():{})||{}).length; }catch(_e){}
+    out={tasks:arr.length, generated:gen, repeatSources:src, orphanRepeatSources:orphanSrc, protectedLocalOnly:protectedCnt, duplicateIds:dup, repeatRules:reps.length, tombstones:tomb};
+    try{
+      console.group('[tasks] sync/storage report');
+      Object.keys(out).forEach(function(k){ console.log('  '+k+':',out[k]); });
+      if(orphanSrc>0)console.log('  ⚠ 규칙 유실된 반복 원본 '+orphanSrc+'개 — 저장/새로고침 시 자동 복원(heal)됩니다.');
+      if(dup>0)console.log('  ⚠ 중복 id '+dup+'개 — 저장 시 dedup됩니다.');
+      console.groupEnd();
+    }catch(_e){}
+  }catch(e){ try{console.error('[tasks] report failed:',e&&e.message);}catch(_e){} }
+  return out;
+}
+window.returnTaskSyncReport=returnTaskSyncReport;
 /* ── Flag-flip tooling (Stage 9 → flip prep) ──────────────────────────────
    Lets the two-device matrix be run without editing code, and reverted
    instantly. returnSyncModelSet('entity') opts THIS device into the per-entity
@@ -38377,7 +38458,13 @@ function fbApplyData(data){
                 if(!t||t.id==null)return false;
                 if(_cloudArrIds[String(t.id)])return false;
                 var created=Number(t.createdAt||t.ts||0);
-                return created>_returnSessionLoadMs;
+                if(created>_returnSessionLoadMs)return true;
+                /* task_items_v1: 반복 원본·마감·특별 할일은 오래 사는 사용자 항목이라
+                   세션-나이 게이트로 버리면 미동기화 상태에서 유실된다(생일·기념일·마감이
+                   사라짐). 실제 삭제는 tombstone으로 남아 아래 returnEntityFilterTombstoned가
+                   걸러내므로, tombstone 안 된 이런 항목은 되살아남 위험 없이 보존해도 안전. */
+                if(k==='task_items_v1'&&typeof returnTaskIsProtectedLocalOnly==='function'&&returnTaskIsProtectedLocalOnly(t))return true;
+                return false;
               });
               /* Dedup the merged result: the cloud blob itself may still carry
                  duplicate ids from earlier broken sync rounds, and the concat
@@ -38390,6 +38477,9 @@ function fbApplyData(data){
                  그대로 살아남았다. _eid 기준으로 tombstone이 이긴(더 최신) 항목 제거.
                  (인박스·할일·프로젝트가 "삭제해도 다시 생기는" 원인.) */
               var _ddArr=_dd.arr, _tombRemoved=0;
+              /* tasks의 _eid는 결정적('t_'+id)이라, 사본에 _eid가 아직 없어도 채워
+                 두면 tombstone(사용자 삭제) 필터가 확실히 매칭된다. */
+              if(k==='task_items_v1'&&typeof returnEntityBackfillIds==='function'){ try{ returnEntityBackfillIds(_ddArr,'t_'); }catch(_be){} }
               if(typeof returnEntityFilterTombstoned==='function'){ var _btN=_ddArr.length; _ddArr=returnEntityFilterTombstoned(_ddArr); _tombRemoved=_btN-_ddArr.length; }
               if(_localArrOnly.length||_dd.removed>0||_lwwChanged||_tombRemoved>0){
                 _fbWriter(k,JSON.stringify(_ddArr));
@@ -43754,6 +43844,10 @@ function clearDone() {
     /* Clean up Google Calendar events and eventMeta for deleted done tasks */
     if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
       removed.forEach(function(t){ try{ gcalQueueTaskEventDeletion(t); }catch(_e){} });
+    }
+    /* user 삭제 → tombstone (완료 할일 일괄 삭제가 다른 기기에서 되살아나지 않게) */
+    if(removed.length && typeof returnTombstoneMark === 'function'){
+      removed.forEach(function(t){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} });
     }
     /* Keep in-memory tasks in sync */
     if(typeof tasks !== 'undefined' && Array.isArray(tasks)){
