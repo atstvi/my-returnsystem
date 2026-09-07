@@ -3741,6 +3741,14 @@ html.pjb-fs-lock{overflow:hidden}
 .task-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--sp-1)}
 .task-text{font-size:var(--text-base);color:var(--fg);line-height:var(--lh-snug);word-break:break-word}
 .task-item.done .task-text{text-decoration:line-through;color:var(--fg-4)}
+/* 계획 취소(안 하기로 함) — 완료(체크)와 구분되는 '취소선+흐림'. 완료는 초록 체크,
+   취소는 중립 회색 대각선 원. 삭제가 아니라 기록이 남는 상태. */
+.task-item.canceled{opacity:.62}
+.task-item.canceled .task-text{text-decoration:line-through;text-decoration-color:var(--fg-4);color:var(--fg-4)}
+.task-check.canceled{background:transparent;box-shadow:0 0 0 1.5px var(--fg-4);position:relative}
+.task-check.canceled::after{content:'';position:absolute;left:50%;top:50%;width:12px;height:1.5px;background:var(--fg-4);transform:translate(-50%,-50%) rotate(-45deg)}
+.task-check.canceled:hover{box-shadow:0 0 0 1.5px var(--accent)}
+.b-canceled{background:var(--bg-raised);color:var(--fg-3);border:.5px solid var(--border)}
 .task-meta-row{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;opacity:0;transition:opacity var(--t-snap);min-height:18px}
 .task-meta-row.always-show{opacity:1}
 
@@ -9279,6 +9287,7 @@ to{opacity:1;transform:translateY(0)}}
       </div>
       <div class="modal-btns">
         <button class="btn btn-ghost modal-del-action" id="modal-del-btn">삭제</button>
+        <button class="btn btn-ghost" id="modal-cancelplan-btn" type="button" title="이 할일을 안 하기로 함 — 계획 취소(삭제 아님, 기록은 남아요)">🚫 계획 취소</button>
         <button class="btn btn-ghost" id="modal-dup-btn" type="button" title="이 할일을 복제">복제</button>
         <button class="btn btn-ghost" id="modal-focus-btn" type="button" title="계획된 시간 그대로 집중 기록 추가">⏱ 집중 기록</button>
         <button class="btn btn-ghost" id="modal-ws-btn" type="button" title="작업대 위젯으로 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>작업대</button>
@@ -14844,6 +14853,7 @@ function openFormDialog(title, fields, onSave, opts){
     if (f.type === 'textarea') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<textarea class="field-ta" data-key="'+f.key+'" rows="'+(f.rows||7)+'">'+val.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</textarea></div>';
     if (f.type === 'checkbox') return '<div class="field" data-field-key="'+f.key+'"><label class="field-help" style="display:flex;align-items:center;gap:var(--sp-3);cursor:pointer;font-size:var(--text-sm);margin:var(--sp-1) 0"><input type="checkbox" data-key="'+f.key+'"'+(val==='on'?' checked':'')+' style="width:15px;height:15px;accent-color:var(--accent);flex-shrink:0"> '+f.label+'</label></div>';
     if (f.type === 'dateranges') return '<div class="field" data-field-key="'+f.key+'"><label class="field-label">'+f.label+'</label>'+help+'<div class="mrp" data-mrp-key="'+f.key+'"></div></div>';
+    if (f.type === 'lunarpreview') return '<div class="field" data-field-key="'+f.key+'" data-lunar-preview="1" style="display:none"><div class="field-help" data-lunar-preview-text style="background:var(--accent-light,rgba(0,0,0,.05));border-radius:var(--r-sm,8px);padding:var(--sp-2) var(--sp-3);color:var(--fg-2);line-height:var(--lh-normal)"></div></div>';
     if (f.type === 'palette') {
       var pv = String(f.value||'');
       var sws = Array.isArray(f.options)&&f.options.length ? f.options : returnPaletteSwatches();
@@ -14906,19 +14916,44 @@ function openFormDialog(title, fields, onSave, opts){
   }
   var freqSel=ov.querySelector('[data-key="freq"]')||ov.querySelector('[data-key="kind"]');
   if(freqSel){
+    function updateLunarPreview(){
+      var box=ov.querySelector('[data-lunar-preview-text]'); if(!box)return;
+      var lm=ov.querySelector('[data-key="lunarMonth"]'), ld=ov.querySelector('[data-key="lunarDay"]'), ll=ov.querySelector('[data-key="lunarLeap"]');
+      if(!lm||!ld||typeof lunarUpcomingSolarKey!=='function'){ box.textContent=''; return; }
+      var m=parseInt(lm.value,10)||1, d=parseInt(ld.value,10)||1, leap=!!(ll&&ll.checked);
+      var upc=lunarUpcomingSolarKey(m,d,leap);
+      if(leap && typeof lunarLeapMonth==='function'){
+        /* 윤달을 켰는데 다가오는 해에 그 윤달이 없으면 사용자에게 알린다(평달로 계산됨). */
+        var _y=upc?parseInt(upc.slice(0,4),10):(new Date()).getFullYear();
+        if(lunarLeapMonth(_y)!==m){ box.textContent='🌙 음력 윤'+m+'월 '+d+'일 — 다가오는 해엔 윤'+m+'월이 없어 평달로 계산돼요 → 양력 '+(upc||'?'); return; }
+      }
+      box.textContent='🌙 음력 '+(leap?'윤':'')+m+'월 '+d+'일 → 다가오는 양력 '+(upc||'?')+' (매년 자동 계산)';
+    }
     function syncRepeatFields(){
       var freq=freqSel.value||'daily';
       var weekdays=ov.querySelector('[data-key="weekdays"]');
       var monthDay=ov.querySelector('[data-key="monthDay"]');
       var lunarYear=ov.querySelector('[data-key="lunarYear"]');
+      var lunarMonth=ov.querySelector('[data-key="lunarMonth"]');
+      var lunarDay=ov.querySelector('[data-key="lunarDay"]');
+      var lunarLeap=ov.querySelector('[data-key="lunarLeap"]');
+      var previewField=ov.querySelector('[data-lunar-preview]');
       var weekdayField=weekdays&&weekdays.closest('.field');
       var monthField=monthDay&&monthDay.closest('.field');
       var lunarField=lunarYear&&lunarYear.closest('.field');
+      var isYearly=freq==='yearly';
+      var lunarOn=isYearly&&lunarYear&&lunarYear.checked;
       if(weekdayField)weekdayField.style.display=(freq==='weekly'||freq==='biweekly')?'':'none';
       if(monthField)monthField.style.display=freq==='monthly'?'':'none';
-      if(lunarField)lunarField.style.display=freq==='yearly'?'':'none';
+      if(lunarField)lunarField.style.display=isYearly?'':'none';
+      [lunarMonth,lunarDay,lunarLeap].forEach(function(el){ var fl=el&&el.closest('.field'); if(fl)fl.style.display=lunarOn?'':'none'; });
+      if(previewField)previewField.style.display=lunarOn?'':'none';
+      if(lunarOn)updateLunarPreview();
     }
     freqSel.addEventListener('change',syncRepeatFields);
+    var _lunarYearEl=ov.querySelector('[data-key="lunarYear"]');
+    if(_lunarYearEl)_lunarYearEl.addEventListener('change',syncRepeatFields);
+    ['lunarMonth','lunarDay','lunarLeap'].forEach(function(k){ var el=ov.querySelector('[data-key="'+k+'"]'); if(el)el.addEventListener('change',updateLunarPreview); });
     syncRepeatFields();
   }
   var schedSel=ov.querySelector('[data-key="schedType"]');
@@ -15028,6 +15063,29 @@ function lunarLabelFromSolarKey(key){
   return '음력 '+(l.leap?'윤':'')+l.m+'.'+l.d;
 }
 window.lunarToSolar=lunarToSolar;window.solarToLunar=solarToLunar;
+/* 음력 (월,일,윤달)로 '다가오는' 양력 날짜 키를 계산한다. fromKey(양력, 기본 오늘)
+   이후(포함)의 가장 가까운 해를 찾는다 — 음력 생일을 골랐을 때 올해/내년 중 아직 안
+   지난 양력 날짜를 미리보기·원본 할일 날짜로 쓰기 위함. 실패 시 ''.
+   윤달이 그 해에 없으면 평달로 대체해서라도 날짜를 만든다(미리보기 안정성). */
+function lunarUpcomingSolarKey(m, d, leap, fromKey){
+  m=parseInt(m,10)||1; d=parseInt(d,10)||1;
+  var pad=function(n){return (n<10?'0':'')+n;};
+  var base=(typeof taskDateFromKey==='function'&&taskDateFromKey(fromKey))|| (fromKey?new Date(fromKey+'T00:00'):new Date());
+  if(isNaN(base.getTime()))base=new Date();
+  var y0=base.getFullYear();
+  var todayMid=new Date(base.getFullYear(),base.getMonth(),base.getDate());
+  for(var yy=y0; yy<=y0+1; yy++){
+    var useLeap=(leap && lunarLeapMonth(yy)===m);
+    var maxD=lunarDaysInMonth(yy,m,useLeap)||29; var dd=Math.min(d,maxD);
+    var dt=lunarToSolar(yy,m,dd,useLeap); if(!dt)continue;
+    var cand=new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate());
+    if(cand>=todayMid)return cand.getFullYear()+'-'+pad(cand.getMonth()+1)+'-'+pad(cand.getDate());
+  }
+  /* 올해·내년 다 지난(있을 수 없지만) 방어: 올해 값이라도 반환 */
+  var f=lunarToSolar(y0,m,Math.min(d,lunarDaysInMonth(y0,m,leap&&lunarLeapMonth(y0)===m)||29),leap&&lunarLeapMonth(y0)===m);
+  return f?(f.getUTCFullYear()+'-'+pad(f.getUTCMonth()+1)+'-'+pad(f.getUTCDate())):'';
+}
+window.lunarUpcomingSolarKey=lunarUpcomingSolarKey;
 /* 할일 편집창 날짜 옆 음력 힌트를 현재 양력 값으로 갱신 */
 function taskLunarUpdateHint(){
   var inp=document.getElementById('modal-date-input'), hint=document.getElementById('modal-lunar-hint');
@@ -24534,7 +24592,7 @@ function openAddForCategory(catId){
 /* ── BUILD TASK ELEMENT ── */
 function buildTaskEl(task){
   var el=document.createElement('div');
-  el.className='task-item pri-'+(task.priority||'none')+(task.done?' done':'')+(selIds.has(task.id)?' selected-item':'');
+  el.className='task-item pri-'+(task.priority||'none')+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'')+(selIds.has(task.id)?' selected-item':'');
   el.setAttribute('data-id',task.id);
   el.setAttribute('draggable','true');
 
@@ -24553,9 +24611,10 @@ function buildTaskEl(task){
   /* Check */
   var ckWrap=document.createElement('div');ckWrap.className='task-check-wrap';
   var ck=document.createElement('button');
-  ck.className='task-check'+(task.done?' done':'');
-  ck.setAttribute('aria-label',task.done?'완료됨':'완료 표시');
-  ck.addEventListener('click',function(e){e.stopPropagation();toggleDone(task,el,ck);});
+  ck.className='task-check'+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'');
+  ck.setAttribute('aria-label',task.canceled?'계획 취소됨 — 되돌리기':(task.done?'완료됨':'완료 표시'));
+  /* 취소된 할일의 동그라미는 '되돌리기'(계획 복귀). 아니면 완료 토글. */
+  ck.addEventListener('click',function(e){e.stopPropagation();if(task.canceled){setTaskCanceled(task,false);return;}toggleDone(task,el,ck);});
   ckWrap.appendChild(ck);
 
   /* Body */
@@ -24575,6 +24634,7 @@ function buildTaskEl(task){
   if(task._isTt)mkBadge('b-tt','📚 시간표');
   if(task._ruleGen)mkBadge('b-rule','⚡ 규칙');
   else if(task._repeat||task._ruleId)mkBadge('b-repeat','↻');
+  if(task.canceled)mkBadge('b-canceled','🚫 취소됨');
   if(task._occurrenceCustomized)mkBadge('b-custom','✎ 개별');
   var pu=(task.prepItems||[]).filter(function(p){return p.text&&!p.done;});
   if(pu.length)mkBadge('b-prep','🧳 '+pu.length);
@@ -24710,6 +24770,7 @@ function buildTaskEl(task){
    손대지 않는다(수동 체크 유지). */
 function _syncTaskDoneFromSubs(task){
   if(!task||!Array.isArray(task.subs)||!task.subs.length)return;
+  if(task.canceled)return; /* 계획 취소 상태는 하위항목으로 done을 뒤집지 않는다(취소=done 불변식 유지) */
   task.done=task.subs.every(function(s){return s&&s.done;});
 }
 function toggleDone(task,el,ck){
@@ -24726,6 +24787,24 @@ function toggleDone(task,el,ck){
     renderList();
   }
 }
+
+/* 계획 취소(Todoist류 '안 하기로 함') — 삭제가 아니라 '해결됨(미완료로 닫음)'.
+   canceled=true와 함께 done=true로 둬서, 모든 '미완료·밀림·마감 알림' 로직이 자동으로
+   이 할일을 제외한다(수십 곳의 !t.done을 건드리지 않아도 됨 — 견고하고 회귀 위험 낮음).
+   표시(취소선+🚫 취소됨 배지)와 토글 의미만 다르다. 되돌리면 다시 미완료 계획으로 복귀. */
+function taskIsCanceled(t){ return !!(t&&t.canceled); }
+function setTaskCanceled(task, val){
+  if(!task)return;
+  if(val){ task.canceled=true; task.done=true; task.canceledAt=Date.now(); }
+  else { task.canceled=false; task.done=false; try{ delete task.canceledAt; }catch(_e){ task.canceledAt=0; } }
+  task.updatedAt=Date.now();
+  if(typeof saveTaskData==='function')saveTaskData();
+  try{ if(typeof renderList==='function')renderList(); }catch(e){}
+  try{ if(typeof renderCal==='function')renderCal(); }catch(e){}
+  try{ if(typeof renderHomeTasks==='function')renderHomeTasks(); }catch(e){}
+}
+function toggleTaskCanceled(task){ setTaskCanceled(task, !taskIsCanceled(task)); }
+window.taskIsCanceled=taskIsCanceled; window.setTaskCanceled=setTaskCanceled; window.toggleTaskCanceled=toggleTaskCanceled;
 
 function appendAddRow(container){
   var row=document.createElement('div');row.className='task-add-row';
@@ -25584,6 +25663,14 @@ function tasksOpenModal(task){
   };
   document.getElementById('modal-clear-time').onclick=function(){document.getElementById('modal-ts').value='';document.getElementById('modal-te').value='';};
 
+  /* 계획 취소 / 되돌리기 — 안 하기로 한 할일을 삭제 없이 닫는다(기록 유지). */
+  var _cxlBtn=document.getElementById('modal-cancelplan-btn');
+  if(_cxlBtn){
+    var _isCxl=!!task.canceled;
+    _cxlBtn.textContent=_isCxl?'↩ 계획 되돌리기':'🚫 계획 취소';
+    _cxlBtn.title=_isCxl?'다시 할 일로 되돌려요':'이 할일을 안 하기로 함 — 계획 취소(삭제 아님, 기록은 남아요)';
+    _cxlBtn.onclick=function(){ setTaskCanceled(task, !task.canceled); tasksCloseModal(); };
+  }
   /* 복제 — 같은 내용의 독립 할일을 만든다. */
   var _dupBtn=document.getElementById('modal-dup-btn');
   if(_dupBtn)_dupBtn.onclick=function(){ tasksCloseModal(); duplicateTask(task); };
@@ -25606,6 +25693,7 @@ function duplicateTask(task){
   copy.id=Date.now()+Math.floor(Math.random()*100000);
   delete copy._eid; /* 엔티티 동기화가 새 안정 id를 부여하도록 */
   copy.done=false; copy.createdAt=Date.now(); copy.updatedAt=Date.now();
+  delete copy.canceled; delete copy.canceledAt; /* 복제본은 새 계획 — 취소 상태는 물려주지 않음 */
   ['_repeat','_repeatId','_repeatOccurrence','_generationKey','generationKey','occurrenceDate','repeatRuleId','_ruleGen','_ruleId','_ruleSourceId','activeRuleId','sourceType','_isTt','_travelOnly'].forEach(function(k){ delete copy[k]; });
   if(!Array.isArray(copy.subs))copy.subs=[];
   var idx=-1; for(var i=0;i<tasks.length;i++){ if(tasks[i]&&String(tasks[i].id)===String(task.id)){idx=i;break;} }
@@ -26106,22 +26194,39 @@ function bindTaskModalRows(task){
   repeatRow.onclick=function(){
     var rep=task._repeat||{};
     var baseKey=task.date||TK;
+    /* 음력 월/일/윤달 기본값: 이미 음력 규칙이면 그 값을, 아니면 할일 날짜를 음력으로
+       변환해 씨앗으로. 사용자는 양력 날짜를 몰라도 음력 월·일만 바로 고르면 된다. */
+    var _seedLu=(rep.lunar&&rep.lunarMonth)?{m:parseInt(rep.lunarMonth,10)||1,d:parseInt(rep.lunarDay,10)||1,leap:!!rep.lunarLeap}
+      :((typeof solarToLunar==='function'&&/^\d{4}-\d{2}-\d{2}$/.test(baseKey))?solarToLunar(new Date(Number(baseKey.slice(0,4)),Number(baseKey.slice(5,7))-1,Number(baseKey.slice(8,10)))):{m:1,d:1,leap:false});
+    var _lmOpts=[],_ldOpts=[],_i;
+    for(_i=1;_i<=12;_i++)_lmOpts.push({value:String(_i),label:'음력 '+_i+'월'});
+    for(_i=1;_i<=30;_i++)_ldOpts.push({value:String(_i),label:_i+'일'});
     openFormDialog('반복 설정', [
       {key:'kind', label:'반복 주기', type:'select', value:rep.kind||'', options:[{value:'',label:'반복 없음'},{value:'daily',label:'매일'},{value:'weekly',label:'매주'},{value:'biweekly',label:'격주'},{value:'monthly',label:'매월'},{value:'yearly',label:'매년 (생일·기념일)'}]},
       {key:'weekdays', label:'주 반복 요일', type:'weekdays', value:Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||'')},
       {key:'monthDay', label:'월 반복 날짜', type:'number', value:String(rep.monthDay || new Date(baseKey+'T00:00').getDate())},
-      {key:'lunarYear', label:'음력 기준 (매년 음력 그날 — 음력 생일)', type:'checkbox', value:rep.lunar?'on':'', help:'할일 날짜를 기준 삼아 매년 음력 같은 날에 반복해요'},
+      {key:'lunarYear', label:'🌙 음력 날짜로 반복 (음력 생일·기념일)', type:'checkbox', value:rep.lunar?'on':'', help:'켜면 아래에서 음력 월·일만 고르면 돼요. 양력 날짜는 몰라도 매년 자동으로 계산해요.'},
+      {key:'lunarMonth', label:'음력 월', type:'select', value:String(_seedLu.m||1), options:_lmOpts},
+      {key:'lunarDay', label:'음력 일', type:'select', value:String(_seedLu.d||1), options:_ldOpts},
+      {key:'lunarLeap', label:'윤달 (그 해에 있을 때만)', type:'checkbox', value:_seedLu.leap?'on':''},
+      {key:'lunarPreview', type:'lunarpreview', label:'', value:''},
       {key:'startDate', label:'반복 시작일', type:'date', value:rep.startDate||baseKey||'', help:'이 날짜부터 반복이 시작돼요. 비우면 할일 날짜부터 시작.'},
       {key:'until', label:'반복 종료일', type:'date', value:rep.until||''}
     ], function(data){
       var startDate=data.startDate||baseKey||'';
       if(!data.kind){task._repeat=false;delete task._repeatId;}
       else if(data.kind==='yearly'){
-        var bd=new Date((startDate||baseKey)+'T00:00');
-        if(data.lunarYear==='on' && typeof solarToLunar==='function'){
-          var lu=solarToLunar(bd);
-          task._repeat={kind:'yearly',lunar:1,lunarMonth:lu.m,lunarDay:lu.d,lunarLeap:lu.leap,startDate:startDate,until:data.until||''};
+        if(data.lunarYear==='on'){
+          var _lm=parseInt(data.lunarMonth,10)||1, _ld=parseInt(data.lunarDay,10)||1, _lleap=data.lunarLeap==='on'?1:0;
+          task._repeat={kind:'yearly',lunar:1,lunarMonth:_lm,lunarDay:_ld,lunarLeap:_lleap,startDate:startDate,until:data.until||''};
+          /* 원본 할일 날짜를 다가오는 양력 음력생일로 맞춰, 이번(또는 내년) 생일이
+             달력에 바로 뜨게 한다 — '음력만 골랐는데 어디에도 안 보임'을 방지. */
+          if(typeof lunarUpcomingSolarKey==='function'){
+            var _up=lunarUpcomingSolarKey(_lm,_ld,!!_lleap,baseKey);
+            if(_up){ task.date=_up; var _di=document.getElementById('modal-date-input'); if(_di){ _di.value=_up; try{_di.dispatchEvent(new Event('change',{bubbles:true}));}catch(_e){} } if(typeof taskLunarUpdateHint==='function')taskLunarUpdateHint(); }
+          }
         }else{
+          var bd=new Date((startDate||baseKey)+'T00:00');
           task._repeat={kind:'yearly',month:bd.getMonth()+1,monthDay:bd.getDate(),startDate:startDate,until:data.until||''};
         }
       }
@@ -43838,8 +43943,10 @@ function clearDone() {
   if (!confirm('완료된 할일을 모두 삭제할까요?')) return;
   try {
     var items = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
-    var removed = items.filter(function(t){ return t && t.done; });
-    items = items.filter(function(t){ return !t.done; });
+    /* 계획 취소(canceled)는 '완료'가 아니라 '안 하기로 함'이므로 '완료 정리'로 지우지
+       않는다 — 취소 기록을 남긴다(내부적으로 done=true여도 제외). */
+    var removed = items.filter(function(t){ return t && t.done && !t.canceled; });
+    items = items.filter(function(t){ return !t.done || t.canceled; });
     setReturnStorageItem('task_items_v1', JSON.stringify(items));
     /* Clean up Google Calendar events and eventMeta for deleted done tasks */
     if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
@@ -43849,9 +43956,9 @@ function clearDone() {
     if(removed.length && typeof returnTombstoneMark === 'function'){
       removed.forEach(function(t){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} });
     }
-    /* Keep in-memory tasks in sync */
+    /* Keep in-memory tasks in sync (취소 항목은 유지) */
     if(typeof tasks !== 'undefined' && Array.isArray(tasks)){
-      tasks = tasks.filter(function(t){ return !t.done; });
+      tasks = tasks.filter(function(t){ return !t.done || t.canceled; });
     }
     showToast('완료 할일이 삭제됐어요 ✓');
     calcDataSize();

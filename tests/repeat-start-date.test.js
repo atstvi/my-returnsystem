@@ -20,7 +20,7 @@ const t = runner('반복 시작일');
 // 2) 저장 시 task._repeat에 startDate가 담긴다(비-yearly·yearly 모두)
 {
   const i = html.indexOf("openFormDialog('반복 설정'");
-  const seg = i >= 0 ? html.slice(i, i + 1800) : '';
+  const seg = i >= 0 ? html.slice(i, i + 3200) : '';
   t.ok('제출부에서 startDate 계산', /var startDate=data\.startDate\|\|baseKey\|\|'';/.test(seg));
   t.ok('일반 반복 객체에 startDate 저장', /kind:data\.kind,weekdays:[^}]*startDate:startDate/.test(seg));
   t.ok('매년(양력) 객체에 startDate 저장', /kind:'yearly',month:[^}]*startDate:startDate/.test(seg));
