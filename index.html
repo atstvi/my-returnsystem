@@ -3741,6 +3741,14 @@ html.pjb-fs-lock{overflow:hidden}
 .task-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--sp-1)}
 .task-text{font-size:var(--text-base);color:var(--fg);line-height:var(--lh-snug);word-break:break-word}
 .task-item.done .task-text{text-decoration:line-through;color:var(--fg-4)}
+/* 계획 취소(안 하기로 함) — 완료(체크)와 구분되는 '취소선+흐림'. 완료는 초록 체크,
+   취소는 중립 회색 대각선 원. 삭제가 아니라 기록이 남는 상태. */
+.task-item.canceled{opacity:.62}
+.task-item.canceled .task-text{text-decoration:line-through;text-decoration-color:var(--fg-4);color:var(--fg-4)}
+.task-check.canceled{background:transparent;box-shadow:0 0 0 1.5px var(--fg-4);position:relative}
+.task-check.canceled::after{content:'';position:absolute;left:50%;top:50%;width:12px;height:1.5px;background:var(--fg-4);transform:translate(-50%,-50%) rotate(-45deg)}
+.task-check.canceled:hover{box-shadow:0 0 0 1.5px var(--accent)}
+.b-canceled{background:var(--bg-raised);color:var(--fg-3);border:.5px solid var(--border)}
 .task-meta-row{display:flex;align-items:center;gap:var(--sp-3);flex-wrap:wrap;opacity:0;transition:opacity var(--t-snap);min-height:18px}
 .task-meta-row.always-show{opacity:1}
 
@@ -9279,6 +9287,7 @@ to{opacity:1;transform:translateY(0)}}
       </div>
       <div class="modal-btns">
         <button class="btn btn-ghost modal-del-action" id="modal-del-btn">삭제</button>
+        <button class="btn btn-ghost" id="modal-cancelplan-btn" type="button" title="이 할일을 안 하기로 함 — 계획 취소(삭제 아님, 기록은 남아요)">🚫 계획 취소</button>
         <button class="btn btn-ghost" id="modal-dup-btn" type="button" title="이 할일을 복제">복제</button>
         <button class="btn btn-ghost" id="modal-focus-btn" type="button" title="계획된 시간 그대로 집중 기록 추가">⏱ 집중 기록</button>
         <button class="btn btn-ghost" id="modal-ws-btn" type="button" title="작업대 위젯으로 열기"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>작업대</button>
@@ -24583,7 +24592,7 @@ function openAddForCategory(catId){
 /* ── BUILD TASK ELEMENT ── */
 function buildTaskEl(task){
   var el=document.createElement('div');
-  el.className='task-item pri-'+(task.priority||'none')+(task.done?' done':'')+(selIds.has(task.id)?' selected-item':'');
+  el.className='task-item pri-'+(task.priority||'none')+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'')+(selIds.has(task.id)?' selected-item':'');
   el.setAttribute('data-id',task.id);
   el.setAttribute('draggable','true');
 
@@ -24602,9 +24611,10 @@ function buildTaskEl(task){
   /* Check */
   var ckWrap=document.createElement('div');ckWrap.className='task-check-wrap';
   var ck=document.createElement('button');
-  ck.className='task-check'+(task.done?' done':'');
-  ck.setAttribute('aria-label',task.done?'완료됨':'완료 표시');
-  ck.addEventListener('click',function(e){e.stopPropagation();toggleDone(task,el,ck);});
+  ck.className='task-check'+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'');
+  ck.setAttribute('aria-label',task.canceled?'계획 취소됨 — 되돌리기':(task.done?'완료됨':'완료 표시'));
+  /* 취소된 할일의 동그라미는 '되돌리기'(계획 복귀). 아니면 완료 토글. */
+  ck.addEventListener('click',function(e){e.stopPropagation();if(task.canceled){setTaskCanceled(task,false);return;}toggleDone(task,el,ck);});
   ckWrap.appendChild(ck);
 
   /* Body */
@@ -24624,6 +24634,7 @@ function buildTaskEl(task){
   if(task._isTt)mkBadge('b-tt','📚 시간표');
   if(task._ruleGen)mkBadge('b-rule','⚡ 규칙');
   else if(task._repeat||task._ruleId)mkBadge('b-repeat','↻');
+  if(task.canceled)mkBadge('b-canceled','🚫 취소됨');
   if(task._occurrenceCustomized)mkBadge('b-custom','✎ 개별');
   var pu=(task.prepItems||[]).filter(function(p){return p.text&&!p.done;});
   if(pu.length)mkBadge('b-prep','🧳 '+pu.length);
@@ -24759,6 +24770,7 @@ function buildTaskEl(task){
    손대지 않는다(수동 체크 유지). */
 function _syncTaskDoneFromSubs(task){
   if(!task||!Array.isArray(task.subs)||!task.subs.length)return;
+  if(task.canceled)return; /* 계획 취소 상태는 하위항목으로 done을 뒤집지 않는다(취소=done 불변식 유지) */
   task.done=task.subs.every(function(s){return s&&s.done;});
 }
 function toggleDone(task,el,ck){
@@ -24775,6 +24787,24 @@ function toggleDone(task,el,ck){
     renderList();
   }
 }
+
+/* 계획 취소(Todoist류 '안 하기로 함') — 삭제가 아니라 '해결됨(미완료로 닫음)'.
+   canceled=true와 함께 done=true로 둬서, 모든 '미완료·밀림·마감 알림' 로직이 자동으로
+   이 할일을 제외한다(수십 곳의 !t.done을 건드리지 않아도 됨 — 견고하고 회귀 위험 낮음).
+   표시(취소선+🚫 취소됨 배지)와 토글 의미만 다르다. 되돌리면 다시 미완료 계획으로 복귀. */
+function taskIsCanceled(t){ return !!(t&&t.canceled); }
+function setTaskCanceled(task, val){
+  if(!task)return;
+  if(val){ task.canceled=true; task.done=true; task.canceledAt=Date.now(); }
+  else { task.canceled=false; task.done=false; try{ delete task.canceledAt; }catch(_e){ task.canceledAt=0; } }
+  task.updatedAt=Date.now();
+  if(typeof saveTaskData==='function')saveTaskData();
+  try{ if(typeof renderList==='function')renderList(); }catch(e){}
+  try{ if(typeof renderCal==='function')renderCal(); }catch(e){}
+  try{ if(typeof renderHomeTasks==='function')renderHomeTasks(); }catch(e){}
+}
+function toggleTaskCanceled(task){ setTaskCanceled(task, !taskIsCanceled(task)); }
+window.taskIsCanceled=taskIsCanceled; window.setTaskCanceled=setTaskCanceled; window.toggleTaskCanceled=toggleTaskCanceled;
 
 function appendAddRow(container){
   var row=document.createElement('div');row.className='task-add-row';
@@ -25633,6 +25663,14 @@ function tasksOpenModal(task){
   };
   document.getElementById('modal-clear-time').onclick=function(){document.getElementById('modal-ts').value='';document.getElementById('modal-te').value='';};
 
+  /* 계획 취소 / 되돌리기 — 안 하기로 한 할일을 삭제 없이 닫는다(기록 유지). */
+  var _cxlBtn=document.getElementById('modal-cancelplan-btn');
+  if(_cxlBtn){
+    var _isCxl=!!task.canceled;
+    _cxlBtn.textContent=_isCxl?'↩ 계획 되돌리기':'🚫 계획 취소';
+    _cxlBtn.title=_isCxl?'다시 할 일로 되돌려요':'이 할일을 안 하기로 함 — 계획 취소(삭제 아님, 기록은 남아요)';
+    _cxlBtn.onclick=function(){ setTaskCanceled(task, !task.canceled); tasksCloseModal(); };
+  }
   /* 복제 — 같은 내용의 독립 할일을 만든다. */
   var _dupBtn=document.getElementById('modal-dup-btn');
   if(_dupBtn)_dupBtn.onclick=function(){ tasksCloseModal(); duplicateTask(task); };
@@ -25655,6 +25693,7 @@ function duplicateTask(task){
   copy.id=Date.now()+Math.floor(Math.random()*100000);
   delete copy._eid; /* 엔티티 동기화가 새 안정 id를 부여하도록 */
   copy.done=false; copy.createdAt=Date.now(); copy.updatedAt=Date.now();
+  delete copy.canceled; delete copy.canceledAt; /* 복제본은 새 계획 — 취소 상태는 물려주지 않음 */
   ['_repeat','_repeatId','_repeatOccurrence','_generationKey','generationKey','occurrenceDate','repeatRuleId','_ruleGen','_ruleId','_ruleSourceId','activeRuleId','sourceType','_isTt','_travelOnly'].forEach(function(k){ delete copy[k]; });
   if(!Array.isArray(copy.subs))copy.subs=[];
   var idx=-1; for(var i=0;i<tasks.length;i++){ if(tasks[i]&&String(tasks[i].id)===String(task.id)){idx=i;break;} }
@@ -43904,8 +43943,10 @@ function clearDone() {
   if (!confirm('완료된 할일을 모두 삭제할까요?')) return;
   try {
     var items = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
-    var removed = items.filter(function(t){ return t && t.done; });
-    items = items.filter(function(t){ return !t.done; });
+    /* 계획 취소(canceled)는 '완료'가 아니라 '안 하기로 함'이므로 '완료 정리'로 지우지
+       않는다 — 취소 기록을 남긴다(내부적으로 done=true여도 제외). */
+    var removed = items.filter(function(t){ return t && t.done && !t.canceled; });
+    items = items.filter(function(t){ return !t.done || t.canceled; });
     setReturnStorageItem('task_items_v1', JSON.stringify(items));
     /* Clean up Google Calendar events and eventMeta for deleted done tasks */
     if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
@@ -43915,9 +43956,9 @@ function clearDone() {
     if(removed.length && typeof returnTombstoneMark === 'function'){
       removed.forEach(function(t){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} });
     }
-    /* Keep in-memory tasks in sync */
+    /* Keep in-memory tasks in sync (취소 항목은 유지) */
     if(typeof tasks !== 'undefined' && Array.isArray(tasks)){
-      tasks = tasks.filter(function(t){ return !t.done; });
+      tasks = tasks.filter(function(t){ return !t.done || t.canceled; });
     }
     showToast('완료 할일이 삭제됐어요 ✓');
     calcDataSize();
