@@ -17592,27 +17592,37 @@ function openInboxItemFromHome(id){
    시각 해석: 오전/아침/새벽→AM, 오후/저녁/밤/점심/낮→PM, 없는 1~6시는 오후로(회의 3시=15시).
    날짜: 오늘/내일/모레/글피, N일 뒤·후, N월 N일, (다음주) 요일. */
 function captureParseNL(input, todayDate){
-  var out={text:String(input||'').trim(), timeStart:'', timeEnd:'', date:''};
+  var out={text:String(input||'').trim(), timeStart:'', timeEnd:'', date:'', deadlineDate:''};
   var t=out.text; if(!t) return out;
   function pad(n){return (n<10?'0':'')+n;}
   function hm(h,m){return pad(((h%24)+24)%24)+':'+pad(((m%60)+60)%60);}
   function fmt(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
   var base=todayDate?new Date(todayDate+'T00:00'):new Date();
-  /* ── 날짜 ── */
+  /* 마감(데드라인) 문맥: '마감/데드라인/기한/deadline'이 있거나, 날짜 바로 뒤에 '까지'가
+     붙으면 그 날짜는 시작일이 아니라 '마감일'(deadlineDate)로 분류한다. */
+  var deadlineKw=/(마감|데드라인|기한|deadline)/i.test(t);
+  function placeDate(dateStr, matchStr){
+    var idx=t.indexOf(matchStr);
+    var byKkaji=idx>=0 && /^\s*까지/.test(t.slice(idx+matchStr.length));
+    if(deadlineKw||byKkaji){ if(!out.deadlineDate)out.deadlineDate=dateStr; }
+    else if(!out.date){ out.date=dateStr; }
+    t=t.replace(matchStr,' ');
+  }
+  /* ── 날짜(시작일 또는 마감일) ── */
   var rel=[['모레',2],['글피',3],['낼',1],['내일',1],['오늘',0]];
-  for(var i=0;i<rel.length;i++){ if(t.indexOf(rel[i][0])>=0){ var dr=new Date(base); dr.setDate(dr.getDate()+rel[i][1]); out.date=fmt(dr); t=t.replace(rel[i][0],' '); break; } }
+  for(var i=0;i<rel.length;i++){ if(t.indexOf(rel[i][0])>=0){ var dr=new Date(base); dr.setDate(dr.getDate()+rel[i][1]); placeDate(fmt(dr), rel[i][0]); break; } }
   var nDay=/(\d{1,2})\s*일\s*(뒤|후)/.exec(t);
-  if(nDay && !out.date){ var d2=new Date(base); d2.setDate(d2.getDate()+(+nDay[1])); out.date=fmt(d2); t=t.replace(nDay[0],' '); }
+  if(nDay){ var d2=new Date(base); d2.setDate(d2.getDate()+(+nDay[1])); placeDate(fmt(d2), nDay[0]); }
   var md=/(\d{1,2})\s*월\s*(\d{1,2})\s*일/.exec(t);
   if(md){ var mo=+md[1],dy=+md[2],y=base.getFullYear(); var cand=new Date(y,mo-1,dy);
     var todayMid=new Date(base.getFullYear(),base.getMonth(),base.getDate());
     if(cand<todayMid) cand=new Date(y+1,mo-1,dy);
-    out.date=fmt(cand); t=t.replace(md[0],' '); }
+    placeDate(fmt(cand), md[0]); }
   var dowMap={'일':0,'월':1,'화':2,'수':3,'목':4,'금':5,'토':6};
   var dow=/(다음주|담주|이번주)?\s*([일월화수목금토])요일/.exec(t);
   if(dow){ var target=dowMap[dow[2]]; var d3=new Date(base); var add=(target-d3.getDay()+7)%7;
     if(add===0) add=(dow[1]&&/다음|담/.test(dow[1]))?7:0; if(dow[1]&&/다음|담/.test(dow[1])&&add<7) add+=7;
-    d3.setDate(d3.getDate()+add); if(!out.date)out.date=fmt(d3); t=t.replace(dow[0],' '); }
+    d3.setDate(d3.getDate()+add); placeDate(fmt(d3), dow[0]); }
   /* ── 시간 ── */
   var MER='오전|오후|아침|저녁|점심|낮|밤|새벽';
   function resolve(mer,h){ h=+h;
@@ -17639,7 +17649,8 @@ function captureParseNL(input, todayDate){
       }
     }
   }
-  /* ── 내용 정리(조사·구두점 제거) ── */
+  /* ── 내용 정리(마감 표지·조사·구두점 제거) ── */
+  t=t.replace(/(마감일?|데드라인|기한|deadline)/ig,' ');
   t=t.split(/\s+/).filter(function(w){ return w && !/^(에|에서|까지|부터|쯤|경|즈음)$/.test(w); }).join(' ');
   t=t.replace(/^[\s,·\-~]+|[\s,·\-~]+$/g,'').replace(/\s{2,}/g,' ').trim();
   out.text=t||out.text;
@@ -17657,7 +17668,7 @@ function homeCapture(raw){
     var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
     var _nl = captureParseNL(text, (typeof TK!=='undefined'?TK:''));
     var _body = _nl.text || text;
-    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:'',deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     if (typeof saveTaskData === 'function') saveTaskData();
     if (typeof renderList === 'function') renderList();
     renderHomeTasks();
@@ -18073,11 +18084,69 @@ function _commitCaptureTask(parsed){
    interactive capture-bar preview (homeCaptureAI) and the non-interactive
    widget-capture-queue drain (pullWidgetCaptureQueue) share one prompt + schema
    instead of duplicating the Groq request. */
+/* 설정된 AI 제공자가 하나라도 있는지 — Anthropic/Groq/Gemini 아무거나. 예전엔 캡처·일기
+   AI가 Groq 키만 봐서, 사용자가 Claude/Gemini 키를 넣어도 AI가 전혀 안 돌고 로컬로
+   폴백(그냥 제목만)했다. */
+function returnHasAiKey(){
+  try{ return !!(localStorage.getItem('anthropic_api_key')||localStorage.getItem('groq_api_key')||localStorage.getItem('gemini_api_key')); }catch(e){ return false; }
+}
+window.returnHasAiKey=returnHasAiKey;
+/* 다중 제공자 채팅 호출. 설정된 키를 우선순위(Claude→Groq→Gemini)로 하나 골라 호출하고
+   응답 텍스트를 반환한다. 키가 없거나 실패하면 null. 브라우저에서 직접 호출하므로
+   Anthropic은 direct-browser-access 헤더가 필요하다. */
+async function returnAiChat(opts){
+  opts=opts||{};
+  var sys=String(opts.system||''), user=String(opts.user||'');
+  var maxTokens=opts.maxTokens||600, temp=(opts.temperature!=null?opts.temperature:0.2);
+  var anth='',groq='',gem='';
+  try{ anth=localStorage.getItem('anthropic_api_key')||''; groq=localStorage.getItem('groq_api_key')||''; gem=localStorage.getItem('gemini_api_key')||''; }catch(e){}
+  if(!anth&&!groq&&!gem) return null;
+  var ctrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var timer=ctrl?setTimeout(function(){ctrl.abort();},20000):null;
+  function sig(){ return ctrl?ctrl.signal:undefined; }
+  try{
+    if(anth){
+      var ra=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+        headers:{'content-type':'application/json','x-api-key':anth,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+        body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:maxTokens,temperature:temp,system:sys,messages:[{role:'user',content:user}]}),
+        signal:sig()});
+      var ja=await ra.json();
+      var ta=ja&&ja.content&&ja.content[0]&&ja.content[0].text;
+      if(ta) return ta;
+    }
+    if(groq){
+      var rg=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+groq},
+        body:JSON.stringify({model:'llama-3.3-70b-versatile',max_tokens:maxTokens,temperature:temp,messages:[{role:'system',content:sys},{role:'user',content:user}]}),
+        signal:sig()});
+      var jg=await rg.json();
+      var tg=jg&&jg.choices&&jg.choices[0]&&jg.choices[0].message&&jg.choices[0].message.content;
+      if(tg) return tg;
+    }
+    if(gem){
+      var rge=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+encodeURIComponent(gem),{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({systemInstruction:sys?{parts:[{text:sys}]}:undefined,contents:[{role:'user',parts:[{text:user}]}],generationConfig:{maxOutputTokens:maxTokens,temperature:temp}}),
+        signal:sig()});
+      var jge=await rge.json();
+      var tge=jge&&jge.candidates&&jge.candidates[0]&&jge.candidates[0].content&&jge.candidates[0].content.parts&&jge.candidates[0].content.parts[0]&&jge.candidates[0].content.parts[0].text;
+      if(tge) return tge;
+    }
+    return null;
+  }catch(e){ return null; }
+  finally{ clearTimeout(timer); }
+}
+window.returnAiChat=returnAiChat;
 async function _captureAIParse(text){
   text = String(text||'').trim();
   if(!text) return null;
-  var groqKey = localStorage.getItem('groq_api_key')||'';
-  if(!groqKey) return null;
+  /* 로컬 파서 결과를 먼저 계산해 두고(항상 사용 가능), AI가 비운 필드를 이걸로 채운다. */
+  var local = (typeof captureParseNL==='function') ? captureParseNL(text, (typeof TK!=='undefined'?TK:'')) : {text:text};
+  if(!returnHasAiKey()){
+    /* 키 없음 → AI 프리뷰 대신 로컬 파싱 결과만이라도 프리뷰로 쓴다(제목·시간·날짜 분리). */
+    return { text:(local.text||text), catId:'etc', date:(local.date||''), priority:'',
+             timeStart:(local.timeStart||''), timeEnd:(local.timeEnd||''), deadlineDate:(local.deadlineDate||''), note:'' };
+  }
 
   /* Build cat list for the prompt */
   var catList = CATS.map(function(c){return c.id+'('+c.label+')';}).join(', ');
@@ -18090,38 +18159,28 @@ async function _captureAIParse(text){
     +'반드시 JSON만 반환하세요. 다른 텍스트 없이.\n'
     +'스키마:\n'
     +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|"}\n'
-    +'규칙: text는 핵심 행동만, 날짜 없으면 오늘, 카테고리 모호하면 etc, 시간 없으면 ""';
+    +'규칙: text는 핵심 행동만(시간·날짜·마감 표현 제외), 시작 날짜 없으면 오늘, "까지/마감/기한"은 deadlineDate로, 카테고리 모호하면 etc, 시간 없으면 ""';
 
-  /* 20s abort: a hung capture-AI call should fall back rather than hang. */
-  var _captureAbort=typeof AbortController!=='undefined'?new AbortController():null;
-  var _captureAbortTimer=_captureAbort?setTimeout(function(){_captureAbort.abort();},20000):null;
   try {
-    var resp = await fetch('https://api.groq.com/openai/v1/chat/completions',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+groqKey},
-      body:JSON.stringify({
-        model:'llama-3.3-70b-versatile',
-        max_tokens:300,
-        temperature:0.1,
-        messages:[
-          {role:'system',content:systemPrompt},
-          {role:'user',content:'파싱: '+text}
-        ]
-      }),
-      signal:_captureAbort?_captureAbort.signal:undefined
-    });
-    clearTimeout(_captureAbortTimer);
-    var data = await resp.json();
-    var content = data.choices&&data.choices[0]&&data.choices[0].message&&data.choices[0].message.content||'{}';
-    /* Strip markdown code fences if any */
-    content = content.replace(/```json|```/g,'').trim();
-    var parsed = JSON.parse(content);
-    if(!parsed.text) parsed.text = text;
-    return parsed;
-  } catch(e) {
-    clearTimeout(_captureAbortTimer);
-    return null;
-  }
+    var content = await returnAiChat({ system:systemPrompt, user:'파싱: '+text, maxTokens:300, temperature:0.1 });
+    if(content){
+      content = String(content).replace(/```json|```/g,'').trim();
+      /* 응답에 잡텍스트가 섞여도 첫 JSON 오브젝트만 뽑는다. */
+      var mObj=content.match(/\{[\s\S]*\}/); if(mObj) content=mObj[0];
+      var parsed = JSON.parse(content);
+      /* AI가 비운 필드는 로컬 파서로 백필(문맥 누락 보완). */
+      if(!parsed.text || parsed.text===text) parsed.text = local.text || text;
+      if(!parsed.timeStart) parsed.timeStart = local.timeStart || '';
+      if(!parsed.timeEnd) parsed.timeEnd = local.timeEnd || '';
+      if(!parsed.date) parsed.date = local.date || '';
+      if(!parsed.deadlineDate) parsed.deadlineDate = local.deadlineDate || '';
+      if(!parsed.catId) parsed.catId = 'etc';
+      return parsed;
+    }
+  } catch(e) {}
+  /* AI 실패 → 로컬 파싱 결과로라도 프리뷰. */
+  return { text:(local.text||text), catId:'etc', date:(local.date||''), priority:'',
+           timeStart:(local.timeStart||''), timeEnd:(local.timeEnd||''), deadlineDate:(local.deadlineDate||''), note:'' };
 }
 
 async function homeCaptureAI(raw){
@@ -18134,8 +18193,8 @@ async function homeCaptureAI(raw){
     return;
   }
 
-  if(!localStorage.getItem('groq_api_key')){
-    /* No API key: fall through to plain add */
+  if(!returnHasAiKey()){
+    /* 설정된 AI 제공자(Claude/Groq/Gemini)가 없으면 로컬 파서로 바로 추가. */
     homeCapture(text);
     return;
   }
