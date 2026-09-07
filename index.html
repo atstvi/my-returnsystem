@@ -15574,6 +15574,44 @@ function mergeGeneratedTaskInto(target,dup){
   if(!target.deadlineDate&&dup.deadlineDate)target.deadlineDate=dup.deadlineDate;
   target.updatedAt=Math.max(target.updatedAt||0,dup.updatedAt||0,Date.now());
 }
+/* 반복 '원본'(생일·기념일 등 사용자가 만든 반복 할일 자체)인지 — 규칙(repeat_items_v1)이
+   유실됐을 때 삭제 대신 복원해야 하는지 판별한다. 원본 규칙 id는 항상 'ri_task_'+task.id
+   (syncTaskRepeatItem)이고 이 값은 이후 repair가 마커를 덧입혀도 바뀌지 않는다. 생성본
+   (occurrence)은 _repeatId=rep.id(=다른 task의 ri_task_...)라 절대 자기 id와 안 맞는다.
+   의도적 삭제(deleteHomeRepeat)는 non-done 원본의 _repeatId까지 지우므로, _repeatId가
+   'ri_task_'+id로 남아있는 것은 '삭제'가 아니라 '규칙 유실'이다 → 안전하게 복원 가능. */
+function repeatTaskIsHealableSource(t){
+  return !!(t && t.id!=null && t._repeatId && String(t._repeatId)==='ri_task_'+String(t.id));
+}
+/* 유실된 반복 규칙을 원본 task에서 재구성한다(syncTaskRepeatItem와 동일한 형태). */
+function repeatRuleFromSourceTask(t){
+  var rep=(t&&t._repeat&&typeof t._repeat==='object')?t._repeat:{};
+  var baseDate=(t&&t.date)||(typeof taskTodayKeyLocal==='function'?taskTodayKeyLocal():'');
+  var dayOfMonth=1; try{ dayOfMonth=new Date(baseDate+'T00:00').getDate()||1; }catch(e){}
+  return {
+    id:'ri_task_'+String(t.id),
+    text:(t&&t.text)||'반복 할일',
+    catId:(t&&t.catId)||'etc',
+    priority:(t&&t.priority)||'',
+    freq:rep.kind||'daily',
+    weekdays:Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||''),
+    monthDay:parseInt(rep.monthDay,10)||dayOfMonth,
+    month:parseInt(rep.month,10)||0,
+    lunar:rep.lunar?1:0,
+    lunarMonth:parseInt(rep.lunarMonth,10)||0,
+    lunarDay:parseInt(rep.lunarDay,10)||0,
+    lunarLeap:rep.lunarLeap?1:0,
+    startDate:rep.startDate||baseDate,
+    endDate:rep.until||rep.endDate||'',
+    timeStart:(t&&t.timeStart)||'',
+    timeEnd:(t&&t.timeEnd)||'',
+    travelMin:parseInt(t&&t.travelMin,10)||0,
+    prepItems:Array.isArray(t&&t.prepItems)?t.prepItems:[],
+    note:(t&&t.note)||'반복 할일'
+  };
+}
+window.repeatTaskIsHealableSource=repeatTaskIsHealableSource;
+window.repeatRuleFromSourceTask=repeatRuleFromSourceTask;
 function repairGeneratedTasks(opts){
   opts=opts||{};
   if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
@@ -15588,6 +15626,7 @@ function repairGeneratedTasks(opts){
   var generatedSuppressions=typeof loadGeneratedTaskSuppressions==='function'?loadGeneratedTaskSuppressions():{};
   var seen={};
   var repaired=[];
+  var _healedRepeats=false;
   tasks.forEach(function(t){
     if(!t){return;}
     var isRepeat=!!(t.sourceType==='repeat'||t._repeatId||t.repeatRuleId||t._repeatOccurrence);
@@ -15601,10 +15640,22 @@ function repairGeneratedTasks(opts){
       if((t.generationKey||t._generationKey)&&String(t.generationKey||t._generationKey).indexOf('|')>=0)keyDate=String(t.generationKey||t._generationKey).split('|').pop();
       expected=taskDateKeyLocal(t.occurrenceDate||t._repeatOccurrence||keyDate||t.date);
       if(!rep&&!generatedDateManuallyModified(t)&&!t.done){
-        changed++;
-        action='removed missing repeat rule';
-        generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-        return;
+        /* 규칙이 없다 — 원본이면 '삭제'가 아니라 '규칙 유실'이므로(repeat_items_v1가
+           스테일 클라우드로 덮여 규칙만 사라지는 경우) 원본을 지우지 말고 규칙을
+           task에서 복원한다. 생성본(occurrence)만 삭제. → 생일이 통째로 사라지던 회귀. */
+        if(repeatTaskIsHealableSource(t)){
+          rep=repeatRuleFromSourceTask(t);
+          repeats.push(rep); repeatById[String(rep.id)]=rep; rid=String(rep.id);
+          _healedRepeats=true;
+          action='healed missing repeat rule';
+          generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
+          /* 아래 정상 처리로 흐르게 둔다(rep 세팅됨) → task 보존 */
+        }else{
+          changed++;
+          action='removed missing repeat rule';
+          generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
+          return;
+        }
       }
       if(rep&&expected&&!repeatMatchesDate(rep,expected)){
         if(!generatedDateManuallyModified(t)&&!t.done){
@@ -15660,6 +15711,12 @@ function repairGeneratedTasks(opts){
     generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:action});
     repaired.push(t);
   });
+  /* 복원한 반복 규칙을 저장한다 — saveRepeatItems가 아니라 setReturnStorageItem으로
+     직접 써서 repairGeneratedTasks 재귀를 피하고, 동기화 사이드이펙트로 클라우드에
+     규칙을 되민다(스테일 클라우드가 다시 덮어써도 이 기기가 계속 복원·재푸시). */
+  if(_healedRepeats){
+    try{ setReturnStorageItem('repeat_items_v1',JSON.stringify(repeats)); }catch(_e){}
+  }
   if(changed){
     tasks=repaired;
     if(!opts.skipSave){
@@ -34648,6 +34705,32 @@ function _notifSchedulerTick() {
       var ev = taskNotifEventTime(t, today);
       _showNotif('⏰ ' + (t.text || '할일'), (_taskLead > 0 ? (_taskLead + '분 후 · ') : '') + ev + ' 시작', 'return-task-' + String(t.id), { kind:'task', refId:t.id });
     });
+    /* 시간표(수업) 슬롯도 시간 알림 대상 — 시간표 수업은 렌더 시점의 pseudo 할일이라
+       tasks[]에 없어 위 루프가 절대 못 봤다(시간표 알림 미발송의 원인). 오늘 요일의
+       슬롯을 직접 훑어 시작(또는 lead분 전) 시각에 알림한다. 사용자가 '시간표 일정
+       정리'로 실제 할일을 만들어 둔 경우엔 위 루프가 이미 알리므로 중복을 막는다. */
+    try {
+      var _ttNow = JSON.parse(localStorage.getItem('timetables_v1') || '[]');
+      var _ttJsDow = new Date(today + 'T00:00').getDay();
+      var _ttSlotDay = _ttJsDow === 0 ? 6 : _ttJsDow - 1; /* 일→6, 월→0…토→5 */
+      (Array.isArray(_ttNow) ? _ttNow : []).forEach(function(tt) {
+        if (!tt) return;
+        if (tt.startDate && today < tt.startDate) return;
+        if (tt.endDate && today > tt.endDate) return;
+        (tt.slots || []).forEach(function(s) {
+          if (!s || s.day !== _ttSlotDay || !s.timeStart) return;
+          var rem = _notifMinToHHMM(_notifHHMMToMin(s.timeStart) - _taskLead);
+          if (rem !== hhmm) return;
+          /* 실제 할일로 이미 존재하면(정리해 둔 경우) 위 루프가 알리므로 건너뜀 */
+          if (_taskList.some(function(t){ return t && !t._isTt && !t.done && t.date === today && t.text === s.title && t.timeStart === s.timeStart; })) return;
+          var key = 'tt:' + tt.id + '|' + s.title + '|' + s.timeStart + ':' + today;
+          if (_notifShown[key]) return;
+          _notifShown[key] = true;
+          _saveNotifShown();
+          _showNotif('📚 ' + (s.title || '수업'), (_taskLead > 0 ? (_taskLead + '분 후 · ') : '') + s.timeStart + ' 시작', 'return-tt-' + tt.id + '-' + s.title, { kind:'task', refId:'tt_' + tt.id + '_' + s.title });
+        });
+      });
+    } catch(e) {}
   }
 
   ['routine','deadline','checkin'].forEach(function(type) { /* 일기 제거: diary 알림 미발송 */
