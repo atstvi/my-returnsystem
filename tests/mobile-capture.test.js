@@ -28,7 +28,7 @@ t.ok('담기 시 homeCaptureType을 세그먼트로 전환·복원',
 t.ok('AI 미리보기 앵커를 담기 시트로', /_capturePreviewContext=\{anchorSelector:'#m-cap-sheet'/.test(html));
 
 // ── CSS ──
-t.ok('데스크톱에선 시트 숨김', /#m-tabbar, #m-more-dim, #m-more-sheet, #m-cap-dim, #m-cap-sheet, \.topbar-icon-btn\.m-only \{ display:none; \}/.test(html));
+t.ok('데스크톱에선 시트 숨김', /#m-tabbar, #m-more-dim, #m-more-sheet, #m-cap-dim, #m-cap-sheet,[^\n]*\{ display:none; \}/.test(html));
 t.ok('[hidden] override에 담기 시트 포함', /#m-cap-dim\[hidden\], #m-cap-sheet\[hidden\]\{ display:none; \}/.test(html));
 t.ok('세그먼트 활성색 = 앱 강조색', /#m-cap-sheet \.m-cap-seg button\.on\{ background:var\(--accent, #A75F66\); color:#fff; \}/.test(html));
 

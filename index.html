@@ -2463,8 +2463,8 @@ html.pjb-fs-lock{overflow:hidden}
 .capture-cat.active { color:var(--accent); background:var(--accent-light); border-color:transparent; }
 
 /* ── RESPONSIVE ── */
-/* 모바일 전용 껍데기(하단 네비·시트·더보기 버튼)는 데스크톱에선 숨김 */
-#m-tabbar, #m-more-dim, #m-more-sheet, #m-cap-dim, #m-cap-sheet, .topbar-icon-btn.m-only { display:none; }
+/* 모바일 전용 껍데기(하단 네비·시트·더보기 버튼·달력 접기)는 데스크톱에선 숨김 */
+#m-tabbar, #m-more-dim, #m-more-sheet, #m-cap-dim, #m-cap-sheet, .topbar-icon-btn.m-only, .m-cal-toggle { display:none; }
 
 @media (max-width:639px) {
   .app-layout { display:block; height:100dvh; overflow:hidden; }
@@ -2652,8 +2652,28 @@ html.pjb-fs-lock{overflow:hidden}
 
   /* Tasks: collapse split panes if any */
   .task-page { flex-direction:column; }
-  .cal-panel,.cal-panel.full-view-active{width:100%;max-height:44vh;border-right:none;border-bottom:.5px solid var(--border-subtle)}
+  .cal-panel,.cal-panel.full-view-active{width:100%;max-height:none;border-right:none;border-bottom:.5px solid var(--border-subtle);flex-shrink:0}
   .list-panel{flex:1;min-height:0}
+
+  /* ── 할일 화면 모바일 재배치(레이아웃만) ── */
+  /* 컨트롤·카테고리 칩: 2줄 줄바꿈 대신 한 줄 가로 스크롤 */
+  #page-task .cal-controls, #page-task .cat-filter{ flex-wrap:nowrap; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; -webkit-overflow-scrolling:touch; margin-bottom:var(--sp-2); }
+  #page-task .cal-controls::-webkit-scrollbar, #page-task .cat-filter::-webkit-scrollbar{ display:none; }
+  #page-task .cal-controls > *, #page-task .cat-filter > *{ flex-shrink:0; }
+  #page-task .ctrl-btn{ padding:6px 9px; }
+  /* 달력 셀을 낮춰(정사각형 → 낮은 칸) 첫 화면에서 리스트가 바로 보이게 */
+  #page-task .cal-day{ aspect-ratio:auto; height:34px; font-size:var(--text-sm); }
+  #page-task .cal-grid-outer{ padding:var(--sp-2) var(--sp-4) var(--sp-4); }
+  /* 달력 접기: 접으면 요일줄·그리드만 숨겨 리스트에 공간(월 이동·필터는 유지).
+     ≤899px 블록의 min-height:260px를 무효화해 헤더 높이만큼만 남게 한다. */
+  #page-task.m-cal-collapsed .cal-grid-outer{ display:none; }
+  #page-task.m-cal-collapsed .cal-panel{ min-height:0; max-height:none; border-bottom:.5px solid var(--border-subtle); }
+  .cal-nav .m-cal-toggle{ display:inline-flex; margin-left:auto; }
+  /* 리스트 헤더: 뷰 토글이 넘치면 가로 스크롤, 액션 아이콘 터치 크기 확보 */
+  #page-task .view-toggle{ overflow-x:auto; overflow-y:hidden; scrollbar-width:none; max-width:100%; }
+  #page-task .view-toggle::-webkit-scrollbar{ display:none; }
+  #page-task .view-toggle > *{ flex-shrink:0; }
+  #page-task .list-actions .icon-btn{ min-width:38px; min-height:38px; }
 
   /* Diary split → stack */
   .diary-page-wrap { flex-direction:column; }
@@ -10055,6 +10075,7 @@ to{opacity:1;transform:translateY(0)}}
           <span class="cal-month-label" id="cal-month"></span>
           <button class="cal-nav-btn" id="cal-next">›</button>
           <button class="cal-today-btn" id="cal-today">오늘</button>
+          <button class="cal-today-btn m-cal-toggle" id="m-cal-toggle" type="button" onclick="mCalToggle()" title="모바일에서 달력 접기/펼치기">달력 접기</button>
         </div>
         <!-- Controls row -->
         <div class="cal-controls">
@@ -12229,6 +12250,23 @@ async function mCapSubmit(){
   mCapClose();
 }
 window.mCapOpen=mCapOpen; window.mCapClose=mCapClose; window.mCapSetType=mCapSetType; window.mCapPreview=mCapPreview; window.mCapSubmit=mCapSubmit;
+
+/* 모바일 할일 화면: 달력 접기/펼치기(리스트에 공간). 데스크톱엔 영향 없음(접힘 클래스는
+   모바일 CSS에서만 그리드를 숨김). UI 상태라 localStorage에 직접 저장(기기 로컬). */
+function mCalApply(){
+  var pg=document.getElementById('page-task'); if(!pg)return;
+  var on=false; try{ on=localStorage.getItem('m_cal_collapsed')==='1'; }catch(e){}
+  pg.classList.toggle('m-cal-collapsed', on);
+  var b=document.getElementById('m-cal-toggle'); if(b)b.textContent=on?'달력 펼치기':'달력 접기';
+}
+function mCalToggle(){
+  var pg=document.getElementById('page-task'); if(!pg)return;
+  var on=pg.classList.toggle('m-cal-collapsed');
+  var b=document.getElementById('m-cal-toggle'); if(b)b.textContent=on?'달력 펼치기':'달력 접기';
+  try{ localStorage.setItem('m_cal_collapsed', on?'1':'0'); }catch(e){}
+}
+window.mCalApply=mCalApply; window.mCalToggle=mCalToggle;
+try{ mCalApply(); }catch(e){}
 function mMoreOpen(){
   var d=document.getElementById('m-more-dim'), s=document.getElementById('m-more-sheet');
   if(d)d.hidden=false; if(s){ s.hidden=false; requestAnimationFrame(function(){ s.classList.add('up'); }); }
