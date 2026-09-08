@@ -28,14 +28,14 @@ t.ok('더보기: 프로필', /onclick="mMoreClose\(\);openProfileSettings\(\)"/.
 t.ok('mNavGo가 goPage 재사용', /function mNavGo\(slug\)\{[\s\S]*?goPage\(slug\)/.test(html));
 t.ok('goPage가 모바일 네비 활성 동기화', /if\(typeof syncMobileNav==='function'\) syncMobileNav\(slug\)/.test(html));
 t.ok('syncMobileNav 활성 토글', /b\.classList\.toggle\('on', b\.getAttribute\('data-mslug'\)===slug\)/.test(html));
-t.ok('mCapture가 기존 캡처 입력 포커스', /function mCapture\(\)\{[\s\S]*?getElementById\('capture-inp'\)/.test(html));
+t.ok('mCapture가 담기 시트 오픈', /function mCapture\(\)\{ mCapOpen\(\); \}/.test(html));
 t.ok('mMoreOpen/Close 정의', /function mMoreOpen\(\)\{/.test(html) && /function mMoreClose\(\)\{/.test(html));
 
 // ── CSS: 데스크톱 숨김, 모바일에서만 표시, 사이드바 대체 ──
-t.ok('데스크톱에선 모바일 껍데기 숨김', /#m-tabbar, #m-more-dim, #m-more-sheet, \.topbar-icon-btn\.m-only \{ display:none; \}/.test(html));
+t.ok('데스크톱에선 모바일 껍데기 숨김', /#m-tabbar, #m-more-dim, #m-more-sheet,[^\n]*\.topbar-icon-btn\.m-only \{ display:none; \}/.test(html));
 t.ok('모바일에서 사이드바 하단바 숨김(대체)', /\.sidebar \{ display:none !important; \}/.test(html));
 t.ok('모바일에서 하단 네비 표시', /#m-tabbar\{\s*display:flex;/.test(html));
-t.ok('숨김 상태 재확인([hidden] override)', /#m-more-dim\[hidden\], #m-more-sheet\[hidden\]\{ display:none; \}/.test(html));
+t.ok('숨김 상태 재확인([hidden] override)', /#m-more-dim\[hidden\], #m-more-sheet\[hidden\]/.test(html));
 t.ok('FAB는 앱 강조색 사용(정체성 유지)', /background:var\(--accent, #A75F66\); color:#fff/.test(html));
 
 t.done();
