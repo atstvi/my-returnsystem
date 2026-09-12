@@ -19218,6 +19218,90 @@ function returnRehydrateOverflowedState(){
   }catch(e){ try{console.warn('[idb] rehydrate failed',e);}catch(_e){} return false; }
 }
 window.returnRehydrateOverflowedState=returnRehydrateOverflowedState;
+
+/* ════════ 데이터 복구 도구 (F12 콘솔에서 실행) ════════════════════════════
+   quota-overflow 역전파로 할일·반복이 사라졌을 때, 데이터가 아직 남아있는 소스를
+   찾아 되살린다. 모두 사용자가 콘솔에서 명시적으로 실행.
+     returnRecoveryScan()                 — 소스별 잔존량 스캔(읽기 전용)
+     returnRecoveryRestore(src,{dryRun})  — 그 소스에서 '없는 항목만' 병합 복원(삭제 없음)
+   src: 'memory' | 'idbOverflow' | 'archive' | 'cloud'. ════════════════════ */
+function _recoveryParseArr(s){ try{ var a=JSON.parse(s==null?'[]':s); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function _recoveryByCat(arr){ var m={}; arr.forEach(function(t){ if(t){ var c=String(t.catId||'(없음)'); m[c]=(m[c]||0)+1; } }); return m; }
+function _recoveryUndone(arr){ return arr.filter(function(t){ return t&&!t.done&&!t.canceled; }).length; }
+async function _recoverySourceArrays(source){
+  if(source==='memory') return { tasks:(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.slice():[], repeats:(typeof loadRepeatItems==='function')?loadRepeatItems():[] };
+  if(source==='idbOverflow'||source==='idb') return { tasks:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['task_items_v1']:null), repeats:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['repeat_items_v1']:null) };
+  if(source==='archive'){
+    var out=[]; try{
+      var keys=(typeof _archiveListKeys==='function')?await _archiveListKeys():[];
+      var tks=keys.filter(function(k){return k.indexOf('task:')===0;});
+      for(var i=0;i<tks.length;i++){ try{ var d=await _archiveRead(tks[i]); if(d&&typeof d==='object')out.push(d); }catch(_e){} }
+    }catch(_e){}
+    return { tasks:out, repeats:[] };
+  }
+  if(source==='cloud'){
+    if(typeof fbDb==='undefined'||!fbDb||typeof fbUser==='undefined'||!fbUser) return null;
+    var ref=fbDb.collection('users').doc(fbUser.uid);
+    var cd=await fbReadSplitData(ref);
+    return { tasks:_recoveryParseArr(cd.keys&&cd.keys['task_items_v1']), repeats:_recoveryParseArr(cd.keys&&cd.keys['repeat_items_v1']) };
+  }
+  return null;
+}
+async function returnRecoveryScan(opts){
+  opts=opts||{};
+  var out={sources:{}};
+  var mem=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.slice():[];
+  out.sources.memory={ tasks:mem.length, undone:_recoveryUndone(mem), byCat:_recoveryByCat(mem), repeats:(typeof loadRepeatItems==='function'?loadRepeatItems().length:null) };
+  var idbT=_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['task_items_v1']:null);
+  out.sources.idbOverflow={ tasks:idbT.length, undone:_recoveryUndone(idbT), byCat:_recoveryByCat(idbT), repeats:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['repeat_items_v1']:null).length, present:!!(typeof _idbCache!=='undefined'&&_idbCache&&_idbCache['task_items_v1']!=null) };
+  try{ var a=await _recoverySourceArrays('archive'); out.sources.archive={ tasks:a.tasks.length, byCat:_recoveryByCat(a.tasks) }; }catch(e){ out.sources.archive={ error:String(e&&e.message||e) }; }
+  if(opts.cloud!==false && typeof fbDb!=='undefined' && fbDb && typeof fbUser!=='undefined' && fbUser){
+    try{ var c=await _recoverySourceArrays('cloud'); out.sources.cloud={ tasks:c.tasks.length, undone:_recoveryUndone(c.tasks), byCat:_recoveryByCat(c.tasks), repeats:c.repeats.length }; }catch(e){ out.sources.cloud={ error:String(e&&e.message||e) }; }
+  } else { out.sources.cloud={ note:'로그인 필요(설정→동기화)' }; }
+  var best='memory', bestN=out.sources.memory.tasks;
+  ['idbOverflow','archive','cloud'].forEach(function(s){ var v=out.sources[s]; if(v&&typeof v.tasks==='number'&&v.tasks>bestN){ best=s; bestN=v.tasks; } });
+  out.richestSource=best;
+  try{
+    console.group('%c[복구 스캔] 할일·반복이 어디 남아있나','font-weight:bold;color:#A75F66');
+    Object.keys(out.sources).forEach(function(s){ console.log('• '+s+':', out.sources[s]); });
+    console.log('%c가장 많은 소스: '+best+' ('+bestN+'개)','font-weight:bold');
+    console.log('복원(없는 항목만 병합, 삭제 없음): returnRecoveryRestore("'+best+'")   ·   미리보기: returnRecoveryRestore("'+best+'",{dryRun:true})');
+    console.groupEnd();
+  }catch(e){}
+  return out;
+}
+async function returnRecoveryRestore(source, opts){
+  opts=opts||{};
+  var src=await _recoverySourceArrays(source);
+  if(!src){ try{console.warn('[복구] 알 수 없거나 사용 불가한 소스:', source, '(cloud는 로그인 필요)');}catch(e){} return null; }
+  var curIds={}; (typeof tasks!=='undefined'&&Array.isArray(tasks)?tasks:[]).forEach(function(t){ if(t&&t.id!=null)curIds[String(t.id)]=1; });
+  var addTasks=(src.tasks||[]).filter(function(t){ return t&&t.id!=null&&!curIds[String(t.id)]; });
+  var curReps={}; (typeof loadRepeatItems==='function'?loadRepeatItems():[]).forEach(function(r){ if(r&&r.id!=null)curReps[String(r.id)]=1; });
+  var addReps=(src.repeats||[]).filter(function(r){ return r&&r.id!=null&&!curReps[String(r.id)]; });
+  try{
+    console.group('%c[복구 복원] source='+source+(opts.dryRun?' — 미리보기(변경 없음)':''),'font-weight:bold;color:#A75F66');
+    console.log('추가될 할일:', addTasks.length, '· 카테고리별:', _recoveryByCat(addTasks));
+    console.log('추가될 반복규칙:', addReps.length);
+  }catch(e){}
+  if(opts.dryRun){ try{ console.log('실제 복원하려면: returnRecoveryRestore("'+source+'")'); console.groupEnd(); }catch(e){} return { wouldAddTasks:addTasks.length, wouldAddRepeats:addReps.length, dryRun:true }; }
+  if(addTasks.length && typeof tasks!=='undefined' && Array.isArray(tasks)){
+    addTasks.forEach(function(t){ tasks.push(t); });
+    try{ if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); }catch(e){}
+    try{ if(typeof saveTaskData==='function')saveTaskData(); }catch(e){}
+  }
+  if(addReps.length && typeof loadRepeatItems==='function' && typeof saveRepeatItems==='function'){
+    var reps=loadRepeatItems(); addReps.forEach(function(r){ reps.push(r); }); saveRepeatItems(reps);
+  }
+  ['renderList','renderCal','renderHomeTasks','renderHomeOpsPanel','renderFeed'].forEach(function(fn){ try{ if(typeof window[fn]==='function')window[fn](); }catch(e){} });
+  try{
+    console.log('%c복원 완료 — 할일 +'+addTasks.length+', 반복 +'+addReps.length,'font-weight:bold;color:#43A98C');
+    console.log('다른 기기에도 반영하려면: 설정 → 동기화 → ⬆ 지금 올리기 (이 기기를 권위값으로 클라우드에 올림).');
+    console.groupEnd();
+  }catch(e){}
+  try{ if(typeof showToast==='function')showToast('복구: 할일 '+addTasks.length+'개, 반복 '+addReps.length+'개 되살렸어요'); }catch(e){}
+  return { addedTasks:addTasks.length, addedRepeats:addReps.length };
+}
+window.returnRecoveryScan=returnRecoveryScan; window.returnRecoveryRestore=returnRecoveryRestore;
 function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
