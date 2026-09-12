@@ -19182,6 +19182,43 @@ if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
 var _idbOverflow = null;
 var _idbCache = {};  // sync-readable mirror of IDB values
 var _idbReady = false;
+/* _idbInitSettled: true once we KNOW whether IDB-overflow exists and (if so)
+   its keys are loaded into _idbCache + the getItem patch is installed — OR the
+   store is genuinely unavailable (no overflow possible). Firebase pushes MUST
+   wait for this: pushing before the overflow cache is loaded would collect a
+   PARTIAL snapshot (overflowed keys read as null from raw localStorage) and
+   overwrite the cloud — the root cause of "iPad wipes other devices' data".
+   Unavailable/failed IDB flips it true immediately (localStorage is complete). */
+var _idbInitSettled = false;
+/* On iPad/Safari the localStorage quota is small, so task_items_v1 / memos_v5 /
+   inbox_v1 etc. can overflow to IDB. The boot-time loaders run BEFORE the async
+   IDB open completes, so they read raw localStorage (null for overflowed keys)
+   and load EMPTY into memory. Once the overflow cache + getItem patch are ready,
+   re-read any overflowed SYNCED collection from storage so memory is complete
+   BEFORE any save can overwrite good data. Only touches keys that actually
+   overflowed (present in _idbCache); no-op on devices with room to spare. */
+var RETURN_SYNC_COLLECTION_KEYS=['task_items_v1','task_cats_v1','inbox_v1','projects_v1','routine_habits_v1','routine_bundles_v1','routine_logs_v1','memos_v5','metrics_v1','diary_entries_v1','repeat_items_v1'];
+function returnRehydrateOverflowedState(){
+  try{
+    var hit=RETURN_SYNC_COLLECTION_KEYS.some(function(k){ return Object.prototype.hasOwnProperty.call(_idbCache,k); });
+    if(!hit) return false;
+    try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','rehydrating overflowed synced keys after IDB ready'); }catch(_e){}
+    /* tasks (inline load; no dedicated reload fn) */
+    try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'idbRehydrate'}); } }catch(_e){}
+    try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
+    try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
+    try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
+    try{ if(typeof loadProjects==='function')loadProjects(); }catch(_e){}
+    try{ if(typeof loadRoutineData==='function')loadRoutineData(); }catch(_e){}
+    try{ if(typeof loadAll==='function')loadAll(); }catch(_e){}  /* memos / metrics / trackers */
+    try{ if(typeof entries!=='undefined'){ var rd=JSON.parse(localStorage.getItem('diary_entries_v1')||'{}'); if(rd&&typeof rd==='object'&&!Array.isArray(rd))entries=rd; } }catch(_e){}
+    /* Re-render whatever is on screen so the recovered data shows immediately. */
+    ['renderList','renderCal','renderHomeTasks','renderHomeInbox','renderFeed','renderProjects','renderRoutine','renderHomeOpsPanel','renderHomeSituation','renderHomeTimeBlocks'].forEach(function(fn){ try{ if(typeof window[fn]==='function')window[fn](); }catch(_e){} });
+    return true;
+  }catch(e){ try{console.warn('[idb] rehydrate failed',e);}catch(_e){} return false; }
+}
+window.returnRehydrateOverflowedState=returnRehydrateOverflowedState;
+function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
     var req = indexedDB.open('return_overflow_v1', 1);
@@ -19207,11 +19244,19 @@ var _idbReady = false;
           };
           _idbReady = true;
           try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','idb overflow ready, keys: '+keys.length); }catch(_e){}
+          /* Fix any overflowed synced collection the boot loaders read as empty,
+             THEN allow pushes — order matters so we never push partial data. */
+          try{ returnRehydrateOverflowedState(); }catch(_e){}
+          _idbMarkSettled();
         };
-      } catch(e2){ console.warn('[idb] preload failed',e2); }
+      } catch(e2){ console.warn('[idb] preload failed',e2); _idbMarkSettled(); }
     };
-    req.onerror = function(e){ console.warn('[idb] open failed', e); };
-  } catch(e){ console.warn('[idb] indexedDB unavailable', e); }
+    req.onerror = function(e){ console.warn('[idb] open failed', e); _idbMarkSettled(); };
+  } catch(e){ console.warn('[idb] indexedDB unavailable', e); _idbMarkSettled(); }
+  /* Safety net: if neither success nor error fires within 5s (some Safari/iOS
+     states can stall IDB), unblock so the app still syncs from localStorage
+     (which, if nothing overflowed, is complete anyway). */
+  try{ setTimeout(function(){ if(!_idbInitSettled){ try{console.warn('[idb] init timeout — proceeding on localStorage');}catch(_e){} _idbMarkSettled(); } }, 5000); }catch(_e){}
 })();
 
 /* ════════ STAGE 10 — DATA LIFECYCLE ARCHIVE ════════
@@ -19774,6 +19819,21 @@ function setReturnStorageItem(key,value){
     return false;
   }
   value=String(value==null?'':value);
+  /* Pre-IDB-settle guard: until the overflow cache is loaded we can't know the
+     current stored value of a synced collection. Boot-time mutations (repeat
+     generation, reconcile, migrations) could otherwise persist PARTIAL in-memory
+     state over an overflowed (IDB) value — and setReturnStorageItem deletes the
+     IDB copy on a successful localStorage write, destroying the good data for
+     good. So skip persisting SYNCED collections now; memory is re-read from
+     storage on IDB-ready (returnRehydrateOverflowedState) and the next real edit
+     saves correctly. Non-synced keys (UI flags, device-local prefs) write as
+     usual. Once settled (incl. IDB-unavailable/5s-fallback) this guard is inert. */
+  if(typeof _idbInitSettled!=='undefined' && !_idbInitSettled &&
+     typeof RETURN_SYNC_COLLECTION_KEYS!=='undefined' && RETURN_SYNC_COLLECTION_KEYS.indexOf(key)>=0){
+    try{ if(typeof __storageHealthRecord==='function')__storageHealthRecord({key:key,mode:'deferred-preidb',ok:false}); }catch(_e){}
+    try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','skipped pre-IDB write to synced key',{key:key}); }catch(_e){}
+    return false;
+  }
   var old=null;
   function verifiedWrite(){
     var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
@@ -39559,6 +39619,17 @@ async function fbSaveNow(opts){
     return false;
   }
   if(!fbDb||!fbUser||_applyingFbData){clearTimeout(_fbSaveTimer);return false;}
+  /* IDB-overflow gate: do NOT push until the overflow cache is loaded. Before it
+     is, fbCollectData reads raw localStorage (null for overflowed keys) and would
+     push a PARTIAL snapshot that overwrites the cloud — the iPad data-loss bug.
+     Re-queue instead so the save fires once _idbMarkSettled() (or its 5s fallback)
+     runs. Force/manual saves still wait — pushing partial on purpose is never right. */
+  if(typeof _idbInitSettled!=='undefined' && !_idbInitSettled){
+    clearTimeout(_fbSaveTimer);
+    _fbSaveTimer=setTimeout(function(){ try{fbSaveNow(opts);}catch(_e){} }, 400);
+    try{ if(typeof setFbStatus==='function') setFbStatus('저장 준비 중(로컬 캐시 로딩)…','saving'); }catch(_e){}
+    return false;
+  }
   if(window.SyncManager&&!SyncManager.canSave(opts)){clearTimeout(_fbSaveTimer);return false;}
   /* Circuit breaker: skip auto-saves during quota/permission backoff window.
      Schedule a retry save for when the window expires so unsaved changes are
