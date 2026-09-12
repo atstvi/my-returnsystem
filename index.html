@@ -7804,6 +7804,14 @@ body[data-theme-radius="bubble"]{--r-md:18px;--r-lg:24px;--r-xl:32px}
 .detail-divider{height:.5px;background:var(--border-subtle);margin:var(--sp-4) 0}
 
 /* ── RESPONSIVE ── */
+/* 설정(모바일): set-mob-header(햄버거+현재 패널명)가 기본 CSS의 display:none(위)에
+   소스상 뒤라 덮여, 폰에서 설정 메뉴를 못 열고 첫 패널(테마·외관)에만 갇혔다.
+   기본 CSS '뒤'인 여기서 다시 표시 + 드로어 오버레이 확정. */
+@media (max-width:639px){
+  .set-mob-header{ display:flex; }
+  .set-nav-overlay{ display:none; }
+  .set-nav-overlay.open{ display:block; }
+}
 
 
 to{opacity:1;transform:translateY(0)}}
@@ -11974,6 +11982,21 @@ to{opacity:1;transform:translateY(0)}}
             <div class="set-row-ctrl" style="display:flex;flex-direction:column;gap:var(--sp-2)">
               <button class="set-btn btn-ghost" type="button" onclick="openArchiveViewer()">아카이브 열람</button>
               <button class="set-btn btn-ghost" type="button" onclick="runArchiveOnBoot().then(function(){_updateArchiveStatusUI();})">지금 실행</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 버전 기록(스냅샷) · 손실 대비 이전 버전 복원 -->
+        <div class="set-card">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--bg-raised)">🕘</div>
+            <div class="set-row-body">
+              <div class="set-row-label">버전 기록 · 복원</div>
+              <div class="set-row-desc">이 기기에 시간순으로 보관된 이전 버전이에요.</div>
+              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">노션 페이지 히스토리처럼, 데이터가 바뀔 때마다 최신 버전 몇 개를 이 기기에 자동 저장해요. 실수로 지웠거나 동기화로 덮여도 이전 버전에서 사라진 항목만 되살리거나 그 시점으로 되돌릴 수 있어요.</div>
+            </div>
+            <div class="set-row-ctrl">
+              <button class="set-btn btn-ghost" type="button" onclick="returnVersionOpenUI()">버전 보기</button>
             </div>
           </div>
         </div>
@@ -19218,6 +19241,317 @@ function returnRehydrateOverflowedState(){
   }catch(e){ try{console.warn('[idb] rehydrate failed',e);}catch(_e){} return false; }
 }
 window.returnRehydrateOverflowedState=returnRehydrateOverflowedState;
+
+/* ════════ 데이터 복구 도구 (F12 콘솔에서 실행) ════════════════════════════
+   quota-overflow 역전파로 할일·반복이 사라졌을 때, 데이터가 아직 남아있는 소스를
+   찾아 되살린다. 모두 사용자가 콘솔에서 명시적으로 실행.
+     returnRecoveryScan()                 — 소스별 잔존량 스캔(읽기 전용)
+     returnRecoveryRestore(src,{dryRun})  — 그 소스에서 '없는 항목만' 병합 복원(삭제 없음)
+   src: 'memory' | 'idbOverflow' | 'archive' | 'cloud'. ════════════════════ */
+function _recoveryParseArr(s){ try{ var a=JSON.parse(s==null?'[]':s); return Array.isArray(a)?a:[]; }catch(e){ return []; } }
+function _recoveryByCat(arr){ var m={}; arr.forEach(function(t){ if(t){ var c=String(t.catId||'(없음)'); m[c]=(m[c]||0)+1; } }); return m; }
+function _recoveryUndone(arr){ return arr.filter(function(t){ return t&&!t.done&&!t.canceled; }).length; }
+async function _recoverySourceArrays(source){
+  if(source==='memory') return { tasks:(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.slice():[], repeats:(typeof loadRepeatItems==='function')?loadRepeatItems():[] };
+  if(source==='idbOverflow'||source==='idb') return { tasks:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['task_items_v1']:null), repeats:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['repeat_items_v1']:null) };
+  if(source==='archive'){
+    var out=[]; try{
+      var keys=(typeof _archiveListKeys==='function')?await _archiveListKeys():[];
+      var tks=keys.filter(function(k){return k.indexOf('task:')===0;});
+      for(var i=0;i<tks.length;i++){ try{ var d=await _archiveRead(tks[i]); if(d&&typeof d==='object')out.push(d); }catch(_e){} }
+    }catch(_e){}
+    return { tasks:out, repeats:[] };
+  }
+  if(source==='cloud'){
+    if(typeof fbDb==='undefined'||!fbDb||typeof fbUser==='undefined'||!fbUser) return null;
+    var ref=fbDb.collection('users').doc(fbUser.uid);
+    var cd=await fbReadSplitData(ref);
+    return { tasks:_recoveryParseArr(cd.keys&&cd.keys['task_items_v1']), repeats:_recoveryParseArr(cd.keys&&cd.keys['repeat_items_v1']) };
+  }
+  return null;
+}
+async function returnRecoveryScan(opts){
+  opts=opts||{};
+  var out={sources:{}};
+  var mem=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.slice():[];
+  out.sources.memory={ tasks:mem.length, undone:_recoveryUndone(mem), byCat:_recoveryByCat(mem), repeats:(typeof loadRepeatItems==='function'?loadRepeatItems().length:null) };
+  var idbT=_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['task_items_v1']:null);
+  out.sources.idbOverflow={ tasks:idbT.length, undone:_recoveryUndone(idbT), byCat:_recoveryByCat(idbT), repeats:_recoveryParseArr(typeof _idbCache!=='undefined'&&_idbCache?_idbCache['repeat_items_v1']:null).length, present:!!(typeof _idbCache!=='undefined'&&_idbCache&&_idbCache['task_items_v1']!=null) };
+  try{ var a=await _recoverySourceArrays('archive'); out.sources.archive={ tasks:a.tasks.length, byCat:_recoveryByCat(a.tasks) }; }catch(e){ out.sources.archive={ error:String(e&&e.message||e) }; }
+  if(opts.cloud!==false && typeof fbDb!=='undefined' && fbDb && typeof fbUser!=='undefined' && fbUser){
+    try{ var c=await _recoverySourceArrays('cloud'); out.sources.cloud={ tasks:c.tasks.length, undone:_recoveryUndone(c.tasks), byCat:_recoveryByCat(c.tasks), repeats:c.repeats.length }; }catch(e){ out.sources.cloud={ error:String(e&&e.message||e) }; }
+  } else { out.sources.cloud={ note:'로그인 필요(설정→동기화)' }; }
+  var best='memory', bestN=out.sources.memory.tasks;
+  ['idbOverflow','archive','cloud'].forEach(function(s){ var v=out.sources[s]; if(v&&typeof v.tasks==='number'&&v.tasks>bestN){ best=s; bestN=v.tasks; } });
+  out.richestSource=best;
+  try{
+    console.group('%c[복구 스캔] 할일·반복이 어디 남아있나','font-weight:bold;color:#A75F66');
+    Object.keys(out.sources).forEach(function(s){ console.log('• '+s+':', out.sources[s]); });
+    console.log('%c가장 많은 소스: '+best+' ('+bestN+'개)','font-weight:bold');
+    console.log('복원(없는 항목만 병합, 삭제 없음): returnRecoveryRestore("'+best+'")   ·   미리보기: returnRecoveryRestore("'+best+'",{dryRun:true})');
+    console.groupEnd();
+  }catch(e){}
+  return out;
+}
+async function returnRecoveryRestore(source, opts){
+  opts=opts||{};
+  var src=await _recoverySourceArrays(source);
+  if(!src){ try{console.warn('[복구] 알 수 없거나 사용 불가한 소스:', source, '(cloud는 로그인 필요)');}catch(e){} return null; }
+  var curIds={}; (typeof tasks!=='undefined'&&Array.isArray(tasks)?tasks:[]).forEach(function(t){ if(t&&t.id!=null)curIds[String(t.id)]=1; });
+  var addTasks=(src.tasks||[]).filter(function(t){ return t&&t.id!=null&&!curIds[String(t.id)]; });
+  var curReps={}; (typeof loadRepeatItems==='function'?loadRepeatItems():[]).forEach(function(r){ if(r&&r.id!=null)curReps[String(r.id)]=1; });
+  var addReps=(src.repeats||[]).filter(function(r){ return r&&r.id!=null&&!curReps[String(r.id)]; });
+  try{
+    console.group('%c[복구 복원] source='+source+(opts.dryRun?' — 미리보기(변경 없음)':''),'font-weight:bold;color:#A75F66');
+    console.log('추가될 할일:', addTasks.length, '· 카테고리별:', _recoveryByCat(addTasks));
+    console.log('추가될 반복규칙:', addReps.length);
+  }catch(e){}
+  if(opts.dryRun){ try{ console.log('실제 복원하려면: returnRecoveryRestore("'+source+'")'); console.groupEnd(); }catch(e){} return { wouldAddTasks:addTasks.length, wouldAddRepeats:addReps.length, dryRun:true }; }
+  if(addTasks.length && typeof tasks!=='undefined' && Array.isArray(tasks)){
+    addTasks.forEach(function(t){ tasks.push(t); });
+    try{ if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); }catch(e){}
+    try{ if(typeof saveTaskData==='function')saveTaskData(); }catch(e){}
+  }
+  if(addReps.length && typeof loadRepeatItems==='function' && typeof saveRepeatItems==='function'){
+    var reps=loadRepeatItems(); addReps.forEach(function(r){ reps.push(r); }); saveRepeatItems(reps);
+  }
+  ['renderList','renderCal','renderHomeTasks','renderHomeOpsPanel','renderFeed'].forEach(function(fn){ try{ if(typeof window[fn]==='function')window[fn](); }catch(e){} });
+  try{
+    console.log('%c복원 완료 — 할일 +'+addTasks.length+', 반복 +'+addReps.length,'font-weight:bold;color:#43A98C');
+    console.log('다른 기기에도 반영하려면: 설정 → 동기화 → ⬆ 지금 올리기 (이 기기를 권위값으로 클라우드에 올림).');
+    console.groupEnd();
+  }catch(e){}
+  try{ if(typeof showToast==='function')showToast('복구: 할일 '+addTasks.length+'개, 반복 '+addReps.length+'개 되살렸어요'); }catch(e){}
+  return { addedTasks:addTasks.length, addedRepeats:addReps.length };
+}
+window.returnRecoveryScan=returnRecoveryScan; window.returnRecoveryRestore=returnRecoveryRestore;
+
+/* 저장소 → 메모리 재로드(+렌더). 버전 복원/재수화가 storage를 바꾼 뒤 화면·모듈 상태를
+   즉시 맞추기 위함. returnRehydrateOverflowedState의 로더 호출과 동일 집합. */
+function returnReloadMemoryFromStorage(){
+  /* 재적재 중 내부 load*가 트래킹 키를 다시 쓰더라도 되돌리기 스택을 오염시키지 않게
+     캡처를 잠시 억제(복원 자체는 하나의 동작). */
+  var _prevUR=(typeof _undoRestoring!=='undefined')?_undoRestoring:false; try{ _undoRestoring=true; }catch(_e){}
+  try{
+  try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'versionRestore'}); } }catch(_e){}
+  try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
+  try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
+  try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
+  try{ if(typeof loadProjects==='function')loadProjects(); }catch(_e){}
+  try{ if(typeof loadRoutineData==='function')loadRoutineData(); }catch(_e){}
+  try{ if(typeof loadAll==='function')loadAll(); }catch(_e){}
+  try{ if(typeof entries!=='undefined'){ var rd=JSON.parse(localStorage.getItem('diary_entries_v1')||'{}'); if(rd&&typeof rd==='object'&&!Array.isArray(rd))entries=rd; } }catch(_e){}
+  ['renderList','renderCal','renderHomeTasks','renderHomeInbox','renderFeed','renderProjects','renderRoutine','renderHomeOpsPanel','renderHomeSituation','renderHomeTimeBlocks','renderSchedule','renderScheduleGrid'].forEach(function(fn){ try{ if(typeof window[fn]==='function')window[fn](); }catch(_e){} });
+  }finally{ try{ _undoRestoring=_prevUR; }catch(_e){} }
+}
+window.returnReloadMemoryFromStorage=returnReloadMemoryFromStorage;
+
+/* ════════ 버전 기록 (스냅샷) — 손실 대비 최신순 이전 버전 보관 ══════════════════
+   중요 데이터(할일·반복·메모·인박스·프로젝트·루틴·일기·시간표 등)를 IndexedDB에
+   시간순으로 스냅샷. 최신 N개 + '가장 풍부한' 스냅샷 1개(대량 손실 직전 상태)를 보호
+   보관. 저장이 의미 있게 바뀔 때(스로틀), 부팅 settle 후, 탭이 백그라운드로 갈 때 찍는다.
+   기기 로컬(동기화 안 함) — 각 기기가 자기 안전망을 가진다. 콘솔/설정에서 복원 가능. */
+var RETURN_SNAPSHOT_KEYS=['task_items_v1','task_cats_v1','repeat_items_v1','repeat_suppressions_v1','generated_task_suppressions_v1','inbox_v1','return_inbox_cats','projects_v1','routine_habits_v1','routine_bundles_v1','routine_logs_v1','memos_v5','metrics_v1','diary_entries_v1','timetables_v1','timetable_palette_v1','task_rules_v1'];
+var RETURN_SNAPSHOT_MAX=30, RETURN_SNAPSHOT_MIN_INTERVAL=5*60*1000;
+var _snapDb=null, _snapReady=false, _snapLastMs=0, _snapLastHash='', _snapTimer=null;
+(function _initSnapDb(){
+  try{ var req=indexedDB.open('return_snapshots_v1',1);
+    req.onupgradeneeded=function(e){ try{ var db=e.target.result; if(!db.objectStoreNames.contains('snap'))db.createObjectStore('snap',{keyPath:'ts'}); }catch(_){} };
+    req.onsuccess=function(e){ _snapDb=e.target.result; _snapReady=true; try{ setTimeout(function(){ returnSnapshotNow({reason:'boot'}); },1500); }catch(_e){} };
+    req.onerror=function(){ };
+  }catch(e){}
+})();
+function _snapParseObj(s){ try{ var o=JSON.parse(s==null?'{}':s); return (o&&typeof o==='object'&&!Array.isArray(o))?o:{}; }catch(e){ return {}; } }
+function _snapCollect(){
+  var keys={}, counts={};
+  RETURN_SNAPSHOT_KEYS.forEach(function(k){ try{ var v=localStorage.getItem(k); if(v!=null&&v!=='')keys[k]=v; }catch(e){} });
+  function n(k){ try{ return JSON.parse(keys[k]||'[]').length; }catch(e){ return 0; } }
+  counts={ tasks:n('task_items_v1'), repeats:n('repeat_items_v1'), memos:n('memos_v5'), inbox:n('inbox_v1'), projects:n('projects_v1'), routine:n('routine_habits_v1'), timetables:n('timetables_v1'), diary:Object.keys(_snapParseObj(keys['diary_entries_v1'])).length };
+  return { keys:keys, counts:counts };
+}
+function _snapHash(keys){ try{ return timetableTaskHash(RETURN_SNAPSHOT_KEYS.map(function(k){return keys[k]||'';}).join('')); }catch(e){ return RETURN_SNAPSHOT_KEYS.map(function(k){return (keys[k]||'').length;}).join(','); } }
+function _snapTotal(rec){ var c=(rec&&rec.counts)||{}; return (c.tasks||0)+(c.repeats||0)+(c.memos||0)+(c.inbox||0)+(c.projects||0)+(c.routine||0)+(c.timetables||0)+(c.diary||0); }
+function _snapListRaw(){ return new Promise(function(res){ if(!_snapDb){res([]);return;} try{ var tx=_snapDb.transaction('snap','readonly'); var req=tx.objectStore('snap').getAll(); req.onsuccess=function(){ var a=req.result||[]; a.sort(function(x,y){return y.ts-x.ts;}); res(a); }; req.onerror=function(){res([]);}; }catch(e){res([]);} }); }
+function _snapDelete(ts){ return new Promise(function(res){ if(!_snapDb){res();return;} try{ var tx=_snapDb.transaction('snap','readwrite'); tx.objectStore('snap').delete(ts); tx.oncomplete=function(){res();}; tx.onerror=function(){res();}; }catch(e){res();} }); }
+async function _snapPrune(){
+  try{
+    var all=await _snapListRaw(); if(all.length<=RETURN_SNAPSHOT_MAX)return;
+    var richest=all.reduce(function(a,b){return _snapTotal(b)>_snapTotal(a)?b:a;},all[0]);
+    var keep={}; all.slice(0,RETURN_SNAPSHOT_MAX).forEach(function(r){keep[r.ts]=1;}); if(richest)keep[richest.ts]=1;
+    var del=all.filter(function(r){return !keep[r.ts];});
+    for(var i=0;i<del.length;i++){ await _snapDelete(del[i].ts); }
+  }catch(e){}
+}
+function returnSnapshotNow(reason){
+  if(!_snapReady||!_snapDb)return Promise.resolve(false);
+  if(typeof _idbInitSettled!=='undefined'&&!_idbInitSettled)return Promise.resolve(false); /* 부팅 부분상태 스냅샷 금지 */
+  var force=!!(reason&&reason.force);
+  var c=_snapCollect();
+  if(!c.keys['task_items_v1']&&!c.keys['memos_v5']&&!force)return Promise.resolve(false); /* 텅 빈 상태는 자동 스냅샷 안 함(와이프 저장 방지) */
+  var h=_snapHash(c.keys);
+  if(h===_snapLastHash&&!force)return Promise.resolve(false);
+  var rec={ ts:Date.now(), keys:c.keys, counts:c.counts, reason:(reason&&reason.reason)||reason||'auto', hash:h };
+  return new Promise(function(res){
+    try{ var tx=_snapDb.transaction('snap','readwrite'); tx.objectStore('snap').put(rec);
+      tx.oncomplete=function(){ _snapLastHash=h; _snapLastMs=Date.now(); _snapPrune().then(function(){ res(true); }); };
+      tx.onerror=function(){ res(false); };
+    }catch(e){ res(false); }
+  });
+}
+function _snapScheduleThrottled(){
+  if(_snapTimer)return;
+  var due=Math.max(8000, (_snapLastMs+RETURN_SNAPSHOT_MIN_INTERVAL)-Date.now());
+  _snapTimer=setTimeout(function(){ _snapTimer=null; returnSnapshotNow({reason:'edit'}); }, due);
+}
+try{ document.addEventListener('visibilitychange',function(){ if(document.visibilityState==='hidden')try{ returnSnapshotNow({reason:'hidden'}); }catch(_e){} }); }catch(_e){}
+/* ── 콘솔/외부 API ── */
+async function returnVersionList(){
+  var all=await _snapListRaw();
+  try{
+    console.group('%c[버전 기록] '+all.length+'개 (최신순)','font-weight:bold;color:#A75F66');
+    all.forEach(function(r){ var c=r.counts||{}; console.log(new Date(r.ts).toLocaleString()+'  · 할일 '+(c.tasks||0)+' · 반복 '+(c.repeats||0)+' · 메모 '+(c.memos||0)+' · 인박스 '+(c.inbox||0)+' · 프로젝트 '+(c.projects||0)+'  ['+r.ts+']  '+(r.reason||'')); });
+    console.log('복원: returnVersionRestore(<ts>)  · 미리보기: returnVersionRestore(<ts>,{dryRun:true})  · 전체 교체: returnVersionRestore(<ts>,{replace:true})  · UI: returnVersionOpenUI()');
+    console.groupEnd();
+  }catch(e){}
+  return all.map(function(r){ return { ts:r.ts, when:new Date(r.ts).toLocaleString(), counts:r.counts, reason:r.reason }; });
+}
+async function returnVersionRestore(ts, opts){
+  opts=opts||{};
+  var all=await _snapListRaw();
+  var rec=all.find(function(r){return String(r.ts)===String(ts);}) || (ts==null?all[0]:null);
+  if(!rec){ try{console.warn('[버전] 해당 스냅샷 없음:',ts);}catch(e){} return null; }
+  var keysToRestore=opts.keys||RETURN_SNAPSHOT_KEYS;
+  var plan={};
+  keysToRestore.forEach(function(k){
+    if(rec.keys[k]==null)return;
+    if(k==='diary_entries_v1'){ var snO=_snapParseObj(rec.keys[k]),curO=_snapParseObj(localStorage.getItem(k)); plan[k]=opts.replace?{mode:'replace',to:Object.keys(snO).length}:{mode:'merge',add:Object.keys(snO).filter(function(d){return curO[d]==null;}).length}; return; }
+    var sn=_recoveryParseArr(rec.keys[k]),cur=_recoveryParseArr(localStorage.getItem(k));
+    plan[k]=opts.replace?{mode:'replace',to:sn.length}:{mode:'merge',add:sn.filter(function(it){return it&&it.id!=null&&!cur.some(function(c){return c&&String(c.id)===String(it.id);});}).length};
+  });
+  try{ console.group('%c[버전 복원] '+new Date(rec.ts).toLocaleString()+(opts.dryRun?' — 미리보기(변경 없음)':(opts.replace?' — 전체 교체':' — 없는 항목만 병합'))+'%c','font-weight:bold;color:#A75F66',''); console.log(plan); }catch(e){}
+  if(opts.dryRun){ try{ console.log('실제 복원: returnVersionRestore('+rec.ts+(opts.replace?',{replace:true}':'')+')'); console.groupEnd(); }catch(e){} return { ts:rec.ts, plan:plan, dryRun:true }; }
+  keysToRestore.forEach(function(k){
+    if(rec.keys[k]==null)return;
+    try{
+      if(opts.replace){ setReturnStorageItem(k, rec.keys[k]); return; }
+      if(k==='diary_entries_v1'){ var curO=_snapParseObj(localStorage.getItem(k)),snO=_snapParseObj(rec.keys[k]); Object.keys(snO).forEach(function(d){ if(curO[d]==null)curO[d]=snO[d]; }); setReturnStorageItem(k, JSON.stringify(curO)); return; }
+      var cur=_recoveryParseArr(localStorage.getItem(k)),sn=_recoveryParseArr(rec.keys[k]),ids={};
+      cur.forEach(function(it){if(it&&it.id!=null)ids[String(it.id)]=1;});
+      sn.forEach(function(it){ if(it&&it.id!=null&&!ids[String(it.id)])cur.push(it); });
+      setReturnStorageItem(k, JSON.stringify(cur));
+    }catch(e){ try{console.warn('[버전] 복원 실패',k,e);}catch(_e){} }
+  });
+  try{ returnReloadMemoryFromStorage(); }catch(e){}
+  try{ if(typeof showToast==='function')showToast('버전 복원 완료 — 다른 기기엔 설정→동기화→⬆ 지금 올리기'); }catch(e){}
+  try{ console.log('%c복원 완료. 다른 기기 반영: 설정→동기화→⬆ 지금 올리기','font-weight:bold;color:#43A98C'); console.groupEnd(); }catch(e){}
+  return { ts:rec.ts, restored:keysToRestore };
+}
+window.returnSnapshotNow=returnSnapshotNow; window.returnVersionList=returnVersionList; window.returnVersionRestore=returnVersionRestore;
+/* ── 버전 기록 UI(모달) ── */
+async function returnVersionOpenUI(){
+  var all=await _snapListRaw();
+  var old=document.getElementById('return-version-modal'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='return-version-modal';
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+  var rows=all.length?all.map(function(r){ var c=r.counts||{}; return '<div class="rv-row" data-ts="'+r.ts+'">'
+    +'<div class="rv-when">'+esc(new Date(r.ts).toLocaleString())+'</div>'
+    +'<div class="rv-counts">할일 '+(c.tasks||0)+' · 반복 '+(c.repeats||0)+' · 메모 '+(c.memos||0)+' · 인박스 '+(c.inbox||0)+' · 프로젝트 '+(c.projects||0)+'</div>'
+    +'<div class="rv-actions"><button class="btn btn-ghost" data-rv-merge="'+r.ts+'">없는 것만 되살리기</button><button class="btn btn-ghost" data-rv-replace="'+r.ts+'">이 버전으로 교체</button></div>'
+    +'</div>'; }).join('') : '<div style="color:var(--fg-3);padding:var(--sp-6);text-align:center">아직 저장된 버전이 없어요. 데이터가 바뀌면 자동으로 쌓여요.</div>';
+  ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">버전 기록 · 복원</div></div>'
+    +'<div class="modal-body"><div class="field-help" style="margin-bottom:var(--sp-3)">이 기기에 시간순으로 보관된 이전 버전이에요. \'없는 것만 되살리기\'는 사라진 항목만 더하고, \'이 버전으로 교체\'는 그 시점 상태로 되돌려요. 복원 후 다른 기기엔 설정→동기화→⬆ 지금 올리기.</div>'
+    +'<div class="rv-list">'+rows+'</div></div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" id="rv-snap-now">지금 버전 저장</button><button class="btn btn-primary" id="rv-close">닫기</button></div></div>';
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov)ov.remove(); });
+  ov.querySelector('#rv-close').addEventListener('click',function(){ ov.remove(); });
+  ov.querySelector('#rv-snap-now').addEventListener('click',function(){ returnSnapshotNow({reason:'manual',force:true}).then(function(){ ov.remove(); returnVersionOpenUI(); }); });
+  ov.querySelectorAll('[data-rv-merge]').forEach(function(btn){ btn.addEventListener('click',function(){ var ts=btn.getAttribute('data-rv-merge'); if(typeof openConfirmDialog==='function')openConfirmDialog('버전 복원','이 버전에서 사라진 항목만 되살릴까요? (기존 항목은 유지)',function(){ returnVersionRestore(Number(ts)).then(function(){ ov.remove(); }); },{danger:false,confirmText:'되살리기'}); else { returnVersionRestore(Number(ts)); ov.remove(); } }); });
+  ov.querySelectorAll('[data-rv-replace]').forEach(function(btn){ btn.addEventListener('click',function(){ var ts=btn.getAttribute('data-rv-replace'); if(typeof openConfirmDialog==='function')openConfirmDialog('이 버전으로 교체','현재 상태를 이 버전 시점으로 되돌릴까요? 이후에 추가된 항목은 사라질 수 있어요.',function(){ returnVersionRestore(Number(ts),{replace:true}).then(function(){ ov.remove(); }); },{danger:true,confirmText:'교체'}); else { returnVersionRestore(Number(ts),{replace:true}); ov.remove(); } }); });
+}
+window.returnVersionOpenUI=returnVersionOpenUI;
+
+/* ════════ 되돌리기(UNDO) — 방금 한 동작 하나 취소 ═══════════════════════════════
+   사용자 제스처(터치·클릭·키 입력) 직후 일어나는 데이터 키 쓰기를 하나의 '동작'으로
+   묶어, 그 직전 값을 스택에 담아 둔다. Ctrl/⌘+Z 또는 되돌리기 토스트의 버튼으로 방금
+   동작을 취소(직전 값으로 복원)한다. 부팅/동기화/마이그레이션 같은 프로그램 쓰기는
+   최근 제스처가 없으면 스택에 담지 않아 예기치 않은 되돌리기를 막는다. 기기 로컬. */
+var RETURN_UNDO_KEYS=RETURN_SNAPSHOT_KEYS;
+var RETURN_UNDO_MAX=25, RETURN_UNDO_GROUP_MS=450, RETURN_UNDO_GESTURE_WINDOW=6000;
+var _undoStack=[], _undoRestoring=false, _undoPending=null, _undoGroupTimer=null, _lastUserGestureMs=0;
+function _undoLabelForKey(key){
+  var m={ task_items_v1:'할일', task_cats_v1:'할일 분류', repeat_items_v1:'반복', repeat_suppressions_v1:'반복', generated_task_suppressions_v1:'할일', inbox_v1:'인박스', return_inbox_cats:'인박스 분류', projects_v1:'프로젝트', routine_habits_v1:'루틴', routine_bundles_v1:'루틴', routine_logs_v1:'루틴 기록', memos_v5:'메모', metrics_v1:'지표', diary_entries_v1:'일기', timetables_v1:'시간표', timetable_palette_v1:'시간표', task_rules_v1:'할일 규칙' };
+  return (m[key]||'변경')+' 변경';
+}
+function _undoEmptyFor(key){ return key==='diary_entries_v1'?'{}':'[]'; }
+function _undoCapture(key){
+  if(_undoRestoring)return;                                    /* 복원 중 재캡처 금지 */
+  if(window._applyingFbData)return;                            /* 클라우드 적용은 사용자 동작 아님 */
+  if(typeof _idbInitSettled!=='undefined'&&!_idbInitSettled)return;
+  if(RETURN_UNDO_KEYS.indexOf(key)<0)return;
+  if(Date.now()-_lastUserGestureMs>RETURN_UNDO_GESTURE_WINDOW)return; /* 최근 제스처 없으면(부팅/reconcile) 무시 */
+  var prev; try{ prev=localStorage.getItem(key); }catch(e){ prev=null; }
+  if(!_undoPending)_undoPending={ ts:Date.now(), changes:{}, keys:[] };
+  if(!Object.prototype.hasOwnProperty.call(_undoPending.changes,key)){ _undoPending.changes[key]=prev; _undoPending.keys.push(key); } /* 동작 시작 직전값만(첫 캡처) */
+  clearTimeout(_undoGroupTimer);
+  _undoGroupTimer=setTimeout(_undoFlushGroup, RETURN_UNDO_GROUP_MS);
+}
+function _undoFlushGroup(){
+  if(!_undoPending)return;
+  var grp=_undoPending; _undoPending=null; clearTimeout(_undoGroupTimer); _undoGroupTimer=null;
+  grp.label=_undoLabelForKey(grp.keys[0])+(grp.keys.length>1?(' 외 '+(grp.keys.length-1)+'개'):'');
+  _undoStack.push(grp);
+  if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
+  try{ _showUndoToast(grp.label); }catch(e){}
+}
+function returnUndoLast(){
+  if(_undoPending){ _undoFlushGroup(); }               /* 마지막 동작을 즉시 되돌릴 수 있게 flush */
+  if(!_undoStack.length){ try{ if(typeof showToast==='function')showToast('되돌릴 동작이 없어요'); }catch(e){} return false; }
+  var grp=_undoStack.pop();
+  _undoRestoring=true;
+  try{
+    grp.keys.forEach(function(k){
+      var prev=grp.changes[k];
+      try{ setReturnStorageItem(k, (prev==null)?_undoEmptyFor(k):prev); }catch(e){}
+    });
+    try{ returnReloadMemoryFromStorage(); }catch(e){}
+  }finally{ _undoRestoring=false; }
+  _undoPending=null; clearTimeout(_undoGroupTimer); _undoGroupTimer=null; /* 복원이 만든 잔여 캡처 폐기 */
+  try{ _hideUndoToast(); }catch(e){}
+  try{ if(typeof showToast==='function')showToast('되돌렸어요 · '+(grp.label||'')); }catch(e){}
+  return true;
+}
+function _showUndoToast(label){
+  var el=document.getElementById('return-undo-toast');
+  if(!el){
+    el=document.createElement('div'); el.id='return-undo-toast';
+    el.style.cssText='position:fixed;bottom:calc(var(--sp-10) + 60px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--n-700,#2b2b2b);color:var(--n-0,#fff);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);border-radius:var(--r-full,999px);font-size:var(--text-sm);font-weight:var(--fw-medium);z-index:600;display:flex;align-items:center;gap:var(--sp-3);box-shadow:var(--shadow-3,0 6px 24px rgba(0,0,0,.25));opacity:0;transition:opacity var(--t-snap,.15s);pointer-events:none';
+    var span=document.createElement('span'); span.className='rut-label';
+    var btn=document.createElement('button'); btn.type='button'; btn.className='rut-btn'; btn.textContent='되돌리기';
+    btn.style.cssText='background:transparent;border:none;color:var(--accent-2,#8FD0BE);font-weight:var(--fw-bold,700);font-size:var(--text-sm);cursor:pointer;padding:var(--sp-1) var(--sp-3);white-space:nowrap';
+    btn.addEventListener('click', function(){ returnUndoLast(); });
+    el.appendChild(span); el.appendChild(btn);
+    document.body.appendChild(el);
+  }
+  el.querySelector('.rut-label').textContent=(label||'변경됨');
+  el.style.opacity='1'; el.style.pointerEvents='auto';
+  clearTimeout(el._t); el._t=setTimeout(_hideUndoToast, 6000);
+}
+function _hideUndoToast(){ var el=document.getElementById('return-undo-toast'); if(el){ el.style.opacity='0'; el.style.pointerEvents='none'; } }
+try{
+  document.addEventListener('pointerdown', function(){ _lastUserGestureMs=Date.now(); }, true);
+  document.addEventListener('keydown', function(e){
+    _lastUserGestureMs=Date.now();
+    var mod=e.ctrlKey||e.metaKey;
+    if(mod && !e.shiftKey && !e.altKey && (e.key==='z'||e.key==='Z'||e.keyCode===90)){
+      var t=e.target, tag=(t&&t.tagName||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'||(t&&t.isContentEditable))return; /* 편집 중엔 브라우저 기본 취소 */
+      e.preventDefault(); returnUndoLast();
+    }
+  }, true);
+}catch(_e){}
+window.returnUndoLast=returnUndoLast;
+
 function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
@@ -19834,6 +20168,8 @@ function setReturnStorageItem(key,value){
     try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','skipped pre-IDB write to synced key',{key:key}); }catch(_e){}
     return false;
   }
+  /* 되돌리기: 쓰기 직전 값 캡처(사용자 제스처 직후 동작만 스택에 담김). */
+  try{ if(typeof _undoCapture==='function')_undoCapture(key); }catch(_e){}
   var old=null;
   function verifiedWrite(){
     var writer=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage);
@@ -19864,6 +20200,11 @@ function setReturnStorageItem(key,value){
        triggers this code, which queues a push, closing the feedback loop. */
     if(key==='diary_entries_v1'&&!window._notionSyncActive&&!window._notionPullActive&&typeof queueDiaryNotionSave==='function'){
       try{queueDiaryNotionSave(typeof currentDate!=='undefined'?currentDate||null:null);}catch(e){}
+    }
+    /* 버전 기록(스냅샷): 데이터 키가 바뀌면 스로틀된 스냅샷 예약(노션 페이지 히스토리처럼
+       최신순 몇 개 보관 → 손실 시 되살리기). settle 후에만(부팅 부분상태 저장 방지). */
+    if(typeof _idbInitSettled!=='undefined'&&_idbInitSettled&&typeof RETURN_SNAPSHOT_KEYS!=='undefined'&&RETURN_SNAPSHOT_KEYS.indexOf(key)>=0&&typeof _snapScheduleThrottled==='function'){
+      try{_snapScheduleThrottled();}catch(e){}
     }
   }
   try { if(verifiedWrite()){ if(typeof __clearStaleQuota==='function')__clearStaleQuota(key); bannerDebugLog('storage:set-ok',{key:key,length:value.length}); __storageHealthRecord({key:key,mode:'local',ok:true}); _afterWriteSideEffects(); return true; } }
