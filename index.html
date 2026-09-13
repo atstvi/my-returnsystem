@@ -19791,7 +19791,7 @@ function _refreshUndoFab(){
 window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
 try{ _ensureUndoFab(); }catch(_e){}
 
-function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
+function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} try{ setTimeout(function(){ if(typeof returnStorageSafetyGate==='function')returnStorageSafetyGate(); }, 2500); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
     var req = indexedDB.open('return_overflow_v1', 1);
@@ -20483,6 +20483,8 @@ function setReturnStorageItem(key,value){
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
   __storageHealthRecord({key:key,mode:'failed',ok:false,error:'quota: localStorage full and no IndexedDB overflow available'});
+  /* 진짜 저장 실패 → 안전 게이트로 편집 차단(옛 값이 클라우드를 덮는 걸 원천 차단). */
+  try{ if(typeof returnStorageSafetyGate==='function') setTimeout(function(){ returnStorageSafetyGate(); },0); }catch(_e){}
   return false;
 }
 var HOME_BANNER_SYNC_MAX = 180000;
@@ -41145,18 +41147,64 @@ window.returnStoragePrune=returnStoragePrune;
 async function returnStorageCleanupNow(){
   var before=0, after=0;
   try{ var r0=returnStorageReport(false); before=(r0&&Number(r0.usedPct))||0; }catch(_e){}
+  /* 진짜 공간 먹는 범인 = localStorage에 박힌 base64 이미지. MediaStore(IDB)로 옮겨
+     localStorage를 비운다(가장 효과 큼). 그 다음 오래된 데이터 아카이브 + 고아 백업 제거. */
+  var imgMoved=0;
+  try{ if(typeof diaryMigrateInlineImagesToMediaStore==='function'){ imgMoved=(await diaryMigrateInlineImagesToMediaStore())||0; } }catch(_e){}
   try{ if(typeof runArchiveOnBoot==='function') await runArchiveOnBoot(); }catch(_e){}
   var pruned=0;
   try{ var p=returnStoragePrune({apply:true,archive:false}); pruned=(p&&p.removed)||0; }catch(_e){}
   try{ var r1=returnStorageReport(false); after=(r1&&Number(r1.usedPct))||0; }catch(_e){}
   _fbQuotaChkMs=0; /* 캐시 무효화 → 다음 저장이 새 usedPct로 판정 */
   var freed=Math.max(0, before-after);
-  try{ if(typeof showToast==='function') showToast('공간 정리: '+before+'% → '+after+'%'+(pruned?(' · 백업 '+pruned+'개 정리'):'')); }catch(_e){}
-  /* 공간이 100% 밑으로 내려갔으면 막혀 있던 업로드 재개 시도 */
+  try{ if(typeof showToast==='function') showToast('공간 정리: '+before+'% → '+after+'%'+(imgMoved?(' · 이미지 '+imgMoved+'개 이동'):'')+(pruned?(' · 백업 '+pruned+'개'):'')); }catch(_e){}
+  /* 공간이 100% 밑으로 내려갔으면 막혀 있던 업로드 재개 시도 + 안전 게이트 재확인 */
   if(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT){ try{ if(typeof fbSaveAll==='function') fbSaveAll(); }catch(_e){} }
-  return { beforePct:before, afterPct:after, freedPct:freed, prunedKeys:pruned, uploadUnblocked:(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT) };
+  try{ if(typeof returnStorageSafetyGate==='function') returnStorageSafetyGate({recheck:true}); }catch(_e){}
+  return { beforePct:before, afterPct:after, freedPct:freed, imagesMoved:imgMoved, prunedKeys:pruned, uploadUnblocked:(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT) };
 }
 window.returnStorageCleanupNow=returnStorageCleanupNow;
+
+/* ════════ 저장공간 안전 게이트 — 못 저장하는 기기에서 편집을 막는다 ══════════════
+   기기가 진짜로 저장을 못 하면(64KB 쓰기 프로브 실패), 그 기기에서 새로 입력·수정하면
+   저장도 안 되고 옛 데이터가 클라우드를 덮어 다른 기기까지 망가진다. 그래서 그 상태에선
+   전체 화면 오버레이로 앱을 덮어 편집을 막고(=페이지 사용 불가), 공간 정리/재확인만
+   할 수 있게 한다. 사용자가 명시적으로 '읽기 전용으로 계속'을 누르면 이 세션만 해제하되
+   업로드는 계속 막힌다. 다른(정상) 기기는 영향 없음. */
+function _storageWriteProbe(){
+  /* 실제로 큰 값을 써보고 quota 초과면 false(=꽉 참). 가정치(5MB) 대신 기기 실측. */
+  try{ var k='__return_probe__', v=new Array(64*1024).join('x'); var w=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage); w(k,v); localStorage.removeItem(k); return true; }
+  catch(e){ return false; }
+}
+window.__returnReadOnlyAck=false; /* 사용자가 '읽기 전용으로 계속'을 택한 세션 플래그 */
+function returnStorageSafetyGate(opts){
+  opts=opts||{};
+  var full=!_storageWriteProbe();
+  var existing=document.getElementById('return-storage-gate');
+  if(!full){ if(existing)existing.remove(); return false; }        /* 공간 있으면 게이트 해제 */
+  if(window.__returnReadOnlyAck && !opts.force) return true;        /* 사용자가 이미 '계속' 선택 */
+  if(existing) return true;                                         /* 이미 떠 있음 */
+  if(!document.body){ document.addEventListener('DOMContentLoaded',function(){ returnStorageSafetyGate(opts); }); return true; }
+  var pct=0; try{ var r=returnStorageReport(false); pct=(r&&Number(r.usedPct))||0; }catch(_e){}
+  var ov=document.createElement('div'); ov.id='return-storage-gate';
+  ov.style.cssText='position:fixed;inset:0;z-index:2000;background:rgba(20,18,18,.72);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px';
+  ov.innerHTML='<div style="max-width:440px;width:100%;background:var(--bg-card,#fff);color:var(--fg,#222);border-radius:18px;box-shadow:0 12px 48px rgba(0,0,0,.35);padding:24px 22px">'
+    +'<div style="font-size:34px;line-height:1;margin-bottom:10px">🈵</div>'
+    +'<div style="font-size:18px;font-weight:800;margin-bottom:8px">이 기기 저장공간이 가득 찼어요</div>'
+    +'<div style="font-size:13.5px;line-height:1.65;color:var(--fg-3,#555)">지금 이 기기에서 새로 입력·수정하면 <b>저장이 안 되고</b>, 다른 기기에 있는 내용을 <b>덮어써 잃을 수 있어요.</b> 먼저 공간을 정리해 주세요. 다른 기기에서는 평소처럼 쓰셔도 돼요.</div>'
+    +'<div style="display:flex;align-items:center;gap:10px;margin:16px 0 6px"><div style="flex:1;height:8px;border-radius:999px;background:var(--bg-raised,#eee);overflow:hidden"><div style="height:100%;width:'+Math.min(100,pct)+'%;background:var(--danger,#C0564E)"></div></div><div style="font-weight:800;color:var(--danger,#C0564E)">'+pct+'%</div></div>'
+    +'<button id="rsg-clean" style="width:100%;margin-top:12px;padding:13px;border:none;border-radius:12px;background:var(--accent,#A75F66);color:#fff;font-size:15px;font-weight:800;cursor:pointer">지금 공간 정리</button>'
+    +'<button id="rsg-recheck" style="width:100%;margin-top:8px;padding:11px;border:1px solid var(--border,#ddd);border-radius:12px;background:transparent;color:var(--fg,#222);font-size:13.5px;font-weight:700;cursor:pointer">정리했어요 · 다시 확인</button>'
+    +'<div style="text-align:center;margin-top:12px"><a id="rsg-ro" href="#" style="font-size:12px;color:var(--fg-4,#999);text-decoration:underline">그래도 읽기 전용으로 계속 (편집은 저장·동기화 안 됨)</a></div>'
+    +'</div>';
+  document.body.appendChild(ov);
+  var clean=ov.querySelector('#rsg-clean');
+  clean.addEventListener('click',function(){ clean.disabled=true; clean.textContent='정리 중…'; returnStorageCleanupNow().then(function(){ if(_storageWriteProbe()){ ov.remove(); try{ if(typeof showToast==='function')showToast('공간이 정리됐어요 — 이제 저장돼요'); }catch(_e){} } else { clean.disabled=false; clean.textContent='지금 공간 정리'; try{ var r2=returnStorageReport(false); var pb=ov.querySelector('#rsg-clean'); }catch(_e){} try{ if(typeof showToast==='function')showToast('아직 공간이 부족해요 — 큰 이미지를 줄여보세요'); }catch(_e){} } }).catch(function(){ clean.disabled=false; clean.textContent='지금 공간 정리'; }); });
+  ov.querySelector('#rsg-recheck').addEventListener('click',function(){ if(_storageWriteProbe()){ ov.remove(); } else { try{ if(typeof showToast==='function')showToast('아직 저장공간이 부족해요'); }catch(_e){} } });
+  ov.querySelector('#rsg-ro').addEventListener('click',function(e){ e.preventDefault(); window.__returnReadOnlyAck=true; ov.remove(); try{ if(typeof showToast==='function')showToast('읽기 전용으로 계속해요 — 이 기기의 변경은 저장·동기화되지 않아요'); }catch(_e){} });
+  return true;
+}
+window.returnStorageSafetyGate=returnStorageSafetyGate; window._storageWriteProbe=_storageWriteProbe;
 
 /* ── STAGE 10 Archive routines ───────────────────────────────────────── */
 
