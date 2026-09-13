@@ -25,7 +25,7 @@ t.ok('그룹 flush 시 스택 push + 한도 유지', /_undoStack\.push\(grp\);\s
 t.ok('그룹 flush 시 되돌리기 토스트', /_undoFlushGroup\(\)\{[\s\S]*?_showActionToast\(grp\.label,'undo'\)/.test(html));
 
 // ── 복원(returnUndoLast) ──
-t.ok('returnUndoLast 정의+노출', /function returnUndoLast\(\)\{/.test(html) && /window\.returnUndoLast=returnUndoLast;/.test(html));
+t.ok('returnUndoLast 정의+노출', /function returnUndoLast\(opts\)\{/.test(html) && /window\.returnUndoLast=returnUndoLast;/.test(html));
 t.ok('빈 스택이면 false', /if\(!_undoStack\.length\)\{[\s\S]*?return false;/.test(html));
 t.ok('마지막 동작을 즉시 되돌릴 수 있게 flush', /if\(_undoPending\)\{ _undoFlushGroup\(\); \}/.test(html));
 t.ok('복원은 setReturnStorageItem(직전값 또는 빈값)', /setReturnStorageItem\(k, \(v==null\)\?_undoEmptyFor\(k\):v\);/.test(html));
@@ -43,7 +43,7 @@ t.ok('입력 중엔 되돌리기/다시 제외', /if\(tag==='input'\|\|tag==='te
 t.ok('Ctrl/⌘+Z = 되돌리기', /if\(isZ && !e\.shiftKey && !e\.altKey\)\{ e\.preventDefault\(\); returnUndoLast\(\); \}/.test(html));
 
 // ── 다시(REDO) ──
-t.ok('returnRedoLast 정의+노출', /function returnRedoLast\(\)\{/.test(html) && /window\.returnRedoLast=returnRedoLast;/.test(html));
+t.ok('returnRedoLast 정의+노출', /function returnRedoLast\(opts\)\{/.test(html) && /window\.returnRedoLast=returnRedoLast;/.test(html));
 t.ok('새 동작이 생기면 다시 무효화', /_redoStack=\[\];\s*\/\* 새 동작이 생기면 '다시' 무효화/.test(html));
 t.ok('되돌리기 전 현재값을 다시 스택에 저장', /var redo=\{ keys:grp\.keys\.slice\(\), changes:_undoSnapKeys\(grp\.keys\), label:grp\.label \};[\s\S]*?_redoStack\.push\(redo\);/.test(html));
 t.ok('다시 전 현재값을 되돌리기 스택에 저장', /var grp=\{ keys:redo\.keys\.slice\(\), changes:_undoSnapKeys\(redo\.keys\), label:redo\.label \};[\s\S]*?_undoStack\.push\(grp\);/.test(html));
@@ -52,5 +52,16 @@ t.ok('복원은 공용 _undoApply(재캡처 억제)', /function _undoApply\(entr
 t.ok('되돌린 뒤 토스트는 다시 버튼', /_showActionToast\(grp\.label,'redo'\)/.test(html));
 t.ok('토스트 버튼 라벨 되돌리기↔다시', /b\.textContent=isRedo\?'↪ 다시':'↩ 되돌리기';/.test(html));
 t.ok('Ctrl/⌘+Shift+Z 또는 Ctrl+Y = 다시', /if\(isZ && e\.shiftKey && !e\.altKey\)\{ e\.preventDefault\(\); returnRedoLast\(\); \}[\s\S]*?else if\(isY && !e\.altKey\)\{ e\.preventDefault\(\); returnRedoLast\(\); \}/.test(html));
+
+// ── 상시 되돌리기 버튼(구석 FAB) ──
+t.ok('되돌리기/다시 silent 옵션(연속 되돌리기용)', /function returnUndoLast\(opts\)\{/.test(html) && /if\(!opts\.silent\)\{ try\{ _showActionToast/.test(html));
+t.ok('스택 개수/최근 동작 API 노출', /window\.returnUndoCount=returnUndoCount; window\.returnRedoCount=returnRedoCount; window\.returnUndoRecent=returnUndoRecent; window\.returnUndoUntil=returnUndoUntil;/.test(html));
+t.ok('특정 시점까지 연속 되돌리기', /function returnUndoUntil\(ts\)\{[\s\S]*?returnUndoLast\(\{silent:!last\}\);[\s\S]*?if\(isTarget\)\{ done=true; break; \}/.test(html));
+t.ok('상시 FAB 생성(항상 표시)', /function _ensureUndoFab\(\)\{[\s\S]*?fab\.id='return-undo-fab';[\s\S]*?document\.body\.appendChild\(fab\)/.test(html));
+t.ok('FAB 팝오버: 되돌리기/다시 + 최근 동작', /data-uf="undo"[\s\S]*?data-uf="redo"[\s\S]*?최근 동작/.test(html));
+t.ok('FAB 최근 항목 클릭 = 그때까지 되돌리기', /el\.addEventListener\('click',function\(\)\{ returnUndoUntil\(Number\(el\.getAttribute\('data-uf-ts'\)\)\); _closeUndoFab\(\); \}\)/.test(html));
+t.ok('FAB 뱃지=되돌리기 개수, 있을 때만 진하게', /badge\.textContent=String\(uc\);/.test(html) && /fab\.classList\.toggle\('has',has\)/.test(html));
+t.ok('되돌리기/다시 후 FAB 갱신', /try\{ _refreshUndoFab\(\); \}catch\(e\)\{\}\s*\n\s*return true;/.test(html));
+t.ok('FAB는 하단 탭바 위(모바일)', /@media \(max-width:639px\)\{#return-undo-fab\{bottom:calc\(72px/.test(html));
 
 t.done();

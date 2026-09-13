@@ -19616,25 +19616,51 @@ function _undoFlushGroup(){
   if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
   _redoStack=[];                                               /* 새 동작이 생기면 '다시' 무효화 */
   try{ _showActionToast(grp.label,'undo'); }catch(e){}
+  try{ _refreshUndoFab(); }catch(e){}
 }
-function returnUndoLast(){
+function returnUndoLast(opts){
+  opts=opts||{};
   if(_undoPending){ _undoFlushGroup(); }               /* 마지막 동작을 즉시 되돌릴 수 있게 flush */
-  if(!_undoStack.length){ try{ if(typeof showToast==='function')showToast('되돌릴 동작이 없어요'); }catch(e){} return false; }
+  if(!_undoStack.length){ if(!opts.silent){ try{ if(typeof showToast==='function')showToast('되돌릴 동작이 없어요'); }catch(e){} } return false; }
   var grp=_undoStack.pop();
   var redo={ keys:grp.keys.slice(), changes:_undoSnapKeys(grp.keys), label:grp.label }; /* 되돌리기 전 현재값 = '다시'용 */
   _redoStack.push(redo); if(_redoStack.length>RETURN_UNDO_MAX)_redoStack.shift();
   _undoApply(grp);
-  try{ _showActionToast(grp.label,'redo'); }catch(e){}  /* 되돌린 뒤엔 '다시' 버튼 제공 */
+  if(!opts.silent){ try{ _showActionToast(grp.label,'redo'); }catch(e){} }  /* 되돌린 뒤엔 '다시' 버튼 제공 */
+  try{ _refreshUndoFab(); }catch(e){}
   return true;
 }
-function returnRedoLast(){
-  if(!_redoStack.length){ try{ if(typeof showToast==='function')showToast('다시 실행할 동작이 없어요'); }catch(e){} return false; }
+function returnRedoLast(opts){
+  opts=opts||{};
+  if(!_redoStack.length){ if(!opts.silent){ try{ if(typeof showToast==='function')showToast('다시 실행할 동작이 없어요'); }catch(e){} } return false; }
   var redo=_redoStack.pop();
   var grp={ keys:redo.keys.slice(), changes:_undoSnapKeys(redo.keys), label:redo.label }; /* 다시 전 현재값 = 되돌리기용 */
   _undoStack.push(grp); if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
   _undoApply(redo);
-  try{ _showActionToast(redo.label,'undo'); }catch(e){}
+  if(!opts.silent){ try{ _showActionToast(redo.label,'undo'); }catch(e){} }
+  try{ _refreshUndoFab(); }catch(e){}
   return true;
+}
+function returnUndoCount(){ return _undoStack.length + (_undoPending?1:0); }
+function returnRedoCount(){ return _redoStack.length; }
+/* 최근 동작 라벨(최신순) — FAB 목록용. pending(아직 flush 안 된 마지막 동작)도 포함. */
+function returnUndoRecent(n){
+  var list=_undoStack.slice(); if(_undoPending){ var p=_undoPending; list.push({ ts:p.ts, label:_undoLabelForKey(p.keys[0])+(p.keys.length>1?(' 외 '+(p.keys.length-1)+'개'):'') }); }
+  var out=list.slice(-(n||5)).reverse();
+  return out.map(function(g){ return { ts:g.ts, label:g.label||'변경' }; });
+}
+/* 특정 시점(ts)까지 연속 되돌리기 — FAB 목록에서 항목을 고르면 그 동작까지(포함) 되돌림. */
+function returnUndoUntil(ts){
+  if(_undoPending){ _undoFlushGroup(); }
+  var guard=0, done=false, target=String(ts);
+  while(_undoStack.length && guard<=RETURN_UNDO_MAX+1){
+    var top=_undoStack[_undoStack.length-1]; var isTarget=(String(top.ts)===target);
+    var last=(isTarget);
+    returnUndoLast({silent:!last});   /* 마지막 한 번만 토스트 */
+    guard++; if(isTarget){ done=true; break; }
+  }
+  try{ _refreshUndoFab(); }catch(e){}
+  return done;
 }
 function _showActionToast(label, mode){
   mode=mode||'undo';
@@ -19671,6 +19697,76 @@ try{
   }, true);
 }catch(_e){}
 window.returnUndoLast=returnUndoLast; window.returnRedoLast=returnRedoLast;
+window.returnUndoCount=returnUndoCount; window.returnRedoCount=returnRedoCount; window.returnUndoRecent=returnUndoRecent; window.returnUndoUntil=returnUndoUntil;
+
+/* ── 상시 되돌리기 버튼(구석) — 언제든 되돌리기/다시를 꺼낼 수 있게 ──
+   화면 한 구석에 작은 ↩ 버튼을 항상 두고, 탭하면 되돌리기/다시 + 최근 동작 목록을
+   펼친다. 되돌릴 것도 다시 할 것도 없으면 흐리게(비활성) 표시해 존재감을 줄인다. */
+function _ensureUndoFab(){
+  if(document.getElementById('return-undo-fab'))return;
+  if(!document.body){ document.addEventListener('DOMContentLoaded', _ensureUndoFab); return; }
+  if(!document.getElementById('return-undo-fab-style')){ var st=document.createElement('style'); st.id='return-undo-fab-style';
+    st.textContent=''
+      +'#return-undo-fab{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:450}'
+      +'@media (max-width:639px){#return-undo-fab{bottom:calc(72px + env(safe-area-inset-bottom,0px))}}'  /* 하단 탭바 위 */
+      +'#return-undo-fab .uf-btn{width:42px;height:42px;border-radius:var(--r-full,999px);border:1px solid var(--border);background:var(--bg-card,#fff);color:var(--fg);box-shadow:var(--shadow-2,0 3px 12px rgba(0,0,0,.14));display:grid;place-items:center;cursor:pointer;opacity:.55;transition:opacity .15s,transform .1s;-webkit-tap-highlight-color:transparent}'
+      +'#return-undo-fab .uf-btn:hover{opacity:1}#return-undo-fab .uf-btn:active{transform:scale(.94)}'
+      +'#return-undo-fab.has .uf-btn{opacity:.92}#return-undo-fab.open .uf-btn{opacity:1;background:var(--accent,#A75F66);color:#fff;border-color:transparent}'
+      +'#return-undo-fab .uf-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}'
+      +'#return-undo-fab .uf-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent,#A75F66);color:#fff;font-size:10px;font-weight:800;display:none;align-items:center;justify-content:center;line-height:1}'
+      +'#return-undo-fab.has .uf-badge{display:flex}#return-undo-fab.open .uf-badge{display:none}'
+      +'#return-undo-fab .uf-pop{position:absolute;left:0;bottom:52px;width:250px;max-width:78vw;background:var(--bg-card,#fff);border:1px solid var(--border);border-radius:var(--r-lg,16px);box-shadow:var(--shadow-3,0 8px 28px rgba(0,0,0,.22));padding:8px;display:none;flex-direction:column;gap:4px}'
+      +'#return-undo-fab.open .uf-pop{display:flex}'
+      +'#return-undo-fab .uf-act{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:none;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;cursor:pointer;text-align:left}'
+      +'#return-undo-fab .uf-act:hover{background:var(--bg-raised)}#return-undo-fab .uf-act[disabled]{opacity:.4;cursor:default}'
+      +'#return-undo-fab .uf-act .uf-ic{font-size:15px;flex:0 0 auto}#return-undo-fab .uf-act .uf-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+      +'#return-undo-fab .uf-sep{height:1px;background:var(--border);margin:4px 2px}'
+      +'#return-undo-fab .uf-h{font-size:11px;font-weight:700;color:var(--fg-4);padding:4px 10px 2px}'
+      +'#return-undo-fab .uf-recent{padding:7px 10px;font-size:12px;color:var(--fg-3);border-radius:8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+      +'#return-undo-fab .uf-recent:hover{background:var(--bg-raised)}'
+      +'#return-undo-fab .uf-empty{padding:8px 10px;font-size:12px;color:var(--fg-4)}';
+    document.head.appendChild(st); }
+  var fab=document.createElement('div'); fab.id='return-undo-fab';
+  fab.innerHTML='<button class="uf-btn" type="button" aria-label="되돌리기 · 다시" title="되돌리기 · 다시">'
+    +'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v1"/></svg>'
+    +'<span class="uf-badge">0</span></button>'
+    +'<div class="uf-pop" role="menu"></div>';
+  document.body.appendChild(fab);
+  var btn=fab.querySelector('.uf-btn'), pop=fab.querySelector('.uf-pop');
+  btn.addEventListener('click', function(e){ e.stopPropagation(); if(fab.classList.contains('open')){ _closeUndoFab(); } else { _openUndoFab(); } });
+  document.addEventListener('click', function(e){ if(fab.classList.contains('open') && !fab.contains(e.target)) _closeUndoFab(); });
+  _refreshUndoFab();
+}
+function _openUndoFab(){ var fab=document.getElementById('return-undo-fab'); if(!fab)return; _buildUndoPop(); fab.classList.add('open'); }
+function _closeUndoFab(){ var fab=document.getElementById('return-undo-fab'); if(fab)fab.classList.remove('open'); }
+function _buildUndoPop(){
+  var fab=document.getElementById('return-undo-fab'); if(!fab)return; var pop=fab.querySelector('.uf-pop'); if(!pop)return;
+  function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+  var uc=returnUndoCount(), rc=returnRedoCount();
+  var recent=returnUndoRecent(5);
+  var undoLbl=recent.length?(' · '+recent[0].label):'', redoLbl=(rc&&_redoStack.length)?(' · '+(_redoStack[_redoStack.length-1].label||'')):'';
+  var h='<button class="uf-act" data-uf="undo"'+(uc?'':' disabled')+'><span class="uf-ic">↩</span><span class="uf-t">되돌리기'+esc(undoLbl)+'</span></button>'
+    +'<button class="uf-act" data-uf="redo"'+(rc?'':' disabled')+'><span class="uf-ic">↪</span><span class="uf-t">다시'+esc(redoLbl)+'</span></button>';
+  if(recent.length){
+    h+='<div class="uf-sep"></div><div class="uf-h">최근 동작 (눌러서 그때로)</div>';
+    h+=recent.map(function(r){ return '<div class="uf-recent" data-uf-ts="'+r.ts+'">↩ '+esc(r.label)+'</div>'; }).join('');
+  } else {
+    h+='<div class="uf-sep"></div><div class="uf-empty">되돌릴 최근 동작이 없어요.</div>';
+  }
+  pop.innerHTML=h;
+  var undoB=pop.querySelector('[data-uf="undo"]'); if(undoB)undoB.addEventListener('click',function(){ returnUndoLast(); _buildUndoPop(); });
+  var redoB=pop.querySelector('[data-uf="redo"]'); if(redoB)redoB.addEventListener('click',function(){ returnRedoLast(); _buildUndoPop(); });
+  pop.querySelectorAll('[data-uf-ts]').forEach(function(el){ el.addEventListener('click',function(){ returnUndoUntil(Number(el.getAttribute('data-uf-ts'))); _closeUndoFab(); }); });
+}
+function _refreshUndoFab(){
+  var fab=document.getElementById('return-undo-fab'); if(!fab)return;
+  var uc=returnUndoCount(), rc=returnRedoCount(), has=(uc>0||rc>0);
+  fab.classList.toggle('has',has);
+  var badge=fab.querySelector('.uf-badge'); if(badge)badge.textContent=String(uc);
+  if(fab.classList.contains('open'))_buildUndoPop();
+}
+window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
+try{ _ensureUndoFab(); }catch(_e){}
 
 function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
 (function _initIdbOverflow(){
