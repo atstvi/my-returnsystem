@@ -11946,6 +11946,21 @@ to{opacity:1;transform:translateY(0)}}
           <div class="panel-sub">기록을 내보내거나 백업·복원해요.</div>
         </div>
 
+        <!-- 데이터 안전 · 복구 센터 (사라진 기록 되찾기의 대문) -->
+        <div class="set-card" style="border:1px solid var(--a-200,rgba(167,95,102,.28))">
+          <div class="set-row">
+            <div class="set-row-icon" style="background:var(--a-50,rgba(167,95,102,.12))">🛟</div>
+            <div class="set-row-body">
+              <div class="set-row-label">데이터 안전 · 복구 센터</div>
+              <div class="set-row-desc">기록이 사라졌거나 다른 기기와 안 맞을 때 여기서 되찾아요.</div>
+              <div class="set-row-desc" style="margin-top:var(--sp-1);color:var(--fg-4)">클라우드·이 기기·이전 버전 어디에 남아있는지 확인하고, 콘솔 없이 바로 되살릴 수 있어요.</div>
+            </div>
+            <div class="set-row-ctrl">
+              <button class="set-btn btn-primary" type="button" onclick="returnRecoveryCenterUI()">복구 센터 열기</button>
+            </div>
+          </div>
+        </div>
+
         <div class="set-card">
           <div class="set-row">
             <div class="set-row-icon" style="background:var(--bg-raised)">📊</div>
@@ -19326,6 +19341,94 @@ async function returnRecoveryRestore(source, opts){
 }
 window.returnRecoveryScan=returnRecoveryScan; window.returnRecoveryRestore=returnRecoveryRestore;
 
+/* ════════ 복구 센터(UI) — 콘솔 없이 폰에서 사라진 기록 되찾기 ══════════════════
+   흩어져 있던 '올리기/가져오기'와 콘솔 전용 복구 도구를 한 화면에 쉬운 말로 모은다.
+   ① 다른 기기·클라우드에서 되찾기(소스 스캔) ② 이전 버전에서 되돌리기(스냅샷)
+   ③ 클라우드 ↔ 이 기기 백업(가져오기/올리기, 무엇을 하는지 명확히 설명). */
+function _rcFmtSourceLabel(s){ return ({ memory:'지금 이 기기(화면)', idbOverflow:'이 기기 숨은 저장소', archive:'이 기기 보관소', cloud:'클라우드(다른 기기 포함)' })[s]||s; }
+async function returnRecoveryCenterUI(){
+  var old=document.getElementById('return-recovery-center'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='return-recovery-center';
+  var loggedIn=(typeof fbUser!=='undefined'&&fbUser&&typeof fbDb!=='undefined'&&fbDb);
+  ov.innerHTML='<div class="modal" style="max-width:560px;max-height:90vh;display:flex;flex-direction:column">'
+    +'<div class="modal-head"><div class="modal-title">데이터 안전 · 복구 센터</div></div>'
+    +'<div class="modal-body" style="overflow:auto;-webkit-overflow-scrolling:touch">'
+      +'<div class="field-help" style="margin-bottom:var(--sp-4);line-height:1.6">기록이 사라졌거나 다른 기기와 안 맞을 때 여기서 되찾을 수 있어요. 아래 순서대로 살펴보면 돼요.</div>'
+      /* ① 소스 스캔 */
+      +'<div class="rc-sec"><div class="rc-sec-t">① 어디에 남아있나 (할일·반복)</div>'
+        +'<div class="field-help" style="margin:2px 0 var(--sp-3);color:var(--fg-4)">이 기기와 클라우드 곳곳에 남은 할일이 몇 개인지 확인하고, 가장 많이 남은 곳에서 <b>사라진 것만</b> 되살려요(기존 건 그대로).</div>'
+        +'<div id="rc-scan"><div class="field-help" style="padding:var(--sp-4);text-align:center;color:var(--fg-4)">확인하는 중…</div></div>'
+      +'</div>'
+      /* ② 버전 */
+      +'<div class="rc-sec"><div class="rc-sec-t">② 이전 버전으로 되돌리기</div>'
+        +'<div class="field-help" style="margin:2px 0 var(--sp-3);color:var(--fg-4)">이 기기에 시간순으로 저장해 둔 예전 버전(할일·메모·일기·시간표 등 전부)에서 되살려요.</div>'
+        +'<button class="btn btn-ghost" style="width:100%" id="rc-version">🕘 버전 기록 열기</button>'
+      +'</div>'
+      /* ③ 백업/동기화 */
+      +'<div class="rc-sec"><div class="rc-sec-t">③ 클라우드 백업 (다른 기기와 맞추기)</div>'
+        +(loggedIn
+          ?('<div class="rc-io"><div class="rc-io-txt"><div class="rc-io-t">⬇ 클라우드에서 이 기기로 가져오기</div><div class="rc-io-d">다른 기기에서 입력한 최신 내용을 이 기기로 내려받아요. <b>이 기기에서만 한 변경</b>이 아직 안 올라갔다면 먼저 아래 \'올리기\'를 하세요.</div></div><button class="btn btn-primary rc-io-b" id="rc-pull">가져오기</button></div>'
+            +'<div class="rc-io"><div class="rc-io-txt"><div class="rc-io-t">⬆ 이 기기 내용을 클라우드에 올리기</div><div class="rc-io-d"><b>이 기기가 가장 정확할 때만.</b> 이 기기 상태로 클라우드를 덮어써요(복구를 끝낸 뒤 이걸 눌러 다른 기기에 퍼뜨려요).</div></div><button class="btn btn-ghost rc-io-b" id="rc-push">올리기</button></div>')
+          :'<div class="field-help" style="padding:var(--sp-4);background:var(--bg-raised);border-radius:var(--r-md);line-height:1.6">클라우드 백업을 쓰려면 먼저 <b>설정 → 동기화·연동 → Firebase</b>에서 Google 로그인을 해주세요.</div>')
+      +'</div>'
+    +'</div>'
+    +'<div class="modal-foot"><button class="btn btn-primary" id="rc-close">닫기</button></div>'
+  +'</div>';
+  /* 인라인 스타일(테마 토큰 사용) */
+  if(!document.getElementById('rc-style')){ var st=document.createElement('style'); st.id='rc-style';
+    st.textContent='#return-recovery-center .rc-sec{border:.5px solid var(--border);border-radius:var(--r-lg);padding:var(--sp-4);margin-bottom:var(--sp-4)}'
+      +'#return-recovery-center .rc-sec-t{font-weight:var(--fw-bold);font-size:var(--text-md)}'
+      +'#return-recovery-center .rc-src{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-top:.5px solid var(--border)}'
+      +'#return-recovery-center .rc-src:first-child{border-top:none}'
+      +'#return-recovery-center .rc-src-i{flex:1;min-width:0}'
+      +'#return-recovery-center .rc-src-n{font-weight:var(--fw-medium)}'
+      +'#return-recovery-center .rc-src-c{font-size:var(--text-xs);color:var(--fg-4)}'
+      +'#return-recovery-center .rc-badge{font-size:var(--text-2xs,10px);font-weight:var(--fw-bold);color:var(--accent);background:var(--a-50,rgba(167,95,102,.12));border-radius:var(--r-full);padding:2px 8px;white-space:nowrap}'
+      +'#return-recovery-center .rc-io{display:flex;align-items:center;gap:var(--sp-3);padding:var(--sp-3) 0;border-top:.5px solid var(--border)}'
+      +'#return-recovery-center .rc-io:first-child{border-top:none}'
+      +'#return-recovery-center .rc-io-txt{flex:1;min-width:0}'
+      +'#return-recovery-center .rc-io-t{font-weight:var(--fw-medium)}'
+      +'#return-recovery-center .rc-io-d{font-size:var(--text-xs);color:var(--fg-4);line-height:1.55;margin-top:2px}'
+      +'#return-recovery-center .rc-io-b{flex:0 0 auto;white-space:nowrap}';
+    document.head.appendChild(st); }
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov)ov.remove(); });
+  ov.querySelector('#rc-close').addEventListener('click',function(){ ov.remove(); });
+  ov.querySelector('#rc-version').addEventListener('click',function(){ ov.remove(); returnVersionOpenUI(); });
+  var pullBtn=ov.querySelector('#rc-pull'); if(pullBtn)pullBtn.addEventListener('click',function(){ if(typeof fbForcePull==='function')fbForcePull(); });
+  var pushBtn=ov.querySelector('#rc-push'); if(pushBtn)pushBtn.addEventListener('click',function(){
+    var run=function(){ if(typeof fbForceSync==='function')fbForceSync(); };
+    if(typeof openConfirmDialog==='function')openConfirmDialog('이 기기 내용을 클라우드에 올리기','이 기기 상태로 클라우드를 덮어써요. 다른 기기에만 있던 내용이 사라질 수 있어요. 이 기기가 가장 정확한 게 맞나요?',run,{danger:true,confirmText:'올리기'});
+    else run();
+  });
+  /* 소스 스캔 */
+  try{
+    var scan=await returnRecoveryScan({});
+    var cur=(scan.sources&&scan.sources.memory&&scan.sources.memory.tasks)||0;
+    var order=['memory','idbOverflow','archive','cloud'];
+    var html=order.map(function(s){
+      var v=scan.sources[s]||{};
+      var n=(typeof v.tasks==='number')?v.tasks:null;
+      var note=v.note||(v.error?('오류: '+v.error):'');
+      var canRestore=(s!=='memory' && typeof n==='number' && n>cur);
+      var right=canRestore?('<button class="btn btn-ghost rc-io-b" data-rc-restore="'+s+'">여기서 되살리기</button>'):(s===scan.richestSource&&typeof n==='number'&&n>0?'<span class="rc-badge">가장 많음</span>':'');
+      return '<div class="rc-src"><div class="rc-src-i"><div class="rc-src-n">'+_rcFmtSourceLabel(s)+'</div>'
+        +'<div class="rc-src-c">'+(typeof n==='number'?('할일 '+n+'개'+(v.repeats!=null?(' · 반복 '+v.repeats):'')):(note||'—'))+'</div></div>'+right+'</div>';
+    }).join('');
+    var box=ov.querySelector('#rc-scan'); if(box){ box.innerHTML=html;
+      box.querySelectorAll('[data-rc-restore]').forEach(function(btn){ btn.addEventListener('click',function(){
+        var s=btn.getAttribute('data-rc-restore');
+        returnRecoveryRestore(s,{dryRun:true}).then(function(dry){
+          var msg='‘'+_rcFmtSourceLabel(s)+'’에서 사라진 할일 '+((dry&&dry.wouldAddTasks)||0)+'개, 반복 '+((dry&&dry.wouldAddRepeats)||0)+'개를 되살릴까요? (기존 항목은 그대로 둬요)';
+          var run=function(){ returnRecoveryRestore(s).then(function(){ ov.remove(); returnRecoveryCenterUI(); }); };
+          if(typeof openConfirmDialog==='function')openConfirmDialog('사라진 기록 되살리기',msg,run,{danger:false,confirmText:'되살리기'}); else run();
+        });
+      }); });
+    }
+  }catch(e){ var b=ov.querySelector('#rc-scan'); if(b)b.innerHTML='<div class="field-help" style="color:var(--fg-4)">확인 중 오류가 났어요.</div>'; }
+}
+window.returnRecoveryCenterUI=returnRecoveryCenterUI;
+
 /* 저장소 → 메모리 재로드(+렌더). 버전 복원/재수화가 storage를 바꾼 뒤 화면·모듈 상태를
    즉시 맞추기 위함. returnRehydrateOverflowedState의 로더 호출과 동일 집합. */
 function returnReloadMemoryFromStorage(){
@@ -19478,12 +19581,21 @@ window.returnVersionOpenUI=returnVersionOpenUI;
    최근 제스처가 없으면 스택에 담지 않아 예기치 않은 되돌리기를 막는다. 기기 로컬. */
 var RETURN_UNDO_KEYS=RETURN_SNAPSHOT_KEYS;
 var RETURN_UNDO_MAX=25, RETURN_UNDO_GROUP_MS=450, RETURN_UNDO_GESTURE_WINDOW=6000;
-var _undoStack=[], _undoRestoring=false, _undoPending=null, _undoGroupTimer=null, _lastUserGestureMs=0;
+var _undoStack=[], _redoStack=[], _undoRestoring=false, _undoPending=null, _undoGroupTimer=null, _lastUserGestureMs=0;
 function _undoLabelForKey(key){
   var m={ task_items_v1:'할일', task_cats_v1:'할일 분류', repeat_items_v1:'반복', repeat_suppressions_v1:'반복', generated_task_suppressions_v1:'할일', inbox_v1:'인박스', return_inbox_cats:'인박스 분류', projects_v1:'프로젝트', routine_habits_v1:'루틴', routine_bundles_v1:'루틴', routine_logs_v1:'루틴 기록', memos_v5:'메모', metrics_v1:'지표', diary_entries_v1:'일기', timetables_v1:'시간표', timetable_palette_v1:'시간표', task_rules_v1:'할일 규칙' };
   return (m[key]||'변경')+' 변경';
 }
 function _undoEmptyFor(key){ return key==='diary_entries_v1'?'{}':'[]'; }
+function _undoSnapKeys(keys){ var m={}; keys.forEach(function(k){ try{ m[k]=localStorage.getItem(k); }catch(e){ m[k]=null; } }); return m; }
+function _undoApply(entry){ /* entry: {keys, changes} — 저장된 값으로 복원(재캡처 억제) */
+  _undoRestoring=true;
+  try{
+    entry.keys.forEach(function(k){ var v=entry.changes[k]; try{ setReturnStorageItem(k, (v==null)?_undoEmptyFor(k):v); }catch(e){} });
+    try{ returnReloadMemoryFromStorage(); }catch(e){}
+  }finally{ _undoRestoring=false; }
+  _undoPending=null; clearTimeout(_undoGroupTimer); _undoGroupTimer=null; /* 복원이 만든 잔여 캡처 폐기 */
+}
 function _undoCapture(key){
   if(_undoRestoring)return;                                    /* 복원 중 재캡처 금지 */
   if(window._applyingFbData)return;                            /* 클라우드 적용은 사용자 동작 아님 */
@@ -19502,40 +19614,46 @@ function _undoFlushGroup(){
   grp.label=_undoLabelForKey(grp.keys[0])+(grp.keys.length>1?(' 외 '+(grp.keys.length-1)+'개'):'');
   _undoStack.push(grp);
   if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
-  try{ _showUndoToast(grp.label); }catch(e){}
+  _redoStack=[];                                               /* 새 동작이 생기면 '다시' 무효화 */
+  try{ _showActionToast(grp.label,'undo'); }catch(e){}
 }
 function returnUndoLast(){
   if(_undoPending){ _undoFlushGroup(); }               /* 마지막 동작을 즉시 되돌릴 수 있게 flush */
   if(!_undoStack.length){ try{ if(typeof showToast==='function')showToast('되돌릴 동작이 없어요'); }catch(e){} return false; }
   var grp=_undoStack.pop();
-  _undoRestoring=true;
-  try{
-    grp.keys.forEach(function(k){
-      var prev=grp.changes[k];
-      try{ setReturnStorageItem(k, (prev==null)?_undoEmptyFor(k):prev); }catch(e){}
-    });
-    try{ returnReloadMemoryFromStorage(); }catch(e){}
-  }finally{ _undoRestoring=false; }
-  _undoPending=null; clearTimeout(_undoGroupTimer); _undoGroupTimer=null; /* 복원이 만든 잔여 캡처 폐기 */
-  try{ _hideUndoToast(); }catch(e){}
-  try{ if(typeof showToast==='function')showToast('되돌렸어요 · '+(grp.label||'')); }catch(e){}
+  var redo={ keys:grp.keys.slice(), changes:_undoSnapKeys(grp.keys), label:grp.label }; /* 되돌리기 전 현재값 = '다시'용 */
+  _redoStack.push(redo); if(_redoStack.length>RETURN_UNDO_MAX)_redoStack.shift();
+  _undoApply(grp);
+  try{ _showActionToast(grp.label,'redo'); }catch(e){}  /* 되돌린 뒤엔 '다시' 버튼 제공 */
   return true;
 }
-function _showUndoToast(label){
+function returnRedoLast(){
+  if(!_redoStack.length){ try{ if(typeof showToast==='function')showToast('다시 실행할 동작이 없어요'); }catch(e){} return false; }
+  var redo=_redoStack.pop();
+  var grp={ keys:redo.keys.slice(), changes:_undoSnapKeys(redo.keys), label:redo.label }; /* 다시 전 현재값 = 되돌리기용 */
+  _undoStack.push(grp); if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
+  _undoApply(redo);
+  try{ _showActionToast(redo.label,'undo'); }catch(e){}
+  return true;
+}
+function _showActionToast(label, mode){
+  mode=mode||'undo';
   var el=document.getElementById('return-undo-toast');
   if(!el){
     el=document.createElement('div'); el.id='return-undo-toast';
     el.style.cssText='position:fixed;bottom:calc(var(--sp-10) + 60px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--n-700,#2b2b2b);color:var(--n-0,#fff);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);border-radius:var(--r-full,999px);font-size:var(--text-sm);font-weight:var(--fw-medium);z-index:600;display:flex;align-items:center;gap:var(--sp-3);box-shadow:var(--shadow-3,0 6px 24px rgba(0,0,0,.25));opacity:0;transition:opacity var(--t-snap,.15s);pointer-events:none';
     var span=document.createElement('span'); span.className='rut-label';
-    var btn=document.createElement('button'); btn.type='button'; btn.className='rut-btn'; btn.textContent='되돌리기';
+    var btn=document.createElement('button'); btn.type='button'; btn.className='rut-btn';
     btn.style.cssText='background:transparent;border:none;color:var(--accent-2,#8FD0BE);font-weight:var(--fw-bold,700);font-size:var(--text-sm);cursor:pointer;padding:var(--sp-1) var(--sp-3);white-space:nowrap';
-    btn.addEventListener('click', function(){ returnUndoLast(); });
     el.appendChild(span); el.appendChild(btn);
     document.body.appendChild(el);
   }
-  el.querySelector('.rut-label').textContent=(label||'변경됨');
+  var isRedo=(mode==='redo');
+  el.querySelector('.rut-label').textContent=(isRedo?'되돌렸어요':'변경됨')+(label?(' · '+label):'');
+  var b=el.querySelector('.rut-btn'); b.textContent=isRedo?'↪ 다시':'↩ 되돌리기';
+  b.onclick=isRedo?function(){ returnRedoLast(); }:function(){ returnUndoLast(); };
   el.style.opacity='1'; el.style.pointerEvents='auto';
-  clearTimeout(el._t); el._t=setTimeout(_hideUndoToast, 6000);
+  clearTimeout(el._t); el._t=setTimeout(_hideUndoToast, isRedo?7000:6000);
 }
 function _hideUndoToast(){ var el=document.getElementById('return-undo-toast'); if(el){ el.style.opacity='0'; el.style.pointerEvents='none'; } }
 try{
@@ -19543,14 +19661,16 @@ try{
   document.addEventListener('keydown', function(e){
     _lastUserGestureMs=Date.now();
     var mod=e.ctrlKey||e.metaKey;
-    if(mod && !e.shiftKey && !e.altKey && (e.key==='z'||e.key==='Z'||e.keyCode===90)){
-      var t=e.target, tag=(t&&t.tagName||'').toLowerCase();
-      if(tag==='input'||tag==='textarea'||(t&&t.isContentEditable))return; /* 편집 중엔 브라우저 기본 취소 */
-      e.preventDefault(); returnUndoLast();
-    }
+    if(!mod)return;
+    var t=e.target, tag=(t&&t.tagName||'').toLowerCase();
+    if(tag==='input'||tag==='textarea'||(t&&t.isContentEditable))return; /* 편집 중엔 브라우저 기본 취소/재실행 */
+    var isZ=(e.key==='z'||e.key==='Z'||e.keyCode===90), isY=(e.key==='y'||e.key==='Y'||e.keyCode===89);
+    if(isZ && e.shiftKey && !e.altKey){ e.preventDefault(); returnRedoLast(); }        /* Ctrl/⌘+Shift+Z = 다시 */
+    else if(isY && !e.altKey){ e.preventDefault(); returnRedoLast(); }                  /* Ctrl+Y = 다시 */
+    else if(isZ && !e.shiftKey && !e.altKey){ e.preventDefault(); returnUndoLast(); }   /* Ctrl/⌘+Z = 되돌리기 */
   }, true);
 }catch(_e){}
-window.returnUndoLast=returnUndoLast;
+window.returnUndoLast=returnUndoLast; window.returnRedoLast=returnRedoLast;
 
 function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} }
 (function _initIdbOverflow(){
