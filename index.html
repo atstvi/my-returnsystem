@@ -19371,6 +19371,11 @@ async function returnRecoveryCenterUI(){
             +'<div class="rc-io"><div class="rc-io-txt"><div class="rc-io-t">⬆ 이 기기 내용을 클라우드에 올리기</div><div class="rc-io-d"><b>이 기기가 가장 정확할 때만.</b> 이 기기 상태로 클라우드를 덮어써요(복구를 끝낸 뒤 이걸 눌러 다른 기기에 퍼뜨려요).</div></div><button class="btn btn-ghost rc-io-b" id="rc-push">올리기</button></div>')
           :'<div class="field-help" style="padding:var(--sp-4);background:var(--bg-raised);border-radius:var(--r-md);line-height:1.6">클라우드 백업을 쓰려면 먼저 <b>설정 → 동기화·연동 → Firebase</b>에서 Google 로그인을 해주세요.</div>')
       +'</div>'
+      /* ④ 이 기기 공간(quota) */
+      +'<div class="rc-sec"><div class="rc-sec-t">④ 이 기기 저장공간</div>'
+        +'<div class="field-help" style="margin:2px 0 var(--sp-3);color:var(--fg-4)">저장공간이 가득 차면 최신 데이터를 못 저장해서, 옛 데이터가 클라우드를 덮어쓸 위험이 있어요. 그래서 <b>가득 찬 기기는 자동 업로드를 멈춰</b> 다른 기기를 지켜요. 아래로 공간을 정리하면 업로드가 다시 켜져요.</div>'
+        +'<div id="rc-quota"><div class="field-help" style="padding:var(--sp-3);color:var(--fg-4)">확인하는 중…</div></div>'
+      +'</div>'
     +'</div>'
     +'<div class="modal-foot"><button class="btn btn-primary" id="rc-close">닫기</button></div>'
   +'</div>';
@@ -19426,6 +19431,24 @@ async function returnRecoveryCenterUI(){
       }); });
     }
   }catch(e){ var b=ov.querySelector('#rc-scan'); if(b)b.innerHTML='<div class="field-help" style="color:var(--fg-4)">확인 중 오류가 났어요.</div>'; }
+  /* ④ 저장공간 */
+  function _rcRenderQuota(){
+    var qb=ov.querySelector('#rc-quota'); if(!qb)return;
+    var pct=0, top=[];
+    try{ var r=returnStorageReport(false); pct=(r&&Number(r.usedPct))||0; top=(r&&r.topKeys)||[]; }catch(_e){}
+    var blocked=(pct>=100), warn=(pct>=90);
+    var barColor=blocked?'var(--danger,#C0564E)':(warn?'#D9873B':'var(--accent-2,#43A98C)');
+    var topImg=(top||[]).filter(function(k){ return k.category==='diary'||k.category==='theme'||k.kb>=60; }).slice(0,3);
+    var h='<div style="display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-2)">'
+      +'<div style="flex:1;height:8px;border-radius:999px;background:var(--bg-raised);overflow:hidden"><div style="height:100%;width:'+Math.min(100,pct)+'%;background:'+barColor+'"></div></div>'
+      +'<div style="font-weight:var(--fw-bold);color:'+barColor+'">'+pct+'%</div></div>';
+    if(blocked)h+='<div class="field-help" style="color:var(--danger,#C0564E);font-weight:var(--fw-medium);margin-bottom:var(--sp-2)">가득 차서 이 기기의 클라우드 업로드가 멈춰 있어요. 아래로 정리하면 자동으로 다시 켜져요.</div>';
+    h+='<button class="btn '+(blocked?'btn-primary':'btn-ghost')+'" style="width:100%" id="rc-clean">지금 공간 정리</button>';
+    if(topImg.length)h+='<div class="field-help" style="margin-top:var(--sp-2);color:var(--fg-4)">공간을 많이 쓰는 항목: '+topImg.map(function(k){return k.kb+'KB';}).join(' · ')+' — 정리해도 부족하면 오래된 일기 사진을 줄여보세요.</div>';
+    qb.innerHTML=h;
+    var cb=qb.querySelector('#rc-clean'); if(cb)cb.addEventListener('click',function(){ cb.disabled=true; cb.textContent='정리 중…'; returnStorageCleanupNow().then(function(res){ _rcRenderQuota(); }).catch(function(){ cb.disabled=false; cb.textContent='지금 공간 정리'; }); });
+  }
+  try{ _rcRenderQuota(); }catch(_e){}
 }
 window.returnRecoveryCenterUI=returnRecoveryCenterUI;
 
@@ -40166,6 +40189,21 @@ var _lastRepairSaveMs=0;
    that window starts a second concurrent fbSaveNow — doubling write quota
    and causing interleaved batch commits that corrupt the doc cache. */
 var _fbSaveNowBusy=false;
+/* 저장공간 초과(quota) 시 PUSH 차단 backstop.
+   기기가 quota를 넘으면(usedPct≥100%) 들어온 최신 데이터를 localStorage에도,
+   IDB 오버플로에도 못 써서 두 곳 다 '옛 값'이 남는다. 이 상태로 push하면 그 옛 값이
+   클라우드의 정상 데이터를 덮어써(아이패드 역전파의 실체) 다른 기기까지 망가진다.
+   그래서 quota를 넘은 기기는 자동 업로드를 멈춘다(내려받기 pull은 계속 가능). 공간을
+   정리해 usedPct가 내려가면 자동 재개. 수동 '지금 올리기'(force)만 사용자 판단으로 우회. */
+var _fbQuotaChkMs=0, _fbQuotaChkPct=0;
+function _fbStorageUsedPct(){
+  var now=Date.now();
+  if(now-_fbQuotaChkMs<8000) return _fbQuotaChkPct;   /* 8초 캐시(매 저장마다 전수 스캔 방지) */
+  _fbQuotaChkMs=now;
+  try{ var r=(typeof returnStorageReport==='function')?returnStorageReport(false):null; _fbQuotaChkPct=(r&&Number(r.usedPct))||0; }catch(e){ _fbQuotaChkPct=0; }
+  return _fbQuotaChkPct;
+}
+var RETURN_FB_QUOTA_PUSH_BLOCK_PCT=100;
 async function fbSaveNow(opts){
   opts=opts||{};
   /* If a non-forced save is already running, re-queue for after it finishes
@@ -40186,6 +40224,19 @@ async function fbSaveNow(opts){
     _fbSaveTimer=setTimeout(function(){ try{fbSaveNow(opts);}catch(_e){} }, 400);
     try{ if(typeof setFbStatus==='function') setFbStatus('저장 준비 중(로컬 캐시 로딩)…','saving'); }catch(_e){}
     return false;
+  }
+  /* Quota-over PUSH backstop: 이 기기가 저장공간을 넘었으면 자동 업로드 금지(옛 값이
+     클라우드를 덮는 역전파 차단). 수동 force는 우회. 공간이 정리되면 자동 재개되도록
+     1분 뒤 재시도 예약. */
+  if(!opts.force){
+    var _uPct=_fbStorageUsedPct();
+    if(_uPct>=RETURN_FB_QUOTA_PUSH_BLOCK_PCT){
+      clearTimeout(_fbSaveTimer);
+      try{ if(typeof setFbStatus==='function') setFbStatus('이 기기 저장공간이 가득 차 업로드를 멈췄어요('+_uPct+'%) — 공간 정리 후 자동 재개','err'); }catch(_e){}
+      try{ if(typeof bannerDebugLog==='function') bannerDebugLog('fb:push-blocked-quota',{usedPct:_uPct}); }catch(_e){}
+      if(!window._fbQuotaFullRetry){ window._fbQuotaFullRetry=setTimeout(function(){ window._fbQuotaFullRetry=null; try{fbSaveAll();}catch(_e){} }, 60000); }
+      return false;
+    }
   }
   if(window.SyncManager&&!SyncManager.canSave(opts)){clearTimeout(_fbSaveTimer);return false;}
   /* Circuit breaker: skip auto-saves during quota/permission backoff window.
@@ -41109,6 +41160,25 @@ function returnStoragePrune(opts){
   return plan;
 }
 window.returnStoragePrune=returnStoragePrune;
+
+/* 한 번에 공간 정리 — quota 초과로 업로드가 막힌 기기를 되살리기 위한 안전 정리.
+   ① 오래된 데이터 IDB 아카이브(runArchiveOnBoot) ② 고아 백업 키 제거(prune, 다운로드
+   없음). 파일을 삭제하지 않고 위험 없는 것만 정리. 정리 전후 usedPct를 반환. */
+async function returnStorageCleanupNow(){
+  var before=0, after=0;
+  try{ var r0=returnStorageReport(false); before=(r0&&Number(r0.usedPct))||0; }catch(_e){}
+  try{ if(typeof runArchiveOnBoot==='function') await runArchiveOnBoot(); }catch(_e){}
+  var pruned=0;
+  try{ var p=returnStoragePrune({apply:true,archive:false}); pruned=(p&&p.removed)||0; }catch(_e){}
+  try{ var r1=returnStorageReport(false); after=(r1&&Number(r1.usedPct))||0; }catch(_e){}
+  _fbQuotaChkMs=0; /* 캐시 무효화 → 다음 저장이 새 usedPct로 판정 */
+  var freed=Math.max(0, before-after);
+  try{ if(typeof showToast==='function') showToast('공간 정리: '+before+'% → '+after+'%'+(pruned?(' · 백업 '+pruned+'개 정리'):'')); }catch(_e){}
+  /* 공간이 100% 밑으로 내려갔으면 막혀 있던 업로드 재개 시도 */
+  if(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT){ try{ if(typeof fbSaveAll==='function') fbSaveAll(); }catch(_e){} }
+  return { beforePct:before, afterPct:after, freedPct:freed, prunedKeys:pruned, uploadUnblocked:(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT) };
+}
+window.returnStorageCleanupNow=returnStorageCleanupNow;
 
 /* ── STAGE 10 Archive routines ───────────────────────────────────────── */
 
