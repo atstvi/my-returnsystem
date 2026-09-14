@@ -16665,7 +16665,11 @@ function openHomeRuleEditor(ruleId){
   var r=ruleId?rules.find(function(x){return x.id===ruleId;}):null;
   var catOptions=(typeof CATS!=='undefined'?CATS:[]).map(function(c){return {value:c.id,label:(c.emoji?c.emoji+' ':'')+c.label};});
   if(!catOptions.length)catOptions=[{value:'etc',label:'기타'}];
-  var triggerType=(r&&(r.triggerType||r.weekdays?'weekday':'keyword'))||'keyword';
+  /* 트리거 종류 판별: 규칙에 명시된 triggerType를 우선 존중한다. 예전엔
+     (r.triggerType||r.weekdays ? 'weekday':'keyword') 연산자 우선순위 때문에 키워드
+     규칙(triggerType='keyword')을 편집해도 조건이 참이 돼 'weekday'로 잘못 잡혀,
+     키워드 입력칸이 숨겨지고 저장 시 키워드가 날아갔다. */
+  var triggerType = (r && r.triggerType) ? r.triggerType : ((r && r.weekdays) ? 'weekday' : 'keyword');
   openFormDialog(ruleId?'활성 규칙 편집':'활성 규칙 추가', [
     {key:'triggerType', label:'무엇에 맞춰 만들까요?', type:'select', value:triggerType, help:'일정·키워드에 맞춰 만들거나, 특정 요일마다 자동으로 만들 수 있어요.', options:[{value:'keyword',label:'일정 · 키워드에 맞춰'},{value:'weekday',label:'특정 요일마다'}]},
     {key:'matchText', label:'일정 제목 · 키워드', value:(r&&r.matchText)||'', help:'이 단어가 들어간 일정/할일이 생기면 아래 할일을 함께 만들어요.'},
@@ -18526,6 +18530,7 @@ function _showCapturePreview(parsed){
     ['우선순위', prioLabel||'없음'],
     parsed.timeStart ? ['시간', parsed.timeStart+(parsed.timeEnd?'–'+parsed.timeEnd:'')] : null,
     parsed.deadlineDate ? ['마감', parsed.deadlineDate] : null,
+    parsed.linkedTask ? ['연결 할일', '＋ '+parsed.linkedTask] : null,
   ].filter(Boolean);
 
   var table = rows.map(function(r){
@@ -18601,8 +18606,9 @@ function _showCapturePreview(parsed){
 function _commitCaptureTask(parsed){
   if(!parsed||typeof tasks==='undefined') return;
   var defPrio = (parsed.priority) || (getCatDefaultPriority ? getCatDefaultPriority(parsed.catId||'etc') : '');
+  var mainId = Date.now();
   tasks.unshift({
-    id:Date.now(), text:parsed.text||'새 할일',
+    id:mainId, text:parsed.text||'새 할일',
     catId:parsed.catId||'etc', date:parsed.date||TK,
     priority:defPrio, done:false,
     deadlineDate:parsed.deadlineDate||'', deadlineId:'',
@@ -18611,15 +18617,32 @@ function _commitCaptureTask(parsed){
     subs:[], _ruleId:'', _repeat:false,
     createdAt:Date.now(), updatedAt:Date.now()
   });
-  /* 마감/키워드에 걸린 활성 규칙이 있으면 지금 바로 연결 할일을 생성한다. 예전엔 홈이
-     다음에 렌더될 때(_initHome)까지 안 생겨서, '오늘 상황'이 방금 담은 마감을 '연결 안 됨'
-     으로 표시했다(applyActiveTaskRules는 생성 시 스스로 saveTaskData+상황 갱신). */
+  /* AI가 '마감 목표 + 준비/실행 할일'을 한 쌍으로 이해했으면 연결 할일도 함께 만든다.
+     연결 할일은 방금 만든 마감(mainId)을 가리켜(deadlineId/sourceTaskId) 양쪽 상세에
+     서로 '연결됨'으로 인식되고 달력 화살표도 둘 사이로 이어진다. linkedTask는 _captureAIParse
+     에서 '마감이 있을 때만' 채워지므로 관련 없는 걸 억지로 잇지 않는다. */
+  var linkedText = String(parsed.linkedTask||'').trim();
+  var madePair = false;
+  if(linkedText && (parsed.deadlineDate||'')){
+    var prepId = (typeof returnNewId==='function') ? returnNewId('t_') : (Date.now()+'_'+Math.random().toString(36).slice(2));
+    tasks.unshift({
+      id:prepId, text:linkedText,
+      catId:parsed.catId||'etc', date:parsed.date||TK,
+      priority:defPrio, done:false,
+      deadlineDate:parsed.deadlineDate||'', deadlineId:String(mainId),
+      timeStart:'', timeEnd:'',
+      note:'자연어 캡처 · 연결 할일', subs:[],
+      sourceTaskId:String(mainId), _ruleId:'', _repeat:false,
+      createdAt:Date.now(), updatedAt:Date.now()
+    });
+    madePair = true;
+  }
   try{ if(typeof applyActiveTaskRules==='function') applyActiveTaskRules(); }catch(e){}
   if(typeof saveTaskData==='function') saveTaskData();
   if(typeof renderList==='function') renderList();
   if(typeof renderCal==='function') renderCal();
   renderHomeTasks();
-  homeToast('할일 추가됨: '+String(parsed.text||'').slice(0,20));
+  homeToast(madePair ? ('마감 + 연결 할일 추가: '+String(parsed.text||'').slice(0,16)) : ('할일 추가됨: '+String(parsed.text||'').slice(0,20)));
 }
 
 /* Core AI natural-language → task-fields parser. Returns the parsed object (with
@@ -18702,8 +18725,9 @@ async function _captureAIParse(text){
     +'우선순위: high/mid/low/""(없음)\n'
     +'반드시 JSON만 반환하세요. 다른 텍스트 없이.\n'
     +'스키마:\n'
-    +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|"}\n'
-    +'규칙: text는 핵심 행동만(시간·날짜·마감 표현 제외), 시작 날짜 없으면 오늘, "까지/마감/기한"은 deadlineDate로, 카테고리 모호하면 etc, 시간 없으면 ""';
+    +'{"text":"할일 제목","catId":"카테고리id","date":"YYYY-MM-DD","priority":"high|mid|low|","timeStart":"HH:MM|","timeEnd":"HH:MM|","deadlineDate":"YYYY-MM-DD|","note":"추가 설명|","linkedTask":"연결 준비/실행 할일 제목|"}\n'
+    +'규칙: text는 핵심 행동만(시간·날짜·마감 표현 제외), 시작 날짜 없으면 오늘, "까지/마감/기한"은 deadlineDate로, 카테고리 모호하면 etc, 시간 없으면 ""\n'
+    +'linkedTask: 입력에 "마감/기한이 있는 목표(text)"와 "그 마감을 위해 미리 할 별도의 준비·실행 행동"이 둘 다 뚜렷할 때만 그 행동을 넣는다(예: "발표자료 금요일까지, 미리 초안 잡기" → text=발표자료, deadlineDate=금요일, linkedTask=초안 잡기). deadlineDate가 없거나 준비 행동이 불분명하면 반드시 ""(빈값). 관련 없는 것을 억지로 만들지 말 것.';
 
   try {
     var content = await returnAiChat({ system:systemPrompt, user:'파싱: '+text, maxTokens:300, temperature:0.1 });
@@ -18719,6 +18743,8 @@ async function _captureAIParse(text){
       if(!parsed.date) parsed.date = local.date || '';
       if(!parsed.deadlineDate) parsed.deadlineDate = local.deadlineDate || '';
       if(!parsed.catId) parsed.catId = 'etc';
+      /* linkedTask는 '마감이 있을 때만' 유효(관련 없는 것 억지 연결 방지). 마감 없으면 무시. */
+      parsed.linkedTask = (parsed.linkedTask && parsed.deadlineDate && String(parsed.linkedTask).trim()!==String(parsed.text||'').trim()) ? String(parsed.linkedTask).trim() : '';
       return parsed;
     }
   } catch(e) {}
