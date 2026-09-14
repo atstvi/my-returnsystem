@@ -9,14 +9,14 @@ const html = readIndex();
 const t = runner('버전 기록(스냅샷)');
 
 // ── 상수/스토어 ──
-t.ok('스냅샷 대상 키 목록(할일·메모·일기 포함)', /var RETURN_SNAPSHOT_KEYS=\['task_items_v1'[^\]]*'memos_v5'[^\]]*'diary_entries_v1'[^\]]*'timetables_v1'/.test(html));
+t.ok('스냅샷 키셋에 주요 도메인 전부(할일·프로젝트·시간표·취미·머니·일기 등)', ['task_items_v1','task_rules_v1','projects_v1','routine_habits_v1','timetables_v1','hobby_items_v2','money_tx_v1','memos_v5','metrics_v1','return_check_logs','phil_cards','music_playlists_v1','diary_entries_v1'].every(function(k){ return html.indexOf("'"+k+"'")>=0 && new RegExp('var RETURN_SNAPSHOT_KEYS=[\\s\\S]*?'+k.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'[\\s\\S]*?\\n\\];').test(html); }));
 t.ok('보관 개수/최소 간격 상수', /var RETURN_SNAPSHOT_MAX=30, RETURN_SNAPSHOT_MIN_INTERVAL=5\*60\*1000;/.test(html));
 t.ok('IDB return_snapshots_v1 오픈', /indexedDB\.open\('return_snapshots_v1',1\)/.test(html) && /createObjectStore\('snap',\{keyPath:'ts'\}\)/.test(html));
 
 // ── 스냅샷 엔진 ──
 t.ok('returnSnapshotNow 정의+노출', /function returnSnapshotNow\(reason\)\{/.test(html) && /window\.returnSnapshotNow=returnSnapshotNow;/.test(html));
 t.ok('settle 전엔 스냅샷 금지(부팅 부분상태 방지)', /if\(typeof _idbInitSettled!=='undefined'&&!_idbInitSettled\)return Promise\.resolve\(false\);/.test(html));
-t.ok('텅 빈 상태는 자동 스냅샷 안 함(와이프 저장 방지)', /if\(!c\.keys\['task_items_v1'\]&&!c\.keys\['memos_v5'\]&&!force\)return Promise\.resolve\(false\);/.test(html));
+t.ok('텅 빈 상태는 자동 스냅샷 안 함(어느 도메인이든 내용 있으면 찍음)', /if\(!force && !\['task_items_v1','memos_v5','projects_v1','hobby_items_v2','money_tx_v1'[\s\S]*?\.some\(function\(k\)\{ var v=c\.keys\[k\]; return v&&v!=='\[\]'&&v!=='\{\}'&&v!=='null'; \}\)\)return Promise\.resolve\(false\);/.test(html));
 t.ok('내용 변화 없으면(해시 동일) 스킵', /if\(h===_snapLastHash&&!force\)return Promise\.resolve\(false\);/.test(html));
 
 // ── 프루닝: 최신 N + 가장 풍부한 것 보호 ──
@@ -29,10 +29,12 @@ t.ok('탭 백그라운드 전환 시 스냅샷', /visibilitychange[\s\S]*?visibi
 
 // ── 복원 ──
 t.ok('returnVersionRestore 정의+노출', /async function returnVersionRestore\(ts, opts\)\{/.test(html) && /window\.returnVersionRestore=returnVersionRestore;/.test(html));
-t.ok('병합(없는 것만): id 없는 항목만 push', /sn\.forEach\(function\(it\)\{ if\(it&&it\.id!=null&&!ids\[String\(it\.id\)\]\)cur\.push\(it\); \}\);/.test(html));
+// 모양(배열/객체/스칼라) 구분 복원 — 스칼라 키를 '[]'로 덮어써 망가뜨리던 문제 방지
+t.ok('모양 판별 헬퍼(배열/객체/스칼라)', /function _snapShape\(v\)\{ return Array\.isArray\(v\)\?'array':\(\(v&&typeof v==='object'\)\?'object':'scalar'\); \}/.test(html));
+t.ok('배열 키: id 없는 항목만 병합 push', /\(snV\|\|\[\]\)\.forEach\(function\(it\)\{ if\(it&&it\.id!=null&&!ids\[String\(it\.id\)\]\)cur\.push\(it\); \}\);/.test(html));
+t.ok('객체 키(일기·루틴로그·트래커값): 키 단위 병합', /else if\(shape==='object'\)\{\s*var curO=_snapParseObj\(curRaw\); Object\.keys\(snV\|\|\{\}\)\.forEach\(function\(d\)\{ if\(curO\[d\]==null\)curO\[d\]=snV\[d\]; \}\); setReturnStorageItem\(k, JSON\.stringify\(curO\)\);/.test(html));
+t.ok('스칼라 키: 비어있을 때만 채움(덮어쓰기 방지)', /if\(_snapCurEmpty\(curRaw\)\) setReturnStorageItem\(k, rec\.keys\[k\]\);/.test(html));
 t.ok('교체 모드(replace): 스냅샷 값으로 setReturnStorageItem', /if\(opts\.replace\)\{ setReturnStorageItem\(k, rec\.keys\[k\]\); return; \}/.test(html));
-t.ok('일기는 날짜 단위 병합', /Object\.keys\(snO\)\.forEach\(function\(d\)\{ if\(curO\[d\]==null\)curO\[d\]=snO\[d\]; \}\); setReturnStorageItem\('diary_entries_v1'/.test(html) === false && /if\(k==='diary_entries_v1'\)\{ var curO=_snapParseObj\(localStorage\.getItem\(k\)\),snO=_snapParseObj\(rec\.keys\[k\]\);/.test(html));
-t.ok('복원은 setReturnStorageItem 경로만(직접 localStorage.setItem 아님)', /setReturnStorageItem\(k, JSON\.stringify\(cur\)\);/.test(html));
 t.ok('복원 후 메모리 재적재+렌더', /returnReloadMemoryFromStorage\(\);/.test(html));
 t.ok('dryRun 미리보기(변경 없음)', /if\(opts\.dryRun\)\{[\s\S]*?dryRun:true \};/.test(html));
 
