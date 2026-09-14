@@ -23,4 +23,14 @@ t.ok("value:'0' 프리필 잔재 없음", /key:'offsetDays'[^}]*value:'0'\}/.tes
 // 저장은 여전히 parseInt(...)||0 (비우면 0)
 t.ok('비우면 0으로 저장', /offsetDays:parseInt\(data\.offsetDays,10\)\|\|0/.test(html));
 
+/* 필수값 미입력 시 다이얼로그가 그냥 닫혀 입력이 통째로 사라지던 버그:
+   openFormDialog가 onSave 반환값과 무관하게 close()를 호출했다. onSave가 false를
+   반환하면 닫지 않도록 고치고, 활성 규칙 편집은 무엇이 빠졌는지 토스트로 안내 + false 반환. */
+t.ok('openFormDialog: onSave가 false면 닫지 않음', /var ret=onSave\(data\); if\(ret!==false\) close\(\);/.test(html));
+t.ok('활성 규칙(며칠 전에 미리): 키워드 없으면 안내+false', /if\(type==='keyword'&&!next\.matchText\)\{ if\(typeof showToast==='function'\)showToast\('‘일정·키워드’를 입력해주세요'\); return false; \}/.test(html));
+t.ok('활성 규칙(며칠 전에 미리): 요일 없으면 안내+false', /if\(type==='weekday'&&!next\.weekdays\)\{ if\(typeof showToast==='function'\)showToast\('요일을 하나 이상 선택해주세요'\); return false; \}/.test(html));
+t.ok('활성 규칙(며칠 전에 미리): 할일 없으면 안내+false', /if\(!next\.taskText\)\{ if\(typeof showToast==='function'\)showToast\('‘자동으로 만들 할일’을 입력해주세요'\); return false; \}/.test(html));
+t.ok('조용히 return하던 검증 제거', /if\(\(!next\.matchText&&!next\.weekdays\)\|\|!next\.taskText\)return;/.test(html) === false);
+t.ok('다른 규칙 폼도 미입력 시 안내+false', /if\(!match\)\{ if\(typeof showToast==='function'\)showToast\('‘일정\/키워드’를 입력해주세요'\); return false; \}/.test(html) && /if\(\(!match&&!weekdays\)\|\|!text\)return;/.test(html) === false);
+
 t.done();
