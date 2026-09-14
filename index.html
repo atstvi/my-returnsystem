@@ -19823,7 +19823,7 @@ function _refreshUndoFab(){
 window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
 try{ _ensureUndoFab(); }catch(_e){}
 
-function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} try{ setTimeout(function(){ if(typeof returnStorageSafetyGate==='function')returnStorageSafetyGate(); }, 2500); }catch(_e){} }
+function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} try{ setTimeout(function(){ if(typeof returnStorageAutoRelief==='function')returnStorageAutoRelief(); else if(typeof returnStorageSafetyGate==='function')returnStorageSafetyGate(); }, 2000); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
     var req = indexedDB.open('return_overflow_v1', 1);
@@ -20515,8 +20515,8 @@ function setReturnStorageItem(key,value){
   if(typeof __markStaleQuota==='function')__markStaleQuota(key);
   bannerDebugLog('storage:set-unverified',{key:key,length:value.length,storedLength:(localStorage.getItem(key)||'').length});
   __storageHealthRecord({key:key,mode:'failed',ok:false,error:'quota: localStorage full and no IndexedDB overflow available'});
-  /* 진짜 저장 실패 → 안전 게이트로 편집 차단(옛 값이 클라우드를 덮는 걸 원천 차단). */
-  try{ if(typeof returnStorageSafetyGate==='function') setTimeout(function(){ returnStorageSafetyGate(); },0); }catch(_e){}
+  /* 진짜 저장 실패 → 자동으로 줄여보고, 그래도 안 되면 안전 게이트로 편집 차단. */
+  try{ if(typeof returnStorageAutoRelief==='function') setTimeout(function(){ returnStorageAutoRelief(); },0); else if(typeof returnStorageSafetyGate==='function') setTimeout(function(){ returnStorageSafetyGate(); },0); }catch(_e){}
   return false;
 }
 var HOME_BANNER_SYNC_MAX = 180000;
@@ -41176,24 +41176,55 @@ window.returnStoragePrune=returnStoragePrune;
 /* 한 번에 공간 정리 — quota 초과로 업로드가 막힌 기기를 되살리기 위한 안전 정리.
    ① 오래된 데이터 IDB 아카이브(runArchiveOnBoot) ② 고아 백업 키 제거(prune, 다운로드
    없음). 파일을 삭제하지 않고 위험 없는 것만 정리. 정리 전후 usedPct를 반환. */
-async function returnStorageCleanupNow(){
+/* localStorage에서 진짜 공간 먹는 미디어/이미지 키(미디어 매니페스트·테마 에셋·스티커·
+   배너·에너지 사진, 그리고 base64가 박힌 큰 값)를 IDB 오버플로로 옮겨 localStorage를
+   실제로 비운다. _idbSet이 IDB에 쓰고 _idbCache에 미러하므로, localStorage에서 지워도
+   패치된 getItem이 IDB 캐시에서 읽어 값은 그대로 유지된다. */
+async function returnCompactMediaToIdb(){
+  if(typeof _idbSet!=='function' || typeof _idbOverflow==='undefined' || !_idbOverflow) return {moved:0, freedKB:0};
+  var mediaKeys={ 'return_media_sync_v1':1,'return_media_fb_v1':1,'return_theme_studio_assets_v1':1,'global_stickers_v1':1,'global_sticker_shadow':1,'home_banner_v1':1,'hobby_banner_v1':1,'hobby_banner_sync_v1':1,'routine_banner_v1':1,'stamina_photos_v1':1 };
+  var cands=[];
+  try{
+    for(var i=0;i<localStorage.length;i++){
+      var k=localStorage.key(i); if(!k)continue;
+      if(typeof _idbCache!=='undefined'&&_idbCache&&Object.prototype.hasOwnProperty.call(_idbCache,k))continue; /* 이미 IDB에 있음 */
+      var v; try{ v=localStorage.getItem(k); }catch(e){ continue; }
+      if(v==null)continue;
+      var isMedia = mediaKeys[k] || (v.indexOf('data:')>=0 && v.length>2000);
+      if(isMedia && v.length>=8000) cands.push([k,v]); /* 8KB+ 미디어/이미지 키만 이동 */
+    }
+  }catch(e){}
+  var moved=0, freed=0;
+  for(var j=0;j<cands.length;j++){
+    var ck=cands[j][0], cv=cands[j][1];
+    try{ await _idbSet(ck,cv); try{ localStorage.removeItem(ck); }catch(_e){} moved++; freed+=(ck.length+cv.length)*2; }catch(e){}
+  }
+  return { moved:moved, freedKB:Math.round(freed/1024) };
+}
+window.returnCompactMediaToIdb=returnCompactMediaToIdb;
+async function returnStorageCleanupNow(opts){
+  opts=opts||{};
   var before=0, after=0;
   try{ var r0=returnStorageReport(false); before=(r0&&Number(r0.usedPct))||0; }catch(_e){}
-  /* 진짜 공간 먹는 범인 = localStorage에 박힌 base64 이미지. MediaStore(IDB)로 옮겨
-     localStorage를 비운다(가장 효과 큼). 그 다음 오래된 데이터 아카이브 + 고아 백업 제거. */
+  /* 1) 큰 미디어/이미지 키를 IDB로 이동(가장 효과 큼) 2) 일기 인라인 이미지→MediaStore
+     3) 오래된 데이터 아카이브 4) 고아 백업 제거. */
+  var compacted={moved:0,freedKB:0};
+  try{ compacted=await returnCompactMediaToIdb()||compacted; }catch(_e){}
   var imgMoved=0;
   try{ if(typeof diaryMigrateInlineImagesToMediaStore==='function'){ imgMoved=(await diaryMigrateInlineImagesToMediaStore())||0; } }catch(_e){}
+  /* 일기 이미지를 MediaStore(=매니페스트)로 옮겼으면 매니페스트가 커졌을 수 있으니 다시 IDB로 압축 */
+  try{ var c2=await returnCompactMediaToIdb(); compacted.moved+=(c2&&c2.moved)||0; }catch(_e){}
   try{ if(typeof runArchiveOnBoot==='function') await runArchiveOnBoot(); }catch(_e){}
   var pruned=0;
   try{ var p=returnStoragePrune({apply:true,archive:false}); pruned=(p&&p.removed)||0; }catch(_e){}
   try{ var r1=returnStorageReport(false); after=(r1&&Number(r1.usedPct))||0; }catch(_e){}
   _fbQuotaChkMs=0; /* 캐시 무효화 → 다음 저장이 새 usedPct로 판정 */
   var freed=Math.max(0, before-after);
-  try{ if(typeof showToast==='function') showToast('공간 정리: '+before+'% → '+after+'%'+(imgMoved?(' · 이미지 '+imgMoved+'개 이동'):'')+(pruned?(' · 백업 '+pruned+'개'):'')); }catch(_e){}
+  if(!opts.silent){ try{ if(typeof showToast==='function') showToast('공간 정리: '+before+'% → '+after+'%'+(compacted.moved?(' · 미디어 '+compacted.moved+'개 이동'):'')+(imgMoved?(' · 이미지 '+imgMoved+'개'):'')+(pruned?(' · 백업 '+pruned+'개'):'')); }catch(_e){} }
   /* 공간이 100% 밑으로 내려갔으면 막혀 있던 업로드 재개 시도 + 안전 게이트 재확인 */
   if(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT){ try{ if(typeof fbSaveAll==='function') fbSaveAll(); }catch(_e){} }
   try{ if(typeof returnStorageSafetyGate==='function') returnStorageSafetyGate({recheck:true}); }catch(_e){}
-  return { beforePct:before, afterPct:after, freedPct:freed, imagesMoved:imgMoved, prunedKeys:pruned, uploadUnblocked:(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT) };
+  return { beforePct:before, afterPct:after, freedPct:freed, mediaMovedToIdb:compacted.moved, imagesMoved:imgMoved, prunedKeys:pruned, uploadUnblocked:(after<RETURN_FB_QUOTA_PUSH_BLOCK_PCT) };
 }
 window.returnStorageCleanupNow=returnStorageCleanupNow;
 
@@ -41208,10 +41239,33 @@ function _storageWriteProbe(){
   try{ var k='__return_probe__', v=new Array(64*1024).join('x'); var w=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage); w(k,v); localStorage.removeItem(k); return true; }
   catch(e){ return false; }
 }
+/* '꽉 참' 판정: 실측 프로브 실패 OR 사용률이 임계(≈5MB의 100%) 이상. 기기마다 localStorage
+   한도가 달라(브라우저는 5MB보다 더 줄 수도 있음) 프로브가 통과해도 사용률이 높으면 꽉 찬
+   걸로 본다 — 부팅 자동 감지가 놓치지 않게. */
+function _storageIsFull(){
+  try{ if(!_storageWriteProbe()) return true; }catch(e){}
+  try{ var r=returnStorageReport(false); if(r&&Number(r.usedPct)>=RETURN_FB_QUOTA_PUSH_BLOCK_PCT) return true; }catch(e){}
+  return false;
+}
+window._storageIsFull=_storageIsFull;
+/* 부팅/주기 자동 완화: 감지 → 자동으로 줄여보고 → 그래도 꽉 차면 게이트로 막는다.
+   사용자가 화면에 접근하기 전부터 스스로 처리한다. */
+async function returnStorageAutoRelief(){
+  if(window._autoReliefBusy)return false;
+  if(!_storageIsFull()) return false;
+  window._autoReliefBusy=true;
+  try{
+    try{ await returnStorageCleanupNow({silent:true}); }catch(e){}   /* 조용히 줄여보고 */
+    if(_storageIsFull()){ try{ returnStorageSafetyGate(); }catch(e){} return true; } /* 그래도 꽉 차면 막기 */
+    try{ if(typeof showToast==='function') showToast('저장공간을 자동으로 정리했어요'); }catch(e){}
+    return false;
+  }finally{ setTimeout(function(){ window._autoReliefBusy=false; }, 8000); }
+}
+window.returnStorageAutoRelief=returnStorageAutoRelief;
 window.__returnReadOnlyAck=false; /* 사용자가 '읽기 전용으로 계속'을 택한 세션 플래그 */
 function returnStorageSafetyGate(opts){
   opts=opts||{};
-  var full=!_storageWriteProbe();
+  var full=_storageIsFull();
   var existing=document.getElementById('return-storage-gate');
   if(!full){ if(existing)existing.remove(); return false; }        /* 공간 있으면 게이트 해제 */
   if(window.__returnReadOnlyAck && !opts.force) return true;        /* 사용자가 이미 '계속' 선택 */
@@ -41231,8 +41285,8 @@ function returnStorageSafetyGate(opts){
     +'</div>';
   document.body.appendChild(ov);
   var clean=ov.querySelector('#rsg-clean');
-  clean.addEventListener('click',function(){ clean.disabled=true; clean.textContent='정리 중…'; returnStorageCleanupNow().then(function(){ if(_storageWriteProbe()){ ov.remove(); try{ if(typeof showToast==='function')showToast('공간이 정리됐어요 — 이제 저장돼요'); }catch(_e){} } else { clean.disabled=false; clean.textContent='지금 공간 정리'; try{ var r2=returnStorageReport(false); var pb=ov.querySelector('#rsg-clean'); }catch(_e){} try{ if(typeof showToast==='function')showToast('아직 공간이 부족해요 — 큰 이미지를 줄여보세요'); }catch(_e){} } }).catch(function(){ clean.disabled=false; clean.textContent='지금 공간 정리'; }); });
-  ov.querySelector('#rsg-recheck').addEventListener('click',function(){ if(_storageWriteProbe()){ ov.remove(); } else { try{ if(typeof showToast==='function')showToast('아직 저장공간이 부족해요'); }catch(_e){} } });
+  clean.addEventListener('click',function(){ clean.disabled=true; clean.textContent='정리 중…'; returnStorageCleanupNow().then(function(){ if(!_storageIsFull()){ ov.remove(); try{ if(typeof showToast==='function')showToast('공간이 정리됐어요 — 이제 저장돼요'); }catch(_e){} } else { clean.disabled=false; clean.textContent='지금 공간 정리'; try{ if(typeof showToast==='function')showToast('아직 공간이 부족해요 — 큰 이미지를 줄여보세요'); }catch(_e){} } }).catch(function(){ clean.disabled=false; clean.textContent='지금 공간 정리'; }); });
+  ov.querySelector('#rsg-recheck').addEventListener('click',function(){ if(!_storageIsFull()){ ov.remove(); } else { try{ if(typeof showToast==='function')showToast('아직 저장공간이 부족해요'); }catch(_e){} } });
   ov.querySelector('#rsg-ro').addEventListener('click',function(e){ e.preventDefault(); window.__returnReadOnlyAck=true; ov.remove(); try{ if(typeof showToast==='function')showToast('읽기 전용으로 계속해요 — 이 기기의 변경은 저장·동기화되지 않아요'); }catch(_e){} });
   return true;
 }
