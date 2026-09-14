@@ -19477,7 +19477,22 @@ window.returnReloadMemoryFromStorage=returnReloadMemoryFromStorage;
    시간순으로 스냅샷. 최신 N개 + '가장 풍부한' 스냅샷 1개(대량 손실 직전 상태)를 보호
    보관. 저장이 의미 있게 바뀔 때(스로틀), 부팅 settle 후, 탭이 백그라운드로 갈 때 찍는다.
    기기 로컬(동기화 안 함) — 각 기기가 자기 안전망을 가진다. 콘솔/설정에서 복원 가능. */
-var RETURN_SNAPSHOT_KEYS=['task_items_v1','task_cats_v1','repeat_items_v1','repeat_suppressions_v1','generated_task_suppressions_v1','inbox_v1','return_inbox_cats','projects_v1','routine_habits_v1','routine_bundles_v1','routine_logs_v1','memos_v5','metrics_v1','diary_entries_v1','timetables_v1','timetable_palette_v1','task_rules_v1'];
+/* 스냅샷 대상 = 사용자가 손으로 채우는 '구조화 데이터' 전부. 큰 이미지/미디어 키
+   (배너·테마 에셋·스티커·미디어 매니페스트·에너지 사진)는 30벌씩 쌓으면 용량을 터뜨리고
+   이미 MediaStore/클라우드로 복구되므로 제외한다. */
+var RETURN_SNAPSHOT_KEYS=[
+  /* 할일·반복·규칙 */ 'task_items_v1','task_cats_v1','task_rules_v1','repeat_items_v1','repeat_suppressions_v1','generated_task_suppressions_v1',
+  /* 인박스·프로젝트 */ 'inbox_v1','return_inbox_cats','projects_v1',
+  /* 루틴 */ 'routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1',
+  /* 시간표 */ 'timetables_v1','timetable_palette_v1',
+  /* 기록(메모·지표·트래커·체크인·가치관·에너지) */ 'memos_v5','metrics_v1','diary_trackers_v1','diary_tracker_values_v1','return_check_logs','phil_cards','stamina_level_v1',
+  /* 일기 */ 'diary_entries_v1',
+  /* 취미 */ 'hobby_cats_v2','hobby_items_v2',
+  /* 위시/충전 */ 'reward_data','recharge_reflects','recharge_energy',
+  /* 음악 */ 'music_playlists_v1',
+  /* 머니(가계부) */ 'money_tx_v1','money_cats_v1','money_budget_v1','money_subs_v1',
+  /* 프로필 */ 'profile_data'
+];
 var RETURN_SNAPSHOT_MAX=30, RETURN_SNAPSHOT_MIN_INTERVAL=5*60*1000;
 var _snapDb=null, _snapReady=false, _snapLastMs=0, _snapLastHash='', _snapTimer=null;
 (function _initSnapDb(){
@@ -19488,15 +19503,21 @@ var _snapDb=null, _snapReady=false, _snapLastMs=0, _snapLastHash='', _snapTimer=
   }catch(e){}
 })();
 function _snapParseObj(s){ try{ var o=JSON.parse(s==null?'{}':s); return (o&&typeof o==='object'&&!Array.isArray(o))?o:{}; }catch(e){ return {}; } }
+/* 키 모양(배열/객체/스칼라)을 구분해 정교하게 복원한다. 배열=id 기준 병합, 객체=키 기준
+   병합(일기·루틴로그·트래커값 등), 스칼라=현재 비어있을 때만 채움. 스칼라 키에 '[]'를
+   덮어써 값을 망가뜨리던 문제를 막는다. */
+function _snapVal(s){ try{ return JSON.parse(s==null?'null':s); }catch(e){ return null; } }
+function _snapShape(v){ return Array.isArray(v)?'array':((v&&typeof v==='object')?'object':'scalar'); }
+function _snapCurEmpty(raw){ return raw==null||raw===''||raw==='null'||raw==='[]'||raw==='{}'; }
 function _snapCollect(){
   var keys={}, counts={};
   RETURN_SNAPSHOT_KEYS.forEach(function(k){ try{ var v=localStorage.getItem(k); if(v!=null&&v!=='')keys[k]=v; }catch(e){} });
-  function n(k){ try{ return JSON.parse(keys[k]||'[]').length; }catch(e){ return 0; } }
-  counts={ tasks:n('task_items_v1'), repeats:n('repeat_items_v1'), memos:n('memos_v5'), inbox:n('inbox_v1'), projects:n('projects_v1'), routine:n('routine_habits_v1'), timetables:n('timetables_v1'), diary:Object.keys(_snapParseObj(keys['diary_entries_v1'])).length };
+  function n(k){ try{ var a=JSON.parse(keys[k]||'[]'); return Array.isArray(a)?a.length:(a&&typeof a==='object'?Object.keys(a).length:(keys[k]?1:0)); }catch(e){ return 0; } }
+  counts={ tasks:n('task_items_v1'), repeats:n('repeat_items_v1'), rules:n('task_rules_v1'), memos:n('memos_v5'), inbox:n('inbox_v1'), projects:n('projects_v1'), routine:n('routine_habits_v1'), timetables:n('timetables_v1'), hobby:n('hobby_items_v2'), metrics:n('metrics_v1'), checks:n('return_check_logs'), money:n('money_tx_v1'), music:n('music_playlists_v1'), diary:Object.keys(_snapParseObj(keys['diary_entries_v1'])).length };
   return { keys:keys, counts:counts };
 }
 function _snapHash(keys){ try{ return timetableTaskHash(RETURN_SNAPSHOT_KEYS.map(function(k){return keys[k]||'';}).join('')); }catch(e){ return RETURN_SNAPSHOT_KEYS.map(function(k){return (keys[k]||'').length;}).join(','); } }
-function _snapTotal(rec){ var c=(rec&&rec.counts)||{}; return (c.tasks||0)+(c.repeats||0)+(c.memos||0)+(c.inbox||0)+(c.projects||0)+(c.routine||0)+(c.timetables||0)+(c.diary||0); }
+function _snapTotal(rec){ var c=(rec&&rec.counts)||{}; return (c.tasks||0)+(c.repeats||0)+(c.rules||0)+(c.memos||0)+(c.inbox||0)+(c.projects||0)+(c.routine||0)+(c.timetables||0)+(c.hobby||0)+(c.metrics||0)+(c.checks||0)+(c.money||0)+(c.music||0)+(c.diary||0); }
 function _snapListRaw(){ return new Promise(function(res){ if(!_snapDb){res([]);return;} try{ var tx=_snapDb.transaction('snap','readonly'); var req=tx.objectStore('snap').getAll(); req.onsuccess=function(){ var a=req.result||[]; a.sort(function(x,y){return y.ts-x.ts;}); res(a); }; req.onerror=function(){res([]);}; }catch(e){res([]);} }); }
 function _snapDelete(ts){ return new Promise(function(res){ if(!_snapDb){res();return;} try{ var tx=_snapDb.transaction('snap','readwrite'); tx.objectStore('snap').delete(ts); tx.oncomplete=function(){res();}; tx.onerror=function(){res();}; }catch(e){res();} }); }
 async function _snapPrune(){
@@ -19513,7 +19534,8 @@ function returnSnapshotNow(reason){
   if(typeof _idbInitSettled!=='undefined'&&!_idbInitSettled)return Promise.resolve(false); /* 부팅 부분상태 스냅샷 금지 */
   var force=!!(reason&&reason.force);
   var c=_snapCollect();
-  if(!c.keys['task_items_v1']&&!c.keys['memos_v5']&&!force)return Promise.resolve(false); /* 텅 빈 상태는 자동 스냅샷 안 함(와이프 저장 방지) */
+  /* 텅 빈 상태는 자동 스냅샷 안 함(와이프 저장 방지). 어떤 주요 도메인이든 내용이 있으면 찍는다. */
+  if(!force && !['task_items_v1','memos_v5','projects_v1','hobby_items_v2','money_tx_v1','routine_habits_v1','timetables_v1','diary_entries_v1','metrics_v1','return_check_logs'].some(function(k){ var v=c.keys[k]; return v&&v!=='[]'&&v!=='{}'&&v!=='null'; }))return Promise.resolve(false);
   var h=_snapHash(c.keys);
   if(h===_snapLastHash&&!force)return Promise.resolve(false);
   var rec={ ts:Date.now(), keys:c.keys, counts:c.counts, reason:(reason&&reason.reason)||reason||'auto', hash:h };
@@ -19535,7 +19557,7 @@ async function returnVersionList(){
   var all=await _snapListRaw();
   try{
     console.group('%c[버전 기록] '+all.length+'개 (최신순)','font-weight:bold;color:#A75F66');
-    all.forEach(function(r){ var c=r.counts||{}; console.log(new Date(r.ts).toLocaleString()+'  · 할일 '+(c.tasks||0)+' · 반복 '+(c.repeats||0)+' · 메모 '+(c.memos||0)+' · 인박스 '+(c.inbox||0)+' · 프로젝트 '+(c.projects||0)+'  ['+r.ts+']  '+(r.reason||'')); });
+    all.forEach(function(r){ var c=r.counts||{}; console.log(new Date(r.ts).toLocaleString()+'  · 할일 '+(c.tasks||0)+' · 프로젝트 '+(c.projects||0)+' · 루틴 '+(c.routine||0)+' · 시간표 '+(c.timetables||0)+' · 취미 '+(c.hobby||0)+' · 메모 '+(c.memos||0)+' · 일기 '+(c.diary||0)+'  ['+r.ts+']  '+(r.reason||'')); });
     console.log('복원: returnVersionRestore(<ts>)  · 미리보기: returnVersionRestore(<ts>,{dryRun:true})  · 전체 교체: returnVersionRestore(<ts>,{replace:true})  · UI: returnVersionOpenUI()');
     console.groupEnd();
   }catch(e){}
@@ -19550,9 +19572,11 @@ async function returnVersionRestore(ts, opts){
   var plan={};
   keysToRestore.forEach(function(k){
     if(rec.keys[k]==null)return;
-    if(k==='diary_entries_v1'){ var snO=_snapParseObj(rec.keys[k]),curO=_snapParseObj(localStorage.getItem(k)); plan[k]=opts.replace?{mode:'replace',to:Object.keys(snO).length}:{mode:'merge',add:Object.keys(snO).filter(function(d){return curO[d]==null;}).length}; return; }
-    var sn=_recoveryParseArr(rec.keys[k]),cur=_recoveryParseArr(localStorage.getItem(k));
-    plan[k]=opts.replace?{mode:'replace',to:sn.length}:{mode:'merge',add:sn.filter(function(it){return it&&it.id!=null&&!cur.some(function(c){return c&&String(c.id)===String(it.id);});}).length};
+    var snV=_snapVal(rec.keys[k]), shape=_snapShape(snV), curRaw=localStorage.getItem(k);
+    if(opts.replace){ plan[k]={mode:'replace',shape:shape}; return; }
+    if(shape==='array'){ var cur=_recoveryParseArr(curRaw); plan[k]={mode:'merge',add:(snV||[]).filter(function(it){return it&&it.id!=null&&!cur.some(function(c){return c&&String(c.id)===String(it.id);});}).length}; }
+    else if(shape==='object'){ var curO=_snapParseObj(curRaw); plan[k]={mode:'merge',add:Object.keys(snV||{}).filter(function(d){return curO[d]==null;}).length}; }
+    else { plan[k]={mode:'fill',willRestore:_snapCurEmpty(curRaw)}; }
   });
   try{ console.group('%c[버전 복원] '+new Date(rec.ts).toLocaleString()+(opts.dryRun?' — 미리보기(변경 없음)':(opts.replace?' — 전체 교체':' — 없는 항목만 병합'))+'%c','font-weight:bold;color:#A75F66',''); console.log(plan); }catch(e){}
   if(opts.dryRun){ try{ console.log('실제 복원: returnVersionRestore('+rec.ts+(opts.replace?',{replace:true}':'')+')'); console.groupEnd(); }catch(e){} return { ts:rec.ts, plan:plan, dryRun:true }; }
@@ -19560,11 +19584,17 @@ async function returnVersionRestore(ts, opts){
     if(rec.keys[k]==null)return;
     try{
       if(opts.replace){ setReturnStorageItem(k, rec.keys[k]); return; }
-      if(k==='diary_entries_v1'){ var curO=_snapParseObj(localStorage.getItem(k)),snO=_snapParseObj(rec.keys[k]); Object.keys(snO).forEach(function(d){ if(curO[d]==null)curO[d]=snO[d]; }); setReturnStorageItem(k, JSON.stringify(curO)); return; }
-      var cur=_recoveryParseArr(localStorage.getItem(k)),sn=_recoveryParseArr(rec.keys[k]),ids={};
-      cur.forEach(function(it){if(it&&it.id!=null)ids[String(it.id)]=1;});
-      sn.forEach(function(it){ if(it&&it.id!=null&&!ids[String(it.id)])cur.push(it); });
-      setReturnStorageItem(k, JSON.stringify(cur));
+      var snV=_snapVal(rec.keys[k]), shape=_snapShape(snV), curRaw=localStorage.getItem(k);
+      if(shape==='array'){
+        var cur=_recoveryParseArr(curRaw),ids={};
+        cur.forEach(function(it){if(it&&it.id!=null)ids[String(it.id)]=1;});
+        (snV||[]).forEach(function(it){ if(it&&it.id!=null&&!ids[String(it.id)])cur.push(it); });
+        setReturnStorageItem(k, JSON.stringify(cur));
+      } else if(shape==='object'){
+        var curO=_snapParseObj(curRaw); Object.keys(snV||{}).forEach(function(d){ if(curO[d]==null)curO[d]=snV[d]; }); setReturnStorageItem(k, JSON.stringify(curO));
+      } else {
+        if(_snapCurEmpty(curRaw)) setReturnStorageItem(k, rec.keys[k]); /* 스칼라: 비어있을 때만 채움('[]' 덮어쓰기 방지) */
+      }
     }catch(e){ try{console.warn('[버전] 복원 실패',k,e);}catch(_e){} }
   });
   try{ returnReloadMemoryFromStorage(); }catch(e){}
@@ -19581,7 +19611,7 @@ async function returnVersionOpenUI(){
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
   var rows=all.length?all.map(function(r){ var c=r.counts||{}; return '<div class="rv-row" data-ts="'+r.ts+'">'
     +'<div class="rv-when">'+esc(new Date(r.ts).toLocaleString())+'</div>'
-    +'<div class="rv-counts">할일 '+(c.tasks||0)+' · 반복 '+(c.repeats||0)+' · 메모 '+(c.memos||0)+' · 인박스 '+(c.inbox||0)+' · 프로젝트 '+(c.projects||0)+'</div>'
+    +'<div class="rv-counts">'+[['할일',c.tasks],['반복',c.repeats],['프로젝트',c.projects],['루틴',c.routine],['시간표',c.timetables],['취미',c.hobby],['인박스',c.inbox],['메모',c.memos],['일기',c.diary],['체크인',c.checks],['머니',c.money]].filter(function(p){return (p[1]||0)>0;}).map(function(p){return p[0]+' '+p[1];}).join(' · ')||'비어 있음'+'</div>'
     +'<div class="rv-actions"><button class="btn btn-ghost" data-rv-merge="'+r.ts+'">없는 것만 되살리기</button><button class="btn btn-ghost" data-rv-replace="'+r.ts+'">이 버전으로 교체</button></div>'
     +'</div>'; }).join('') : '<div style="color:var(--fg-3);padding:var(--sp-6);text-align:center">아직 저장된 버전이 없어요. 데이터가 바뀌면 자동으로 쌓여요.</div>';
   ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">버전 기록 · 복원</div></div>'
