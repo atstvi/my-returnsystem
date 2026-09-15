@@ -9717,6 +9717,10 @@ to{opacity:1;transform:translateY(0)}}
         <div class="capture-cats" id="capture-cats" role="tablist" aria-label="인박스 카테고리"></div>
       </div>
       <div class="topbar-actions">
+        <button class="topbar-icon-btn" id="topbar-undo-btn" type="button" title="되돌리기 · 다시" aria-label="되돌리기">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v1"/></svg>
+          <span class="topbar-badge" id="undo-badge" style="display:none"></span>
+        </button>
         <button class="sync-pill" id="sync-pill" type="button" data-state="local" title="이 기기에 저장됨" onclick="openSyncSettings()"><span class="sync-pill-ic"></span><span class="sync-pill-t">기기에 저장</span></button>
         <button class="topbar-icon-btn m-only" id="m-more-btn" type="button" title="더보기" aria-label="더보기" onclick="mMoreOpen()">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.6"/><rect x="14" y="4" width="6" height="6" rx="1.6"/><rect x="4" y="14" width="6" height="6" rx="1.6"/><rect x="14" y="14" width="6" height="6" rx="1.6"/></svg>
@@ -19713,7 +19717,7 @@ function _undoFlushGroup(){
   _undoStack.push(grp);
   if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
   _redoStack=[];                                               /* 새 동작이 생기면 '다시' 무효화 */
-  try{ _showActionToast(grp.label,'undo'); }catch(e){}
+  /* 변경 토스트는 띄우지 않는다(상단 되돌리기 버튼이 대신함) — 상태만 갱신. */
   try{ _refreshUndoFab(); }catch(e){}
 }
 function returnUndoLast(opts){
@@ -19724,7 +19728,7 @@ function returnUndoLast(opts){
   var redo={ keys:grp.keys.slice(), changes:_undoSnapKeys(grp.keys), label:grp.label }; /* 되돌리기 전 현재값 = '다시'용 */
   _redoStack.push(redo); if(_redoStack.length>RETURN_UNDO_MAX)_redoStack.shift();
   _undoApply(grp);
-  if(!opts.silent){ try{ _showActionToast(grp.label,'redo'); }catch(e){} }  /* 되돌린 뒤엔 '다시' 버튼 제공 */
+  if(!opts.silent){ try{ if(typeof showToast==='function')showToast('되돌렸어요 · '+(grp.label||'')); }catch(e){} }
   try{ _refreshUndoFab(); }catch(e){}
   return true;
 }
@@ -19735,7 +19739,7 @@ function returnRedoLast(opts){
   var grp={ keys:redo.keys.slice(), changes:_undoSnapKeys(redo.keys), label:redo.label }; /* 다시 전 현재값 = 되돌리기용 */
   _undoStack.push(grp); if(_undoStack.length>RETURN_UNDO_MAX)_undoStack.shift();
   _undoApply(redo);
-  if(!opts.silent){ try{ _showActionToast(redo.label,'undo'); }catch(e){} }
+  if(!opts.silent){ try{ if(typeof showToast==='function')showToast('다시 실행했어요 · '+(redo.label||'')); }catch(e){} }
   try{ _refreshUndoFab(); }catch(e){}
   return true;
 }
@@ -19760,25 +19764,7 @@ function returnUndoUntil(ts){
   try{ _refreshUndoFab(); }catch(e){}
   return done;
 }
-function _showActionToast(label, mode){
-  mode=mode||'undo';
-  var el=document.getElementById('return-undo-toast');
-  if(!el){
-    el=document.createElement('div'); el.id='return-undo-toast';
-    el.style.cssText='position:fixed;bottom:calc(var(--sp-10) + 60px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--n-700,#2b2b2b);color:var(--n-0,#fff);padding:var(--sp-3) var(--sp-3) var(--sp-3) var(--sp-5);border-radius:var(--r-full,999px);font-size:var(--text-sm);font-weight:var(--fw-medium);z-index:600;display:flex;align-items:center;gap:var(--sp-3);box-shadow:var(--shadow-3,0 6px 24px rgba(0,0,0,.25));opacity:0;transition:opacity var(--t-snap,.15s);pointer-events:none';
-    var span=document.createElement('span'); span.className='rut-label';
-    var btn=document.createElement('button'); btn.type='button'; btn.className='rut-btn';
-    btn.style.cssText='background:transparent;border:none;color:var(--accent-2,#8FD0BE);font-weight:var(--fw-bold,700);font-size:var(--text-sm);cursor:pointer;padding:var(--sp-1) var(--sp-3);white-space:nowrap';
-    el.appendChild(span); el.appendChild(btn);
-    document.body.appendChild(el);
-  }
-  var isRedo=(mode==='redo');
-  el.querySelector('.rut-label').textContent=(isRedo?'되돌렸어요':'변경됨')+(label?(' · '+label):'');
-  var b=el.querySelector('.rut-btn'); b.textContent=isRedo?'↪ 다시':'↩ 되돌리기';
-  b.onclick=isRedo?function(){ returnRedoLast(); }:function(){ returnUndoLast(); };
-  el.style.opacity='1'; el.style.pointerEvents='auto';
-  clearTimeout(el._t); el._t=setTimeout(_hideUndoToast, isRedo?7000:6000);
-}
+function _showActionToast(){ /* 변경 토스트 제거됨 — 상단 되돌리기 버튼으로 대체. 하위호환용 no-op. */ }
 function _hideUndoToast(){ var el=document.getElementById('return-undo-toast'); if(el){ el.style.opacity='0'; el.style.pointerEvents='none'; } }
 try{
   document.addEventListener('pointerdown', function(){ _lastUserGestureMs=Date.now(); }, true);
@@ -19797,48 +19783,54 @@ try{
 window.returnUndoLast=returnUndoLast; window.returnRedoLast=returnRedoLast;
 window.returnUndoCount=returnUndoCount; window.returnRedoCount=returnRedoCount; window.returnUndoRecent=returnUndoRecent; window.returnUndoUntil=returnUndoUntil;
 
-/* ── 상시 되돌리기 버튼(구석) — 언제든 되돌리기/다시를 꺼낼 수 있게 ──
-   화면 한 구석에 작은 ↩ 버튼을 항상 두고, 탭하면 되돌리기/다시 + 최근 동작 목록을
-   펼친다. 되돌릴 것도 다시 할 것도 없으면 흐리게(비활성) 표시해 존재감을 줄인다. */
+/* ── 되돌리기/다시 — 상단줄(동기화·알림 아이콘 옆) 버튼 ──
+   변경 시 토스트를 띄우지 않고, 상단 ↩ 버튼으로 언제든 되돌리기/다시 + 최근 동작을
+   꺼낸다. 되돌릴/다시 할 게 없으면 흐리게(비활성), 있으면 개수 뱃지 표시. */
 function _ensureUndoFab(){
-  if(document.getElementById('return-undo-fab'))return;
   if(!document.body){ document.addEventListener('DOMContentLoaded', _ensureUndoFab); return; }
-  if(!document.getElementById('return-undo-fab-style')){ var st=document.createElement('style'); st.id='return-undo-fab-style';
+  if(!document.getElementById('return-undo-ui-style')){ var st=document.createElement('style'); st.id='return-undo-ui-style';
     st.textContent=''
-      +'#return-undo-fab{position:fixed;left:calc(12px + env(safe-area-inset-left,0px));bottom:calc(20px + env(safe-area-inset-bottom,0px));z-index:450}'
-      +'@media (max-width:639px){#return-undo-fab{bottom:calc(72px + env(safe-area-inset-bottom,0px))}}'  /* 하단 탭바 위 */
-      +'#return-undo-fab .uf-btn{width:42px;height:42px;border-radius:var(--r-full,999px);border:1px solid var(--border);background:var(--bg-card,#fff);color:var(--fg);box-shadow:var(--shadow-2,0 3px 12px rgba(0,0,0,.14));display:grid;place-items:center;cursor:pointer;opacity:.55;transition:opacity .15s,transform .1s;-webkit-tap-highlight-color:transparent}'
-      +'#return-undo-fab .uf-btn:hover{opacity:1}#return-undo-fab .uf-btn:active{transform:scale(.94)}'
-      +'#return-undo-fab.has .uf-btn{opacity:.92}#return-undo-fab.open .uf-btn{opacity:1;background:var(--accent,#A75F66);color:#fff;border-color:transparent}'
-      +'#return-undo-fab .uf-btn svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}'
-      +'#return-undo-fab .uf-badge{position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--accent,#A75F66);color:#fff;font-size:10px;font-weight:800;display:none;align-items:center;justify-content:center;line-height:1}'
-      +'#return-undo-fab.has .uf-badge{display:flex}#return-undo-fab.open .uf-badge{display:none}'
-      +'#return-undo-fab .uf-pop{position:absolute;left:0;bottom:52px;width:250px;max-width:78vw;background:var(--bg-card,#fff);border:1px solid var(--border);border-radius:var(--r-lg,16px);box-shadow:var(--shadow-3,0 8px 28px rgba(0,0,0,.22));padding:8px;display:none;flex-direction:column;gap:4px}'
-      +'#return-undo-fab.open .uf-pop{display:flex}'
-      +'#return-undo-fab .uf-act{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:none;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;cursor:pointer;text-align:left}'
-      +'#return-undo-fab .uf-act:hover{background:var(--bg-raised)}#return-undo-fab .uf-act[disabled]{opacity:.4;cursor:default}'
-      +'#return-undo-fab .uf-act .uf-ic{font-size:15px;flex:0 0 auto}#return-undo-fab .uf-act .uf-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-      +'#return-undo-fab .uf-sep{height:1px;background:var(--border);margin:4px 2px}'
-      +'#return-undo-fab .uf-h{font-size:11px;font-weight:700;color:var(--fg-4);padding:4px 10px 2px}'
-      +'#return-undo-fab .uf-recent{padding:7px 10px;font-size:12px;color:var(--fg-3);border-radius:8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
-      +'#return-undo-fab .uf-recent:hover{background:var(--bg-raised)}'
-      +'#return-undo-fab .uf-empty{padding:8px 10px;font-size:12px;color:var(--fg-4)}';
+      +'#topbar-undo-btn{position:relative;opacity:.4;transition:opacity .15s}'
+      +'#topbar-undo-btn.has{opacity:1}'
+      +'#topbar-undo-btn #undo-badge{background:var(--accent,#A75F66)}'
+      +'#return-undo-pop{position:fixed;z-index:640;width:250px;max-width:min(88vw,320px);background:var(--bg-card,#fff);border:1px solid var(--border);border-radius:var(--r-lg,16px);box-shadow:var(--shadow-3,0 8px 28px rgba(0,0,0,.22));padding:8px;display:none;flex-direction:column;gap:4px}'
+      +'#return-undo-pop.open{display:flex}'
+      +'#return-undo-pop .uf-act{display:flex;align-items:center;gap:8px;width:100%;padding:9px 10px;border:none;border-radius:10px;background:transparent;color:var(--fg);font-size:13px;font-weight:600;cursor:pointer;text-align:left}'
+      +'#return-undo-pop .uf-act:hover{background:var(--bg-raised)}#return-undo-pop .uf-act[disabled]{opacity:.4;cursor:default}'
+      +'#return-undo-pop .uf-act .uf-ic{font-size:15px;flex:0 0 auto}#return-undo-pop .uf-act .uf-t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+      +'#return-undo-pop .uf-sep{height:1px;background:var(--border);margin:4px 2px}'
+      +'#return-undo-pop .uf-h{font-size:11px;font-weight:700;color:var(--fg-4);padding:4px 10px 2px}'
+      +'#return-undo-pop .uf-recent{padding:7px 10px;font-size:12px;color:var(--fg-3);border-radius:8px;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}'
+      +'#return-undo-pop .uf-recent:hover{background:var(--bg-raised)}'
+      +'#return-undo-pop .uf-empty{padding:8px 10px;font-size:12px;color:var(--fg-4)}';
     document.head.appendChild(st); }
-  var fab=document.createElement('div'); fab.id='return-undo-fab';
-  fab.innerHTML='<button class="uf-btn" type="button" aria-label="되돌리기 · 다시" title="되돌리기 · 다시">'
-    +'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v1"/></svg>'
-    +'<span class="uf-badge">0</span></button>'
-    +'<div class="uf-pop" role="menu"></div>';
-  document.body.appendChild(fab);
-  var btn=fab.querySelector('.uf-btn'), pop=fab.querySelector('.uf-pop');
-  btn.addEventListener('click', function(e){ e.stopPropagation(); if(fab.classList.contains('open')){ _closeUndoFab(); } else { _openUndoFab(); } });
-  document.addEventListener('click', function(e){ if(fab.classList.contains('open') && !fab.contains(e.target)) _closeUndoFab(); });
+  if(!document.getElementById('return-undo-pop')){
+    var pop=document.createElement('div'); pop.id='return-undo-pop'; pop.setAttribute('role','menu'); document.body.appendChild(pop);
+    document.addEventListener('click', function(e){ var pp=document.getElementById('return-undo-pop'); var bt=document.getElementById('topbar-undo-btn'); if(pp&&pp.classList.contains('open') && !pp.contains(e.target) && !(bt&&bt.contains(e.target))) _closeUndoFab(); });
+    window.addEventListener('resize', function(){ _closeUndoFab(); });
+  }
+  var btn=document.getElementById('topbar-undo-btn');
+  if(btn && !btn._undoWired){ btn._undoWired=true;
+    btn.addEventListener('click', function(e){ e.stopPropagation(); var pp=document.getElementById('return-undo-pop'); if(pp&&pp.classList.contains('open')){ _closeUndoFab(); } else { _openUndoFab(); } });
+  }
   _refreshUndoFab();
 }
-function _openUndoFab(){ var fab=document.getElementById('return-undo-fab'); if(!fab)return; _buildUndoPop(); fab.classList.add('open'); }
-function _closeUndoFab(){ var fab=document.getElementById('return-undo-fab'); if(fab)fab.classList.remove('open'); }
+function _openUndoFab(){
+  var pop=document.getElementById('return-undo-pop'), btn=document.getElementById('topbar-undo-btn');
+  if(!pop||!btn)return; _buildUndoPop();
+  var r=btn.getBoundingClientRect();
+  pop.style.top=(r.bottom+6)+'px';
+  /* 화면 오른쪽 정렬(버튼 오른쪽 끝에 맞춰 왼쪽으로 펼침) */
+  var w=Math.min(pop.offsetWidth||250, Math.min(window.innerWidth*0.88,320));
+  var left=Math.max(8, Math.min(r.right-w, window.innerWidth-w-8));
+  pop.style.left=left+'px';
+  pop.classList.add('open');
+  /* offsetWidth가 0이던 첫 프레임 보정 */
+  var w2=pop.offsetWidth; var left2=Math.max(8, Math.min(r.right-w2, window.innerWidth-w2-8)); pop.style.left=left2+'px';
+}
+function _closeUndoFab(){ var pop=document.getElementById('return-undo-pop'); if(pop)pop.classList.remove('open'); }
 function _buildUndoPop(){
-  var fab=document.getElementById('return-undo-fab'); if(!fab)return; var pop=fab.querySelector('.uf-pop'); if(!pop)return;
+  var pop=document.getElementById('return-undo-pop'); if(!pop)return;
   function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
   var uc=returnUndoCount(), rc=returnRedoCount();
   var recent=returnUndoRecent(5);
@@ -19857,11 +19849,11 @@ function _buildUndoPop(){
   pop.querySelectorAll('[data-uf-ts]').forEach(function(el){ el.addEventListener('click',function(){ returnUndoUntil(Number(el.getAttribute('data-uf-ts'))); _closeUndoFab(); }); });
 }
 function _refreshUndoFab(){
-  var fab=document.getElementById('return-undo-fab'); if(!fab)return;
+  var btn=document.getElementById('topbar-undo-btn'); if(!btn)return;
   var uc=returnUndoCount(), rc=returnRedoCount(), has=(uc>0||rc>0);
-  fab.classList.toggle('has',has);
-  var badge=fab.querySelector('.uf-badge'); if(badge)badge.textContent=String(uc);
-  if(fab.classList.contains('open'))_buildUndoPop();
+  btn.classList.toggle('has',has);
+  var badge=document.getElementById('undo-badge'); if(badge){ if(uc>0){ badge.textContent=String(uc); badge.style.display='flex'; } else { badge.style.display='none'; } }
+  var pop=document.getElementById('return-undo-pop'); if(pop&&pop.classList.contains('open'))_buildUndoPop();
 }
 window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
 try{ _ensureUndoFab(); }catch(_e){}
