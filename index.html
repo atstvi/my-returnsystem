@@ -14092,6 +14092,34 @@ function homeUnskipDeadlineLink(task){
   renderHomeSituation();
   homeToast('패스를 취소했어요');
 }
+/* '오늘 상황 → 연결이 필요한 마감' 목록에서 곧바로 연결(준비) 할일을 만든다.
+   새 할일은 대상(target)을 정/역방향으로 가리켜(deadlineId/sourceTaskId) 양쪽에서
+   '연결됨'으로 인식되고, 대상은 다음 렌더에서 '연결 필요' 목록에서 빠진다. 자연어 캡처가
+   만드는 연결 할일(_captureAIParse)과 동일한 필드 구조를 쓴다. */
+function homeMakeLinkedTask(target, text){
+  if(!target || typeof tasks==='undefined') return null;
+  var txt=String(text||'').trim() || ('준비: '+String(target.text||'').slice(0,20));
+  var prepId = (typeof returnNewId==='function') ? returnNewId('t_') : (Date.now()+'_'+Math.random().toString(36).slice(2));
+  var defPrio = (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(target.catId||'etc') : '') || 'mid';
+  var t={
+    id:prepId, text:txt,
+    catId:target.catId||'etc', date:TK,
+    priority:defPrio, done:false,
+    deadlineDate:target.deadlineDate||target.date||'',
+    deadlineId:String(target.id),
+    timeStart:'', timeEnd:'',
+    note:'오늘 상황 · 연결 할일', subs:[],
+    sourceTaskId:String(target.id), _ruleId:'', _repeat:false,
+    createdAt:Date.now(), updatedAt:Date.now()
+  };
+  tasks.unshift(t);
+  if(typeof saveTaskData==='function') saveTaskData();
+  if(typeof renderList==='function') renderList();
+  if(typeof renderCal==='function') renderCal();
+  if(typeof renderHomeTasks==='function') renderHomeTasks();
+  if(typeof renderHomeSituation==='function') renderHomeSituation();
+  return t;
+}
 /* "특별 일정" D-day tracker — shows tasks the user marked isSpecial as
    horizontally-scrolling countdown chips. Hidden entirely when there are
    none, and drops items more than a week past their deadline. */
@@ -14622,7 +14650,12 @@ function openHomeSignalList(title, entries){
   }
   var rows=(entries||[]).map(function(e,i){
     var passBtn = (e.skipped && e.task) ? '<button class="btn btn-ghost" data-unpass="'+i+'">패스 취소</button>' : ((isLinkList && e.task) ? '<button class="btn btn-ghost" data-pass="'+i+'">패스</button>' : '');
-    return '<div class="ops-row" data-idx="'+i+'"><div><div class="ops-title">'+tEscHtml(e.label||'항목')+'</div><div class="ops-meta">'+(e.inbox?'인박스':'할일')+'</div></div><span class="ops-badge">'+(e.inbox?'처리':'편집')+'</span><div class="ops-actions"><button class="btn btn-ghost" data-open="'+i+'">열기</button>'+passBtn+'</div></div>';
+    /* 연결 필요 목록에서만: 이 자리에서 바로 연결(준비) 할일을 만들 수 있게 한다.
+       버튼을 누르면 같은 행 안에서 이름 입력 폼이 펼쳐진다(모달을 새로 열지 않음). */
+    var mkBtn = (isLinkList && e.task) ? '<button class="btn btn-primary" data-mklink="'+i+'">＋ 연결 할일</button>' : '';
+    var defName = '준비: '+String(e.label||(e.task&&e.task.text)||'').slice(0,20);
+    var mkForm = (isLinkList && e.task) ? '<div class="ops-mklink-form" data-form="'+i+'" style="display:none;grid-column:1/-1;margin-top:var(--sp-2)"><div style="display:flex;gap:var(--sp-2);align-items:center"><input type="text" class="input" data-mkinput="'+i+'" value="'+tEscHtml(defName)+'" placeholder="연결 할일 이름" style="flex:1;min-width:0"><button class="btn btn-primary" data-mkok="'+i+'">추가</button><button class="btn btn-ghost" data-mkcancel="'+i+'">취소</button></div></div>' : '';
+    return '<div class="ops-row" data-idx="'+i+'"><div><div class="ops-title">'+tEscHtml(e.label||'항목')+'</div><div class="ops-meta">'+(e.inbox?'인박스':'할일')+'</div></div><span class="ops-badge">'+(e.inbox?'처리':'편집')+'</span><div class="ops-actions"><button class="btn btn-ghost" data-open="'+i+'">열기</button>'+mkBtn+passBtn+'</div>'+mkForm+'</div>';
   }).join('') || '<div class="ops-row"><div><div class="ops-title">항목이 없어요</div></div><span class="ops-badge">완료</span><div></div></div>';
   ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title)+'</div></div><div class="modal-body">'+rows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="home-signal-close">닫기</button></div></div>';
   document.body.appendChild(ov);
@@ -14650,6 +14683,39 @@ function openHomeSignalList(title, entries){
       if(entry.task && typeof tasksOpenModal==='function') tasksOpenModal(entry.task);
       else if(entry.inbox) goPage('inbox');
     });
+  });
+  /* '＋ 연결 할일' — 행 안의 인라인 폼을 열고, 확인하면 그 자리에서 연결 할일을 만든다. */
+  ov.querySelectorAll('[data-mklink]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var i=btn.getAttribute('data-mklink');
+      var form=ov.querySelector('.ops-mklink-form[data-form="'+i+'"]');
+      if(!form)return;
+      var open=(form.style.display!=='none');
+      form.style.display=open?'none':'block';
+      if(!open){ var inp=form.querySelector('[data-mkinput]'); if(inp){ inp.focus(); inp.select(); } }
+    });
+  });
+  ov.querySelectorAll('[data-mkcancel]').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var form=ov.querySelector('.ops-mklink-form[data-form="'+btn.getAttribute('data-mkcancel')+'"]');
+      if(form)form.style.display='none';
+    });
+  });
+  function _mkOk(i){
+    var entry=entries[parseInt(i,10)];
+    var inp=ov.querySelector('[data-mkinput="'+i+'"]');
+    if(!entry||!entry.task)return;
+    homeMakeLinkedTask(entry.task, inp?inp.value:'');
+    homeToast('연결 할일을 만들었어요');
+    close();
+    /* 연결이 생겨 대상이 목록에서 빠지므로, 남은 '연결 필요'가 있으면 새로고침해 보여준다. */
+    try{ if(typeof renderHomeSituation==='function') renderHomeSituation(); }catch(_e){}
+  }
+  ov.querySelectorAll('[data-mkok]').forEach(function(btn){
+    btn.addEventListener('click',function(){ _mkOk(btn.getAttribute('data-mkok')); });
+  });
+  ov.querySelectorAll('[data-mkinput]').forEach(function(inp){
+    inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _mkOk(inp.getAttribute('data-mkinput')); } });
   });
 }
 function renderHomeTasks(){
@@ -23701,7 +23767,8 @@ var _twvDays  = 7;          /* timeblock view: days in viewport (0 = scroll/cont
 var _twvAnchor = null;      /* timeblock view: Date of first column */
 var _twvAlldayExpanded = false; /* timeblock view: 종일 할일 모두 펼치기 토글 */
 var calFull   = false;      /* compact/full toggle */
-var dlView    = false;      /* deadline view toggle */
+var dlView    = false;      /* deadline view toggle (달력 마감 화살표) */
+var dlOnly    = false;      /* deadline-only 리스트 모드: 마감 + 마감 연결된 것만 (마감 뷰 한 번 더) */
 var hideTt    = false;      /* hide timetable toggle */
 var hideDoneTasks = false;  /* hide completed tasks in calendar/list */
 var showHobby = false;      /* 취미 일정·할일을 할일 탭(목록·달력)에 함께 표시 */
@@ -23729,9 +23796,9 @@ var newProjectId = '';   /* quick-add: 담을 프로젝트(선택 시 catId='pro
 var newGoalId    = '';   /* quick-add: 담을 목표(프로젝트 하위) */
 
 /* Load prefs */
-try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;showHobby=!!_p.showHobby;weekStart=Number(_p.weekStart)===1?1:0;if(_p.twvDays!=null)_twvDays=Number(_p.twvDays);}catch(e){}
+try{var _p=JSON.parse(localStorage.getItem('task_prefs')||'{}');calFull=!!_p.calFull;dlView=!!_p.dlView;dlOnly=!!_p.dlOnly;hideTt=!!_p.hideTt;hideDoneTasks=!!_p.hideDoneTasks;showHobby=!!_p.showHobby;weekStart=Number(_p.weekStart)===1?1:0;if(_p.twvDays!=null)_twvDays=Number(_p.twvDays);}catch(e){}
 
-function savePrefs(){setReturnStorageItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,hideTt:hideTt,hideDoneTasks:hideDoneTasks,showHobby:showHobby,weekStart:weekStart,twvDays:_twvDays}));}
+function savePrefs(){setReturnStorageItem('task_prefs',JSON.stringify({calFull:calFull,dlView:dlView,dlOnly:dlOnly,hideTt:hideTt,hideDoneTasks:hideDoneTasks,showHobby:showHobby,weekStart:weekStart,twvDays:_twvDays}));}
 function renderWeekStartControl(){
   var sel=document.getElementById('week-start-sel');
   if(sel)sel.value=String(weekStart);
@@ -24064,6 +24131,20 @@ function visibleTasks(){
     if(!_taskCatMatch(t,activeCat))return false;
     return true;
     /* NOTE: hideTt (시간표 숨기기) is calendar-only — tasks always show in list */
+  });
+}
+/* 'dlOnly'(마감만) 모드 필터 — 마감 뷰 버튼을 한 번 더 눌렀을 때 쓰는 리스트 필터.
+   마감이 있는 할일 + 그 마감과 연결된(준비) 할일만 남기고 나머지는 숨긴다. 연결 인식은
+   scheduleTargetHasLinkedTask와 같은 규칙(정/역방향 deadlineId·sourceTaskId·_ruleSourceId). */
+function dlOnlyFilter(list){
+  if(!Array.isArray(list))return list;
+  var all=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks:[];
+  return list.filter(function(t){
+    if(!t)return false;
+    if(t.deadlineDate)return true;                       /* 마감 있는 것(마감 목표 + 마감일 물려받은 준비 할일) */
+    if(t.deadlineId||t.sourceTaskId||t._ruleSourceId)return true;  /* 다른 할일의 마감을 가리키는 연결 할일 */
+    var tid=String(t.id);                                /* 다른 할일이 이 할일(마감)을 가리키는 경우 */
+    return all.some(function(u){ return u&&!u._travelOnly&&(String(u.deadlineId||'')===tid||String(u.sourceTaskId||'')===tid||String(u._ruleSourceId||'')===tid); });
   });
 }
 
@@ -24400,7 +24481,11 @@ function renderCal(){
   var calViewLabel=document.querySelector('#btn-cal-view .ctrl-label');
   if(calViewLabel)calViewLabel.textContent=calFull?'풀뷰':'콤팩트';
   document.getElementById('btn-cal-view').classList.toggle('on',calFull);
-  document.getElementById('btn-dl-view').classList.toggle('on',dlView);
+  var dlBtn=document.getElementById('btn-dl-view');
+  dlBtn.classList.toggle('on',dlView||dlOnly);
+  dlBtn.classList.toggle('dl-only',dlOnly);
+  var dlLabel=dlBtn.querySelector('.ctrl-label');
+  if(dlLabel)dlLabel.textContent=dlOnly?'마감만':'마감 뷰';
   document.getElementById('btn-tt-hide').classList.toggle('on',hideTt);
   var hbBtn=document.getElementById('btn-hobby-show'); if(hbBtn)hbBtn.classList.toggle('on',showHobby);
   var doneBtn=document.getElementById('btn-done-hide');
@@ -24688,7 +24773,16 @@ document.getElementById('btn-cal-view').addEventListener('click',function(){
   document.querySelector('.cal-panel').classList.toggle('full-view-active',calFull);
   renderCal();
 });
-document.getElementById('btn-dl-view').addEventListener('click',function(){dlView=!dlView;savePrefs();renderCal();});
+/* 마감 뷰 버튼 = 3단 순환: 끔 → 마감 뷰(달력 화살표) → 마감만(리스트에서 마감·마감 연결된
+   것만 보기, 홈탭 '연결' 흐름과 비슷) → 끔. */
+document.getElementById('btn-dl-view').addEventListener('click',function(){
+  var msg;
+  if(!dlView&&!dlOnly){ dlView=true; dlOnly=false; msg='마감 뷰: 달력에 마감 연결 표시'; }
+  else if(dlView&&!dlOnly){ dlOnly=true; msg='마감만 보기: 마감·연결 할일만 표시'; }
+  else { dlView=false; dlOnly=false; msg='마감 뷰 끔'; }
+  savePrefs(); renderCal(); renderList();
+  if(typeof showToast==='function')showToast(msg);
+});
 document.getElementById('btn-tt-hide').addEventListener('click',function(){hideTt=!hideTt;savePrefs();renderCal();/* list always shows timetable items */});
 document.getElementById('btn-done-hide').addEventListener('click',function(){hideDoneTasks=!hideDoneTasks;savePrefs();renderCal();renderList();});
 (function(){var hb=document.getElementById('btn-hobby-show');if(hb)hb.addEventListener('click',function(){showHobby=!showHobby;savePrefs();renderCal();renderList();});})();
@@ -24822,6 +24916,7 @@ function renderList(){
   document.getElementById('list-date-sub').textContent=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일';
   bindTaskSearchControls();
   var vt=filteredTaskList(visibleTasks());
+  if(dlOnly)vt=dlOnlyFilter(vt);   /* 마감만 모드: 마감·마감 연결 할일만 */
   var done=vt.filter(function(t){return t.done;}).length;
   document.getElementById('progress-fill').style.width=(vt.length?Math.round(done/vt.length*100):0)+'%';
 
@@ -24830,6 +24925,13 @@ function renderList(){
      맨 위(안전 위치)로 빼둔다. 렌더 후 열려있으면 다시 카테고리 아래로 배치. */
   if(typeof _restoreAddWrapTop==='function')_restoreAddWrapTop();
   container.innerHTML='';
+  if(!vt.length && dlOnly){
+    /* 마감만 모드인데 이 날엔 마감·연결 할일이 없을 때 — 모드 때문임을 알려준다. */
+    var de=document.createElement('div');de.className='empty-state';
+    de.textContent='이 날엔 마감·연결 할일이 없어요. (마감만 보기 모드 — 다시 눌러 끄기)';
+    container.appendChild(de);
+    appendAddRow(container);return;
+  }
   if(!vt.length) {
     activeView='list';
     document.querySelectorAll('.view-btn').forEach(function(b){b.classList.toggle('active', b.dataset.view==='list');});
