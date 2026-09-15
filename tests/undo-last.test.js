@@ -22,7 +22,7 @@ t.ok('동작 시작 직전값만(첫 캡처) 보존', /if\(!Object\.prototype\.h
 
 // ── 그룹 flush ──
 t.ok('그룹 flush 시 스택 push + 한도 유지', /_undoStack\.push\(grp\);\s*if\(_undoStack\.length>RETURN_UNDO_MAX\)_undoStack\.shift\(\);/.test(html));
-t.ok('그룹 flush 시 되돌리기 토스트', /_undoFlushGroup\(\)\{[\s\S]*?_showActionToast\(grp\.label,'undo'\)/.test(html));
+t.ok('그룹 flush 시 변경 토스트 없이 버튼만 갱신', /변경 토스트는 띄우지 않는다[\s\S]*?_refreshUndoFab\(\)/.test(html) && /_showActionToast\(grp\.label,'undo'\)/.test(html) === false);
 
 // ── 복원(returnUndoLast) ──
 t.ok('returnUndoLast 정의+노출', /function returnUndoLast\(opts\)\{/.test(html) && /window\.returnUndoLast=returnUndoLast;/.test(html));
@@ -49,19 +49,20 @@ t.ok('되돌리기 전 현재값을 다시 스택에 저장', /var redo=\{ keys:
 t.ok('다시 전 현재값을 되돌리기 스택에 저장', /var grp=\{ keys:redo\.keys\.slice\(\), changes:_undoSnapKeys\(redo\.keys\), label:redo\.label \};[\s\S]*?_undoStack\.push\(grp\);/.test(html));
 t.ok('빈 다시 스택이면 false', /if\(!_redoStack\.length\)\{[\s\S]*?return false;/.test(html));
 t.ok('복원은 공용 _undoApply(재캡처 억제)', /function _undoApply\(entry\)\{[\s\S]*?_undoRestoring=true;[\s\S]*?returnReloadMemoryFromStorage\(\)[\s\S]*?_undoRestoring=false;/.test(html));
-t.ok('되돌린 뒤 토스트는 다시 버튼', /_showActionToast\(grp\.label,'redo'\)/.test(html));
-t.ok('토스트 버튼 라벨 되돌리기↔다시', /b\.textContent=isRedo\?'↪ 다시':'↩ 되돌리기';/.test(html));
+t.ok('되돌린 뒤 짧은 확인 토스트만(액션 토스트 아님)', /if\(!opts\.silent\)\{ try\{ if\(typeof showToast==='function'\)showToast\('되돌렸어요 · '\+\(grp\.label\|\|''\)\); \}/.test(html));
+t.ok('변경 토스트(_showActionToast) 제거 — no-op', /function _showActionToast\(\)\{ \/\* 변경 토스트 제거됨/.test(html));
 t.ok('Ctrl/⌘+Shift+Z 또는 Ctrl+Y = 다시', /if\(isZ && e\.shiftKey && !e\.altKey\)\{ e\.preventDefault\(\); returnRedoLast\(\); \}[\s\S]*?else if\(isY && !e\.altKey\)\{ e\.preventDefault\(\); returnRedoLast\(\); \}/.test(html));
 
-// ── 상시 되돌리기 버튼(구석 FAB) ──
-t.ok('되돌리기/다시 silent 옵션(연속 되돌리기용)', /function returnUndoLast\(opts\)\{/.test(html) && /if\(!opts\.silent\)\{ try\{ _showActionToast/.test(html));
+// ── 상단줄 되돌리기 버튼(동기화·알림 아이콘 옆) ──
+t.ok('되돌리기/다시 silent 옵션(연속 되돌리기용)', /function returnUndoLast\(opts\)\{/.test(html) && /if\(!opts\.silent\)\{ try\{ if\(typeof showToast==='function'\)showToast/.test(html));
 t.ok('스택 개수/최근 동작 API 노출', /window\.returnUndoCount=returnUndoCount; window\.returnRedoCount=returnRedoCount; window\.returnUndoRecent=returnUndoRecent; window\.returnUndoUntil=returnUndoUntil;/.test(html));
 t.ok('특정 시점까지 연속 되돌리기', /function returnUndoUntil\(ts\)\{[\s\S]*?returnUndoLast\(\{silent:!last\}\);[\s\S]*?if\(isTarget\)\{ done=true; break; \}/.test(html));
-t.ok('상시 FAB 생성(항상 표시)', /function _ensureUndoFab\(\)\{[\s\S]*?fab\.id='return-undo-fab';[\s\S]*?document\.body\.appendChild\(fab\)/.test(html));
-t.ok('FAB 팝오버: 되돌리기/다시 + 최근 동작', /data-uf="undo"[\s\S]*?data-uf="redo"[\s\S]*?최근 동작/.test(html));
-t.ok('FAB 최근 항목 클릭 = 그때까지 되돌리기', /el\.addEventListener\('click',function\(\)\{ returnUndoUntil\(Number\(el\.getAttribute\('data-uf-ts'\)\)\); _closeUndoFab\(\); \}\)/.test(html));
-t.ok('FAB 뱃지=되돌리기 개수, 있을 때만 진하게', /badge\.textContent=String\(uc\);/.test(html) && /fab\.classList\.toggle\('has',has\)/.test(html));
-t.ok('되돌리기/다시 후 FAB 갱신', /try\{ _refreshUndoFab\(\); \}catch\(e\)\{\}\s*\n\s*return true;/.test(html));
-t.ok('FAB는 하단 탭바 위(모바일)', /@media \(max-width:639px\)\{#return-undo-fab\{bottom:calc\(72px/.test(html));
+t.ok('상단줄 되돌리기 버튼 존재', /id="topbar-undo-btn"/.test(html) && /aria-label="되돌리기"/.test(html));
+t.ok('버튼→body 팝오버(드롭다운)로 연결', /function _ensureUndoFab\(\)\{[\s\S]*?document\.getElementById\('topbar-undo-btn'\)[\s\S]*?return-undo-pop/.test(html) && /return-undo-fab/.test(html) === false);
+t.ok('팝오버: 되돌리기/다시 + 최근 동작', /data-uf="undo"[\s\S]*?data-uf="redo"[\s\S]*?최근 동작/.test(html));
+t.ok('최근 항목 클릭 = 그때까지 되돌리기', /el\.addEventListener\('click',function\(\)\{ returnUndoUntil\(Number\(el\.getAttribute\('data-uf-ts'\)\)\); _closeUndoFab\(\); \}\)/.test(html));
+t.ok('버튼 뱃지=되돌리기 개수, 있을 때만 진하게', /badge\.textContent=String\(uc\); badge\.style\.display='flex'/.test(html) && /btn\.classList\.toggle\('has',has\)/.test(html));
+t.ok('되돌리기/다시 후 버튼 갱신', /try\{ _refreshUndoFab\(\); \}catch\(e\)\{\}\s*\n\s*return true;/.test(html));
+t.ok('팝오버는 버튼 아래로 위치', /pop\.style\.top=\(r\.bottom\+6\)\+'px';/.test(html));
 
 t.done();
