@@ -14134,6 +14134,9 @@ function renderHomeDdayCard(){
    일정 쪽에서 연결하면 역방향으로 저장된다 — 한 방향만 검사하면 인식이 누락됐다. */
 function scheduleTargetHasLinkedTask(target, taskList){
   if(!target)return false;
+  /* 마감일=연결: 이 일정/할일이 자기 마감일을 가지고 있으면(달력에서 자기-화살표로
+     마감과 이어져 보임) 이미 '연결된' 것으로 본다 → '연결 필요' 목록에서 제외. */
+  if(target.deadlineDate)return true;
   taskList=Array.isArray(taskList)?taskList:[];
   var tid=String(target.id), i;
   for(i=0;i<taskList.length;i++){
@@ -26661,8 +26664,13 @@ function tasksOpenModal(task){
   document.getElementById('modal-dl-time-input').value=task.deadlineTime||'';
   _syncSpecialToggle(task.deadlineDate,task.isSpecial);
   var linkedTarget=tasks.find(function(t){return String(t.id)===String(task.deadlineId||'');});
-  document.getElementById('modal-link-val').textContent=linkedTarget?taskLinkTargetLabel(linkedTarget):(task.deadlineId?'연결됨 ('+task.deadlineId+')':'연결 없음');
-  document.getElementById('modal-link-val').className='mr-value'+(task.deadlineId?'':' empty');
+  /* 마감일=연결: 다른 항목과 명시적 연결(deadlineId)이 없어도, 자기 마감일이 있으면
+     '마감일과 연결됨'으로 표시(달력의 자기-화살표와 일치, '연결 없음' 혼란 제거). */
+  var _linkVal=document.getElementById('modal-link-val');
+  _linkVal.textContent = linkedTarget ? taskLinkTargetLabel(linkedTarget)
+    : (task.deadlineId ? '연결됨 ('+task.deadlineId+')'
+      : (task.deadlineDate ? '📅 마감일과 연결됨 · '+task.deadlineDate : '연결 없음'));
+  _linkVal.className='mr-value'+((task.deadlineId||task.deadlineDate)?'':' empty');
   if(typeof updateTaskBacklinkRow==='function')updateTaskBacklinkRow(task);
   document.getElementById('modal-cat-sel').value=task.catId;
   fillTaskProjectSelect(task);
