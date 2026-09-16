@@ -24385,9 +24385,11 @@ function renderCal(){
     if(dow===6)cell.classList.add('sat');
 
     var dayTasks=(byDay[dkey]||[]).filter(function(t){return !t._travelOnly && (!hideTt||!t._isTt) && (!hideDoneTasks||!t.done);}); /* hideTt hides only generated timetable entries; normal schedule items stay visible */
+    /* '마감만' 모드: 달력에서도 마감·마감 연결된 할일만 남기고 나머지 이벤트는 숨긴다. */
+    if(dlOnly)dayTasks=dlOnlyFilter(dayTasks);
     /* 목표에 담긴 하위 할일은 달력에서 개별로 안 보이고 목표로 묶인다. */
     var dayItems=_calCollapseGoals(dayTasks);
-    var dayHobby=(showHobby&&typeof _hobbyItemsForDate==='function')?_hobbyItemsForDate(dkey):[];
+    var dayHobby=(showHobby&&!dlOnly&&typeof _hobbyItemsForDate==='function')?_hobbyItemsForDate(dkey):[];
     var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done) && !(t.goalId&&typeof findGoal==='function'&&findGoal(t.goalId));});
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='today';}))cell.classList.add('has-dl-today');
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='overdue';}))cell.classList.add('has-dl-overdue');
@@ -24773,14 +24775,14 @@ document.getElementById('btn-cal-view').addEventListener('click',function(){
   document.querySelector('.cal-panel').classList.toggle('full-view-active',calFull);
   renderCal();
 });
-/* 마감 뷰 버튼 = 3단 순환: 끔 → 마감 뷰(달력 화살표) → 마감만(리스트에서 마감·마감 연결된
-   것만 보기, 홈탭 '연결' 흐름과 비슷) → 끔. */
+/* 마감 뷰 버튼 = 3단 순환: 끔 → 마감 뷰(달력 마감 연결 화살표) → 마감만(달력에서 마감·마감
+   연결된 것만 남기고 나머지 이벤트 숨김) → 끔. */
 document.getElementById('btn-dl-view').addEventListener('click',function(){
   var msg;
   if(!dlView&&!dlOnly){ dlView=true; dlOnly=false; msg='마감 뷰: 달력에 마감 연결 표시'; }
-  else if(dlView&&!dlOnly){ dlOnly=true; msg='마감만 보기: 마감·연결 할일만 표시'; }
+  else if(dlView&&!dlOnly){ dlOnly=true; msg='마감만 보기: 달력에 마감·연결만'; }
   else { dlView=false; dlOnly=false; msg='마감 뷰 끔'; }
-  savePrefs(); renderCal(); renderList();
+  savePrefs(); renderCal();
   if(typeof showToast==='function')showToast(msg);
 });
 document.getElementById('btn-tt-hide').addEventListener('click',function(){hideTt=!hideTt;savePrefs();renderCal();/* list always shows timetable items */});
@@ -24916,7 +24918,6 @@ function renderList(){
   document.getElementById('list-date-sub').textContent=d.getFullYear()+'년 '+(d.getMonth()+1)+'월 '+d.getDate()+'일';
   bindTaskSearchControls();
   var vt=filteredTaskList(visibleTasks());
-  if(dlOnly)vt=dlOnlyFilter(vt);   /* 마감만 모드: 마감·마감 연결 할일만 */
   var done=vt.filter(function(t){return t.done;}).length;
   document.getElementById('progress-fill').style.width=(vt.length?Math.round(done/vt.length*100):0)+'%';
 
@@ -24925,13 +24926,6 @@ function renderList(){
      맨 위(안전 위치)로 빼둔다. 렌더 후 열려있으면 다시 카테고리 아래로 배치. */
   if(typeof _restoreAddWrapTop==='function')_restoreAddWrapTop();
   container.innerHTML='';
-  if(!vt.length && dlOnly){
-    /* 마감만 모드인데 이 날엔 마감·연결 할일이 없을 때 — 모드 때문임을 알려준다. */
-    var de=document.createElement('div');de.className='empty-state';
-    de.textContent='이 날엔 마감·연결 할일이 없어요. (마감만 보기 모드 — 다시 눌러 끄기)';
-    container.appendChild(de);
-    appendAddRow(container);return;
-  }
   if(!vt.length) {
     activeView='list';
     document.querySelectorAll('.view-btn').forEach(function(b){b.classList.toggle('active', b.dataset.view==='list');});
