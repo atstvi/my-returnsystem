@@ -24817,8 +24817,13 @@ function setupCalDragDrop(){
       if(!dragSrcId)return;
       var task=tasks.find(function(t){return t.id===dragSrcId;});
       if(!task||task.date===dk2)return;
-      if(task._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(task);task._repeatMoved=true;}
-      if(task._repeatId||task._ruleGen||task.sourceType==='repeat'||task.sourceType==='activeRule')task.userModifiedDate=true;
+      /* 반복·규칙으로 생성된 항목을 다른 날짜로 드래그하면 '이 항목만' 이동으로 처리한다.
+         원래 occurrence를 suppress하고 userModifiedDate/_repeatMoved를 세워, reconcile이
+         옮긴 항목을 지우거나 원래 자리에 되살리지 않게 한다. markTaskDateManualChange는
+         반복(_repeatId)과 활성 규칙(_ruleId/_ruleGen) 양쪽을 모두 처리한다 — 예전엔
+         _repeatId만 suppress해서 활성 규칙 항목이 어긋나며 오류가 났다. */
+      if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(task,dk2);
+      else if(task._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(task);task.userModifiedDate=true;task._repeatMoved=true;}
       task.date=dk2;task.updatedAt=Date.now();
       saveTaskData();
       dragSrcId=null;
@@ -25338,7 +25343,7 @@ function twvAttachBlockDrag(block,t,H,SLOT_H){
       }
       block.classList.remove('twv-dragging');
       if(droppedAllday){t.timeStart='';t.timeEnd='';}
-      else{t.timeStart=twvFmt(pendingSm);t.timeEnd=twvFmt(pendingSm+dur);if(pendingDate)t.date=pendingDate;}
+      else{t.timeStart=twvFmt(pendingSm);t.timeEnd=twvFmt(pendingSm+dur);if(pendingDate){if(pendingDate!==t.date&&typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,pendingDate);t.date=pendingDate;}}
       t.updatedAt=Date.now();
       if(typeof saveTaskData==='function')saveTaskData();
       renderTaskWeekView(true);
@@ -25464,7 +25469,7 @@ function twvAttachAlldayDrag(chip,t,H,SLOT_H){
       if(!drop)return; /* 그리드 밖에 놓음 → 종일 유지 */
       t.timeStart=twvFmt(drop.mins);
       t.timeEnd=twvFmt(drop.mins+60);
-      if(drop.date)t.date=drop.date;
+      if(drop.date){if(drop.date!==t.date&&typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,drop.date);t.date=drop.date;}
       t.updatedAt=Date.now();
       if(typeof saveTaskData==='function')saveTaskData();
       renderTaskWeekView(true);
