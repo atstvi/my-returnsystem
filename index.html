@@ -14096,16 +14096,31 @@ function homeUnskipDeadlineLink(task){
    새 할일은 대상(target)을 정/역방향으로 가리켜(deadlineId/sourceTaskId) 양쪽에서
    '연결됨'으로 인식되고, 대상은 다음 렌더에서 '연결 필요' 목록에서 빠진다. 자연어 캡처가
    만드는 연결 할일(_captureAIParse)과 동일한 필드 구조를 쓴다. */
-function homeMakeLinkedTask(target, text){
+function homeMakeLinkedTask(target, text, opts){
   if(!target || typeof tasks==='undefined') return null;
+  opts=opts||{};
   var txt=String(text||'').trim() || ('준비: '+String(target.text||'').slice(0,20));
   var prepId = (typeof returnNewId==='function') ? returnNewId('t_') : (Date.now()+'_'+Math.random().toString(36).slice(2));
   var defPrio = (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(target.catId||'etc') : '') || 'mid';
+  /* 준비 할일을 '언제 할지' 날짜 — 폼에서 지정한 값(opts.date)이 있으면 쓰고,
+     없으면 마감 전날(대상 마감이 내일 이후면)로, 그것도 아니면 오늘로 둔다. */
+  var deadline=target.deadlineDate||target.date||'';
+  var workDate=opts.date||'';
+  if(!workDate){
+    workDate=TK;
+    try{
+      if(deadline&&deadline>TK){
+        var dd=new Date(deadline+'T00:00'); dd.setDate(dd.getDate()-1);
+        var prev=dd.getFullYear()+'-'+tPad(dd.getMonth()+1)+'-'+tPad(dd.getDate());
+        if(prev>=TK)workDate=prev;   /* 마감 하루 전, 단 과거로는 안 감 */
+      }
+    }catch(_e){}
+  }
   var t={
     id:prepId, text:txt,
-    catId:target.catId||'etc', date:TK,
+    catId:target.catId||'etc', date:workDate,
     priority:defPrio, done:false,
-    deadlineDate:target.deadlineDate||target.date||'',
+    deadlineDate:deadline,
     deadlineId:String(target.id),
     timeStart:'', timeEnd:'',
     note:'오늘 상황 · 연결 할일', subs:[],
@@ -14654,7 +14669,20 @@ function openHomeSignalList(title, entries){
        버튼을 누르면 같은 행 안에서 이름 입력 폼이 펼쳐진다(모달을 새로 열지 않음). */
     var mkBtn = (isLinkList && e.task) ? '<button class="btn btn-primary" data-mklink="'+i+'">＋ 연결 할일</button>' : '';
     var defName = '준비: '+String(e.label||(e.task&&e.task.text)||'').slice(0,20);
-    var mkForm = (isLinkList && e.task) ? '<div class="ops-mklink-form" data-form="'+i+'" style="display:none;grid-column:1/-1;margin-top:var(--sp-2)"><div style="display:flex;gap:var(--sp-2);align-items:center"><input type="text" class="input" data-mkinput="'+i+'" value="'+tEscHtml(defName)+'" placeholder="연결 할일 이름" style="flex:1;min-width:0"><button class="btn btn-primary" data-mkok="'+i+'">추가</button><button class="btn btn-ghost" data-mkcancel="'+i+'">취소</button></div></div>' : '';
+    /* 준비 할일 기본 날짜 = 마감 하루 전(오늘 이후)·아니면 오늘. 폼에서 바꿀 수 있다. */
+    var tgtDeadline = (e.task && (e.task.deadlineDate||e.task.date)) || '';
+    var defDate = TK;
+    if(tgtDeadline && tgtDeadline>TK){ try{ var _dd=new Date(tgtDeadline+'T00:00'); _dd.setDate(_dd.getDate()-1); var _p=_dd.getFullYear()+'-'+tPad(_dd.getMonth()+1)+'-'+tPad(_dd.getDate()); if(_p>=TK)defDate=_p; }catch(_e){} }
+    var dlLabel = tgtDeadline ? ('마감 '+(function(){var m=tgtDeadline.match(/^\d{4}-(\d{2})-(\d{2})/);return m?(Number(m[1])+'.'+Number(m[2])):tgtDeadline;})()) : '마감일 없음';
+    var mkForm = (isLinkList && e.task) ? '<div class="ops-mklink-form" data-form="'+i+'" style="display:none;grid-column:1/-1;margin-top:var(--sp-2)">'
+      +'<div style="display:flex;gap:var(--sp-2);align-items:center;flex-wrap:wrap">'
+      +'<input type="text" class="field-inp" data-mkinput="'+i+'" value="'+tEscHtml(defName)+'" placeholder="연결 할일 이름" style="flex:1 1 150px;min-width:0">'
+      +'<input type="date" class="field-inp" data-mkdate="'+i+'" value="'+defDate+'" title="이 준비 할일을 할 날짜" style="flex:0 0 auto">'
+      +'<button class="btn btn-primary" data-mkok="'+i+'">추가</button>'
+      +'<button class="btn btn-ghost" data-mkcancel="'+i+'">취소</button>'
+      +'</div>'
+      +'<div class="ops-meta" style="margin-top:var(--sp-1)">'+tEscHtml(dlLabel)+' · 이 마감을 향한 준비 할일을 만들어요</div>'
+      +'</div>' : '';
     return '<div class="ops-row" data-idx="'+i+'"><div><div class="ops-title">'+tEscHtml(e.label||'항목')+'</div><div class="ops-meta">'+(e.inbox?'인박스':'할일')+'</div></div><span class="ops-badge">'+(e.inbox?'처리':'편집')+'</span><div class="ops-actions"><button class="btn btn-ghost" data-open="'+i+'">열기</button>'+mkBtn+passBtn+'</div>'+mkForm+'</div>';
   }).join('') || '<div class="ops-row"><div><div class="ops-title">항목이 없어요</div></div><span class="ops-badge">완료</span><div></div></div>';
   ov.innerHTML='<div class="modal" style="max-width:560px"><div class="modal-head"><div class="modal-title">'+tEscHtml(title)+'</div></div><div class="modal-body">'+rows+'</div><div class="modal-foot"><button class="btn btn-ghost" id="home-signal-close">닫기</button></div></div>';
@@ -14704,8 +14732,9 @@ function openHomeSignalList(title, entries){
   function _mkOk(i){
     var entry=entries[parseInt(i,10)];
     var inp=ov.querySelector('[data-mkinput="'+i+'"]');
+    var dateInp=ov.querySelector('[data-mkdate="'+i+'"]');
     if(!entry||!entry.task)return;
-    homeMakeLinkedTask(entry.task, inp?inp.value:'');
+    homeMakeLinkedTask(entry.task, inp?inp.value:'', {date:dateInp?dateInp.value:''});
     homeToast('연결 할일을 만들었어요');
     close();
     /* 연결이 생겨 대상이 목록에서 빠지므로, 남은 '연결 필요'가 있으면 새로고침해 보여준다. */
@@ -14714,8 +14743,8 @@ function openHomeSignalList(title, entries){
   ov.querySelectorAll('[data-mkok]').forEach(function(btn){
     btn.addEventListener('click',function(){ _mkOk(btn.getAttribute('data-mkok')); });
   });
-  ov.querySelectorAll('[data-mkinput]').forEach(function(inp){
-    inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _mkOk(inp.getAttribute('data-mkinput')); } });
+  ov.querySelectorAll('[data-mkinput],[data-mkdate]').forEach(function(inp){
+    inp.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); _mkOk(inp.getAttribute('data-mkinput')||inp.getAttribute('data-mkdate')); } });
   });
 }
 function renderHomeTasks(){
@@ -20000,7 +20029,7 @@ function _refreshUndoFab(){
 window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
 try{ _ensureUndoFab(); }catch(_e){}
 
-function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} try{ setTimeout(function(){ if(typeof returnStorageAutoRelief==='function')returnStorageAutoRelief(); else if(typeof returnStorageSafetyGate==='function')returnStorageSafetyGate(); }, 2000); }catch(_e){} }
+function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try{ if(typeof fbSaveAll==='function' && window.fbUser && !window._applyingFbData) fbSaveAll(); }catch(_e){} try{ setTimeout(function(){ if(typeof returnStorageAutoRelief==='function')returnStorageAutoRelief(); else if(typeof returnStorageSafetyGate==='function')returnStorageSafetyGate(); /* 게이트(100%) 밑이어도 소프트 임계면 미리 조용히 정리 */ if(typeof returnStorageProactiveRelief==='function')returnStorageProactiveRelief(); }, 2000); }catch(_e){} }
 (function _initIdbOverflow(){
   try {
     var req = indexedDB.open('return_overflow_v1', 1);
@@ -40466,6 +40495,11 @@ async function fbSaveNow(opts){
       if(!window._fbQuotaFullRetry){ window._fbQuotaFullRetry=setTimeout(function(){ window._fbQuotaFullRetry=null; try{fbSaveAll();}catch(_e){} }, 60000); }
       return false;
     }
+    /* 아직 막히진 않았지만 소프트 임계 이상이면 미리 조용히 정리해 가득 차는 걸 예방한다.
+       (returnStorageProactiveRelief는 자체 임계·간격 스로틀이 있어 자주 불러도 저렴) */
+    if(_uPct>=(typeof RETURN_STORAGE_SOFT_PCT!=='undefined'?RETURN_STORAGE_SOFT_PCT:80) && typeof returnStorageProactiveRelief==='function'){
+      setTimeout(function(){ try{ returnStorageProactiveRelief(); }catch(_e){} },0);
+    }
   }
   if(window.SyncManager&&!SyncManager.canSave(opts)){clearTimeout(_fbSaveTimer);return false;}
   /* Circuit breaker: skip auto-saves during quota/permission backoff window.
@@ -41479,6 +41513,36 @@ async function returnStorageAutoRelief(){
   }finally{ setTimeout(function(){ window._autoReliefBusy=false; }, 8000); }
 }
 window.returnStorageAutoRelief=returnStorageAutoRelief;
+/* 소프트 자동 정리 — 게이트(100%)까지 가기 전에 미리 조용히 공간을 줄여둔다.
+   사용률이 소프트 임계(RETURN_STORAGE_SOFT_PCT) 이상이면 returnStorageCleanupNow를
+   조용히 돌려 큰 미디어를 IndexedDB로 옮기고 오래된 백업/데이터를 정리한다. 사용자가
+   손대지 않아도 알아서 유지되도록 부팅·주기적으로 호출한다. 과도한 반복을 막으려
+   마지막 실행 후 최소 간격(_softReliefMinGapMs)을 둔다. */
+var RETURN_STORAGE_SOFT_PCT=80;
+var _softReliefLastMs=0, _softReliefMinGapMs=10*60*1000;
+async function returnStorageProactiveRelief(opts){
+  opts=opts||{};
+  if(window._autoReliefBusy)return false;
+  var now=Date.now();
+  if(!opts.force && (now-_softReliefLastMs)<_softReliefMinGapMs)return false;
+  var pct=0; try{ var r=returnStorageReport(false); pct=(r&&Number(r.usedPct))||0; }catch(_e){}
+  if(pct<RETURN_STORAGE_SOFT_PCT)return false;   /* 아직 여유 → 아무것도 안 함 */
+  _softReliefLastMs=now;
+  window._autoReliefBusy=true;
+  try{
+    /* 조용히 정리(토스트 없음). 큰 미디어 IDB 이동·오래된 백업 정리로 %를 낮춘다. */
+    var res=await returnStorageCleanupNow({silent:true});
+    try{ if(typeof bannerDebugLog==='function') bannerDebugLog('storage:proactive-relief',{beforePct:pct,afterPct:res&&res.afterPct}); }catch(_e){}
+    return true;
+  }catch(e){ return false; }
+  finally{ setTimeout(function(){ window._autoReliefBusy=false; }, 8000); }
+}
+window.returnStorageProactiveRelief=returnStorageProactiveRelief;
+/* 주기 자동 정리 — 오래 켜 둔 세션에서도 저장공간이 꽉 차기 전에 스스로 줄인다.
+   15분마다 소프트 임계 검사(임계 미만이면 즉시 반환하므로 비용은 거의 없음). */
+if(!window._storageReliefTimer){
+  try{ window._storageReliefTimer=setInterval(function(){ try{ if(typeof returnStorageProactiveRelief==='function')returnStorageProactiveRelief(); }catch(_e){} }, 15*60*1000); }catch(_e){}
+}
 window.__returnReadOnlyAck=false; /* 사용자가 '읽기 전용으로 계속'을 택한 세션 플래그 */
 function returnStorageSafetyGate(opts){
   opts=opts||{};

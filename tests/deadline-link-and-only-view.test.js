@@ -10,14 +10,19 @@ const html = readIndex();
 const t = runner('오늘 상황 바로 연결 + 마감만 모드');
 
 /* (a) homeMakeLinkedTask */
-t.ok('homeMakeLinkedTask: 대상을 가리키는 연결 할일 생성', /function homeMakeLinkedTask\(target, ?text\)\{[\s\S]*?deadlineId:String\(target\.id\)[\s\S]*?sourceTaskId:String\(target\.id\)[\s\S]*?tasks\.unshift\(t\)/.test(html));
-t.ok('연결 할일 카테고리/마감일 물려받음', /catId:target\.catId\|\|'etc'[\s\S]*?deadlineDate:target\.deadlineDate\|\|target\.date\|\|''/.test(html));
+t.ok('homeMakeLinkedTask: 대상을 가리키는 연결 할일 생성', /function homeMakeLinkedTask\(target, ?text, ?opts\)\{[\s\S]*?deadlineId:String\(target\.id\)[\s\S]*?sourceTaskId:String\(target\.id\)[\s\S]*?tasks\.unshift\(t\)/.test(html));
+t.ok('연결 할일 카테고리/마감일 물려받음', /catId:target\.catId\|\|'etc'[\s\S]*?deadlineDate:deadline,/.test(html) && /var deadline=target\.deadlineDate\|\|target\.date\|\|'';/.test(html));
 
-/* (a) 연결 필요 목록에 버튼 + 인라인 폼 */
+/* (a) 날짜 지정: homeMakeLinkedTask가 opts.date를 쓰고, 없으면 마감 하루 전(오늘 이후)로 */
+t.ok('homeMakeLinkedTask opts.date 지원 + 마감 전날 기본', /function homeMakeLinkedTask\(target, ?text, ?opts\)\{[\s\S]*?var workDate=opts\.date\|\|'';[\s\S]*?dd\.setDate\(dd\.getDate\(\)-1\);[\s\S]*?if\(prev>=TK\)workDate=prev;/.test(html));
+t.ok('연결 할일 date=workDate', /date:workDate,/.test(html));
+
+/* (a) 연결 필요 목록에 버튼 + 인라인 폼(이름 + 날짜) */
 t.ok('isLinkList 행에 ＋연결 버튼', /var mkBtn = \(isLinkList && e\.task\) \? '<button class="btn btn-primary" data-mklink="'\+i\+'">/.test(html));
-t.ok('인라인 연결 폼(입력+추가+취소)', /ops-mklink-form[\s\S]*?data-mkinput="'\+i\+'[\s\S]*?data-mkok="'\+i\+'[\s\S]*?data-mkcancel="'\+i\+'/.test(html));
-t.ok('확인 시 homeMakeLinkedTask 호출', /function _mkOk\(i\)\{[\s\S]*?homeMakeLinkedTask\(entry\.task, ?inp\?inp\.value:''\)/.test(html));
-t.ok('Enter로도 추가', /inp\.addEventListener\('keydown',function\(e\)\{ ?if\(e\.key==='Enter'\)\{[\s\S]*?_mkOk\(inp\.getAttribute\('data-mkinput'\)\)/.test(html));
+t.ok('인라인 연결 폼(이름+날짜+추가+취소)', /ops-mklink-form[\s\S]*?data-mkinput="'\+i\+'[\s\S]*?data-mkdate="'\+i\+'[\s\S]*?data-mkok="'\+i\+'[\s\S]*?data-mkcancel="'\+i\+'/.test(html));
+t.ok('폼에 날짜 입력(field-inp date)', /<input type="date" class="field-inp" data-mkdate="'\+i\+'" value="'\+defDate\+'"/.test(html));
+t.ok('확인 시 날짜 함께 전달', /function _mkOk\(i\)\{[\s\S]*?var dateInp=ov\.querySelector\('\[data-mkdate="'\+i\+'"\]'\);[\s\S]*?homeMakeLinkedTask\(entry\.task, ?inp\?inp\.value:'', ?\{date:dateInp\?dateInp\.value:''\}\)/.test(html));
+t.ok('Enter로도 추가(이름·날짜)', /ov\.querySelectorAll\('\[data-mkinput\],\[data-mkdate\]'\)[\s\S]*?_mkOk\(inp\.getAttribute\('data-mkinput'\)\|\|inp\.getAttribute\('data-mkdate'\)\)/.test(html));
 
 /* (b) 3단 순환 상태 + 저장 */
 t.ok('dlOnly 상태 변수', /var dlOnly {4}= false;/.test(html));
