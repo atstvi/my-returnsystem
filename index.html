@@ -26647,18 +26647,24 @@ function syncTaskRepeatItem(task){
   item.text=task.text||'반복 할일';
   item.catId=task.catId||'etc';
   item.priority=task.priority||'';
-  item.freq=rep.kind||'daily';
-  item.weekdays=Array.isArray(rep.weekdays)?rep.weekdays.join(','):(rep.weekdays||'');
-  item.monthDay=parseInt(rep.monthDay,10)||new Date((task.date||TK)+'T00:00').getDate();
+  /* 스케줄(빈도/요일/기간/월일/음력)은 task._repeat에 그 값이 있을 때만 갱신하고, 없으면
+     기존 규칙 값을 보존한다. 생성된 반복 항목의 _repeat는 {kind}만 담고 있어서, 시간만
+     바꿔 '모든 항목' 적용해도 요일·기간이 통째로 날아가 → 규칙이 어긋나 → reconcile이
+     '무효 항목'으로 계획된 할일을 전부 지우던 버그를 막는다. */
+  item.freq=rep.kind||item.freq||'daily';
+  if(rep.weekdays!==undefined && rep.weekdays!==null){
+    item.weekdays=Array.isArray(rep.weekdays)?rep.weekdays.join(','):String(rep.weekdays||'');
+  } else if(item.weekdays===undefined){ item.weekdays=''; }
+  item.monthDay=parseInt(rep.monthDay,10)||item.monthDay||new Date((task.date||TK)+'T00:00').getDate();
   /* 매년(생일) — 양력 월/일 또는 음력 월/일 앵커를 규칙에 함께 저장 */
-  item.month=parseInt(rep.month,10)||0;
-  item.lunar=rep.lunar?1:0;
-  item.lunarMonth=parseInt(rep.lunarMonth,10)||0;
-  item.lunarDay=parseInt(rep.lunarDay,10)||0;
-  item.lunarLeap=rep.lunarLeap?1:0;
+  item.month=parseInt(rep.month,10)||item.month||0;
+  if(rep.lunar!==undefined) item.lunar=rep.lunar?1:0; else if(item.lunar===undefined) item.lunar=0;
+  item.lunarMonth=parseInt(rep.lunarMonth,10)||item.lunarMonth||0;
+  item.lunarDay=parseInt(rep.lunarDay,10)||item.lunarDay||0;
+  if(rep.lunarLeap!==undefined) item.lunarLeap=rep.lunarLeap?1:0; else if(item.lunarLeap===undefined) item.lunarLeap=0;
   /* 사용자가 반복 설정에서 지정한 시작일을 우선 반영(변경 가능). 없으면 기존값·할일 날짜. */
   item.startDate=rep.startDate||item.startDate||task.date||TK;
-  item.endDate=rep.until||rep.endDate||'';
+  item.endDate=rep.until||rep.endDate||item.endDate||'';
   item.timeStart=task.timeStart||'';
   item.timeEnd=task.timeEnd||'';
   item.travelMin=parseInt(task.travelMin,10)||0;
