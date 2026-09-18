@@ -18,7 +18,7 @@ const t = runner('타임블록 종일 펼치기·스크롤 유지');
   t.ok('복원 시 smooth 잠깐 끔(즉시 복원)',
     /vp\.style\.scrollBehavior='auto';/.test(html));
   // 제자리 편집 재렌더 5곳은 keepScroll=true
-  t.ok('완료 토글 재렌더 keepScroll', /t\.done=!t\.done;t\.updatedAt=Date\.now\(\);[\s\S]{0,120}renderTaskWeekView\(true\);/.test(html));
+  t.ok('완료 토글 재렌더 keepScroll', /var _r=taskCheckToggle\(t\);[\s\S]{0,120}renderTaskWeekView\(true\);/.test(html));
   t.ok('블록 드래그 재렌더 keepScroll', /t\.date=pendingDate;\}\}\s*t\.updatedAt=Date\.now\(\);[\s\S]{0,120}renderTaskWeekView\(true\);/.test(html));
   t.ok('리사이즈 재렌더 keepScroll', /t\.timeEnd=twvFmt\(pendingEm\);t\.updatedAt=Date\.now\(\);[\s\S]{0,120}renderTaskWeekView\(true\);/.test(html));
   t.ok('종일 드래그 재렌더 keepScroll', /t\.timeStart=twvFmt\(drop\.mins\);[\s\S]{0,320}renderTaskWeekView\(true\);/.test(html));
