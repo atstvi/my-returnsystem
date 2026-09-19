@@ -42224,7 +42224,34 @@ function _storageIsFull(){
   return false;
 }
 window._storageIsFull=_storageIsFull;
-/* 부팅/주기 자동 완화: 감지 → 자동으로 줄여보고 → 그래도 꽉 차면 게이트로 막는다.
+/* IDB 오버플로가 살아서 쓰기를 durable하게 받고 있는가.
+   _idbOverflow가 열려 있고(_idbReady로 getItem 패치까지 완료), 최근에 localStorage·IDB
+   양쪽 다 실패한(=스테일) 키가 하나도 없으면 '건강'하다. setReturnStorageItem은 이미
+   'localStorage 꽉 참 + IDB 사용 가능'을 치명적 실패로 보지 않고 IDB로 넘긴다(21221 주석).
+   이 헬퍼는 그 판단을 게이트/자동완화와 일치시키기 위한 것. */
+function _idbOverflowHealthy(){
+  try{
+    if(typeof _idbOverflow==='undefined' || !_idbOverflow) return false;
+    if(typeof _idbReady!=='undefined' && !_idbReady) return false;
+    var st=(typeof window!=='undefined' && window.__staleQuotaKeys) || {};
+    for(var k in st){ if(Object.prototype.hasOwnProperty.call(st,k)) return false; }
+    return true;
+  }catch(e){ return false; }
+}
+window._idbOverflowHealthy=_idbOverflowHealthy;
+/* '앱을 막아야 할 만큼' 꽉 찼는가 = 저장 불가 + 넘길 durable 경로도 없음.
+   IDB 오버플로가 건강하면 localStorage가 꽉 차도 쓰기는 IDB로 안전하게 넘어가고
+   (읽기는 _idbCache, 동기화는 fbCollectData가 IDB-only 키 포함) 백그라운드 정리가
+   usedPct를 낮춘다. 따라서 전체화면 게이트로 앱을 얼릴 필요가 없다 — 이 경우 게이트를
+   띄우지 않아 '중간중간 멈춤'을 없앤다. 진짜 durable 경로가 없을 때(스테일 키 존재 또는
+   IDB 오버플로 자체가 없음)만 막는다 — 원래 게이트의 의도(진짜 저장 불가)와 동일. */
+function _storageIsBlocking(){
+  if(!_storageIsFull()) return false;
+  if(_idbOverflowHealthy()) return false;
+  return true;
+}
+window._storageIsBlocking=_storageIsBlocking;
+/* 부팅/주기 자동 완화: 감지 → 자동으로 줄여보고 → durable 경로도 없으면 게이트로 막는다.
    사용자가 화면에 접근하기 전부터 스스로 처리한다. */
 async function returnStorageAutoRelief(){
   if(window._autoReliefBusy)return false;
@@ -42232,7 +42259,7 @@ async function returnStorageAutoRelief(){
   window._autoReliefBusy=true;
   try{
     try{ await returnStorageCleanupNow({silent:true}); }catch(e){}   /* 조용히 줄여보고 */
-    if(_storageIsFull()){ try{ returnStorageSafetyGate(); }catch(e){} return true; } /* 그래도 꽉 차면 막기 */
+    if(_storageIsBlocking()){ try{ returnStorageSafetyGate(); }catch(e){} return true; } /* durable 경로도 없을 때만 막기 */
     try{ if(typeof showToast==='function') showToast('저장공간을 자동으로 정리했어요'); }catch(e){}
     return false;
   }finally{ setTimeout(function(){ window._autoReliefBusy=false; }, 8000); }
@@ -42271,9 +42298,9 @@ if(!window._storageReliefTimer){
 window.__returnReadOnlyAck=false; /* 사용자가 '읽기 전용으로 계속'을 택한 세션 플래그 */
 function returnStorageSafetyGate(opts){
   opts=opts||{};
-  var full=_storageIsFull();
+  var full=_storageIsBlocking();
   var existing=document.getElementById('return-storage-gate');
-  if(!full){ if(existing)existing.remove(); return false; }        /* 공간 있으면 게이트 해제 */
+  if(!full){ if(existing)existing.remove(); return false; }        /* durable 경로 있으면 게이트 해제 */
   if(window.__returnReadOnlyAck && !opts.force) return true;        /* 사용자가 이미 '계속' 선택 */
   if(existing) return true;                                         /* 이미 떠 있음 */
   if(!document.body){ document.addEventListener('DOMContentLoaded',function(){ returnStorageSafetyGate(opts); }); return true; }
@@ -42291,8 +42318,8 @@ function returnStorageSafetyGate(opts){
     +'</div>';
   document.body.appendChild(ov);
   var clean=ov.querySelector('#rsg-clean');
-  clean.addEventListener('click',function(){ clean.disabled=true; clean.textContent='정리 중…'; returnStorageCleanupNow().then(function(){ if(!_storageIsFull()){ ov.remove(); try{ if(typeof showToast==='function')showToast('공간이 정리됐어요 — 이제 저장돼요'); }catch(_e){} } else { clean.disabled=false; clean.textContent='지금 공간 정리'; try{ if(typeof showToast==='function')showToast('아직 공간이 부족해요 — 큰 이미지를 줄여보세요'); }catch(_e){} } }).catch(function(){ clean.disabled=false; clean.textContent='지금 공간 정리'; }); });
-  ov.querySelector('#rsg-recheck').addEventListener('click',function(){ if(!_storageIsFull()){ ov.remove(); } else { try{ if(typeof showToast==='function')showToast('아직 저장공간이 부족해요'); }catch(_e){} } });
+  clean.addEventListener('click',function(){ clean.disabled=true; clean.textContent='정리 중…'; returnStorageCleanupNow().then(function(){ if(!_storageIsBlocking()){ ov.remove(); try{ if(typeof showToast==='function')showToast('공간이 정리됐어요 — 이제 저장돼요'); }catch(_e){} } else { clean.disabled=false; clean.textContent='지금 공간 정리'; try{ if(typeof showToast==='function')showToast('아직 공간이 부족해요 — 큰 이미지를 줄여보세요'); }catch(_e){} } }).catch(function(){ clean.disabled=false; clean.textContent='지금 공간 정리'; }); });
+  ov.querySelector('#rsg-recheck').addEventListener('click',function(){ if(!_storageIsBlocking()){ ov.remove(); } else { try{ if(typeof showToast==='function')showToast('아직 저장공간이 부족해요'); }catch(_e){} } });
   ov.querySelector('#rsg-ro').addEventListener('click',function(e){ e.preventDefault(); window.__returnReadOnlyAck=true; ov.remove(); try{ if(typeof showToast==='function')showToast('읽기 전용으로 계속해요 — 이 기기의 변경은 저장·동기화되지 않아요'); }catch(_e){} });
   return true;
 }
