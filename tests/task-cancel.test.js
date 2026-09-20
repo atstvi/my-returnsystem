@@ -65,12 +65,12 @@ t.ok('완료 정리가 취소 항목 보존', /items\.filter\(function\(t\)\{ re
 t.ok('취소 행 스타일(취소선+흐림)', /\.task-item\.canceled\{opacity/.test(html));
 t.ok('취소 체크 대각선 표시', /\.task-check\.canceled::after/.test(html));
 
-// ── 홈·타임라인·주간뷰·하위 체크가 taskCheckToggle로 취소 불변식 보호 ──
+// ── 홈·타임라인·하위 체크가 taskCheckToggle로 취소 불변식 보호 ──
+// (할일탭 주간뷰(twv)는 계획창으로 대체되어 제거됨)
 t.ok('홈 빠른목록 체크 → taskCheckToggle', /if \(taskCheckToggle\(t\) === 'reverted'\) return;[\s\S]{0,80}renderHomeTasks\(\);/.test(html));
 t.ok('홈 빠른목록 canceled 클래스', /'task-item ti-' \+ \(t\.priority \|\| 'none'\) \+ \(t\.done&&!t\.canceled \? ' done' : ''\) \+ \(t\.canceled\?' canceled':''\)/.test(html));
 t.ok('나탭 타임라인 블록 canceled 클래스', /el\.className='htb-vblock ' \+ cls \+ \(t\.done&&!t\.canceled \? ' done' : ''\) \+ \(t\.canceled\?' htb-canceled':''\)/.test(html));
 t.ok('나탭 타임라인 체크 → taskCheckToggle', /var _r=taskCheckToggle\(t\); renderHomeTimeBlocks\(\); renderHomeTasks\(\); if\(_r==='done'/.test(html));
-t.ok('주간뷰 체크 → taskCheckToggle', /var _r=taskCheckToggle\(t\);[\s\S]{0,120}renderTaskWeekView\(true\);/.test(html));
 t.ok('목표 하위 체크 → taskCheckToggle', /gti-subcheck'\)\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(selMode\)\{toggleSel\(t\.id\);return;\} if\(taskCheckToggle\(t\)==='reverted'\)return;/.test(html));
 t.ok('칸반 하위 체크 → taskCheckToggle', /kck\.addEventListener\('click',function\(e\)\{e\.stopPropagation\(\);if\(taskCheckToggle\(ct\)==='reverted'\)return;/.test(html));
 t.ok('나탭 타임라인 취소 CSS', /\.htb-vblock\.htb-canceled\{opacity/.test(html));

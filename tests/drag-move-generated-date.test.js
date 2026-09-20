@@ -1,6 +1,6 @@
 'use strict';
 /* 드래그로 반복/규칙 생성 할일의 날짜를 옮길 때 '이 항목만' 이동으로 안전하게 처리:
-   - 달력(setupCalDragDrop)·주간뷰(renderTaskWeekView) 드롭 모두 markTaskDateManualChange를
+   - 달력(setupCalDragDrop) 드롭이 markTaskDateManualChange를
      써서 원래 occurrence를 suppress하고 userModifiedDate/_repeatMoved를 세운다. 예전엔
      달력 드롭이 _repeatId만 suppress해 활성 규칙(_ruleId/_ruleGen) 항목이 어긋나며 오류가 났음.
    - markTaskDateManualChange는 반복(_repeatId)과 활성 규칙(_ruleId/_ruleGen/sourceType) 모두를
@@ -16,10 +16,7 @@ t.ok('markTaskDateManualChange: 반복·규칙 모두 처리', /function markTas
 /* 달력 드롭이 markTaskDateManualChange 사용 (스코프 창 없이 그 항목만 이동) */
 t.ok('달력 드롭에서 markTaskDateManualChange 사용', /if\(typeof markTaskDateManualChange==='function'\)markTaskDateManualChange\(task,dk2\);[\s\S]*?task\.date=dk2;task\.updatedAt=Date\.now\(\);/.test(html));
 t.ok('달력 드롭은 예전 _repeatId-만 suppress를 폴백으로만 남김', /else if\(task\._repeatId&&typeof suppressRepeatOccurrence==='function'\)\{suppressRepeatOccurrence\(task\);task\.userModifiedDate=true;task\._repeatMoved=true;\}/.test(html));
-
-/* 주간뷰(twv) 드롭 2경로도 날짜 변경 시 markTaskDateManualChange 사용 */
-t.ok('twv 종일/시간 블록 드롭 날짜 이동 처리', /if\(pendingDate\)\{if\(pendingDate!==t\.date&&typeof markTaskDateManualChange==='function'\)markTaskDateManualChange\(t,pendingDate\);t\.date=pendingDate;\}/.test(html));
-t.ok('twv 칩 드롭 날짜 이동 처리', /if\(drop\.date\)\{if\(drop\.date!==t\.date&&typeof markTaskDateManualChange==='function'\)markTaskDateManualChange\(t,drop\.date\);t\.date=drop\.date;\}/.test(html));
+/* (할일탭 주간뷰(twv) 드롭 2경로는 계획창으로 대체되어 제거됨) */
 
 /* 스코프 창(openRepeatEditScopeDialog)을 달력 드롭에서 호출하지 않음 — 그 항목만 이동 */
 (function(){
