@@ -1388,6 +1388,15 @@ button.sit-arc-item { cursor:pointer; }
 .plan-tray-item .pti-sub{font-size:var(--text-2xs);color:var(--fg-4);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-tray-item .pti-sub.link{color:var(--accent);font-weight:var(--fw-medium)}
 .plan-tray-empty{font-size:var(--text-2xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);background:var(--bg-raised);border-radius:var(--r-md);border:.5px dashed var(--border-subtle)}
+.plan-triage-preview{font-size:var(--text-sm);color:var(--fg-2);background:var(--bg-sunken);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);word-break:break-word;line-height:1.5}
+.plan-triage-opts{display:flex;flex-direction:column;gap:var(--sp-3)}
+.plan-triage-opt{display:flex;align-items:center;gap:var(--sp-3);width:100%;padding:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg);cursor:pointer;text-align:left;transition:border-color var(--t-snap),background var(--t-snap)}
+.plan-triage-opt:hover{border-color:var(--accent);background:var(--bg-card)}
+.plan-triage-opt .o-ic{width:24px;font-size:var(--text-lg);text-align:center;flex-shrink:0}
+.plan-triage-opt .o-x{display:flex;flex-direction:column;gap:1px;min-width:0}
+.plan-triage-opt .o-t{font-size:var(--text-sm);font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-triage-opt .o-d{font-size:var(--text-2xs);color:var(--fg-4)}
+.plan-triage-back{background:none;border:none;color:var(--fg-4);font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;padding:0;margin-bottom:var(--sp-2)}
 .plan-drag-ghost{position:fixed;z-index:3000;pointer-events:none;padding:6px 12px;border-radius:var(--r-md);background:var(--accent);color:var(--n-0,#fff);font-size:var(--text-sm);font-weight:var(--fw-bold);box-shadow:var(--elev-3);max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-grid.drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
 .plan-droprule{position:absolute;left:0;right:0;height:0;border-top:2px dashed var(--accent);z-index:18;pointer-events:none;display:none}
@@ -17841,9 +17850,74 @@ function _planBindTrayDrag(item){
   });
 }
 function _planOpenTrayItem(kind,pid){
-  if(kind==='inbox'){ if(typeof goPage==='function'){ _planReturnPage='planner'; } if(typeof openInboxItemFromHome==='function'){ openInboxItemFromHome(pid); } else goPage('inbox'); return; }
+  if(kind==='inbox'){ _planInboxTriage(pid); return; }
   var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(pid);});
   if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
+}
+/* 인박스 항목을 계획탭에서 탭하면 뜨는 정리 시트 — 흩어진 인박스를 한 곳에서
+   ①바로 시행(오늘 지금 시간에 배치) ②그냥 할일 ③프로젝트 할일 ④프로젝트 자료(보드)로
+   빠르게 분류한다. 처리한 항목은 '처리됨'으로 비운다(unread=false, 인박스 기록은 유지). */
+function _planInboxToBoard(p,it){
+  if(!p||typeof projectBoardEnsure!=='function')return false;
+  var b=projectBoardEnsure(p); if(!b)return false;
+  var txt=String(it.text||'').trim();
+  if(txt){ var pos=_boardDropPos(b,null); b.items.push({id:'bd_'+Date.now()+'_'+Math.floor(Math.random()*100000),type:'note',text:txt,x:pos.x,y:pos.y,w:210,h:150,fav:false,accent:'#BE727A'}); }
+  var imgs=Array.isArray(it.imgs)?it.imgs:[];
+  imgs.forEach(function(ref,i){ if(!ref)return; var pp=_boardDropPos(b,null); b.items.push({id:'bd_'+Date.now()+'_img'+i+'_'+Math.floor(Math.random()*100000),type:'image',src:ref,x:pp.x,y:pp.y,w:210,h:150,fav:false,accent:''}); });
+  p.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects();
+  return true;
+}
+function _planInboxTriage(id){
+  var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(id);});
+  if(!it){ if(typeof showToast==='function')showToast('인박스 항목을 찾지 못했어요'); return; }
+  function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
+  var old=document.getElementById('plan-triage-ov'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='plan-triage-ov';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  function markProcessed(){ it.unread=false; if(typeof saveInboxItems==='function')saveInboxItems(); }
+  function finish(msg){ close(); if(typeof showToast==='function')showToast(msg); try{ renderPlanner(); }catch(_e){} }
+  function mkTask(extra){ return Object.assign({ id:Date.now()+Math.floor(Math.random()*100000), text:it.text||'할일', catId:'etc', date:_planToday(), priority:'', done:false, timeStart:'', timeEnd:'', deadlineDate:'', deadlineId:'', note:'인박스 정리', subs:[], createdAt:Date.now(), updatedAt:Date.now() }, extra||{}); }
+  function activeProjects(){ var arr=(typeof projects!=='undefined'&&Array.isArray(projects))?projects.slice():[]; return arr.sort(function(a,b){ var ax=a.status==='archived'?1:0, bx=b.status==='archived'?1:0; return ax-bx; }); }
+  var previewHtml='<div class="plan-triage-preview">'+esc((it.text||'(내용 없음)')).slice(0,120)+((it.text&&it.text.length>120)?'…':'')+'</div>';
+  function opt(id2,ic,title,desc){ return '<button type="button" class="plan-triage-opt" id="'+id2+'"><span class="o-ic">'+ic+'</span><span class="o-x"><span class="o-t">'+title+'</span><span class="o-d">'+desc+'</span></span></button>'; }
+  function menu(){
+    ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">📥 인박스 정리</div></div>'
+      +'<div class="modal-body">'+previewHtml
+      +'<div class="plan-triage-opts">'
+        +opt('pt-now','🎯','바로 시행','오늘 지금 시간에 바로 배치')
+        +opt('pt-task','✅','그냥 할일','오늘 할 일로 추가(시간 미정)')
+        +opt('pt-ptask','📁','프로젝트 할일','프로젝트를 골라 그 할일로')
+        +opt('pt-pmat','📎','프로젝트 자료','프로젝트 보드에 자료로 저장')
+      +'</div></div>'
+      +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-open">인박스에서 열기</button><button type="button" class="btn btn-ghost" id="pt-cancel">취소</button></div></div>';
+    ov.querySelector('#pt-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); tasks.unshift(mkTask({date:_planToday(),timeStart:ts,timeEnd:te})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=_planToday(); finish('오늘 '+ts+'에 배치했어요'); });
+    ov.querySelector('#pt-task').addEventListener('click',function(){ tasks.unshift(mkTask({})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); finish('오늘 할일로 추가했어요'); });
+    ov.querySelector('#pt-ptask').addEventListener('click',function(){ projPick('task'); });
+    ov.querySelector('#pt-pmat').addEventListener('click',function(){ projPick('material'); });
+    ov.querySelector('#pt-open').addEventListener('click',function(){ close(); if(typeof openInboxItemFromHome==='function'){ _planReturnPage='planner'; openInboxItemFromHome(id); } else if(typeof goPage==='function')goPage('inbox'); });
+    ov.querySelector('#pt-cancel').addEventListener('click',close);
+  }
+  function projPick(kind){
+    var ps=activeProjects();
+    if(!ps.length){ if(typeof showToast==='function')showToast('먼저 프로젝트를 하나 만들어 주세요'); return; }
+    var title=(kind==='task')?'📁 어느 프로젝트 할일로?':'📎 어느 프로젝트 자료로?';
+    ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">'+title+'</div></div>'
+      +'<div class="modal-body"><button type="button" class="plan-triage-back" id="pt-back">‹ 뒤로</button>'+previewHtml
+      +'<div class="plan-triage-opts">'
+        +ps.map(function(p){ return '<button type="button" class="plan-triage-opt" data-pp="'+esc(String(p.id))+'"><span class="o-ic">'+esc(p.icon||'🗂️')+'</span><span class="o-x"><span class="o-t">'+esc(p.title||'프로젝트')+(p.status==='archived'?' (보관)':'')+'</span></span></button>'; }).join('')
+      +'</div></div>'
+      +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-cancel2">취소</button></div></div>';
+    ov.querySelector('#pt-back').addEventListener('click',menu);
+    ov.querySelector('#pt-cancel2').addEventListener('click',close);
+    ov.querySelectorAll('.plan-triage-opt[data-pp]').forEach(function(bt){ bt.addEventListener('click',function(){
+      var p=ps.find(function(x){return String(x.id)===String(bt.getAttribute('data-pp'));}); if(!p){close();return;}
+      if(kind==='task'){ tasks.unshift(mkTask({catId:'project',projectId:String(p.id)})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); finish('‘'+(p.title||'프로젝트')+'’ 할일로 추가했어요'); }
+      else { var ok=_planInboxToBoard(p,it); markProcessed(); finish(ok?('‘'+(p.title||'프로젝트')+'’ 자료 보드에 저장했어요'):'자료 저장에 실패했어요'); }
+    }); });
+  }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  menu();
 }
 function _planSchedule(kind,pid,sm){
   var a=_planMinToDT(sm), dd=a.date, em2=Math.min(a.min+60,1440), ts=_planHM(a.min), te=_planHM(em2);
