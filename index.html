@@ -1381,6 +1381,12 @@ button.sit-arc-item { cursor:pointer; }
 .plan-tray-item .pti-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-tray-item .pti-b{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--fg-4);flex-shrink:0}
 .plan-tray-item .pti-b.due{color:var(--danger)}
+.plan-tray-item.two{align-items:flex-start}
+.plan-tray-item.two .pti-ic{margin-top:1px}
+.plan-tray-item .pti-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.plan-tray-item.two .pti-t{flex:none;width:100%}
+.plan-tray-item .pti-sub{font-size:var(--text-2xs);color:var(--fg-4);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.plan-tray-item .pti-sub.link{color:var(--accent);font-weight:var(--fw-medium)}
 .plan-tray-empty{font-size:var(--text-2xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);background:var(--bg-raised);border-radius:var(--r-md);border:.5px dashed var(--border-subtle)}
 .plan-drag-ghost{position:fixed;z-index:3000;pointer-events:none;padding:6px 12px;border-radius:var(--r-md);background:var(--accent);color:var(--n-0,#fff);font-size:var(--text-sm);font-weight:var(--fw-bold);box-shadow:var(--elev-3);max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-grid.drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
@@ -17860,17 +17866,65 @@ function _planSchedule(kind,pid,sm){
   }
   renderPlanner();
 }
+/* 마감(dt)에 이미 연결된 '준비 할일'(정방향: deadlineId/sourceTaskId/_ruleSourceId가
+   dt를 가리킴)을 모은다. 완료·travel-only 제외. 이게 있으면 드래그 시 새로 만들지 않고
+   이 준비 할일을 옮긴다(중복 준비 할일 방지). */
+function _planPrepFor(dt){
+  if(!dt)return [];
+  var tid=String(dt.id), out=[];
+  (typeof tasks!=='undefined'?tasks:[]).forEach(function(t){
+    if(!t||t._travelOnly||t.done||String(t.id)===tid)return;
+    if(String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid)out.push(t);
+  });
+  return out;
+}
+/* 대표 준비 할일 — 날짜 있는 것 우선, 오늘에 가장 가까운(이른) 것부터. */
+function _planPickPrep(preps){
+  if(!preps||!preps.length)return null;
+  var dated=preps.filter(function(t){return /^\d{4}-\d{2}-\d{2}$/.test(String(t.date||''));});
+  if(dated.length){ dated.sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);}); return dated[0]; }
+  return preps[0];
+}
 function _planRenderTray(){
   var host=document.getElementById('plan-tray'); if(!host)return;
   var TKK=_planToday();
   var inbox=(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))?inboxItems.filter(function(i){return i&&i.unread&&!i.done;}):[];
-  var deadlines=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&t.deadlineDate;}).map(function(t){ var dd=new Date(t.deadlineDate+'T00:00'), nd=new Date(TKK+'T00:00'); return {t:t,days:Math.round((dd-nd)/86400000)}; }).filter(function(x){return x.days>=0&&x.days<=7;}).sort(function(a,b){return a.days-b.days;});
+  var deadlines=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){
+      if(!(t&&!t.done&&!t._travelOnly&&t.deadlineDate))return false;
+      /* 준비 할일(sourceTaskId/_ruleSourceId가 실제 목표를 가리킴)은 목표 마감 목록에서 제외 —
+         목표 행 아래에서 '연결된 준비'로 보여주므로 이중 노출을 막는다. */
+      var pref=String(t.sourceTaskId||t._ruleSourceId||'');
+      if(pref && (tasks||[]).some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
+      return true;
+    }).map(function(t){ var dd=new Date(t.deadlineDate+'T00:00'), nd=new Date(TKK+'T00:00'); return {t:t,days:Math.round((dd-nd)/86400000)}; }).filter(function(x){return x.days>=0&&x.days<=7;}).sort(function(a,b){return a.days-b.days;});
   var unsched=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){ return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && (t.date===_planDate || (t.date&&t.date<TKK)) && t.catId!=='schedule' && !t._isTt; });
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
   function item(kind,id,ic,text,badge,bc){ return '<div class="plan-tray-item" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-t">'+esc(text)+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
+  function item2(kind,id,ic,text,badge,sub,bc,subLink){ return '<div class="plan-tray-item two" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-main"><span class="pti-t">'+esc(text)+'</span>'+(sub?'<span class="pti-sub'+(subLink?' link':'')+'">'+esc(sub)+'</span>':'')+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
+  /* 마감 행: 이미 연결된 준비 할일이 있으면 그 준비 할일을 드래그 대상으로(kind=task) 삼고
+     마감까지 며칠 전에 계획돼 있는지 보여준다. 없으면 기존처럼 끌어서 준비 할일을 만든다. */
+  function deadlineRow(x){
+    var dl=x.t, days=x.days, dlBadge=(days===0?'오늘':'D-'+days), bc=(days<=1?'due':'');
+    var preps=_planPrepFor(dl), pp=_planPickPrep(preps);
+    if(pp){
+      var sub, subLink=true;
+      if(/^\d{4}-\d{2}-\d{2}$/.test(String(pp.date||''))){
+        var pb=Math.round((new Date(dl.deadlineDate+'T00:00')-new Date(pp.date+'T00:00'))/86400000);
+        var when=(pp.date===TKK?'오늘':(pp.date<TKK?'지남':(Number(pp.date.slice(5,7))+'/'+Number(pp.date.slice(8,10)))));
+        var rel=(pb>0?('마감 '+pb+'일 전'):(pb===0?'마감 당일':'마감 지나 계획됨'));
+        sub='📌 준비: '+(pp.text||'준비')+' · '+rel+' ('+when+')'+(pp.date===TKK?'':' — 오늘로 끌기');
+        if(pp.date!==TKK)subLink=true; else subLink=false;
+      } else {
+        sub='📌 준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치';
+      }
+      var more=(preps.length>1?(' +'+(preps.length-1)):'');
+      return item2('task',pp.id,'🚩',(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
+    }
+    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'준비 할일 없음 — 끌어서 만들기',bc);
+  }
   var h='<div class="plan-tray-intro">할일·인박스·마감을 왼쪽 타임라인으로 끌어와 시간에 배치하세요.</div>';
   h+='<div class="plan-tray-sec"><div class="plan-tray-h">📥 인박스<span class="cnt">'+inbox.length+'</span></div>'+(inbox.length?inbox.map(function(i){return item('inbox',i.id,'•',i.text||'항목');}).join(''):'<div class="plan-tray-empty">처리할 인박스가 없어요</div>')+'</div>';
-  h+='<div class="plan-tray-sec"><div class="plan-tray-h">⏳ 다가오는 마감<span class="cnt">'+deadlines.length+'</span></div>'+(deadlines.length?deadlines.map(function(x){return item('deadline',x.t.id,'🚩',x.t.text||'마감',(x.days===0?'오늘':'D-'+x.days),'due');}).join(''):'<div class="plan-tray-empty">이번 주 마감이 없어요</div>')+'</div>';
+  h+='<div class="plan-tray-sec"><div class="plan-tray-h">⏳ 다가오는 마감<span class="cnt">'+deadlines.length+'</span></div>'+(deadlines.length?deadlines.map(deadlineRow).join(''):'<div class="plan-tray-empty">이번 주 마감이 없어요</div>')+'</div>';
   h+='<div class="plan-tray-sec"><div class="plan-tray-h">🕘 시간 미정 할일<span class="cnt">'+unsched.length+'</span></div>'+(unsched.length?unsched.map(function(t){return item('task',t.id,'○',t.text||'할일',((t.date&&t.date<TKK)?'지남':''),'due');}).join(''):'<div class="plan-tray-empty">배치할 할일이 없어요</div>')+'</div>';
   host.innerHTML=h;
   host.querySelectorAll('.plan-tray-item').forEach(function(it){ _planBindTrayDrag(it); });
