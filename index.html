@@ -1545,6 +1545,17 @@ button.sit-arc-item { cursor:pointer; }
 }
 .htb-body::-webkit-scrollbar { width:3px; }
 .htb-body::-webkit-scrollbar-thumb { background:var(--border); border-radius:var(--r-sm); }
+/* 빈 타임라인 컴팩트 안내 */
+.htb-body.htb-empty{display:flex;align-items:center;justify-content:center;max-height:none;min-height:0;overflow:visible;padding:var(--sp-9) var(--sp-6)}
+.htb-body.htb-empty .htb-axis,.htb-body.htb-empty .htb-slots{display:none}
+.htb-empty-panel{display:flex;flex-direction:column;align-items:center;gap:var(--sp-2);text-align:center;max-width:340px}
+.htb-empty-ic{font-size:30px;line-height:1;opacity:.85}
+.htb-empty-t{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-2)}
+.htb-empty-d{font-size:var(--text-xs);color:var(--fg-4);line-height:1.5}
+.htb-empty-actions{display:flex;flex-wrap:wrap;gap:var(--sp-2);justify-content:center;margin-top:var(--sp-3)}
+.htb-empty-btn{height:32px;padding:0 var(--sp-5);border-radius:var(--r-full);border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--fg-2);font-size:var(--text-xs);font-weight:var(--fw-bold);cursor:pointer;transition:border-color var(--t-snap),background var(--t-snap)}
+.htb-empty-btn:hover{border-color:var(--accent)}
+.htb-empty-btn.primary{background:var(--accent);border-color:var(--accent);color:var(--n-0,#fff)}
 
 /* Time axis */
 .htb-axis {
@@ -18860,7 +18871,8 @@ function renderHomeTimeBlocks(){
   }
 
   var _htbHasTimed = !!slots.querySelector('.vblk-task,.vblk-sched,.vblk-deadline');
-  if (!allday.children.length) {
+  var _htbHadAllday = allday.children.length>0;
+  if (!_htbHadAllday) {
     var empty=document.createElement('span');
     empty.className='allday-chip chip-teal';
     empty.textContent='오늘 종일 할일 없음';
@@ -18876,6 +18888,28 @@ function renderHomeTimeBlocks(){
         pull.addEventListener('click',function(e){e.stopPropagation();homePullOverdueToToday();});
         allday.appendChild(pull);
       }
+    }
+  }
+  /* 빈 타임라인 정리 — 시간 지정 블록도 실제 종일 항목도 없으면, 큰 빈 격자로 홈을
+     도배하지 말고 컴팩트 안내(계획 세우기)로 대체한다. */
+  var _htbBody=document.getElementById('htb-body');
+  var _htbOldEmpty=document.getElementById('htb-empty'); if(_htbOldEmpty)_htbOldEmpty.remove();
+  if(_htbBody){
+    if(!_htbHasTimed && !_htbHadAllday){
+      _htbBody.classList.add('htb-empty');
+      var _ov=document.createElement('div'); _ov.className='htb-empty-panel'; _ov.id='htb-empty';
+      var _ovOverdue=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&t.date&&t.date<TK;}).length;
+      _ov.innerHTML='<div class="htb-empty-ic">🗓️</div>'
+        +'<div class="htb-empty-t">오늘은 아직 시간 계획이 없어요</div>'
+        +'<div class="htb-empty-d">계획창에서 하루를 시간대로 배치해보세요</div>'
+        +'<div class="htb-empty-actions"><button type="button" class="htb-empty-btn primary" id="htb-empty-plan">계획 세우기</button>'
+        +(_ovOverdue?'<button type="button" class="htb-empty-btn" id="htb-empty-pull">지난 할일 '+_ovOverdue+'개 오늘로</button>':'')
+        +'</div>';
+      _htbBody.appendChild(_ov);
+      var _pb=_ov.querySelector('#htb-empty-plan'); if(_pb)_pb.addEventListener('click',function(){ _planReturnPage='home'; if(typeof goPage==='function')goPage('planner'); });
+      var _ub=_ov.querySelector('#htb-empty-pull'); if(_ub)_ub.addEventListener('click',function(){ if(typeof homePullOverdueToToday==='function')homePullOverdueToToday(); });
+    } else {
+      _htbBody.classList.remove('htb-empty');
     }
   }
   function handleAllDayDragOver(e){ e.preventDefault(); allday.classList.add('drag-over-date'); }
