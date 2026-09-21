@@ -3797,6 +3797,8 @@ html.pjb-fs-lock{overflow:hidden}
   border:1px solid var(--border-subtle);
   box-shadow:0 0 0 2px color-mix(in srgb,var(--bg-card) 88%,transparent);
 }
+.cal-dl-chip-txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-dl-prep-badge{margin-left:2px;padding:0 4px;border-radius:var(--r-full);font-size:8px;font-weight:var(--fw-bold);background:color-mix(in srgb,var(--accent) 16%,var(--bg-card));color:var(--accent);border:.5px solid color-mix(in srgb,var(--accent) 32%,var(--border));flex:0 0 auto;line-height:1.5}
 .cal-day-dl-chip.safe{background:color-mix(in srgb,var(--task-pal-schedule,var(--t-400)) 14%,var(--bg-card));color:color-mix(in srgb,var(--task-pal-schedule,var(--t-600)) 78%,var(--fg));border-color:color-mix(in srgb,var(--task-pal-schedule,var(--t-400)) 42%,var(--border))}
 .cal-day-dl-chip.soon{background:color-mix(in srgb,var(--warning) 15%,var(--bg-card));color:color-mix(in srgb,var(--warning) 84%,var(--fg));border-color:color-mix(in srgb,var(--warning) 46%,var(--border))}
 .cal-day-dl-chip.imminent{background:color-mix(in srgb,var(--warning) 22%,var(--bg-card));color:color-mix(in srgb,var(--warning) 92%,var(--fg));border-color:color-mix(in srgb,var(--warning) 58%,var(--border))}
@@ -17954,15 +17956,21 @@ function _planSchedule(kind,pid,sm){
 /* 마감(dt)에 이미 연결된 '준비 할일'(정방향: deadlineId/sourceTaskId/_ruleSourceId가
    dt를 가리킴)을 모은다. 완료·travel-only 제외. 이게 있으면 드래그 시 새로 만들지 않고
    이 준비 할일을 옮긴다(중복 준비 할일 방지). */
-function _planPrepFor(dt){
+/* dt에 연결된 '실행/준비 할일'을 정방향·역방향 모두 모은다.
+   정방향: 할일이 dt를 가리킴(deadlineId/sourceTaskId/_ruleSourceId===dt.id).
+   역방향: dt(일정/마감)가 할일을 가리킴(dt.deadlineId===그 할일 id) — 링크 피커로 연결한 경우.
+   includeDone=false면 미완료만(드래그 대상). 예전엔 정방향만 봐서 '이미 연결됐는데 연결
+   할일 없음'으로 잘못 뜨는 경우가 많았다. */
+function _planLinkedFor(dt, includeDone){
   if(!dt)return [];
-  var tid=String(dt.id), out=[];
-  (typeof tasks!=='undefined'?tasks:[]).forEach(function(t){
-    if(!t||t._travelOnly||t.done||String(t.id)===tid)return;
-    if(String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid)out.push(t);
-  });
+  var tid=String(dt.id), out=[], seen={};
+  var all=(typeof tasks!=='undefined'?tasks:[]);
+  function add(t){ if(t&&!t._travelOnly&&String(t.id)!==tid&&(includeDone||!t.done)&&!seen[String(t.id)]){ seen[String(t.id)]=1; out.push(t); } }
+  all.forEach(function(t){ if(!t)return; if(String(t.deadlineId||'')===tid||String(t.sourceTaskId||'')===tid||String(t._ruleSourceId||'')===tid)add(t); });
+  if(dt.deadlineId){ all.forEach(function(u){ if(u&&String(u.id)===String(dt.deadlineId))add(u); }); }
   return out;
 }
+function _planPrepFor(dt){ return _planLinkedFor(dt,false); }
 /* 대표 준비 할일 — 날짜 있는 것 우선, 오늘에 가장 가까운(이른) 것부터. */
 function _planPickPrep(preps){
   if(!preps||!preps.length)return null;
@@ -17997,7 +18005,7 @@ function returnTriageRemain(){
     var pref=String(t.sourceTaskId||t._ruleSourceId||''); if(pref&&all.some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
     var d=Math.round((new Date(t.deadlineDate+'T00:00')-new Date(TKK+'T00:00'))/86400000); return d>=0&&d<=7;
   });
-  var dlNoPrep=deadlines.filter(function(t){return (typeof _planPrepFor==='function')?_planPrepFor(t).length===0:false;}).length;
+  var dlNoPrep=deadlines.filter(function(t){return (typeof _planLinkedFor==='function')?_planLinkedFor(t,true).length===0:false;}).length;
   var unlinked=(typeof returnUnlinkedSchedules==='function')?returnUnlinkedSchedules().length:0;
   var unsched=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||'')))&&t.date===TKK&&t.catId!=='schedule'&&!t._isTt; }).length;
   var overdue=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!t._isTt&&t.date&&t.date<TKK; }).length;
@@ -18051,7 +18059,7 @@ function _planRenderTray(){
   var unsched=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && t.date===_planDate && t.date>=TKK && t.catId!=='schedule' && !t._isTt && !ulIds[String(t.id)]; });
   var usIds={}; unsched.forEach(function(t){usIds[String(t.id)]=1;});
   var overdue=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !t._isTt && t.date && t.date<TKK && !ulIds[String(t.id)]; });
-  var dlNoPrep=deadlines.filter(function(x){ return _planPrepFor(x.t).length===0; }).length;
+  var dlNoPrep=deadlines.filter(function(x){ return _planLinkedFor(x.t,true).length===0; }).length;
   var remain=inbox.length+unlinked.length+unsched.length+overdue.length+dlNoPrep;
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
   function item(kind,id,ic,text,badge,bc){ return '<div class="plan-tray-item" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-t">'+esc(text)+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
@@ -18070,6 +18078,11 @@ function _planRenderTray(){
       } else { sub='📌 준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치'; }
       var more=(preps.length>1?(' +'+(preps.length-1)):'');
       return item2('task',pp.id,'🚩',(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
+    }
+    /* 미완료 준비는 없지만 연결된 할일이 있으면(모두 완료 등) '연결 완료'로, 정말 아무
+       연결도 없을 때만 '끌어서 만들기'. 역방향 연결까지 보므로 오탐이 없다. */
+    if(_planLinkedFor(dl,true).length>0){
+      return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'✓ 연결 완료',bc);
     }
     return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'준비 할일 없음 — 끌어서 만들기',bc);
   }
@@ -18982,18 +18995,19 @@ function renderHomeTimeBlocks(){
       }
     }
   }
-  /* 빈 타임라인 정리 — 시간 지정 블록도 실제 종일 항목도 없으면, 큰 빈 격자로 홈을
-     도배하지 말고 컴팩트 안내(계획 세우기)로 대체한다. */
+  /* 빈 타임라인 정리 — 시간 지정 블록이 하나도 없으면(종일 항목만 있거나, 범위 밖으로
+     빠졌거나, 오늘 계획이 없거나) 큰 빈 격자로 홈을 도배하지 말고 컴팩트 안내로 대체한다.
+     종일 칩은 이 본문(htb-body) 위 별도 줄에 그대로 남으므로 가려지지 않는다. */
   var _htbBody=document.getElementById('htb-body');
   var _htbOldEmpty=document.getElementById('htb-empty'); if(_htbOldEmpty)_htbOldEmpty.remove();
   if(_htbBody){
-    if(!_htbHasTimed && !_htbHadAllday){
+    if(!_htbHasTimed){
       _htbBody.classList.add('htb-empty');
       var _ov=document.createElement('div'); _ov.className='htb-empty-panel'; _ov.id='htb-empty';
       var _ovOverdue=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&t.date&&t.date<TK;}).length;
       _ov.innerHTML='<div class="htb-empty-ic">🗓️</div>'
-        +'<div class="htb-empty-t">오늘은 아직 시간 계획이 없어요</div>'
-        +'<div class="htb-empty-d">계획창에서 하루를 시간대로 배치해보세요</div>'
+        +'<div class="htb-empty-t">'+(_htbHadAllday?'시간을 정한 계획이 없어요':'오늘은 아직 시간 계획이 없어요')+'</div>'
+        +'<div class="htb-empty-d">'+(_htbHadAllday?'종일 할일을 계획창에서 시간대로 배치해보세요':'계획창에서 하루를 시간대로 배치해보세요')+'</div>'
         +'<div class="htb-empty-actions"><button type="button" class="htb-empty-btn primary" id="htb-empty-plan">계획 세우기</button>'
         +(_ovOverdue?'<button type="button" class="htb-empty-btn" id="htb-empty-pull">지난 할일 '+_ovOverdue+'개 오늘로</button>':'')
         +'</div>';
@@ -24970,19 +24984,38 @@ function visibleTasks(){
     /* NOTE: hideTt (시간표 숨기기) is calendar-only — tasks always show in list */
   });
 }
-/* 'dlOnly'(마감만) 모드 필터 — 마감 뷰 버튼을 한 번 더 눌렀을 때 쓰는 리스트 필터.
-   마감이 있는 할일 + 그 마감과 연결된(준비) 할일만 남기고 나머지는 숨긴다. 연결 인식은
-   scheduleTargetHasLinkedTask와 같은 규칙(정/역방향 deadlineId·sourceTaskId·_ruleSourceId). */
+/* 이 할일이 다른 할일에 붙은 '연결 준비 할일'인가 — sourceTaskId/_ruleSourceId가 실제
+   목표를 가리키면 준비 할일이다(목표는 이런 필드가 없으므로 안전한 판별). deadlineId는
+   역방향(목표→할일) 링크에도 쓰여 애매하므로 판별에 넣지 않는다. */
+function _taskIsLinkPrep(t){
+  if(!t)return false;
+  var ref=String(t.sourceTaskId||t._ruleSourceId||'');
+  if(!ref)return false;
+  var all=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks:[];
+  return all.some(function(o){ return o&&String(o.id)===ref&&String(o.id)!==String(t.id); });
+}
+/* 'dlOnly'(마감만) 모드 필터 — 마감 목표만 남기고 그 목표에 연결된 '준비 할일'은 숨긴다
+   (지저분함 방지 · 대신 마감 칩에 '연결 N일 전' 배지로 요약). 목표 = 마감일이 있고
+   준비 할일이 아닌 것, 또는 (마감일 없어도) 연결 준비 할일을 가진 대상. */
 function dlOnlyFilter(list){
   if(!Array.isArray(list))return list;
   var all=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks:[];
   return list.filter(function(t){
     if(!t)return false;
-    if(t.deadlineDate)return true;                       /* 마감 있는 것(마감 목표 + 마감일 물려받은 준비 할일) */
-    if(t.deadlineId||t.sourceTaskId||t._ruleSourceId)return true;  /* 다른 할일의 마감을 가리키는 연결 할일 */
-    var tid=String(t.id);                                /* 다른 할일이 이 할일(마감)을 가리키는 경우 */
-    return all.some(function(u){ return u&&!u._travelOnly&&(String(u.deadlineId||'')===tid||String(u.sourceTaskId||'')===tid||String(u._ruleSourceId||'')===tid); });
+    if(_taskIsLinkPrep(t))return false;                  /* 연결 준비 할일은 숨김(배지로 대체) */
+    if(t.deadlineDate)return true;                       /* 마감 목표 */
+    var tid=String(t.id);                                /* 마감일이 없어도 연결 준비를 가진 대상(일정 등) */
+    return all.some(function(u){ return u&&!u._travelOnly&&(String(u.sourceTaskId||'')===tid||String(u._ruleSourceId||'')===tid); });
   });
+}
+/* 마감(dl)에 연결된 준비 할일이 '마감 며칠 전'에 있는지 — 달력 마감만 뷰의 숫자 배지용.
+   미완료 연결(정/역방향)을 보고 날짜 있는 것 중 가장 이른 것으로 계산. 없으면 null. */
+function _dlPrepDaysBefore(dl){
+  if(!dl||!dl.deadlineDate||typeof _planLinkedFor!=='function')return null;
+  var lp=_planLinkedFor(dl,false).filter(function(x){return /^\d{4}-\d{2}-\d{2}$/.test(String(x.date||''));});
+  if(!lp.length)return _planLinkedFor(dl,false).length?'linked':null; /* 날짜 없는 연결만 있으면 '연결' */
+  lp.sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);});
+  return Math.round((new Date(dl.deadlineDate+'T00:00')-new Date(lp[0].date+'T00:00'))/86400000);
 }
 
 /* ── CALENDAR ── */
@@ -25227,7 +25260,7 @@ function renderCal(){
     /* 목표에 담긴 하위 할일은 달력에서 개별로 안 보이고 목표로 묶인다. */
     var dayItems=_calCollapseGoals(dayTasks);
     var dayHobby=(showHobby&&!dlOnly&&typeof _hobbyItemsForDate==='function')?_hobbyItemsForDate(dkey):[];
-    var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done) && !(t.goalId&&typeof findGoal==='function'&&findGoal(t.goalId));});
+    var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done) && !(t.goalId&&typeof findGoal==='function'&&findGoal(t.goalId)) && !(dlOnly&&_taskIsLinkPrep(t));});
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='today';}))cell.classList.add('has-dl-today');
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='overdue';}))cell.classList.add('has-dl-overdue');
     if(dlTasks.some(function(t){return t.isSpecial;}))cell.classList.add('has-special');
@@ -25243,7 +25276,17 @@ function renderCal(){
         chip.setAttribute('data-task-id', t.id);
         chip.setAttribute('data-role','deadline'); /* dest anchor for arrow */
         chip.title='마감: '+t.text+' · '+(dlText(t.deadlineDate)||t.deadlineDate);
-        chip.textContent=(t.isSpecial?'⭐ ':'')+t.text;
+        var _chTxt=document.createElement('span'); _chTxt.className='cal-dl-chip-txt'; _chTxt.textContent=(t.isSpecial?'⭐ ':'')+t.text; chip.appendChild(_chTxt);
+        /* 마감만 뷰: 연결 준비 할일을 따로 안 보여주는 대신, 마감 칩에 '🔗N'(마감 N일 전) 숫자 배지. */
+        if(dlOnly){
+          var _pdb=_dlPrepDaysBefore(t);
+          if(_pdb!=null){
+            var pbg=document.createElement('span'); pbg.className='cal-dl-prep-badge';
+            if(_pdb==='linked'){ pbg.textContent='🔗'; pbg.title='연결 준비 할일 있음(날짜 미정)'; }
+            else { pbg.textContent='🔗'+(_pdb>0?_pdb:(_pdb===0?'0':'!')); pbg.title='연결 준비 할일: 마감 '+(_pdb>0?(_pdb+'일 전'):(_pdb===0?'당일':(Math.abs(_pdb)+'일 지남'))); }
+            chip.appendChild(pbg);
+          }
+        }
         chip.addEventListener('click',function(e){e.stopPropagation();selDate=t.date;renderCal();renderList();tasksOpenModal(t);});
         evWrap.appendChild(chip);
       });

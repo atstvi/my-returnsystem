@@ -31,7 +31,9 @@ t.ok('마감 뷰 버튼 3단 순환(끔→마감 뷰→마감만→끔)', /if\(!
 t.ok('버튼 라벨/상태 마감만 반영', /dlBtn\.classList\.toggle\('on',dlView\|\|dlOnly\);[\s\S]*?dlLabel\.textContent=dlOnly\?'마감만':'마감 뷰'/.test(html));
 
 /* (b) dlOnlyFilter + renderCal(달력) 적용 — 리스트는 그대로, 달력에서만 필터 */
-t.ok('dlOnlyFilter: 마감/연결만 남김', /function dlOnlyFilter\(list\)\{[\s\S]*?if\(t\.deadlineDate\)return true;[\s\S]*?if\(t\.deadlineId\|\|t\.sourceTaskId\|\|t\._ruleSourceId\)return true;/.test(html));
+/* dlOnlyFilter는 이제 마감 목표만 남기고 연결 준비 할일(_taskIsLinkPrep)은 숨긴다
+   (달력이 지저분해지는 문제 해결 · 대신 마감 칩에 '🔗N' 배지). */
+t.ok('dlOnlyFilter: 마감 목표만 남기고 연결 준비는 숨김', /function dlOnlyFilter\(list\)\{[\s\S]*?if\(_taskIsLinkPrep\(t\)\)return false;[\s\S]*?if\(t\.deadlineDate\)return true;/.test(html));
 t.ok('renderCal에서 dlOnly로 달력 이벤트 필터', /if\(dlOnly\)dayTasks=dlOnlyFilter\(dayTasks\);/.test(html));
 t.ok('마감만 모드에선 취미도 숨김', /var dayHobby=\(showHobby&&!dlOnly&&/.test(html));
 t.ok('리스트(renderList)는 dlOnly로 필터하지 않음', !/if\(dlOnly\)vt=dlOnlyFilter\(vt\)/.test(html));
