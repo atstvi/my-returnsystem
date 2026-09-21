@@ -2,8 +2,8 @@
 /* 마감 연결 인식 개선 + 달력 '마감만' 뷰 정리:
    1) _planLinkedFor: 정방향(할일→마감)뿐 아니라 역방향(마감.deadlineId→할일) 연결도 인식해
       '이미 연결됐는데 연결 할일 없음'으로 잘못 뜨는 문제 해결.
-   2) 달력 마감만(dlOnly): 연결 준비 할일은 숨기고(_taskIsLinkPrep), 마감 칩에 '🔗N'(마감
-      N일 전) 숫자 배지만 표시. */
+   2) 달력 마감만(dlOnly): 오로지 마감 칩만 보이게 — 연결 준비 할일은 숨기고
+      (_taskIsLinkPrep), 할일/목표 pill(dayItems)도 숨기고, 숫자 배지도 없앤다(지저분함 제거). */
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 const html = readIndex();
@@ -29,7 +29,7 @@ t.ok('includeDone=false는 완료 준비 제외', !ctx._planLinkedFor(ctx.tasks[
 t.ok('includeDone=true는 완료 준비 포함', ctx._planLinkedFor(ctx.tasks[2],true).some(function(x){return x.id===6;}));
 
 // ── _taskIsLinkPrep / dlOnlyFilter ──
-const block2 = sliceBlock(html, 'function _taskIsLinkPrep(t){', '/* 마감(dl)에 연결된 준비 할일이');
+const block2 = sliceBlock(html, 'function _taskIsLinkPrep(t){', 'function taskMatchesSearch(t,q){');
 const ctx2 = { tasks: [], String: String, Array: Array };
 vm.createContext(ctx2);
 vm.runInContext(block2, ctx2);
@@ -48,10 +48,10 @@ t.ok('_taskIsLinkPrep: 목표 자신은 준비 아님', ctx2._taskIsLinkPrep(ctx
 // ── 소스 배선 ──
 t.ok('_planPrepFor는 _planLinkedFor(미완료)', /function _planPrepFor\(dt\)\{ return _planLinkedFor\(dt,false\); \}/.test(html));
 t.ok('연결 있는데 미완료 준비 없으면 연결 완료 표시', /if\(_planLinkedFor\(dl,true\)\.length>0\)\{\s*return item2\('deadline',dl\.id,'🚩',dl\.text\|\|'마감',dlBadge,'✓ 연결 완료'/.test(html));
-t.ok('dlNoPrep 카운트는 _planLinkedFor(true) 기준', /var dlNoPrep=deadlines\.filter\(function\(x\)\{ return _planLinkedFor\(x\.t,true\)\.length===0; \}\)\.length;/.test(html));
+t.ok('마감은 미처리 개수에서 제외(마감일과 연결됨)', /remain=inbox\.length\+unlinked\.length\+overdue\.length;/.test(html) && !/\+dlNoPrep/.test(html));
 t.ok('달력 마감칩: dlOnly면 준비 제외', /!\(dlOnly&&_taskIsLinkPrep\(t\)\)/.test(html));
-t.ok('달력 마감칩 숫자 배지(🔗N)', /var _pdb=_dlPrepDaysBefore\(t\);[\s\S]*?pbg\.className='cal-dl-prep-badge'[\s\S]*?'🔗'\+\(_pdb>0\?_pdb/.test(html));
-t.ok('_dlPrepDaysBefore: 미완료 연결 최근 것으로 계산', /function _dlPrepDaysBefore\(dl\)\{[\s\S]*?_planLinkedFor\(dl,false\)[\s\S]*?Math\.round\(\(new Date\(dl\.deadlineDate/.test(html));
-t.ok('배지 CSS 존재', /\.cal-dl-prep-badge\{/.test(html));
+t.ok('마감만 뷰: 할일/목표 pill(dayItems) 숨김', /dayItems\.forEach\(function\(it\)\{\s*if\(dlOnly\)return;/.test(html));
+t.ok('숫자 배지 제거(_dlPrepDaysBefore 없음)', !/_dlPrepDaysBefore/.test(html));
+t.ok('배지 CSS 제거', !/cal-dl-prep-badge/.test(html));
 
 t.done();

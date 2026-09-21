@@ -1,7 +1,7 @@
 'use strict';
 /* 계획창(플래너) 여러 날 보기 — 할일탭 타임블록(TWV) 뷰를 대체.
    1일/2일/3일/1주 날 수 선택, >1이면 한눈에 보기(overview), 날짜/블록 탭 → 1일 편집 모드.
-   할일탭 '계획' 버튼이 계획창을 전체화면으로 연다. '작게' 토글로 창 형태(compact). */
+   할일탭 '계획' 버튼이 계획창을 전체화면으로 연다(항상 꽉차게 · '작게' 토글 버튼은 제거). */
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 const html = readIndex();
@@ -33,7 +33,7 @@ t.ok('여러날 렌더 함수 존재', /function _planRenderMulti\(\)\{[\s\S]*?v
 t.ok('날짜/열 헤더 탭 → 해당 날 1일 모드', /_planDate=k; _planSetDays\(1\);/.test(html));
 t.ok('블록/칩 탭 → 할일 편집창', /var t=\(tasks\|\|\[\]\)\.find\(function\(x\)\{return String\(x\.id\)===String\(el\.getAttribute\('data-tid'\)\);\}\); if\(t&&typeof tasksOpenModal==='function'\)tasksOpenModal\(t\);/.test(html));
 t.ok('네비 이동은 날 수만큼', /var step=n\*\(_planDays>1\?_planDays:1\);/.test(html));
-t.ok('작게 토글 버튼 바인딩', /b\('plan-size',function\(\)\{ _planCompact=!_planCompact; renderPlanner\(\); \}\);/.test(html));
+t.ok("'작게' 토글 버튼 제거(안 쓰는 기능)", !/id="plan-size"/.test(html) && !/b\('plan-size'/.test(html));
 t.ok('날 수 칩 위임 바인딩', /dp\.addEventListener\('click',function\(e\)\{ var btn=e\.target\.closest\('\[data-plan-days\]'\);/.test(html));
 
 // ── 할일탭 '계획' 런처가 계획창 전체화면으로 (TWV 대체) ──
