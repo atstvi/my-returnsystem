@@ -8,7 +8,7 @@ const html = readIndex();
 const t = runner('플래너 마감 준비 연결');
 
 // ── 순수 로직: _planPrepFor / _planPickPrep ──
-const block = sliceBlock(html, 'function _planPrepFor(dt){', 'function _planRenderTray(){');
+const block = sliceBlock(html, 'function _planPrepFor(dt){', 'function returnUnlinkedSchedules(){');
 const ctx = { tasks: [] };
 vm.createContext(ctx);
 vm.runInContext(block, ctx);
@@ -33,7 +33,7 @@ t.ok('_planPickPrep: 빈 배열 null', ctx._planPickPrep([])===null);
 })();
 
 // ── 소스 배선 ──
-t.ok('준비 할일은 목표 마감 목록에서 제외', /var pref=String\(t\.sourceTaskId\|\|t\._ruleSourceId\|\|''\);\s*if\(pref && \(tasks\|\|\[\]\)\.some\(function\(o\)\{return o&&String\(o\.id\)===pref&&String\(o\.id\)!==String\(t\.id\)/.test(html));
+t.ok('준비 할일은 목표 마감 목록에서 제외', /var pref=String\(t\.sourceTaskId\|\|t\._ruleSourceId\|\|''\);\s*if\(pref && allT\.some\(function\(o\)\{return o&&String\(o\.id\)===pref&&String\(o\.id\)!==String\(t\.id\)/.test(html));
 t.ok('두 줄 트레이 아이템 헬퍼(item2)', /function item2\(kind,id,ic,text,badge,sub,bc,subLink\)\{[\s\S]*?class="plan-tray-item two"/.test(html));
 t.ok('연결 준비 있으면 그 준비를 드래그 대상(kind=task)', /return item2\('task',pp\.id,'🚩'/.test(html));
 t.ok('마감으로부터 며칠 전인지 계산해 표시', /var pb=Math\.round\(\(new Date\(dl\.deadlineDate\+'T00:00'\)-new Date\(pp\.date\+'T00:00'\)\)\/86400000\);/.test(html) && /마감 '\+pb\+'일 전/.test(html));

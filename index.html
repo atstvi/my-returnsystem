@@ -1262,6 +1262,7 @@ button.sit-arc-item { cursor:pointer; }
 .sig-warn { background:var(--w-50); color:var(--w-600); border-color:var(--w-200); }
 .sig-ok { background:var(--t-50); color:var(--t-600); border-color:var(--t-200); }
 .sig-now { background:var(--accent-light); color:var(--accent); border-color:var(--a-200); font-weight:var(--fw-semibold); }
+.sig-plan { background:var(--accent-light); color:var(--accent); border-color:var(--a-200); font-weight:var(--fw-semibold); }
 .sit-lane-ok { background:transparent; color:var(--fg-4); border-color:var(--border-subtle); }
 .sit-lane-ok:hover { color:var(--fg-3); }
 .sit-card[data-sit-state="rest"] .sit-avatar{background:var(--t-50);border-color:var(--t-200)}
@@ -1427,6 +1428,15 @@ button.sit-arc-item { cursor:pointer; }
 .plan-tray-item .pti-sub{font-size:var(--text-2xs);color:var(--fg-4);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-tray-item .pti-sub.link{color:var(--accent);font-weight:var(--fw-medium)}
 .plan-tray-empty{font-size:var(--text-2xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);background:var(--bg-raised);border-radius:var(--r-md);border:.5px dashed var(--border-subtle)}
+.plan-tray-empty.ok{color:var(--fg-4);opacity:.75;border-color:color-mix(in srgb,var(--success,#4a9) 30%,var(--border-subtle))}
+.plan-tray-h .cnt.ok{color:var(--success,#4a9);background:color-mix(in srgb,var(--success,#4a9) 12%,transparent)}
+.plan-tray-progress{display:flex;flex-direction:column;gap:2px;padding:var(--sp-4) var(--sp-4);border-radius:var(--r-md);background:var(--bg-raised);border:.5px solid var(--border-subtle);margin-bottom:var(--sp-1)}
+.plan-tray-progress .ptp-ic{font-size:var(--text-md);line-height:1}
+.plan-tray-progress .ptp-t{font-size:var(--text-sm);font-weight:var(--fw-bold);color:var(--fg-2)}
+.plan-tray-progress .ptp-d{font-size:var(--text-2xs);color:var(--fg-4)}
+.plan-tray-progress.done{background:color-mix(in srgb,var(--success,#4a9) 12%,var(--bg-raised));border-color:color-mix(in srgb,var(--success,#4a9) 35%,var(--border-subtle))}
+.plan-tray-progress.done .ptp-ic{color:var(--success,#4a9)}
+.plan-tray-progress.done .ptp-t{color:var(--success,#4a9)}
 .plan-triage-preview{font-size:var(--text-sm);color:var(--fg-2);background:var(--bg-sunken);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);word-break:break-word;line-height:1.5}
 .plan-triage-opts{display:flex;flex-direction:column;gap:var(--sp-3)}
 .plan-triage-opt{display:flex;align-items:center;gap:var(--sp-3);width:100%;padding:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg);cursor:pointer;text-align:left;transition:border-color var(--t-snap),background var(--t-snap)}
@@ -14626,6 +14636,10 @@ function renderHomeSituation(){
     lane('연결', unlinked.length, false, function(){ if (unlinked.length) openHomeSignalList('연결이 필요한 마감', unlinked.map(function(x){ return { label:x.task.text, task:x.task }; })); else goPage('tasks'); });
     lane('루틴', routineDueCount, false, function(){ goPage('routine'); });
     if (skippedUnlinked.length) sig('sig-ok', '패스한 연결 ' + skippedUnlinked.length, function(){ openHomeSignalList('패스한 연결', skippedUnlinked.map(function(x){ return { label:x.task.text, task:x.task, skipped:true }; })); });
+    /* 정리 작업대로 넘기기 — 오늘 상황은 '무엇이 남았나'(레이더), 실제 배치·분류는
+       계획창에서. 두 화면의 미처리 집합은 returnTriageRemain으로 통일돼 있다. */
+    var _triageN = (typeof returnTriageRemain==='function') ? returnTriageRemain() : 0;
+    sig(_triageN>0 ? 'sig-plan' : 'sit-lane-ok', _triageN>0 ? ('🗂️ 계획창에서 정리 ' + _triageN) : '✓ 계획 정리', function(){ _planReturnPage='home'; if(typeof goPage==='function')goPage('planner'); });
   }
   /* 다음 준비 — 오늘 시간이 잡힌 다음 일정을 (멀어도) 항상 띄워, 이동/준비물을
      미리 챙기게 한다. 리드타임으로 숨기지 않고, 가까워질수록 색만 격상한다.
@@ -17847,6 +17861,7 @@ function _planBindTrayDrag(item){
 }
 function _planOpenTrayItem(kind,pid){
   if(kind==='inbox'){ _planInboxTriage(pid); return; }
+  if(kind==='task'){ _planTaskQuick(pid); return; }
   var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(pid);});
   if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
 }
@@ -17955,24 +17970,92 @@ function _planPickPrep(preps){
   if(dated.length){ dated.sort(function(a,b){return a.date<b.date?-1:(a.date>b.date?1:0);}); return dated[0]; }
   return preps[0];
 }
+/* 오늘 상황과 계획창이 공유하는 '연결 필요' 집합 — 일정(catId==='schedule')인데 아직
+   연결된(실행) 할일이 없고 완료로 볼 수 없는 것. 두 화면의 커버 범위를 통일한다. */
+function returnUnlinkedSchedules(){
+  var all=(typeof tasks!=='undefined'?tasks:[]);
+  var skipped=(typeof homeSkippedDeadlineLinks==='function')?homeSkippedDeadlineLinks():{};
+  var skipRule={};
+  try{ if(typeof loadRepeatItems==='function')(loadRepeatItems()||[]).forEach(function(r){if(r&&r.skipLink)skipRule[String(r.id)]=1;}); }catch(_e){}
+  return all.filter(function(t){
+    return t && !t.done && !t._travelOnly && !t._isTt && t.sourceType!=='timetable' && !t._ttKey
+      && t.catId==='schedule' && t.date && !skipRule[String(t._repeatId||'')]
+      && !(skipped&&skipped[String(t.id)])
+      && !(typeof scheduleTargetHasLinkedTask==='function' && scheduleTargetHasLinkedTask(t,all))
+      && !(typeof scheduleTargetCompleted==='function' && scheduleTargetCompleted(t,all));
+  });
+}
+window.returnUnlinkedSchedules=returnUnlinkedSchedules;
+/* 오늘 기준 '미처리(정리 필요) 개수' — 오늘 상황(레이더)과 계획창(작업대)이 같은 정의를
+   공유해, 어느 화면에서 봐도 '아직 자리 못 잡은 것'의 범위가 통일된다. */
+function returnTriageRemain(){
+  var all=(typeof tasks!=='undefined'?tasks:[]);
+  var TKK=(typeof TK!=='undefined')?TK:(typeof _planToday==='function'?_planToday():'');
+  var inbox=(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))?inboxItems.filter(function(i){return i&&i.unread&&!i.done;}).length:0;
+  var deadlines=all.filter(function(t){
+    if(!(t&&!t.done&&!t._travelOnly&&t.deadlineDate))return false;
+    var pref=String(t.sourceTaskId||t._ruleSourceId||''); if(pref&&all.some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
+    var d=Math.round((new Date(t.deadlineDate+'T00:00')-new Date(TKK+'T00:00'))/86400000); return d>=0&&d<=7;
+  });
+  var dlNoPrep=deadlines.filter(function(t){return (typeof _planPrepFor==='function')?_planPrepFor(t).length===0:false;}).length;
+  var unlinked=(typeof returnUnlinkedSchedules==='function')?returnUnlinkedSchedules().length:0;
+  var unsched=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||'')))&&t.date===TKK&&t.catId!=='schedule'&&!t._isTt; }).length;
+  var overdue=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!t._isTt&&t.date&&t.date<TKK; }).length;
+  return inbox+dlNoPrep+unlinked+unsched+overdue;
+}
+window.returnTriageRemain=returnTriageRemain;
+/* 트레이의 할일 항목을 탭하면 뜨는 빠른 처리 시트 — 뇌 부담 없이 '어디로 보낼지'만
+   고른다: 오늘 지금 배치 / 내일로 미루기 / 완료 / 열기. (드래그로 시간 배치는 그대로) */
+function _planTaskQuick(id){
+  var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});
+  if(!t){ if(typeof showToast==='function')showToast('할일을 찾지 못했어요'); return; }
+  function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
+  var old=document.getElementById('plan-triage-ov'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='plan-triage-ov'; document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  function finish(msg){ close(); if(typeof showToast==='function')showToast(msg); try{ renderPlanner(); }catch(_e){} }
+  function opt(id2,ic,title,desc){ return '<button type="button" class="plan-triage-opt" id="'+id2+'"><span class="o-ic">'+ic+'</span><span class="o-x"><span class="o-t">'+title+'</span><span class="o-d">'+desc+'</span></span></button>'; }
+  var overdue=(t.date&&t.date<_planToday());
+  ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">⚡ 빠른 처리</div></div>'
+    +'<div class="modal-body"><div class="plan-triage-preview">'+esc(t.text||'할일')+'</div>'
+    +'<div class="plan-triage-opts">'
+      +opt('ptq-now','🎯','오늘 지금 배치','오늘 현재 시각 타임블록으로')
+      +opt('ptq-tmr','⏭','내일로 미루기','날짜만 내일로 옮김')
+      +opt('ptq-done','✅','완료','다 한 일로 표시')
+    +'</div></div>'
+    +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="ptq-open">열기</button><button type="button" class="btn btn-ghost" id="ptq-cancel">취소</button></div></div>';
+  ov.querySelector('#ptq-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); var td=_planToday(); if(t.date!==td && typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,td); t.date=td; t.timeStart=ts; t.timeEnd=te; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=td; finish('오늘 '+ts+'에 배치했어요'); });
+  ov.querySelector('#ptq-tmr').addEventListener('click',function(){ var d=new Date(_planToday()+'T00:00'); d.setDate(d.getDate()+1); var nd=dk(d); if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,nd); t.date=nd; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); finish('내일로 미뤘어요'); });
+  ov.querySelector('#ptq-done').addEventListener('click',function(){ if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=true; if(typeof saveTaskData==='function')saveTaskData(); } finish('완료로 표시했어요'); });
+  ov.querySelector('#ptq-open').addEventListener('click',function(){ close(); if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
+  ov.querySelector('#ptq-cancel').addEventListener('click',close);
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+}
+/* 계획창 트레이 = 오늘 상황과 같은 '미처리' 집합을 한곳에서 비워나가는 작업대.
+   분류(마감·연결·인박스·시간미정·지난) + 진행표(정리할 것 N) + 다 비우면 완료 ✓. */
 function _planRenderTray(){
   var host=document.getElementById('plan-tray'); if(!host)return;
   var TKK=_planToday();
+  var allT=(typeof tasks!=='undefined'?tasks:[]);
   var inbox=(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))?inboxItems.filter(function(i){return i&&i.unread&&!i.done;}):[];
-  var deadlines=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){
+  var deadlines=allT.filter(function(t){
       if(!(t&&!t.done&&!t._travelOnly&&t.deadlineDate))return false;
-      /* 준비 할일(sourceTaskId/_ruleSourceId가 실제 목표를 가리킴)은 목표 마감 목록에서 제외 —
-         목표 행 아래에서 '연결된 준비'로 보여주므로 이중 노출을 막는다. */
+      /* 준비 할일(sourceTaskId/_ruleSourceId가 실제 목표를 가리킴)은 목표 마감 목록에서 제외. */
       var pref=String(t.sourceTaskId||t._ruleSourceId||'');
-      if(pref && (tasks||[]).some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
+      if(pref && allT.some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
       return true;
     }).map(function(t){ var dd=new Date(t.deadlineDate+'T00:00'), nd=new Date(TKK+'T00:00'); return {t:t,days:Math.round((dd-nd)/86400000)}; }).filter(function(x){return x.days>=0&&x.days<=7;}).sort(function(a,b){return a.days-b.days;});
-  var unsched=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){ return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && (t.date===_planDate || (t.date&&t.date<TKK)) && t.catId!=='schedule' && !t._isTt; });
+  var dlIds={}; deadlines.forEach(function(x){dlIds[String(x.t.id)]=1;});
+  var unlinked=(typeof returnUnlinkedSchedules==='function')?returnUnlinkedSchedules().filter(function(t){return !dlIds[String(t.id)];}):[];
+  var ulIds={}; unlinked.forEach(function(t){ulIds[String(t.id)]=1;});
+  var unsched=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && t.date===_planDate && t.date>=TKK && t.catId!=='schedule' && !t._isTt && !ulIds[String(t.id)]; });
+  var usIds={}; unsched.forEach(function(t){usIds[String(t.id)]=1;});
+  var overdue=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !t._isTt && t.date && t.date<TKK && !ulIds[String(t.id)]; });
+  var dlNoPrep=deadlines.filter(function(x){ return _planPrepFor(x.t).length===0; }).length;
+  var remain=inbox.length+unlinked.length+unsched.length+overdue.length+dlNoPrep;
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
   function item(kind,id,ic,text,badge,bc){ return '<div class="plan-tray-item" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-t">'+esc(text)+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
   function item2(kind,id,ic,text,badge,sub,bc,subLink){ return '<div class="plan-tray-item two" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-main"><span class="pti-t">'+esc(text)+'</span>'+(sub?'<span class="pti-sub'+(subLink?' link':'')+'">'+esc(sub)+'</span>':'')+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
-  /* 마감 행: 이미 연결된 준비 할일이 있으면 그 준비 할일을 드래그 대상으로(kind=task) 삼고
-     마감까지 며칠 전에 계획돼 있는지 보여준다. 없으면 기존처럼 끌어서 준비 할일을 만든다. */
   function deadlineRow(x){
     var dl=x.t, days=x.days, dlBadge=(days===0?'오늘':'D-'+days), bc=(days<=1?'due':'');
     var preps=_planPrepFor(dl), pp=_planPickPrep(preps);
@@ -17983,19 +18066,28 @@ function _planRenderTray(){
         var when=(pp.date===TKK?'오늘':(pp.date<TKK?'지남':(Number(pp.date.slice(5,7))+'/'+Number(pp.date.slice(8,10)))));
         var rel=(pb>0?('마감 '+pb+'일 전'):(pb===0?'마감 당일':'마감 지나 계획됨'));
         sub='📌 준비: '+(pp.text||'준비')+' · '+rel+' ('+when+')'+(pp.date===TKK?'':' — 오늘로 끌기');
-        if(pp.date!==TKK)subLink=true; else subLink=false;
-      } else {
-        sub='📌 준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치';
-      }
+        subLink=(pp.date!==TKK);
+      } else { sub='📌 준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치'; }
       var more=(preps.length>1?(' +'+(preps.length-1)):'');
       return item2('task',pp.id,'🚩',(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
     }
     return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'준비 할일 없음 — 끌어서 만들기',bc);
   }
-  var h='<div class="plan-tray-intro">할일·인박스·마감을 왼쪽 타임라인으로 끌어와 시간에 배치하세요.</div>';
-  h+='<div class="plan-tray-sec"><div class="plan-tray-h">📥 인박스<span class="cnt">'+inbox.length+'</span></div>'+(inbox.length?inbox.map(function(i){return item('inbox',i.id,'•',i.text||'항목');}).join(''):'<div class="plan-tray-empty">처리할 인박스가 없어요</div>')+'</div>';
-  h+='<div class="plan-tray-sec"><div class="plan-tray-h">⏳ 다가오는 마감<span class="cnt">'+deadlines.length+'</span></div>'+(deadlines.length?deadlines.map(deadlineRow).join(''):'<div class="plan-tray-empty">이번 주 마감이 없어요</div>')+'</div>';
-  h+='<div class="plan-tray-sec"><div class="plan-tray-h">🕘 시간 미정 할일<span class="cnt">'+unsched.length+'</span></div>'+(unsched.length?unsched.map(function(t){return item('task',t.id,'○',t.text||'할일',((t.date&&t.date<TKK)?'지남':''),'due');}).join(''):'<div class="plan-tray-empty">배치할 할일이 없어요</div>')+'</div>';
+  /* 각 분류를 항상 헤더로 보여주고(빠짐없이 확인), 비었으면 ✓로 안심시킨다. */
+  function section(icon,label,count,bodyHtml,emptyMsg){
+    return '<div class="plan-tray-sec"><div class="plan-tray-h">'+icon+' '+label+(count>0?'<span class="cnt">'+count+'</span>':'<span class="cnt ok">✓</span>')+'</div>'
+      +(count>0?bodyHtml:'<div class="plan-tray-empty ok">'+emptyMsg+'</div>')+'</div>';
+  }
+  var doneAll=(remain===0);
+  var h='';
+  h+='<div class="plan-tray-progress'+(doneAll?' done':'')+'">'+(doneAll
+      ? '<span class="ptp-ic">✓</span><span class="ptp-t">오늘 정리 완료</span><span class="ptp-d">놓친 것 없이 다 자리 잡았어요</span>'
+      : '<span class="ptp-ic">🗂️</span><span class="ptp-t">정리할 것 '+remain+'개</span><span class="ptp-d">하나씩 자리를 정해 비워보세요</span>')+'</div>';
+  h+=section('⏳','다가오는 마감',deadlines.length,deadlines.map(deadlineRow).join(''),'이번 주 마감 없음');
+  h+=section('🔗','연결 필요',unlinked.length,unlinked.map(function(t){var d2=Math.round((new Date(t.date+'T00:00')-new Date(TKK+'T00:00'))/86400000);return item2('deadline',t.id,'🔗',t.text||'일정',(d2===0?'오늘':(d2<0?'지남':'D-'+d2)),'연결 할일 없음 — 끌어서 만들기',(d2<=1?'due':''));}).join(''),'연결 필요 없음');
+  h+=section('📥','인박스',inbox.length,inbox.map(function(i){return item('inbox',i.id,'•',i.text||'항목');}).join(''),'처리할 인박스 없음');
+  h+=section('🕘','시간 미정 할일',unsched.length,unsched.map(function(t){return item('task',t.id,'○',t.text||'할일',(t.deadlineDate?'📌':''),'due');}).join(''),'오늘 미배치 할일 없음');
+  h+=section('↩︎','지난 할일',overdue.length,overdue.map(function(t){var d3=Math.round((new Date(TKK+'T00:00')-new Date(t.date+'T00:00'))/86400000);return item('task',t.id,'○',t.text||'할일','D+'+d3,'due');}).join(''),'밀린 할일 없음');
   host.innerHTML=h;
   host.querySelectorAll('.plan-tray-item').forEach(function(it){ _planBindTrayDrag(it); });
 }
