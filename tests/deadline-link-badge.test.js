@@ -48,7 +48,7 @@ t.ok('_taskIsLinkPrep: 목표 자신은 준비 아님', ctx2._taskIsLinkPrep(ctx
 // ── 소스 배선 ──
 t.ok('_planPrepFor는 _planLinkedFor(미완료)', /function _planPrepFor\(dt\)\{ return _planLinkedFor\(dt,false\); \}/.test(html));
 t.ok('연결 있는데 미완료 준비 없으면 연결 완료 표시', /if\(_planLinkedFor\(dl,true\)\.length>0\)\{\s*return item2\('deadline',dl\.id,'🚩',dl\.text\|\|'마감',dlBadge,'✓ 연결 완료'/.test(html));
-t.ok('dlNoPrep 카운트는 _planLinkedFor(true) 기준', /var dlNoPrep=deadlines\.filter\(function\(x\)\{ return _planLinkedFor\(x\.t,true\)\.length===0; \}\)\.length;/.test(html));
+t.ok('마감은 미처리 개수에서 제외(마감일과 연결됨)', /remain=inbox\.length\+unlinked\.length\+unsched\.length\+overdue\.length;/.test(html) && !/\+dlNoPrep/.test(html));
 t.ok('달력 마감칩: dlOnly면 준비 제외', /!\(dlOnly&&_taskIsLinkPrep\(t\)\)/.test(html));
 t.ok('달력 마감칩 숫자 배지(🔗N)', /var _pdb=_dlPrepDaysBefore\(t\);[\s\S]*?pbg\.className='cal-dl-prep-badge'[\s\S]*?'🔗'\+\(_pdb>0\?_pdb/.test(html));
 t.ok('_dlPrepDaysBefore: 미완료 연결 최근 것으로 계산', /function _dlPrepDaysBefore\(dl\)\{[\s\S]*?_planLinkedFor\(dl,false\)[\s\S]*?Math\.round\(\(new Date\(dl\.deadlineDate/.test(html));

@@ -18000,16 +18000,11 @@ function returnTriageRemain(){
   var all=(typeof tasks!=='undefined'?tasks:[]);
   var TKK=(typeof TK!=='undefined')?TK:(typeof _planToday==='function'?_planToday():'');
   var inbox=(typeof inboxItems!=='undefined'&&Array.isArray(inboxItems))?inboxItems.filter(function(i){return i&&i.unread&&!i.done;}).length:0;
-  var deadlines=all.filter(function(t){
-    if(!(t&&!t.done&&!t._travelOnly&&t.deadlineDate))return false;
-    var pref=String(t.sourceTaskId||t._ruleSourceId||''); if(pref&&all.some(function(o){return o&&String(o.id)===pref&&String(o.id)!==String(t.id);}))return false;
-    var d=Math.round((new Date(t.deadlineDate+'T00:00')-new Date(TKK+'T00:00'))/86400000); return d>=0&&d<=7;
-  });
-  var dlNoPrep=deadlines.filter(function(t){return (typeof _planLinkedFor==='function')?_planLinkedFor(t,true).length===0:false;}).length;
+  /* 마감은 '마감일과 연결됨'으로 이미 처리로 보므로 미처리 개수에서 제외(계획창 트레이와 통일). */
   var unlinked=(typeof returnUnlinkedSchedules==='function')?returnUnlinkedSchedules().length:0;
   var unsched=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||'')))&&t.date===TKK&&t.catId!=='schedule'&&!t._isTt; }).length;
   var overdue=all.filter(function(t){ return t&&!t.done&&!t._travelOnly&&!t._isTt&&t.date&&t.date<TKK; }).length;
-  return inbox+dlNoPrep+unlinked+unsched+overdue;
+  return inbox+unlinked+unsched+overdue;
 }
 window.returnTriageRemain=returnTriageRemain;
 /* 트레이의 할일 항목을 탭하면 뜨는 빠른 처리 시트 — 뇌 부담 없이 '어디로 보낼지'만
@@ -18059,8 +18054,10 @@ function _planRenderTray(){
   var unsched=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && t.date===_planDate && t.date>=TKK && t.catId!=='schedule' && !t._isTt && !ulIds[String(t.id)]; });
   var usIds={}; unsched.forEach(function(t){usIds[String(t.id)]=1;});
   var overdue=allT.filter(function(t){ return t&&!t.done&&!t._travelOnly && !t._isTt && t.date && t.date<TKK && !ulIds[String(t.id)]; });
-  var dlNoPrep=deadlines.filter(function(x){ return _planLinkedFor(x.t,true).length===0; }).length;
-  var remain=inbox.length+unlinked.length+unsched.length+overdue.length+dlNoPrep;
+  /* 마감은 마감일과 이미 연결됨(모달의 '마감일과 연결됨'과 일치) → '정리할 것' 개수엔
+     넣지 않는다. '다가오는 마감'은 참고/준비 추가용 섹션. 실제 미처리는 인박스·연결
+     필요·시간 미정·지난. */
+  var remain=inbox.length+unlinked.length+unsched.length+overdue.length;
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
   function item(kind,id,ic,text,badge,bc){ return '<div class="plan-tray-item" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-t">'+esc(text)+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
   function item2(kind,id,ic,text,badge,sub,bc,subLink){ return '<div class="plan-tray-item two" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-main"><span class="pti-t">'+esc(text)+'</span>'+(sub?'<span class="pti-sub'+(subLink?' link':'')+'">'+esc(sub)+'</span>':'')+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
@@ -18079,12 +18076,14 @@ function _planRenderTray(){
       var more=(preps.length>1?(' +'+(preps.length-1)):'');
       return item2('task',pp.id,'🚩',(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
     }
-    /* 미완료 준비는 없지만 연결된 할일이 있으면(모두 완료 등) '연결 완료'로, 정말 아무
-       연결도 없을 때만 '끌어서 만들기'. 역방향 연결까지 보므로 오탐이 없다. */
+    /* 별도 연결 할일이 있었으나 모두 완료된 경우 '연결 완료'. */
     if(_planLinkedFor(dl,true).length>0){
       return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'✓ 연결 완료',bc);
     }
-    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'준비 할일 없음 — 끌어서 만들기',bc);
+    /* 별도 준비 할일이 없어도, 마감일이 있는 할일은 앱에서 이미 '마감일과 연결됨'으로 본다
+       (모달의 일정 연결 표시와 일치) → '준비 할일 없음' 나그 대신 연결됨으로 안내하고,
+       원하면 끌어서 별도 준비 할일을 추가할 수 있게 한다. */
+    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'📅 마감일과 연결됨 · 끌어서 준비 추가',bc);
   }
   /* 각 분류를 항상 헤더로 보여주고(빠짐없이 확인), 비었으면 ✓로 안심시킨다. */
   function section(icon,label,count,bodyHtml,emptyMsg){

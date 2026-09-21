@@ -38,7 +38,7 @@ t.ok('두 줄 트레이 아이템 헬퍼(item2)', /function item2\(kind,id,ic,te
 t.ok('연결 준비 있으면 그 준비를 드래그 대상(kind=task)', /return item2\('task',pp\.id,'🚩'/.test(html));
 t.ok('마감으로부터 며칠 전인지 계산해 표시', /var pb=Math\.round\(\(new Date\(dl\.deadlineDate\+'T00:00'\)-new Date\(pp\.date\+'T00:00'\)\)\/86400000\);/.test(html) && /마감 '\+pb\+'일 전/.test(html));
 t.ok('오늘 아니면 오늘로 끌기 안내', /오늘로 끌기/.test(html));
-t.ok('연결 준비 없으면 끌어서 생성(kind=deadline)', /return item2\('deadline',dl\.id,'🚩',dl\.text\|\|'마감',dlBadge,'준비 할일 없음 — 끌어서 만들기'/.test(html));
+t.ok('별도 준비 없어도 마감일과 연결됨으로 안내(끌어서 준비 추가)', /return item2\('deadline',dl\.id,'🚩',dl\.text\|\|'마감',dlBadge,'📅 마감일과 연결됨 · 끌어서 준비 추가'/.test(html));
 t.ok('마감 섹션이 deadlineRow 사용', /deadlines\.map\(deadlineRow\)\.join\(''\)/.test(html));
 t.ok('여러 준비면 +N 표기', /var more=\(preps\.length>1\?\(' \+'\+\(preps\.length-1\)\):''\);/.test(html));
 
