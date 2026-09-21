@@ -8,7 +8,7 @@ const html = readIndex();
 const t = runner('플래너 마감 준비 연결');
 
 // ── 순수 로직: _planPrepFor / _planPickPrep ──
-const block = sliceBlock(html, 'function _planPrepFor(dt){', 'function returnUnlinkedSchedules(){');
+const block = sliceBlock(html, 'function _planLinkedFor(dt, includeDone){', 'function returnUnlinkedSchedules(){');
 const ctx = { tasks: [] };
 vm.createContext(ctx);
 vm.runInContext(block, ctx);
