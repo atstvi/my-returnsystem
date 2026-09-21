@@ -1,7 +1,9 @@
 'use strict';
 /* 데이 플래너 트레이 — 인박스 항목을 탭하면 '정리 시트'로 ①바로 시행(오늘 지금 시간)
    ②그냥 할일 ③프로젝트 할일 ④프로젝트 자료(보드) 경로로 빠르게 분류한다. 처리한 항목은
-   unread=false로 비운다(기록 유지). 프로젝트는 시트 안 목록에서 고른다. */
+   unread=false로 비운다(기록 유지). 프로젝트는 시트 안 목록에서 고른다.
+   프로젝트 할일: 프로젝트를 고른 뒤 그 프로젝트의 목표(있으면)도 선택할 수 있고,
+   기본으로 '지금 시간·오늘'에 배치해 이후 날짜/시간 조정이 쉽게 한다. */
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 const html = readIndex();
@@ -40,7 +42,12 @@ t.ok('인박스 탭 → 정리 시트 진입', /if\(kind==='inbox'\)\{ _planInbo
 t.ok('정리 시트 4경로 버튼', /opt\('pt-now'[\s\S]*?바로 시행[\s\S]*?opt\('pt-task'[\s\S]*?그냥 할일[\s\S]*?opt\('pt-ptask'[\s\S]*?프로젝트 할일[\s\S]*?opt\('pt-pmat'[\s\S]*?프로젝트 자료/.test(html));
 t.ok('바로 시행: 오늘+현재 시간 배치', /var sm=Math\.min\(Math\.round\(\(now\.getHours\(\)\*60\+now\.getMinutes\(\)\)\/15\)\*15,1425\);[\s\S]*?mkTask\(\{date:_planToday\(\),timeStart:ts,timeEnd:te\}\)/.test(html));
 t.ok('그냥 할일: 시간 미정 오늘 할일', /#pt-task'\)\.addEventListener\('click',function\(\)\{ tasks\.unshift\(mkTask\(\{\}\)\);/.test(html));
-t.ok('프로젝트 할일: projectId+catId=project', /kind==='task'\)\{ tasks\.unshift\(mkTask\(\{catId:'project',projectId:String\(p\.id\)\}\)\);/.test(html));
+t.ok('프로젝트 할일 → 목표 선택 단계로', /if\(kind==='task'\)\{ goalPick\(p\); \}/.test(html));
+t.ok('목표 선택: 목표 없이 + 각 목표 옵션', /function goalPick\(p\)\{[\s\S]*?data-gg="_none"[\s\S]*?목표 없이 추가[\s\S]*?gs\.map\(function\(g\)\{[\s\S]*?data-gg="'\+esc\(String\(g\.id\)\)/.test(html));
+t.ok('목표 없이 선택시 goalId 비움', /_projTaskCreate\(p, ?gid==='_none'\?'':gid\)/.test(html));
+t.ok('프로젝트 할일: projectId+catId=project+현재시간+오늘', /function _projTaskCreate\(p,goalId\)\{[\s\S]*?catId:'project', ?projectId:String\(p\.id\), ?date:_planToday\(\), ?timeStart:slot\.ts, ?timeEnd:slot\.te[\s\S]*?tasks\.unshift\(mkTask\(extra\)\)/.test(html));
+t.ok('현재 시간 슬롯 계산(15분 스냅)', /function _nowSlot\(\)\{ var now=new Date\(\); var sm=Math\.min\(Math\.round\(\(now\.getHours\(\)\*60\+now\.getMinutes\(\)\)\/15\)\*15,1425\);/.test(html));
+t.ok('목표 선택시 goalId 반영', /if\(goalId\)\{ extra\.goalId=String\(goalId\); \}/.test(html));
 t.ok('프로젝트 자료: 보드에 저장', /_planInboxToBoard\(p,it\)/.test(html));
 t.ok('처리됨으로 비우기(unread=false, 기록 유지)', /function markProcessed\(\)\{ it\.unread=false; if\(typeof saveInboxItems==='function'\)saveInboxItems\(\); \}/.test(html));
 t.ok('프로젝트는 시트 목록에서 선택', /function projPick\(kind\)\{[\s\S]*?data-pp="'\+esc\(String\(p\.id\)\)/.test(html));

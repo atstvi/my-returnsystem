@@ -11238,7 +11238,7 @@ to{opacity:1;transform:translateY(0)}}
           <button class="plan-navbtn" id="plan-next" type="button" aria-label="다음">›</button>
         </div>
       </div>
-      <div class="plan-head-r"><button class="plan-rangebtn" id="plan-size" type="button" title="작게/크게 보기" aria-label="작게/크게">⤢</button><button class="plan-rangebtn" id="plan-range" type="button" title="시간 범위">범위</button></div>
+      <div class="plan-head-r"><button class="plan-rangebtn" id="plan-range" type="button" title="시간 범위">범위</button></div>
     </header>
     <div class="plan-body">
       <main class="plan-main">
@@ -17926,8 +17926,39 @@ function _planInboxTriage(id){
     ov.querySelector('#pt-cancel2').addEventListener('click',close);
     ov.querySelectorAll('.plan-triage-opt[data-pp]').forEach(function(bt){ bt.addEventListener('click',function(){
       var p=ps.find(function(x){return String(x.id)===String(bt.getAttribute('data-pp'));}); if(!p){close();return;}
-      if(kind==='task'){ tasks.unshift(mkTask({catId:'project',projectId:String(p.id)})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); finish('‘'+(p.title||'프로젝트')+'’ 할일로 추가했어요'); }
+      if(kind==='task'){ goalPick(p); }
       else { var ok=_planInboxToBoard(p,it); markProcessed(); finish(ok?('‘'+(p.title||'프로젝트')+'’ 자료 보드에 저장했어요'):'자료 저장에 실패했어요'); }
+    }); });
+  }
+  /* 현재 시각을 15분 단위로 스냅한 배치 슬롯(기본 1시간). 프로젝트 할일은 기본으로
+     '지금 시간·오늘'에 넣어 타임라인에서 바로 보이고, 이후 날짜/시간 조정이 쉽게. */
+  function _nowSlot(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); return { ts:_planHM(sm), te:_planHM(Math.min(sm+60,1440)) }; }
+  function _projTaskCreate(p,goalId){
+    var slot=_nowSlot();
+    var extra={ catId:'project', projectId:String(p.id), date:_planToday(), timeStart:slot.ts, timeEnd:slot.te };
+    if(goalId){ extra.goalId=String(goalId); }
+    tasks.unshift(mkTask(extra));
+    markProcessed(); if(typeof saveTaskData==='function')saveTaskData();
+    _planDate=_planToday();
+    var g=(goalId&&typeof findGoal==='function')?findGoal(goalId):null;
+    finish('‘'+(p.title||'프로젝트')+((g&&g.goal)?' · '+(g.goal.title||'목표'):'')+'’ 할일로 '+slot.ts+' 배치했어요');
+  }
+  /* 프로젝트 선택 후 그 프로젝트의 목표(있으면)도 고를 수 있게. 목표 없이 넘어갈 수도 있음. */
+  function goalPick(p){
+    var gs=((typeof projectGoals==='function')?projectGoals(p):(Array.isArray(p.goals)?p.goals:[]))
+      .filter(function(g){ return g && g.status!=='done' && g.status!=='archived'; });
+    if(!gs.length){ _projTaskCreate(p,''); return; }
+    ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">🎯 어느 목표로? (선택)</div></div>'
+      +'<div class="modal-body"><button type="button" class="plan-triage-back" id="pt-gback">‹ 뒤로</button>'+previewHtml
+      +'<div class="plan-triage-opts">'
+        +'<button type="button" class="plan-triage-opt" data-gg="_none"><span class="o-ic">📁</span><span class="o-x"><span class="o-t">'+esc(p.title||'프로젝트')+' 할일</span><span class="o-d">목표 없이 추가</span></span></button>'
+        +gs.map(function(g){ return '<button type="button" class="plan-triage-opt" data-gg="'+esc(String(g.id))+'"><span class="o-ic">🎯</span><span class="o-x"><span class="o-t">'+esc(g.title||'목표')+'</span></span></button>'; }).join('')
+      +'</div></div>'
+      +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-gcancel">취소</button></div></div>';
+    ov.querySelector('#pt-gback').addEventListener('click',function(){ projPick('task'); });
+    ov.querySelector('#pt-gcancel').addEventListener('click',close);
+    ov.querySelectorAll('.plan-triage-opt[data-gg]').forEach(function(bt){ bt.addEventListener('click',function(){
+      var gid=bt.getAttribute('data-gg'); _projTaskCreate(p, gid==='_none'?'':gid);
     }); });
   }
   ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
@@ -18109,7 +18140,6 @@ function _planRenderHead(){
   var shell=document.querySelector('#page-planner .plan-shell');
   if(shell){ shell.classList.toggle('pl-multi',_planDays>1); }
   var pg=document.getElementById('page-planner'); if(pg)pg.classList.toggle('plan-compact',!!_planCompact);
-  var sizeBtn=document.getElementById('plan-size'); if(sizeBtn){ sizeBtn.textContent=_planCompact?'⤢':'⤡'; sizeBtn.title=_planCompact?'전체화면으로':'작게 보기'; }
 }
 /* 여러 날 '한눈에 보기'(overview) — 편집은 1일에서. 날짜/블록 탭 → 그 날 1일 모드로 포커스. */
 function _planRenderMulti(){
@@ -18205,7 +18235,6 @@ function _initPlanner(){
   b('plan-today',function(){ _planDate=_planToday(); renderPlanner(); });
   b('plan-close',function(){ goPage(_planReturnPage||'home'); });
   b('plan-range',function(){ _planOpenRange(); });
-  b('plan-size',function(){ _planCompact=!_planCompact; renderPlanner(); });
   var dp=document.getElementById('plan-daypick'); if(dp&&!dp._planBound){ dp._planBound=1; dp.addEventListener('click',function(e){ var btn=e.target.closest('[data-plan-days]'); if(btn){ _planSetDays(parseInt(btn.getAttribute('data-plan-days'),10)); } }); }
   renderPlanner();
 }
