@@ -27,9 +27,9 @@ t.ok('메타/준비물 CSS', /\.plan-block-meta\{display:flex/.test(html) && /\.
 
 // ── 대표 처리: 하위/목표 할일 collapse + 블록 안 하위 목록 ──
 t.ok('_planWindowBlocks: 하위·목표 할일 collapse + 목표 대표 concat', /if\(typeof taskIsNested==='function' && taskIsNested\(t\)\)return;\s*if\(t\.goalId && typeof findGoal==='function' && findGoal\(t\.goalId\)\)return;[\s\S]*?return out\.concat\(_planGoalReps\(START,END\)\);/.test(html));
-t.ok('_planGoalReps: 오늘 소속 할일만(다른 날 제외)', /var today=all\.filter\(function\(x\)\{ return x&&!x\._travelOnly&&String\(x\.goalId\|\|''\)===gid\s*&& x\.date===_planDate && \/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(x\.timeStart\|\|''\)\); \}\);/.test(html));
-t.ok('_planGoalReps: 미완료 없으면 안 그림(끝난 목표 제외)', /var undone=today\.filter\(function\(x\)\{ return !_md\(x\); \}\);\s*if\(!undone\.length\)return;/.test(html));
-t.ok('_planGoalReps: span은 미완료 기준 + 90~180분 상한(세로 과다 방지)', /undone\.forEach\(function\(m\)\{[\s\S]*?var dur=Math\.max\(90, Math\.min\(\(eMax-sMin\), 180\)\);/.test(html));
+t.ok('_planGoalReps: 오늘 소속 할일만(시간 유무 무관, 다른 날 제외)', /var today=all\.filter\(function\(x\)\{ return x&&!x\._travelOnly&&String\(x\.goalId\|\|''\)===gid && x\.date===_planDate; \}\);/.test(html));
+t.ok('_planGoalReps: 미완료 없으면 안 그림(남으면 시간 없어도 표시)', /var undone=today\.filter\(function\(x\)\{ return !_md\(x\); \}\);\s*if\(!undone\.length\)return;/.test(html));
+t.ok('_planGoalReps: 시간 있는 멤버로 위치·높이(완료 포함) + 90~180분 상한', /var timed=today\.filter\(_timed\);\s*if\(!timed\.length\)return;[\s\S]*?timed\.forEach\(function\(m\)\{[\s\S]*?var dur=Math\.max\(90, Math\.min\(\(eMax-sMin\), 180\)\);/.test(html));
 t.ok('_planGoalReps: 진행 정보 저장(_repDone/_repTotal)', /_repMembers:today, _repDone:\(today\.length-undone\.length\), _repTotal:today\.length/.test(html));
 t.ok('대표 목록: 목표=미완료만, 일반=하위 전체', /var repChildren = isGoalRep \? repAll\.filter\(function\(x\)\{return !_effDone\(x\);\}\) : repAll;/.test(html));
 t.ok('목표 대표는 체크 대신 진행 뱃지(🎯 done/total)', /if\(isGoalRep\)\{\s*var cnt=document\.createElement\('span'\); cnt\.className='plan-block-count'; cnt\.textContent='🎯 '\+repDoneN\+'\/'\+repTotal;/.test(html));
