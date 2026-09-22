@@ -17908,7 +17908,11 @@ function _planBindGridCreate(grid){
    '탭=편집창, 길게=현재 조작창(빠른 처리)'을 나누고 싶을 때. 드래그(시간 배치)는 그대로. */
 function _planBindTrayDrag(item, opts){
   opts=opts||{};
+  /* 데스크톱 우클릭 = 모바일 롱프레스와 같은 '조작' 진입점. onLongPress가 있으면
+     우클릭(contextmenu)에도 같은 동작을 연결한다(둘 다 현재 조작창). */
+  if(typeof opts.onLongPress==='function'){ item.addEventListener('contextmenu',function(e){ e.preventDefault(); opts.onLongPress(); }); }
   item.addEventListener('pointerdown',function(e){
+    if(e.button&&e.button!==0)return; /* 우클릭은 contextmenu가 처리 — 탭/드래그 로직 제외 */
     e.preventDefault();
     var kind=item.getAttribute('data-pkind'), pid=item.getAttribute('data-pid');
     var label=((item.querySelector('.pti-t')||{}).textContent)||'항목';
@@ -38632,7 +38636,7 @@ renderRoutineBundles=function(){
     root.innerHTML+='<div class="rt-archive'+(_archOpen?' open':'')+'"><button class="rt-archive-head" type="button" id="rt-archive-toggle"><span class="rt-archive-title">📦 보관함</span><span class="rt-archive-count">'+_archH.length+'</span><svg class="rt-archive-caret" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button><div class="rt-archive-body">'+_archRows+'</div></div>';
   }
   function closeAll(){root.querySelectorAll('.rt-state-menu.open,.rt-bundle-menu.open,.rt-diff-menu.open').forEach(function(w){w.classList.remove('open');});}
-  // left check: tap = toggle 완료 ; long-press = open state menu (완료/건너뜀/쉼/선택 안 함)
+  // left check: tap = 상태 순환 ; 길게(모바일)/우클릭(데스크톱) = 상태 메뉴(완료/건너뜀/쉼/선택 안 함)
   root.querySelectorAll('[data-routine-check]').forEach(function(btn){
     var lpTimer=null,longFired=false;
     function openStateMenu(){var w=btn.closest('.rt-habit').querySelector('.rt-state-menu');if(!w)return;var was=w.classList.contains('open');closeAll();if(!was)w.classList.add('open');}
@@ -38640,7 +38644,7 @@ renderRoutineBundles=function(){
     btn.addEventListener('pointerdown',function(){longFired=false;cancelLp();lpTimer=setTimeout(function(){longFired=true;lpTimer=null;openStateMenu();},420);});
     ['pointerup','pointerleave','pointercancel'].forEach(function(ev){btn.addEventListener(ev,cancelLp);});
     btn.addEventListener('click',function(e){e.stopPropagation();if(longFired){longFired=false;return;}var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineViewLog();lg[id]=lg[id]||{};var cur=lg[id].state||'';var next=routineCycleState(cur);rtApplyCompletionLock(id,lg[id],next);lg[id].state=next;lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});
-    btn.addEventListener('contextmenu',function(e){e.preventDefault();});
+    btn.addEventListener('contextmenu',function(e){e.preventDefault();openStateMenu();}); /* 데스크톱 우클릭 = 상태 메뉴(모바일 롱프레스와 동일) */
   });
   root.querySelectorAll('[data-routine-diff-toggle]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var w=btn.closest('.rt-habit').querySelector('.rt-diff-menu');var was=w.classList.contains('open');closeAll();if(!was)w.classList.add('open');});});
   root.querySelectorAll('[data-routine-diff-option]').forEach(function(btn){btn.addEventListener('click',function(e){e.stopPropagation();var row=btn.closest('[data-routine-habit]');var id=row.getAttribute('data-routine-habit');var lg=routineViewLog();lg[id]=lg[id]||{};lg[id].difficulty=btn.getAttribute('data-routine-diff-option')||'';lg[id].updatedAt=Date.now();saveRoutineData();renderRoutine();});});
@@ -53167,14 +53171,16 @@ function renderFocusTimer(){
       root.querySelectorAll('[data-focus-sound]').forEach(function(b){b.classList.toggle('active',b.getAttribute('data-focus-sound')===s);});
     });
   });
-  /* Presets: tap = one-tap start, long-press = delete; ＋ 저장 = save current */
+  /* Presets: tap = one-tap start; 길게(모바일)/우클릭(데스크톱) = 삭제; ＋ 저장 = save current */
   var psave=root.querySelector('#ft-preset-save');if(psave)psave.addEventListener('click',focusPresetAddCurrent);
   root.querySelectorAll('[data-preset]').forEach(function(el){
     var lp=null,longFired=false;
     function cancel(){if(lp){clearTimeout(lp);lp=null;}}
-    el.addEventListener('pointerdown',function(){longFired=false;cancel();lp=setTimeout(function(){longFired=true;var id=el.getAttribute('data-preset'),p=focusPresets.find(function(x){return x.id===id;});if(typeof openConfirmDialog==='function')openConfirmDialog('프리셋 삭제',(p?'"'+p.name+'" ':'')+'프리셋을 삭제할까요?',function(){focusPresets=focusPresets.filter(function(x){return x.id!==id;});focusPresetSave();renderFocusTimer();});},550);});
-    el.addEventListener('pointerup',function(){cancel();if(!longFired)focusPresetApply(el.getAttribute('data-preset'));});
+    function askDelete(){var id=el.getAttribute('data-preset'),p=focusPresets.find(function(x){return x.id===id;});if(typeof openConfirmDialog==='function')openConfirmDialog('프리셋 삭제',(p?'"'+p.name+'" ':'')+'프리셋을 삭제할까요?',function(){focusPresets=focusPresets.filter(function(x){return x.id!==id;});focusPresetSave();renderFocusTimer();});}
+    el.addEventListener('pointerdown',function(e){if(e.button&&e.button!==0)return;longFired=false;cancel();lp=setTimeout(function(){longFired=true;askDelete();},550);});
+    el.addEventListener('pointerup',function(e){if(e.button&&e.button!==0)return;cancel();if(!longFired)focusPresetApply(el.getAttribute('data-preset'));});
     el.addEventListener('pointerleave',cancel);el.addEventListener('pointercancel',cancel);
+    el.addEventListener('contextmenu',function(e){e.preventDefault();cancel();askDelete();}); /* 데스크톱 우클릭 = 삭제(모바일 롱프레스와 동일) */
   });
   /* Focus target (category + detail) picker */
   var tb=root.querySelector('#focus-timer-target-btn');

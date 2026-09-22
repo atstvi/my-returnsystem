@@ -23,6 +23,7 @@ t.ok('undefined도 완료부터', ctx.routineCycleState(undefined)==='done');
 t.ok('루틴 탭 완료 탭이 순환 사용(토글 아님)', /var cur=lg\[id\]\.state\|\|'';var next=routineCycleState\(cur\);rtApplyCompletionLock\(id,lg\[id\],next\);/.test(html));
 t.ok('완료 칸 aria-label에 순환 안내', /data-routine-check aria-label="탭하면 상태 순환: 완료 → 건너뜀 → 쉼 → 없음 \(길게 눌러 메뉴\)"/.test(html));
 t.ok('길게 누르면 상태 메뉴(직접 선택) 유지', /lpTimer=setTimeout\(function\(\)\{longFired=true;lpTimer=null;openStateMenu\(\);\},420\);/.test(html));
+t.ok('데스크톱 우클릭도 상태 메뉴(모바일 롱프레스와 동일)', /btn\.addEventListener\('contextmenu',function\(e\)\{e\.preventDefault\(\);openStateMenu\(\);\}\);/.test(html));
 t.ok('홈 빠른 습관도 같은 순환 사용', /var _next=\(typeof routineCycleState==='function'\)\?routineCycleState\(today\[id\]\.state\|\|''\):/.test(html));
 
 t.done();
