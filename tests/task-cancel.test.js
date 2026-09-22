@@ -80,7 +80,7 @@ t.ok('홈 .task-title도 취소선', /\.task-item\.canceled \.task-text,\.task-i
 t.ok('setTaskCanceled가 계획창도 다시 그림', /typeof renderPlanner==='function' && document\.getElementById\('plan-grid'\)\)renderPlanner\(\);/.test(html));
 t.ok('setTaskCanceled가 나탭 타임블록도 다시 그림', /if\(typeof renderHomeTimeBlocks==='function'\)renderHomeTimeBlocks\(\);/.test(html) && /계획 취소가 계획창·나탭 타임블록에도 즉시 반영/.test(html));
 t.ok('플래너 블록에 canceled 클래스', /el\.className='plan-block'\+\(done\?' done':''\)\+\(canceled\?' canceled':''\)/.test(html));
-t.ok('플래너 취소 블록 제목에 🚫 표시', /title\.textContent=\(canceled\?'🚫 ':''\)\+\(t\.text\|\|'일정'\)/.test(html));
+t.ok('플래너 취소 블록 제목에 🚫 표시', /title\.textContent=\(isGoalRep\?'🎯 ':\(canceled\?'🚫 ':''\)\)\+\(t\.text\|\|'일정'\)/.test(html));
 t.ok('플래너 컨텍스트 메뉴에 계획 취소/되돌리기', /data-act="cancelplan">'\+\(t\.canceled\?'↩ 계획 되돌리기':'🚫 계획 취소'\)/.test(html));
 t.ok('플래너 메뉴 취소 동작 → setTaskCanceled', /else if\(a==='cancelplan'\)\{ if\(typeof setTaskCanceled==='function'\)setTaskCanceled\(t, !t\.canceled\);/.test(html));
 t.ok('플래너 취소 CSS(취소선+점선)', /\.plan-block\.canceled\{opacity[\s\S]*?\.plan-block\.canceled \.plan-block-title\{text-decoration:line-through/.test(html));
