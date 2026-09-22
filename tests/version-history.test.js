@@ -41,6 +41,11 @@ t.ok('dryRun 미리보기(변경 없음)', /if\(opts\.dryRun\)\{[\s\S]*?dryRun:t
 // ── UI ──
 t.ok('returnVersionOpenUI 모달 정의+노출', /async function returnVersionOpenUI\(\)\{/.test(html) && /window\.returnVersionOpenUI=returnVersionOpenUI;/.test(html));
 t.ok('모달: 없는 것만/교체 버튼', /data-rv-merge="'\+r\.ts\+'"/.test(html) && /data-rv-replace="'\+r\.ts\+'"/.test(html));
+/* 회귀: counts 폴백('비어 있음')은 반드시 괄호로 묶여야 한다. 안 그러면 연산자
+   우선순위(+ > ||)로 '<div class=rv-counts>'+join || '비어 있음'+'</div>'+액션…이
+   되어, join이 truthy일 때 || 오른쪽(닫는 div + 액션 버튼 전체)이 통째로 사라져
+   '이 버전으로 교체' 버튼이 렌더되지 않는다. */
+t.ok('counts 폴백 괄호로 묶여 액션 버튼 안 잘림', /\.join\(' · '\)\|\|'비어 있음'\)\+'<\/div>'/.test(html));
 t.ok('설정 데이터 관리에 버전 보기 진입점', /onclick="returnVersionOpenUI\(\)"/.test(html));
 
 // ── returnReloadMemoryFromStorage(복원/재수화 공용) ──
