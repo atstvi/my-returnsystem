@@ -1425,6 +1425,17 @@ button.sit-arc-item { cursor:pointer; }
 .plan-block-check.done::after{content:'';position:absolute;left:4.5px;top:1.5px;width:4px;height:8px;border:solid var(--pbc,#fff);border-width:0 1.6px 1.6px 0;transform:rotate(45deg)}
 .plan-block-check.canceled::after{content:'';position:absolute;left:50%;top:50%;width:9px;height:1.5px;background:currentColor;transform:translate(-50%,-50%) rotate(-45deg)}
 .plan-block-meta{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-size:var(--text-2xs);opacity:.92;line-height:1.2;margin-top:1px}
+/* 목표 대표 진행 뱃지 + 대표 블록 안의 하위/소속 할일 목록 */
+.plan-block-count{flex-shrink:0;font-size:var(--text-2xs);font-weight:var(--fw-bold);opacity:.95;white-space:nowrap}
+.plan-block-subs{margin-top:3px;display:flex;flex-direction:column;gap:2px;min-height:0;overflow:hidden}
+.plan-block-sub{display:flex;align-items:center;gap:5px;font-size:var(--text-2xs);line-height:1.25;cursor:pointer;border-radius:4px}
+.plan-block-sub:hover{background:rgba(255,255,255,.14)}
+.plan-block-sub .pbs-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.plan-block-sub.done .pbs-name{text-decoration:line-through;opacity:.7}
+.pbs-check{width:12px;height:12px;flex-shrink:0;border-radius:var(--r-full);border:1.4px solid currentColor;background:transparent;cursor:pointer;padding:0;position:relative;opacity:.85}
+.pbs-check.done{background:currentColor}
+.pbs-check.done::after{content:'';position:absolute;left:3.4px;top:1px;width:3px;height:6px;border:solid var(--pbc,#fff);border-width:0 1.4px 1.4px 0;transform:rotate(45deg)}
+.plan-block-submore{font-size:var(--text-2xs);opacity:.75}
 .pbm-travel{white-space:nowrap}
 .pbm-prep{white-space:nowrap;border:0;border-radius:var(--r-full);background:rgba(0,0,0,.16);color:inherit;font:inherit;font-size:var(--text-2xs);padding:0 6px;height:16px;line-height:16px;cursor:pointer}
 .pbm-prep.done{background:rgba(0,0,0,.28);text-decoration:line-through;opacity:.85}
@@ -17704,6 +17715,10 @@ function _planWindowBlocks(START,END){
   var out=[], nd=_planNextDate(), all=(typeof tasks!=='undefined'?tasks:[]);
   all.forEach(function(t){
     if(!t||t._travelOnly||!/^\d{1,2}:\d{2}$/.test(String(t.timeStart||'')))return;
+    /* 홈 타임블록과 동일: 하위 할일은 대표(부모) 블록으로만, 목표 소속 할일은 목표 대표
+       블록으로만 보인다 — 일일이 안 보이고 대표 하나로. */
+    if(typeof taskIsNested==='function' && taskIsNested(t))return;
+    if(t.goalId && typeof findGoal==='function' && findGoal(t.goalId))return;
     var sm=_planMins(t.timeStart), em=(/^\d{1,2}:\d{2}$/.test(String(t.timeEnd||'')))?_planMins(t.timeEnd):sm+60; var dur=(em>sm)?(em-sm):30;
     var pm=null;
     if(t.date===_planDate && sm>=START*60 && sm<Math.min(END*60,1440)) pm=sm;
@@ -17711,7 +17726,34 @@ function _planWindowBlocks(START,END){
     if(pm==null)return;
     out.push({t:t, sm:pm, em:pm+dur, col:0, cols:1});
   });
-  return out;
+  return out.concat(_planGoalReps(START,END));
+}
+/* 목표 대표 블록 — 목표에 속한(시간 있는) 할일들을 대신하는 한 블록. 시간은 소속 할일들의
+   최소 시작~최대 종료로 유도. pseudo(_planGoalRep)라 저장 대상이 아니며, 드래그 대신 탭으로
+   목표를 연다. 블록 안에는 소속 할일 목록을 함께 보여준다(칸이 넓으니). */
+function _planGoalReps(START,END){
+  var reps=[], nd=_planNextDate(), all=(typeof tasks!=='undefined'?tasks:[]);
+  if(typeof findGoal!=='function')return reps;
+  var seen={};
+  all.forEach(function(t){
+    if(!t||t._travelOnly||!t.goalId)return;
+    var gid=String(t.goalId); if(seen[gid])return;
+    var g=findGoal(gid); if(!g)return; seen[gid]=1;
+    var members=all.filter(function(x){ return x&&!x._travelOnly&&String(x.goalId||'')===gid
+      && /^\d{1,2}:\d{2}$/.test(String(x.timeStart||'')) && (x.date===_planDate || (END>24&&x.date===nd)); });
+    if(!members.length)return;
+    var sMin=null, eMax=null;
+    members.forEach(function(m){
+      var base=(m.date===_planDate)?0:1440;
+      var s=_planMins(m.timeStart)+base, e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45)+base;
+      if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e;
+    });
+    if(sMin==null||eMax<=START*60||sMin>=END*60)return;
+    var sm=Math.max(sMin,START*60), em=Math.min(eMax,END*60); if(em<=sm)em=sm+30;
+    var pseudo={ id:'goalrep_'+gid, _planGoalRep:true, goalId:gid, projectId:g.project&&g.project.id, text:(g.goal.title||'목표'), catId:'project', _repMembers:members };
+    reps.push({t:pseudo, sm:sm, em:em, col:0, cols:1});
+  });
+  return reps;
 }
 function _planShiftDay(n){ var step=n*(_planDays>1?_planDays:1); var d=new Date(_planDate+'T00:00'); d.setDate(d.getDate()+step); _planDate=dk(d); renderPlanner(); }
 /* 여러 날 열(column) 날짜 목록 — 앵커(_planDate)부터 _planDays개. */
@@ -17761,20 +17803,31 @@ function _planBlockEl(o, START, SLOT_H){
     setTimeout(function(){ try{ inp.focus(); inp.select(); }catch(e){} },0);
     return el;
   }
-  /* 완료 여부 — 블록에서 바로 체크(드래그와 안 겹치게 .plan-block-ctl로 제외). */
+  var isGoalRep=!!t._planGoalRep;
+  var isRealTask=!!(t.id && !String(t.id).startsWith('tt_') && !t._isTt && !isGoalRep);
+  function _effDone(x){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(x):!!(x&&x.done); }
+  /* 대표 블록의 소속 목록: 목표 대표 → 소속 할일, 일반 할일 → 하위 할일(중첩). */
+  var repChildren = isGoalRep ? (t._repMembers||[]) : ((typeof taskChildren==='function' && t.id!=null)?taskChildren(t.id):[]);
+  var repDoneN = repChildren.filter(_effDone).length;
+  if(isGoalRep && repChildren.length && repDoneN>=repChildren.length){ el.classList.add('done'); }
+  /* 완료 여부 — 블록에서 바로 체크(드래그와 안 겹치게 .plan-block-ctl로 제외).
+     목표 대표는 개별 완료 대신 진행(done/total) 뱃지. */
   var head=document.createElement('div'); head.className='plan-block-head';
-  var isRealTask=!!(t.id && !String(t.id).startsWith('tt_') && !t._isTt);
-  var ck=document.createElement('button'); ck.type='button';
-  ck.className='plan-block-check plan-block-ctl'+(done&&!canceled?' done':'')+(canceled?' canceled':'');
-  ck.setAttribute('aria-label',canceled?'계획 취소됨 — 되돌리기':(done?'완료됨':'완료 표시'));
-  ck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); } renderPlanner(); });
-  head.appendChild(ck);
-  var title=document.createElement('div'); title.className='plan-block-title'; title.textContent=(canceled?'🚫 ':'')+(t.text||'일정'); head.appendChild(title);
+  if(isGoalRep){
+    var cnt=document.createElement('span'); cnt.className='plan-block-count'; cnt.textContent='🎯 '+repDoneN+'/'+repChildren.length; head.appendChild(cnt);
+  } else {
+    var ck=document.createElement('button'); ck.type='button';
+    ck.className='plan-block-check plan-block-ctl'+(done&&!canceled?' done':'')+(canceled?' canceled':'');
+    ck.setAttribute('aria-label',canceled?'계획 취소됨 — 되돌리기':(done?'완료됨':'완료 표시'));
+    ck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); } renderPlanner(); });
+    head.appendChild(ck);
+  }
+  var title=document.createElement('div'); title.className='plan-block-title'; title.textContent=(isGoalRep?'🎯 ':(canceled?'🚫 ':''))+(t.text||'일정'); head.appendChild(title);
   el.appendChild(head);
   if(hgt>30){ var tm=document.createElement('div'); tm.className='plan-block-time'; tm.textContent=_planHMp(o.sm)+'–'+_planHMp(o.em); el.appendChild(tm); }
   /* 이동시간 · 준비물 — 홈 타임블록과 같은 정보를 계획창 블록에도(높이 여유 있을 때). */
   var travelMin=parseInt(t.travelMin||t.moveMin||t.travelMinutes||0,10)||0;
-  var prepAll=(typeof taskPrepList==='function')?taskPrepList(t):[];
+  var prepAll=(!isGoalRep&&typeof taskPrepList==='function')?taskPrepList(t):[];
   var prepDone=prepAll.filter(function(p){return p&&p.done;}).length;
   if((travelMin>0||prepAll.length) && hgt>42){
     var meta=document.createElement('div'); meta.className='plan-block-meta';
@@ -17788,6 +17841,32 @@ function _planBlockEl(o, START, SLOT_H){
       meta.appendChild(pp);
     }
     el.appendChild(meta);
+  }
+  /* 대표 할일 안에 배정된 하위/소속 할일 목록 — 칸이 넓으니 블록에서 바로 보이게.
+     각 항목: 미니 체크(완료 토글) + 이름(탭하면 그 할일 편집창). 높이 여유 있을 때만. */
+  if(repChildren.length && hgt>52){
+    var subs=document.createElement('div'); subs.className='plan-block-subs';
+    var _order=(typeof orderTaskSubset==='function')?orderTaskSubset(repChildren):repChildren;
+    var cap=Math.max(1,Math.floor((hgt-40)/18));
+    _order.slice(0,cap).forEach(function(ch){
+      var kd=_effDone(ch);
+      var row=document.createElement('div'); row.className='plan-block-sub'+(kd?' done':'');
+      var sck=document.createElement('button'); sck.type='button'; sck.className='pbs-check plan-block-ctl'+(kd?' done':'');
+      sck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskCheckToggle==='function')taskCheckToggle(ch); else { ch.done=!ch.done; if(typeof saveTaskData==='function')saveTaskData(); } renderPlanner(); });
+      var nm=document.createElement('span'); nm.className='pbs-name'; nm.textContent=ch.text||'할일';
+      row.appendChild(sck); row.appendChild(nm);
+      row.addEventListener('click',function(e){ e.stopPropagation(); var live=(tasks||[]).find(function(x){return String(x.id)===String(ch.id);})||ch; if(typeof tasksOpenModal==='function')tasksOpenModal(live); });
+      subs.appendChild(row);
+    });
+    if(_order.length>cap){ var more=document.createElement('div'); more.className='plan-block-submore'; more.textContent='+'+(_order.length-cap)+' 더'; subs.appendChild(more); }
+    el.appendChild(subs);
+  }
+  if(isGoalRep){
+    /* 목표 대표는 저장 대상 pseudo — 드래그/리사이즈 없이 탭하면 첫 소속 할일 편집창을 연다. */
+    el.style.cursor='pointer';
+    el.addEventListener('click',function(e){ if(el._dragMoved){el._dragMoved=false;return;} var first=repChildren[0]; var live=first&&(tasks||[]).find(function(x){return String(x.id)===String(first.id);}); if(live&&typeof tasksOpenModal==='function')tasksOpenModal(live); });
+    el.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+    return el;
   }
   var rz=document.createElement('div'); rz.className='plan-block-resize'; el.appendChild(rz);
   _planBindBlock(el,t,o,START,SLOT_H,rz);
@@ -17908,9 +17987,11 @@ function _planBindGridCreate(grid){
    '탭=편집창, 길게=현재 조작창(빠른 처리)'을 나누고 싶을 때. 드래그(시간 배치)는 그대로. */
 function _planBindTrayDrag(item, opts){
   opts=opts||{};
-  /* 데스크톱 우클릭 = 모바일 롱프레스와 같은 '조작' 진입점. onLongPress가 있으면
-     우클릭(contextmenu)에도 같은 동작을 연결한다(둘 다 현재 조작창). */
-  if(typeof opts.onLongPress==='function'){ item.addEventListener('contextmenu',function(e){ e.preventDefault(); opts.onLongPress(); }); }
+  /* 우클릭(데스크톱) = 조작 진입. onContext가 우선, 없으면 onLongPress로 대체.
+     드래그(배치)가 주 동작인 칩은 롱프레스를 걸지 않아(onLongPress 미제공) 드래그가
+     롱프레스에 가로채이지 않게 하고, 조작창은 우클릭(onContext)으로만 연다. */
+  var _ctxFn=(typeof opts.onContext==='function')?opts.onContext:((typeof opts.onLongPress==='function')?opts.onLongPress:null);
+  if(_ctxFn){ item.addEventListener('contextmenu',function(e){ e.preventDefault(); _ctxFn(); }); }
   item.addEventListener('pointerdown',function(e){
     if(e.button&&e.button!==0)return; /* 우클릭은 contextmenu가 처리 — 탭/드래그 로직 제외 */
     e.preventDefault();
@@ -17924,7 +18005,8 @@ function _planBindTrayDrag(item, opts){
     function overRect(ev){ if(!grid)return null; var r=grid.getBoundingClientRect(); return (ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom)?r:null; }
     function mv(ev){
       if(lpFired)return;
-      if(!moved){ if(Math.abs(ev.clientX-x0)<=6&&Math.abs(ev.clientY-y0)<=6)return; clearLp(); moved=true; item.classList.add('dragging'); ghost=document.createElement('div'); ghost.className='plan-drag-ghost'; ghost.textContent=label; document.body.appendChild(ghost); }
+      /* 4px만 움직여도 배치 드래그로 판단(홈 타임블록 블록과 동일) — 조금만 끌어도 바로 잡힘. */
+      if(!moved){ if(Math.abs(ev.clientX-x0)<=4&&Math.abs(ev.clientY-y0)<=4)return; clearLp(); moved=true; item.classList.add('dragging'); ghost=document.createElement('div'); ghost.className='plan-drag-ghost'; ghost.textContent=label; document.body.appendChild(ghost); }
       ghost.style.left=(ev.clientX+12)+'px'; ghost.style.top=(ev.clientY+12)+'px';
       var r=overRect(ev);
       if(r){ var pr=_planPrefs(); grid.classList.add('drop-active'); var m=Math.round((pr.start*60+(ev.clientY-r.top)/pr.slotH*60)/15)*15; m=Math.max(pr.start*60,Math.min(m,pr.end*60-15)); if(rule){ rule.style.display='block'; rule.style.top=((m-pr.start*60)/60*pr.slotH)+'px'; rule.setAttribute('data-t',_planHMp(m)); } item._planDropMin=m; }
@@ -18351,10 +18433,11 @@ function renderPlanner(){
     var _adUntimed=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && !(t.catId==='schedule'||t._isTt||t.allDay);});
     _adSched.forEach(function(t){ var c=document.createElement('button'); c.className='plan-allday-chip'; c.type='button'; c.textContent=t.text||'일정'; c.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); }); alldayEl.appendChild(c); });
     _adUntimed.forEach(function(t){ var c=document.createElement('div'); c.className='plan-allday-chip untimed'; c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent='○ '+(t.text||'할일'); c.appendChild(sp);
-      /* 종일 할일: 탭=할일 편집창, 길게=현재 조작창(빠른 처리), 드래그=시간 배치. */
+      /* 종일 할일: 탭=할일 편집창, 우클릭=현재 조작창(빠른 처리), 드래그=시간 배치.
+         드래그가 주 동작이라 롱프레스는 걸지 않는다(드래그 배치가 안 잡히던 문제 해결). */
       if(typeof _planBindTrayDrag==='function')_planBindTrayDrag(c,{
         onTap:function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); },
-        onLongPress:function(){ if(typeof _planTaskQuick==='function')_planTaskQuick(t.id); }
+        onContext:function(){ if(typeof _planTaskQuick==='function')_planTaskQuick(t.id); }
       });
       alldayEl.appendChild(c); });
   }

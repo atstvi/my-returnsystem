@@ -25,9 +25,10 @@ t.ok('시간 미정 트레이 섹션 제거(종일 줄로 이동)', !/section\('
 t.ok('_planBindTrayDrag가 onTap/onLongPress 옵션 지원', /function _planBindTrayDrag\(item, ?opts\)\{\s*opts=opts\|\|\{\};/.test(html));
 t.ok('길게 누르면 onLongPress(460ms) 발동', /if\(typeof opts\.onLongPress==='function'\)\{ lpTimer=setTimeout\(function\(\)\{ lpTimer=null; if\(!moved\)\{ lpFired=true;[\s\S]*?opts\.onLongPress\(\);[\s\S]*?\}, ?460\);/.test(html));
 t.ok('탭은 onTap 우선(없으면 기존 동작)', /else if\(!moved\)\{ if\(typeof opts\.onTap==='function'\)opts\.onTap\(\); else _planOpenTrayItem\(kind,pid\); \}/.test(html));
-t.ok('종일 칩: 탭→편집창, 길게→빠른 처리', /_planBindTrayDrag\(c,\{\s*onTap:function\(\)\{ if\(typeof tasksOpenModal==='function'\)tasksOpenModal\(t\); \},\s*onLongPress:function\(\)\{ if\(typeof _planTaskQuick==='function'\)_planTaskQuick\(t\.id\); \}/.test(html));
-t.ok('우클릭(contextmenu)=롱프레스와 같은 조작 진입', /if\(typeof opts\.onLongPress==='function'\)\{ item\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); opts\.onLongPress\(\); \}\); \}/.test(html));
+t.ok('종일 칩: 탭→편집창, 우클릭→빠른 처리(롱프레스 없음=드래그 우선)', /_planBindTrayDrag\(c,\{\s*onTap:function\(\)\{ if\(typeof tasksOpenModal==='function'\)tasksOpenModal\(t\); \},\s*onContext:function\(\)\{ if\(typeof _planTaskQuick==='function'\)_planTaskQuick\(t\.id\); \}/.test(html));
+t.ok('우클릭(contextmenu)=조작 진입(onContext 우선, 없으면 onLongPress)', /var _ctxFn=\(typeof opts\.onContext==='function'\)\?opts\.onContext:\(\(typeof opts\.onLongPress==='function'\)\?opts\.onLongPress:null\);\s*if\(_ctxFn\)\{ item\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); _ctxFn\(\); \}\); \}/.test(html));
 t.ok('우클릭은 탭/드래그 로직 제외(버튼 가드)', /item\.addEventListener\('pointerdown',function\(e\)\{\s*if\(e\.button&&e\.button!==0\)return;/.test(html));
+t.ok('드래그 시작 임계값 4px(조금만 끌어도 배치)', /if\(!moved\)\{ if\(Math\.abs\(ev\.clientX-x0\)<=4&&Math\.abs\(ev\.clientY-y0\)<=4\)return;/.test(html));
 t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link)', /section\('🔗','연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('link',t\.id,'🔗'[\s\S]*?연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치/.test(html));
 
 // ── 오늘 상황처럼 계획창에서도 인라인 '연결' (탭 → 이름·날짜 → homeMakeLinkedTask) ──

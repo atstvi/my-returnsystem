@@ -6,9 +6,10 @@ const { readIndex, runner } = require('./lib');
 const html = readIndex();
 const t = runner('우클릭 = 모바일 롱프레스');
 
-// 계획창 트레이/종일 칩
-t.ok('트레이: onLongPress 있으면 우클릭도 연결', /if\(typeof opts\.onLongPress==='function'\)\{ item\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); opts\.onLongPress\(\); \}\); \}/.test(html));
+// 계획창 트레이/종일 칩 — 우클릭(onContext 우선). 드래그가 주 동작인 칩은 롱프레스 미사용.
+t.ok('트레이: onContext(없으면 onLongPress)로 우클릭 연결', /var _ctxFn=\(typeof opts\.onContext==='function'\)\?opts\.onContext:\(\(typeof opts\.onLongPress==='function'\)\?opts\.onLongPress:null\);\s*if\(_ctxFn\)\{ item\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); _ctxFn\(\); \}\); \}/.test(html));
 t.ok('트레이: 우클릭 pointerdown 가드', /item\.addEventListener\('pointerdown',function\(e\)\{\s*if\(e\.button&&e\.button!==0\)return;/.test(html));
+t.ok('종일 칩: 우클릭=빠른 처리, 롱프레스 미사용(드래그 우선)', /onContext:function\(\)\{ if\(typeof _planTaskQuick==='function'\)_planTaskQuick\(t\.id\); \}/.test(html));
 
 // 루틴 완료 칸
 t.ok('루틴 완료 칸: 우클릭 → 상태 메뉴', /btn\.addEventListener\('contextmenu',function\(e\)\{e\.preventDefault\(\);openStateMenu\(\);\}\);/.test(html));
