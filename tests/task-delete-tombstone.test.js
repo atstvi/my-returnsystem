@@ -31,7 +31,13 @@ t.ok('특별(isSpecial) → 보호', prot({ id: 2, isSpecial: true }) === true);
 t.ok('반복 원본(ri_task_+id) → 보호', prot({ id: 3, _repeatId: 'ri_task_3' }) === true);
 t.ok('반복 생성본(다른 규칙 id) → 보호 아님', prot({ id: 9.5, _repeatId: 'ri_task_3', occurrenceDate: '2027-01-01' }) === false);
 t.ok('완료(done)된 항목 → 보호 아님(아카이브 대상)', prot({ id: 4, deadlineDate: '2026-12-01', done: true }) === false);
-t.ok('평범한 미완료 할일 → 보호 아님(기존 세션-나이 게이트 유지)', prot({ id: 5, text: '메모' }) === false);
+/* 변경: 예전엔 평범한 미완료 할일을 세션-나이 게이트에 맡겨(보호 안 함) 미동기화 상태로
+   스테일 클라우드를 만나면 유실됐다(프로젝트 할일이 갑자기 사라짐). 이제 생성 occurrence가
+   아닌 '사용자가 만든 할일'은 모두 보호한다. 실제 삭제는 tombstone이 걸러내므로 안전. */
+t.ok('평범한 미완료 할일 → 보호(사용자 할일 유실 방지)', prot({ id: 5, text: '메모' }) === true);
+t.ok('프로젝트 할일 → 보호', prot({ id: 5.1, catId: 'project', projectId: 'p1' }) === true);
+t.ok('목표 할일 → 보호', prot({ id: 5.2, goalId: 'g1' }) === true);
+t.ok('생성된 규칙 occurrence → 보호 아님(재생성)', prot({ id: 5.3, _ruleGen: true, activeRuleId: 'r1' }) === false);
 t.ok('null 방어', prot(null) === false);
 
 // ── 소스 배선 ──
