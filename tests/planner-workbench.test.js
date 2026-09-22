@@ -27,6 +27,9 @@ t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link)', /sect
 t.ok('link 탭은 인라인 연결 시트로', /if\(kind==='link'\)\{ _planConnectSheet\(pid\); return; \}/.test(html));
 t.ok('연결 시트: 이름+날짜 입력 후 homeMakeLinkedTask', /function _planConnectSheet\(pid\)\{[\s\S]*?id="pc-name"[\s\S]*?id="pc-date"[\s\S]*?homeMakeLinkedTask\(t, ?nm, ?\{date:dt\}\)/.test(html));
 t.ok('연결 시트 기본 날짜: 마감 전날(과거로는 안 감)', /function _planPrepDefDate\(t\)\{[\s\S]*?dd\.setDate\(dd\.getDate\(\)-1\);[\s\S]*?if\(prev>=TK\)return prev;/.test(html));
+t.ok('연결 시트에 연결 패스 버튼(오늘 상황과 동일)', /id="pc-pass"[\s\S]*?🚫 연결 패스/.test(html));
+t.ok('패스는 공유 skip 맵(homeSkipDeadlineLink) 사용', /function pass\(\)\{ if\(typeof homeSkipDeadlineLink==='function'\)homeSkipDeadlineLink\(t\); close\(\); try\{ renderPlanner\(\); \}catch\(_e\)\{\} \}/.test(html));
+t.ok('연결 필요 집합이 skip 맵을 반영', /function returnUnlinkedSchedules\(\)\{[\s\S]*?!\(skipped&&skipped\[String\(t\.id\)\]\)/.test(html));
 t.ok('link 드래그는 연결 준비 할일 생성(deadline과 동일 경로)', /else if\(kind==='deadline'\|\|kind==='link'\)\{/.test(html));
 
 // ── 빠른 처리 시트 ──

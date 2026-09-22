@@ -15255,6 +15255,18 @@ function returnTaskIsProtectedLocalOnly(t){
   if(t.deadlineDate)return true;
   if(t.isSpecial)return true;
   if(t._repeatId&&String(t._repeatId)==='ri_task_'+String(t.id))return true;
+  if(t.projectId||t.catId==='project')return true;   /* 프로젝트에 넣은 할일 */
+  if(t.goalId)return true;                             /* 목표에 넣은 할일 */
+  /* 위 조건에 안 걸려도, '생성된 반복/규칙/시간표 occurrence'가 아닌 '사용자가 직접
+     만든 할일'은 모두 보호한다. 예전엔 마감·특별·반복원본만 보호해서, 마감 없는 평범한
+     할일(특히 프로젝트 할일)이 미동기화 상태로 스테일 클라우드 블롭을 만나면 세션-나이
+     게이트에 걸려 통째로 사라졌다. 실제 삭제는 모든 삭제 경로가 tombstone으로 남기고
+     union-merge 뒤 returnEntityFilterTombstoned가 걸러내므로, 이렇게 넓게 보존해도
+     '지운 게 되살아나는' 위험은 없다. 생성 occurrence는 재생성되므로 게이트에 맡긴다. */
+  var isGenerated=!!(t._repeatId||t.repeatRuleId||t._ruleGen||t.activeRuleId
+    ||t.sourceType==='repeat'||t.sourceType==='activeRule'||t.sourceType==='timetable'
+    ||t._isTt||t._ttKey||t._ttSlotKey);
+  if(!isGenerated)return true;
   return false;
 }
 window.returnTaskIsProtectedLocalOnly=returnTaskIsProtectedLocalOnly;
@@ -17947,13 +17959,17 @@ function _planConnectSheet(pid){
     +'<label class="field-label" style="margin-top:var(--sp-3)">할일 이름</label><input type="text" class="field-inp" id="pc-name" value="'+esc(defName)+'">'
     +'<label class="field-label" style="margin-top:var(--sp-3)">언제 할까요</label><input type="date" class="field-inp" id="pc-date" value="'+esc(defDate)+'">'
     +'</div>'
-    +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pc-cancel">취소</button><button type="button" class="btn btn-primary" id="pc-ok">연결 추가</button></div></div>';
+    +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pc-pass" title="이 일정은 연결 없이 넘기기(연결 필요에서 제외)">🚫 연결 패스</button><button type="button" class="btn btn-ghost" id="pc-cancel">취소</button><button type="button" class="btn btn-primary" id="pc-ok">연결 추가</button></div></div>';
   function ok(){ var nm=((ov.querySelector('#pc-name')||{}).value)||''; var dt=((ov.querySelector('#pc-date')||{}).value)||'';
     if(typeof homeMakeLinkedTask==='function')homeMakeLinkedTask(t, nm, {date:dt});
     close(); if(typeof showToast==='function')showToast('연결 할일을 만들었어요'); try{ renderPlanner(); }catch(_e){} }
+  /* 오늘 상황의 '패스'와 같은 기능 — 이 일정을 '연결 필요'에서 제외(기기-로컬 skip 맵 공유).
+     되돌리기는 오늘 상황의 '패스한 연결' 목록에서. */
+  function pass(){ if(typeof homeSkipDeadlineLink==='function')homeSkipDeadlineLink(t); close(); try{ renderPlanner(); }catch(_e){} }
   ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
   ov.querySelector('#pc-cancel').addEventListener('click',close);
   ov.querySelector('#pc-ok').addEventListener('click',ok);
+  ov.querySelector('#pc-pass').addEventListener('click',pass);
   ov.querySelector('#pc-name').addEventListener('keydown',function(e){ if(e.key==='Enter')ok(); });
 }
 /* 인박스 항목을 계획탭에서 탭하면 뜨는 정리 시트 — 흩어진 인박스를 한 곳에서
