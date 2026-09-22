@@ -17740,19 +17740,23 @@ function _planGoalReps(START,END){
   var reps=[], all=(typeof tasks!=='undefined'?tasks:[]);
   if(typeof findGoal!=='function')return reps;
   function _md(x){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(x):!!(x&&x.done); }
+  function _timed(x){ return /^\d{1,2}:\d{2}$/.test(String(x&&x.timeStart||'')); }
   var seen={};
   all.forEach(function(t){
     if(!t||t._travelOnly||!t.goalId)return;
     var gid=String(t.goalId); if(seen[gid])return;
     var g=findGoal(gid); if(!g)return; seen[gid]=1;
-    /* 오늘 소속(시간 있는) 할일만 */
-    var today=all.filter(function(x){ return x&&!x._travelOnly&&String(x.goalId||'')===gid
-      && x.date===_planDate && /^\d{1,2}:\d{2}$/.test(String(x.timeStart||'')); });
+    /* 오늘 소속 할일(시간 유무 무관) — 진행/목록 판단은 이 전체를 기준으로. */
+    var today=all.filter(function(x){ return x&&!x._travelOnly&&String(x.goalId||'')===gid && x.date===_planDate; });
     if(!today.length)return;
     var undone=today.filter(function(x){ return !_md(x); });
-    if(!undone.length)return; /* 오늘 할 게 다 끝난 목표는 타임라인에 안 그림 */
+    if(!undone.length)return; /* 오늘 할 게 다 끝난 목표만 안 그림(남은 게 있으면 시간 없어도 표시) */
+    /* 타임라인에 놓으려면 시간 있는 멤버가 필요 — 있으면 그 범위(완료 포함)로 위치·높이를
+       잡되 상한. (미완료가 시간 미정이어도, 완료된 시간 멤버가 있으면 대표가 보이게.) */
+    var timed=today.filter(_timed);
+    if(!timed.length)return; /* 시간 있는 멤버가 전혀 없으면 타임라인 블록 못 만듦(종일 처리는 별도) */
     var sMin=null, eMax=null;
-    undone.forEach(function(m){ var s=_planMins(m.timeStart), e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45); if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e; });
+    timed.forEach(function(m){ var s=_planMins(m.timeStart), e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45); if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e; });
     if(sMin==null||sMin>=Math.min(END*60,1440)||eMax<=START*60)return;
     var sm=Math.max(sMin,START*60);
     var dur=Math.max(90, Math.min((eMax-sMin), 180)); /* 90~180분 상한 — 세로 과다 방지 */
