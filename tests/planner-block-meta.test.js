@@ -27,9 +27,13 @@ t.ok('메타/준비물 CSS', /\.plan-block-meta\{display:flex/.test(html) && /\.
 
 // ── 대표 처리: 하위/목표 할일 collapse + 블록 안 하위 목록 ──
 t.ok('_planWindowBlocks: 하위·목표 할일 collapse + 목표 대표 concat', /if\(typeof taskIsNested==='function' && taskIsNested\(t\)\)return;\s*if\(t\.goalId && typeof findGoal==='function' && findGoal\(t\.goalId\)\)return;[\s\S]*?return out\.concat\(_planGoalReps\(START,END\)\);/.test(html));
-t.ok('_planGoalReps: 목표별 시간 있는 소속 할일로 대표 블록', /function _planGoalReps\(START,END\)\{[\s\S]*?_planGoalRep:true[\s\S]*?_repMembers:members/.test(html));
-t.ok('대표 소속 목록 계산(목표=소속, 일반=하위)', /var repChildren = isGoalRep \? \(t\._repMembers\|\|\[\]\) : \(\(typeof taskChildren==='function' && t\.id!=null\)\?taskChildren\(t\.id\):\[\]\);/.test(html));
-t.ok('목표 대표는 체크 대신 진행 뱃지(🎯 done/total)', /if\(isGoalRep\)\{\s*var cnt=document\.createElement\('span'\); cnt\.className='plan-block-count'; cnt\.textContent='🎯 '\+repDoneN\+'\/'\+repChildren\.length;/.test(html));
+t.ok('_planGoalReps: 오늘 소속 할일만(다른 날 제외)', /var today=all\.filter\(function\(x\)\{ return x&&!x\._travelOnly&&String\(x\.goalId\|\|''\)===gid\s*&& x\.date===_planDate && \/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(x\.timeStart\|\|''\)\); \}\);/.test(html));
+t.ok('_planGoalReps: 미완료 없으면 안 그림(끝난 목표 제외)', /var undone=today\.filter\(function\(x\)\{ return !_md\(x\); \}\);\s*if\(!undone\.length\)return;/.test(html));
+t.ok('_planGoalReps: span은 미완료 기준 + 90~180분 상한(세로 과다 방지)', /undone\.forEach\(function\(m\)\{[\s\S]*?var dur=Math\.max\(90, Math\.min\(\(eMax-sMin\), 180\)\);/.test(html));
+t.ok('_planGoalReps: 진행 정보 저장(_repDone/_repTotal)', /_repMembers:today, _repDone:\(today\.length-undone\.length\), _repTotal:today\.length/.test(html));
+t.ok('대표 목록: 목표=미완료만, 일반=하위 전체', /var repChildren = isGoalRep \? repAll\.filter\(function\(x\)\{return !_effDone\(x\);\}\) : repAll;/.test(html));
+t.ok('목표 대표는 체크 대신 진행 뱃지(🎯 done/total)', /if\(isGoalRep\)\{\s*var cnt=document\.createElement\('span'\); cnt\.className='plan-block-count'; cnt\.textContent='🎯 '\+repDoneN\+'\/'\+repTotal;/.test(html));
+t.ok('하위 행에 시각 표기(대표가 시간 다 못 덮으니)', /if\(\/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(ch\.timeStart\|\|''\)\)\)\{ var tmc=document\.createElement\('span'\); tmc\.className='pbs-time'; tmc\.textContent=ch\.timeStart;/.test(html));
 t.ok('블록 안에 하위/소속 할일 목록 렌더', /if\(repChildren\.length && hgt>52\)\{[\s\S]*?subs\.className='plan-block-subs'[\s\S]*?pbs-check plan-block-ctl[\s\S]*?pbs-name/.test(html));
 t.ok('하위 행 미니 체크=완료 토글, 이름 탭=편집창', /sck\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(typeof taskCheckToggle==='function'\)taskCheckToggle\(ch\)[\s\S]*?row\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\);[\s\S]*?tasksOpenModal\(live\)/.test(html));
 t.ok('목표 대표 pseudo는 드래그 없이 탭만', /if\(isGoalRep\)\{[\s\S]*?el\.style\.cursor='pointer'[\s\S]*?return el;\s*\}\s*var rz=document\.createElement\('div'\); rz\.className='plan-block-resize'/.test(html));

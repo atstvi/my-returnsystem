@@ -1431,6 +1431,7 @@ button.sit-arc-item { cursor:pointer; }
 .plan-block-sub{display:flex;align-items:center;gap:5px;font-size:var(--text-2xs);line-height:1.25;cursor:pointer;border-radius:4px}
 .plan-block-sub:hover{background:rgba(255,255,255,.14)}
 .plan-block-sub .pbs-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
+.plan-block-sub .pbs-time{flex-shrink:0;font-size:var(--text-2xs);opacity:.75;font-variant-numeric:tabular-nums}
 .plan-block-sub.done .pbs-name{text-decoration:line-through;opacity:.7}
 .pbs-check{width:12px;height:12px;flex-shrink:0;border-radius:var(--r-full);border:1.4px solid currentColor;background:transparent;cursor:pointer;padding:0;position:relative;opacity:.85}
 .pbs-check.done{background:currentColor}
@@ -17728,29 +17729,35 @@ function _planWindowBlocks(START,END){
   });
   return out.concat(_planGoalReps(START,END));
 }
-/* 목표 대표 블록 — 목표에 속한(시간 있는) 할일들을 대신하는 한 블록. 시간은 소속 할일들의
-   최소 시작~최대 종료로 유도. pseudo(_planGoalRep)라 저장 대상이 아니며, 드래그 대신 탭으로
-   목표를 연다. 블록 안에는 소속 할일 목록을 함께 보여준다(칸이 넓으니). */
+/* 목표 대표 블록 — 목표에 속한(시간 있는) 할일들을 대신하는 한 블록.
+   원칙:
+   - '오늘(_planDate)' 소속 할일만 — 다른 날(자정 넘김 다음날 포함)은 넣지 않는다.
+   - 시간 범위는 '미완료' 멤버 기준으로 잡고(완료가 블록을 늘리지 않게), 세로가 과하게
+     길어지지 않도록 90~180분으로 상한(스캐터돼도 격자를 도배하지 않게).
+   - 오늘 할 게 다 끝난(미완료 없는) 목표는 타임라인에 안 그린다.
+   pseudo(_planGoalRep)라 저장 대상이 아니며, 드래그 대신 탭으로 첫 소속 할일을 연다. */
 function _planGoalReps(START,END){
-  var reps=[], nd=_planNextDate(), all=(typeof tasks!=='undefined'?tasks:[]);
+  var reps=[], all=(typeof tasks!=='undefined'?tasks:[]);
   if(typeof findGoal!=='function')return reps;
+  function _md(x){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(x):!!(x&&x.done); }
   var seen={};
   all.forEach(function(t){
     if(!t||t._travelOnly||!t.goalId)return;
     var gid=String(t.goalId); if(seen[gid])return;
     var g=findGoal(gid); if(!g)return; seen[gid]=1;
-    var members=all.filter(function(x){ return x&&!x._travelOnly&&String(x.goalId||'')===gid
-      && /^\d{1,2}:\d{2}$/.test(String(x.timeStart||'')) && (x.date===_planDate || (END>24&&x.date===nd)); });
-    if(!members.length)return;
+    /* 오늘 소속(시간 있는) 할일만 */
+    var today=all.filter(function(x){ return x&&!x._travelOnly&&String(x.goalId||'')===gid
+      && x.date===_planDate && /^\d{1,2}:\d{2}$/.test(String(x.timeStart||'')); });
+    if(!today.length)return;
+    var undone=today.filter(function(x){ return !_md(x); });
+    if(!undone.length)return; /* 오늘 할 게 다 끝난 목표는 타임라인에 안 그림 */
     var sMin=null, eMax=null;
-    members.forEach(function(m){
-      var base=(m.date===_planDate)?0:1440;
-      var s=_planMins(m.timeStart)+base, e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45)+base;
-      if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e;
-    });
-    if(sMin==null||eMax<=START*60||sMin>=END*60)return;
-    var sm=Math.max(sMin,START*60), em=Math.min(eMax,END*60); if(em<=sm)em=sm+30;
-    var pseudo={ id:'goalrep_'+gid, _planGoalRep:true, goalId:gid, projectId:g.project&&g.project.id, text:(g.goal.title||'목표'), catId:'project', _repMembers:members };
+    undone.forEach(function(m){ var s=_planMins(m.timeStart), e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45); if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e; });
+    if(sMin==null||sMin>=Math.min(END*60,1440)||eMax<=START*60)return;
+    var sm=Math.max(sMin,START*60);
+    var dur=Math.max(90, Math.min((eMax-sMin), 180)); /* 90~180분 상한 — 세로 과다 방지 */
+    var em=Math.min(sm+dur, END*60); if(em<=sm)em=Math.min(sm+90,END*60);
+    var pseudo={ id:'goalrep_'+gid, _planGoalRep:true, goalId:gid, projectId:g.project&&g.project.id, text:(g.goal.title||'목표'), catId:'project', _repMembers:today, _repDone:(today.length-undone.length), _repTotal:today.length };
     reps.push({t:pseudo, sm:sm, em:em, col:0, cols:1});
   });
   return reps;
@@ -17806,15 +17813,17 @@ function _planBlockEl(o, START, SLOT_H){
   var isGoalRep=!!t._planGoalRep;
   var isRealTask=!!(t.id && !String(t.id).startsWith('tt_') && !t._isTt && !isGoalRep);
   function _effDone(x){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(x):!!(x&&x.done); }
-  /* 대표 블록의 소속 목록: 목표 대표 → 소속 할일, 일반 할일 → 하위 할일(중첩). */
-  var repChildren = isGoalRep ? (t._repMembers||[]) : ((typeof taskChildren==='function' && t.id!=null)?taskChildren(t.id):[]);
-  var repDoneN = repChildren.filter(_effDone).length;
-  if(isGoalRep && repChildren.length && repDoneN>=repChildren.length){ el.classList.add('done'); }
+  /* 대표 블록의 소속 목록: 목표 대표 → 오늘 소속 할일, 일반 할일 → 하위 할일(중첩). */
+  var repAll = isGoalRep ? (t._repMembers||[]) : ((typeof taskChildren==='function' && t.id!=null)?taskChildren(t.id):[]);
+  var repDoneN = isGoalRep ? (t._repDone||0) : repAll.filter(_effDone).length;
+  var repTotal = isGoalRep ? (t._repTotal||repAll.length) : repAll.length;
+  /* 목표 대표 목록은 '미완료'만 보여준다(완료는 진행 뱃지로 요약) — 일감 남은 것만 깔끔히. */
+  var repChildren = isGoalRep ? repAll.filter(function(x){return !_effDone(x);}) : repAll;
   /* 완료 여부 — 블록에서 바로 체크(드래그와 안 겹치게 .plan-block-ctl로 제외).
      목표 대표는 개별 완료 대신 진행(done/total) 뱃지. */
   var head=document.createElement('div'); head.className='plan-block-head';
   if(isGoalRep){
-    var cnt=document.createElement('span'); cnt.className='plan-block-count'; cnt.textContent='🎯 '+repDoneN+'/'+repChildren.length; head.appendChild(cnt);
+    var cnt=document.createElement('span'); cnt.className='plan-block-count'; cnt.textContent='🎯 '+repDoneN+'/'+repTotal; head.appendChild(cnt);
   } else {
     var ck=document.createElement('button'); ck.type='button';
     ck.className='plan-block-check plan-block-ctl'+(done&&!canceled?' done':'')+(canceled?' canceled':'');
@@ -17855,6 +17864,8 @@ function _planBlockEl(o, START, SLOT_H){
       sck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskCheckToggle==='function')taskCheckToggle(ch); else { ch.done=!ch.done; if(typeof saveTaskData==='function')saveTaskData(); } renderPlanner(); });
       var nm=document.createElement('span'); nm.className='pbs-name'; nm.textContent=ch.text||'할일';
       row.appendChild(sck); row.appendChild(nm);
+      /* 대표 블록은 멤버 시간을 다 커버하지 않으니, 각 항목에 시각을 함께 표기. */
+      if(/^\d{1,2}:\d{2}$/.test(String(ch.timeStart||''))){ var tmc=document.createElement('span'); tmc.className='pbs-time'; tmc.textContent=ch.timeStart; row.appendChild(tmc); }
       row.addEventListener('click',function(e){ e.stopPropagation(); var live=(tasks||[]).find(function(x){return String(x.id)===String(ch.id);})||ch; if(typeof tasksOpenModal==='function')tasksOpenModal(live); });
       subs.appendChild(row);
     });
