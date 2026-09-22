@@ -1,7 +1,7 @@
 'use strict';
 /* 데이 플래너 트레이 — 인박스 항목을 탭하면 '정리 시트'로 ①바로 시행(오늘 지금 시간)
-   ②그냥 할일 ③프로젝트 할일 ④프로젝트 자료(보드) 경로로 빠르게 분류한다. 처리한 항목은
-   unread=false로 비운다(기록 유지). 프로젝트는 시트 안 목록에서 고른다.
+   ②그냥 할일 ③프로젝트 할일 ④프로젝트 로그 ⑤프로젝트 자료(보드) 경로로 빠르게 분류한다.
+   처리한 항목은 unread=false로 비운다(기록 유지). 프로젝트는 시트 안 목록에서 고른다.
    프로젝트 할일: 프로젝트를 고른 뒤 그 프로젝트의 목표(있으면)도 선택할 수 있고,
    기본으로 '지금 시간·오늘'에 배치해 이후 날짜/시간 조정이 쉽게 한다. */
 const { readIndex, sliceBlock, runner } = require('./lib');
@@ -39,7 +39,9 @@ vm.runInContext(block, ctx);
 
 // ── 소스 배선 ──
 t.ok('인박스 탭 → 정리 시트 진입', /if\(kind==='inbox'\)\{ _planInboxTriage\(pid\); return; \}/.test(html));
-t.ok('정리 시트 4경로 버튼', /opt\('pt-now'[\s\S]*?바로 시행[\s\S]*?opt\('pt-task'[\s\S]*?그냥 할일[\s\S]*?opt\('pt-ptask'[\s\S]*?프로젝트 할일[\s\S]*?opt\('pt-pmat'[\s\S]*?프로젝트 자료/.test(html));
+t.ok('정리 시트 5경로 버튼', /opt\('pt-now'[\s\S]*?바로 시행[\s\S]*?opt\('pt-task'[\s\S]*?그냥 할일[\s\S]*?opt\('pt-ptask'[\s\S]*?프로젝트 할일[\s\S]*?opt\('pt-plog'[\s\S]*?프로젝트 로그[\s\S]*?opt\('pt-pmat'[\s\S]*?프로젝트 자료/.test(html));
+t.ok('프로젝트 로그: p.logs에 기록(quickAddLog 모양)', /function _planInboxToLog\(p,it\)\{[\s\S]*?p\.logs\.unshift\(\{ id:'log_'[\s\S]*?text:txt[\s\S]*?\}\);/.test(html) && /ov\.querySelector\('#pt-plog'\)\.addEventListener\('click',function\(\)\{ projPick\('log'\); \}\);/.test(html));
+t.ok('로그 선택 분기: _planInboxToLog 호출', /else if\(kind==='log'\)\{ var okL=_planInboxToLog\(p,it\);/.test(html));
 t.ok('바로 시행: 오늘+현재 시간 배치', /var sm=Math\.min\(Math\.round\(\(now\.getHours\(\)\*60\+now\.getMinutes\(\)\)\/15\)\*15,1425\);[\s\S]*?mkTask\(\{date:_planToday\(\),timeStart:ts,timeEnd:te\}\)/.test(html));
 t.ok('그냥 할일: 시간 미정 오늘 할일', /#pt-task'\)\.addEventListener\('click',function\(\)\{ tasks\.unshift\(mkTask\(\{\}\)\);/.test(html));
 t.ok('프로젝트 할일 → 목표 선택 단계로', /if\(kind==='task'\)\{ goalPick\(p\); \}/.test(html));

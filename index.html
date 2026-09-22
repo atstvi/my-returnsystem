@@ -17873,8 +17873,42 @@ function _planBindTrayDrag(item){
 function _planOpenTrayItem(kind,pid){
   if(kind==='inbox'){ _planInboxTriage(pid); return; }
   if(kind==='task'){ _planTaskQuick(pid); return; }
+  if(kind==='link'){ _planConnectSheet(pid); return; }
   var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(pid);});
   if(t&&typeof tasksOpenModal==='function')tasksOpenModal(t);
+}
+/* 오늘 상황의 인라인 '＋ 연결 할일'(homeMakeLinkedTask)과 같은 기능을 계획창에서도.
+   '연결 필요' 항목을 탭하면 이 시트로 이름·날짜만 정해 연결(준비) 할일을 바로 만든다.
+   (끌어서 시간대에 놓는 방식은 그대로 두고, 탭은 인라인 연결로.) */
+function _planPrepDefDate(t){
+  var TK=_planToday(), dl=(t&&(t.deadlineDate||t.date))||'';
+  if(dl&&dl>TK){ try{ var dd=new Date(dl+'T00:00'); dd.setDate(dd.getDate()-1);
+    function _p(n){return (n<10?'0':'')+n;}
+    var prev=dd.getFullYear()+'-'+_p(dd.getMonth()+1)+'-'+_p(dd.getDate());
+    if(prev>=TK)return prev; }catch(_e){} }
+  return TK;
+}
+function _planConnectSheet(pid){
+  var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(pid);});
+  if(!t){ if(typeof showToast==='function')showToast('항목을 찾지 못했어요'); return; }
+  function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
+  var old=document.getElementById('plan-connect-ov'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='plan-connect-ov'; document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  var defName='준비: '+String(t.text||'').slice(0,20), defDate=_planPrepDefDate(t);
+  ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">🔗 연결 할일 만들기</div></div>'
+    +'<div class="modal-body"><div class="plan-triage-preview">'+esc(t.text||'일정')+'</div>'
+    +'<label class="field-label" style="margin-top:var(--sp-3)">할일 이름</label><input type="text" class="field-inp" id="pc-name" value="'+esc(defName)+'">'
+    +'<label class="field-label" style="margin-top:var(--sp-3)">언제 할까요</label><input type="date" class="field-inp" id="pc-date" value="'+esc(defDate)+'">'
+    +'</div>'
+    +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pc-cancel">취소</button><button type="button" class="btn btn-primary" id="pc-ok">연결 추가</button></div></div>';
+  function ok(){ var nm=((ov.querySelector('#pc-name')||{}).value)||''; var dt=((ov.querySelector('#pc-date')||{}).value)||'';
+    if(typeof homeMakeLinkedTask==='function')homeMakeLinkedTask(t, nm, {date:dt});
+    close(); if(typeof showToast==='function')showToast('연결 할일을 만들었어요'); try{ renderPlanner(); }catch(_e){} }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelector('#pc-cancel').addEventListener('click',close);
+  ov.querySelector('#pc-ok').addEventListener('click',ok);
+  ov.querySelector('#pc-name').addEventListener('keydown',function(e){ if(e.key==='Enter')ok(); });
 }
 /* 인박스 항목을 계획탭에서 탭하면 뜨는 정리 시트 — 흩어진 인박스를 한 곳에서
    ①바로 시행(오늘 지금 시간에 배치) ②그냥 할일 ③프로젝트 할일 ④프로젝트 자료(보드)로
@@ -17887,6 +17921,16 @@ function _planInboxToBoard(p,it){
   var imgs=Array.isArray(it.imgs)?it.imgs:[];
   imgs.forEach(function(ref,i){ if(!ref)return; var pp=_boardDropPos(b,null); b.items.push({id:'bd_'+Date.now()+'_img'+i+'_'+Math.floor(Math.random()*100000),type:'image',src:ref,x:pp.x,y:pp.y,w:210,h:150,fav:false,accent:''}); });
   p.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects();
+  return true;
+}
+/* 인박스 항목을 프로젝트 '작업 로그'로 기록 — quickAddLog와 같은 로그 모양/저장 경로. */
+function _planInboxToLog(p,it){
+  if(!p)return false;
+  var txt=String((it&&it.text)||'').trim(); if(!txt)return false;
+  p.logs=Array.isArray(p.logs)?p.logs:[];
+  p.logs.unshift({ id:'log_'+Date.now()+'_'+Math.floor(Math.random()*100000), title:'', text:txt, createdAt:Date.now(), updatedAt:Date.now() });
+  p.updatedAt=Date.now(); if(typeof saveProjects==='function')saveProjects();
+  if(typeof renderProjects==='function'){ try{ renderProjects(); }catch(_e){} }
   return true;
 }
 function _planInboxTriage(id){
@@ -17910,12 +17954,14 @@ function _planInboxTriage(id){
         +opt('pt-now','🎯','바로 시행','오늘 지금 시간에 바로 배치')
         +opt('pt-task','✅','그냥 할일','오늘 할 일로 추가(시간 미정)')
         +opt('pt-ptask','📁','프로젝트 할일','프로젝트를 골라 그 할일로')
+        +opt('pt-plog','📝','프로젝트 로그','프로젝트 작업 로그로 기록')
         +opt('pt-pmat','📎','프로젝트 자료','프로젝트 보드에 자료로 저장')
       +'</div></div>'
       +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-open">인박스에서 열기</button><button type="button" class="btn btn-ghost" id="pt-cancel">취소</button></div></div>';
     ov.querySelector('#pt-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); tasks.unshift(mkTask({date:_planToday(),timeStart:ts,timeEnd:te})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=_planToday(); finish('오늘 '+ts+'에 배치했어요'); });
     ov.querySelector('#pt-task').addEventListener('click',function(){ tasks.unshift(mkTask({})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); finish('오늘 할일로 추가했어요'); });
     ov.querySelector('#pt-ptask').addEventListener('click',function(){ projPick('task'); });
+    ov.querySelector('#pt-plog').addEventListener('click',function(){ projPick('log'); });
     ov.querySelector('#pt-pmat').addEventListener('click',function(){ projPick('material'); });
     ov.querySelector('#pt-open').addEventListener('click',function(){ close(); if(typeof openInboxItemFromHome==='function'){ _planReturnPage='planner'; openInboxItemFromHome(id); } else if(typeof goPage==='function')goPage('inbox'); });
     ov.querySelector('#pt-cancel').addEventListener('click',close);
@@ -17923,7 +17969,7 @@ function _planInboxTriage(id){
   function projPick(kind){
     var ps=activeProjects();
     if(!ps.length){ if(typeof showToast==='function')showToast('먼저 프로젝트를 하나 만들어 주세요'); return; }
-    var title=(kind==='task')?'📁 어느 프로젝트 할일로?':'📎 어느 프로젝트 자료로?';
+    var title=(kind==='task')?'📁 어느 프로젝트 할일로?':(kind==='log'?'📝 어느 프로젝트 로그로?':'📎 어느 프로젝트 자료로?');
     ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">'+title+'</div></div>'
       +'<div class="modal-body"><button type="button" class="plan-triage-back" id="pt-back">‹ 뒤로</button>'+previewHtml
       +'<div class="plan-triage-opts">'
@@ -17935,6 +17981,7 @@ function _planInboxTriage(id){
     ov.querySelectorAll('.plan-triage-opt[data-pp]').forEach(function(bt){ bt.addEventListener('click',function(){
       var p=ps.find(function(x){return String(x.id)===String(bt.getAttribute('data-pp'));}); if(!p){close();return;}
       if(kind==='task'){ goalPick(p); }
+      else if(kind==='log'){ var okL=_planInboxToLog(p,it); markProcessed(); finish(okL?('‘'+(p.title||'프로젝트')+'’ 로그에 담았어요'):'로그 저장에 실패했어요'); }
       else { var ok=_planInboxToBoard(p,it); markProcessed(); finish(ok?('‘'+(p.title||'프로젝트')+'’ 자료 보드에 저장했어요'):'자료 저장에 실패했어요'); }
     }); });
   }
@@ -17985,7 +18032,7 @@ function _planSchedule(kind,pid,sm){
     tasks.unshift(nt); it.unread=false;
     if(typeof saveTaskData==='function')saveTaskData(); if(typeof saveInboxItems==='function')saveInboxItems();
     if(typeof showToast==='function')showToast('인박스를 '+ts+' 일정으로');
-  } else if(kind==='deadline'){
+  } else if(kind==='deadline'||kind==='link'){
     var dt=(tasks||[]).find(function(x){return String(x.id)===String(pid);}); if(!dt)return;
     var pt={ id:Date.now()+Math.floor(Math.random()*100000), text:'준비: '+String(dt.text||'').slice(0,20), catId:dt.catId||'etc', date:dd, priority:'', done:false, timeStart:ts, timeEnd:te, deadlineDate:dt.deadlineDate||'', deadlineId:String(dt.id), sourceTaskId:String(dt.id), note:'마감 준비 · 계획', subs:[], createdAt:Date.now(), updatedAt:Date.now() };
     tasks.unshift(pt); if(typeof saveTaskData==='function')saveTaskData();
@@ -18119,9 +18166,10 @@ function _planRenderTray(){
       return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'✓ 연결 완료',bc);
     }
     /* 별도 준비 할일이 없어도, 마감일이 있는 할일은 앱에서 이미 '마감일과 연결됨'으로 본다
-       (모달의 일정 연결 표시와 일치) → '준비 할일 없음' 나그 대신 연결됨으로 안내하고,
-       원하면 끌어서 별도 준비 할일을 추가할 수 있게 한다. */
-    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'📅 마감일과 연결됨 · 끌어서 준비 추가',bc);
+       (모달의 일정 연결 표시와 일치). 이미 연결된 상태라 '끌어서 준비 추가' 안내는 오히려
+       '왜 또 연결하라는 거지?' 혼란을 줬으므로 뺀다. 마감일과 연결됨만 담백하게 표시.
+       (그래도 원하면 이 행을 끌어 별도 준비 할일을 추가하는 동작 자체는 유지.) */
+    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'📅 마감일과 연결됨',bc);
   }
   /* 각 분류를 항상 헤더로 보여주고(빠짐없이 확인), 비었으면 ✓로 안심시킨다. */
   function section(icon,label,count,bodyHtml,emptyMsg){
@@ -18134,7 +18182,7 @@ function _planRenderTray(){
       ? '<span class="ptp-ic">✓</span><span class="ptp-t">오늘 정리 완료</span><span class="ptp-d">놓친 것 없이 다 자리 잡았어요</span>'
       : '<span class="ptp-ic">🗂️</span><span class="ptp-t">정리할 것 '+remain+'개</span><span class="ptp-d">하나씩 자리를 정해 비워보세요</span>')+'</div>';
   h+=section('⏳','다가오는 마감',deadlines.length,deadlines.map(deadlineRow).join(''),'이번 주 마감 없음');
-  h+=section('🔗','연결 필요',unlinked.length,unlinked.map(function(t){var d2=Math.round((new Date(t.date+'T00:00')-new Date(TKK+'T00:00'))/86400000);return item2('deadline',t.id,'🔗',t.text||'일정',(d2===0?'오늘':(d2<0?'지남':'D-'+d2)),'연결 할일 없음 — 끌어서 만들기',(d2<=1?'due':''));}).join(''),'연결 필요 없음');
+  h+=section('🔗','연결 필요',unlinked.length,unlinked.map(function(t){var d2=Math.round((new Date(t.date+'T00:00')-new Date(TKK+'T00:00'))/86400000);return item2('link',t.id,'🔗',t.text||'일정',(d2===0?'오늘':(d2<0?'지남':'D-'+d2)),'연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치',(d2<=1?'due':''),true);}).join(''),'연결 필요 없음');
   h+=section('📥','인박스',inbox.length,inbox.map(function(i){return item('inbox',i.id,'•',i.text||'항목');}).join(''),'처리할 인박스 없음');
   h+=section('↩︎','지난 할일',overdue.length,overdue.map(function(t){var d3=Math.round((new Date(TKK+'T00:00')-new Date(t.date+'T00:00'))/86400000);return item('task',t.id,'○',t.text||'할일','D+'+d3,'due');}).join(''),'밀린 할일 없음');
   host.innerHTML=h;

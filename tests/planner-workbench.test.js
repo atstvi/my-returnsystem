@@ -21,7 +21,13 @@ t.ok('완료 판정 remain===0', /var doneAll=\(remain===0\);/.test(html) && /re
 t.ok('분류 헤더 항상+빈 곳 ✓', /function section\(icon,label,count,bodyHtml,emptyMsg\)\{[\s\S]*?count>0\?'<span class="cnt">'\+count\+'<\/span>':'<span class="cnt ok">✓<\/span>'/.test(html));
 t.ok('4개 분류(마감·연결·인박스·지난)', /section\('⏳','다가오는 마감'[\s\S]*?section\('🔗','연결 필요'[\s\S]*?section\('📥','인박스'[\s\S]*?section\('↩︎','지난 할일'/.test(html));
 t.ok('시간 미정 트레이 섹션 제거(종일 줄로 이동)', !/section\('🕘','시간 미정 할일'/.test(html));
-t.ok('연결 필요 행은 끌어서 연결 할일 생성(kind=deadline)', /section\('🔗','연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('deadline',t\.id,'🔗'[\s\S]*?연결 할일 없음 — 끌어서 만들기/.test(html));
+t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link)', /section\('🔗','연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('link',t\.id,'🔗'[\s\S]*?연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치/.test(html));
+
+// ── 오늘 상황처럼 계획창에서도 인라인 '연결' (탭 → 이름·날짜 → homeMakeLinkedTask) ──
+t.ok('link 탭은 인라인 연결 시트로', /if\(kind==='link'\)\{ _planConnectSheet\(pid\); return; \}/.test(html));
+t.ok('연결 시트: 이름+날짜 입력 후 homeMakeLinkedTask', /function _planConnectSheet\(pid\)\{[\s\S]*?id="pc-name"[\s\S]*?id="pc-date"[\s\S]*?homeMakeLinkedTask\(t, ?nm, ?\{date:dt\}\)/.test(html));
+t.ok('연결 시트 기본 날짜: 마감 전날(과거로는 안 감)', /function _planPrepDefDate\(t\)\{[\s\S]*?dd\.setDate\(dd\.getDate\(\)-1\);[\s\S]*?if\(prev>=TK\)return prev;/.test(html));
+t.ok('link 드래그는 연결 준비 할일 생성(deadline과 동일 경로)', /else if\(kind==='deadline'\|\|kind==='link'\)\{/.test(html));
 
 // ── 빠른 처리 시트 ──
 t.ok('할일 탭 → 빠른 처리 시트', /if\(kind==='task'\)\{ _planTaskQuick\(pid\); return; \}/.test(html));
