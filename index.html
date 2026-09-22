@@ -1410,6 +1410,9 @@ button.sit-arc-item { cursor:pointer; }
 .plan-block{position:absolute;border-radius:8px;padding:5px 9px;overflow:hidden;cursor:grab;box-sizing:border-box;display:flex;flex-direction:column;gap:1px;box-shadow:var(--elev-1);border-left:3px solid var(--pbc,var(--accent));touch-action:none;user-select:none;z-index:3;transition:box-shadow var(--t-snap),transform var(--t-snap)}
 .plan-block:hover{box-shadow:var(--elev-2);z-index:6}
 .plan-block.done{opacity:.5}
+/* 계획 취소(안 하기로 함) — 완료(단순 흐림)와 달리 취소선 + 점선 테두리로 구분. */
+.plan-block.canceled{opacity:.55;border-left-style:dashed}
+.plan-block.canceled .plan-block-title{text-decoration:line-through;text-decoration-color:currentColor}
 .plan-block.dragging{box-shadow:var(--elev-3);z-index:20;opacity:.94;cursor:grabbing;transition:none}
 .plan-block.ghost{opacity:.75;border-style:dashed;pointer-events:none;z-index:19;box-shadow:none}
 .plan-block-title{font-size:var(--text-sm);font-weight:var(--fw-bold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
@@ -17715,8 +17718,9 @@ function _planLayout(arr){
 function _planBlockEl(o, START, SLOT_H){
   var t=o.t;
   var top=(o.sm-START*60)/60*SLOT_H, hgt=Math.max((o.em-o.sm)/60*SLOT_H-2, 24);
+  var canceled=!!t.canceled;
   var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
-  var el=document.createElement('div'); el.className='plan-block'+(done?' done':''); el.setAttribute('data-tid',String(t.id));
+  var el=document.createElement('div'); el.className='plan-block'+(done?' done':'')+(canceled?' canceled':''); el.setAttribute('data-tid',String(t.id));
   var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280';
   el.style.top=top+'px'; el.style.height=hgt+'px';
   el.style.left='calc('+(o.col/o.cols*100)+'% + 6px)'; el.style.width='calc('+(100/o.cols)+'% - 14px)'; el.style.right='auto';
@@ -17734,7 +17738,7 @@ function _planBlockEl(o, START, SLOT_H){
     setTimeout(function(){ try{ inp.focus(); inp.select(); }catch(e){} },0);
     return el;
   }
-  var title=document.createElement('div'); title.className='plan-block-title'; title.textContent=t.text||'일정'; el.appendChild(title);
+  var title=document.createElement('div'); title.className='plan-block-title'; title.textContent=(canceled?'🚫 ':'')+(t.text||'일정'); el.appendChild(title);
   if(hgt>30){ var tm=document.createElement('div'); tm.className='plan-block-time'; tm.textContent=_planHMp(o.sm)+'–'+_planHMp(o.em); el.appendChild(tm); }
   var rz=document.createElement('div'); rz.className='plan-block-resize'; el.appendChild(rz);
   _planBindBlock(el,t,o,START,SLOT_H,rz);
@@ -17747,6 +17751,7 @@ function _planBlockMenu(t, x, y){
   var m=document.createElement('div'); m.className='plan-ctxmenu'; m.id='plan-blockmenu';
   m.innerHTML=''
     +'<button type="button" class="plan-ctx-row" data-act="done">'+(done?'↩ 완료 취소':'✓ 완료로')+'</button>'
+    +'<button type="button" class="plan-ctx-row" data-act="cancelplan">'+(t.canceled?'↩ 계획 되돌리기':'🚫 계획 취소')+'</button>'
     +((typeof focusTimerStartForTask==='function')?'<button type="button" class="plan-ctx-row" data-act="timer">⏱ 타이머 시작</button>':'')
     +'<div class="plan-ctx-sep"></div>'
     +'<div class="plan-ctx-durrow"><span class="plan-ctx-lbl">길이</span><button type="button" class="plan-ctx-chip" data-dur="30">30분</button><button type="button" class="plan-ctx-chip" data-dur="60">1시간</button><button type="button" class="plan-ctx-chip" data-dur="120">2시간</button></div>'
@@ -17767,6 +17772,7 @@ function _planBlockMenu(t, x, y){
   function shiftDay(n){ var d=new Date(_planDate+'T00:00'); d.setDate(d.getDate()+n); var nd=dk(d); if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,nd); t.date=nd; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); }
   m.querySelectorAll('[data-act]').forEach(function(b){ b.addEventListener('click',function(){ var a=b.getAttribute('data-act');
     if(a==='done'){ if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); } }
+    else if(a==='cancelplan'){ if(typeof setTaskCanceled==='function')setTaskCanceled(t, !t.canceled); if(typeof showToast==='function')showToast(t.canceled?'계획을 취소했어요(기록은 남아요)':'계획을 되돌렸어요'); }
     else if(a==='timer'){ if(typeof focusTimerStartForTask==='function')focusTimerStartForTask(t.id); }
     else if(a==='prevday'){ shiftDay(-1); if(typeof showToast==='function')showToast('어제로 옮겼어요'); }
     else if(a==='nextday'){ shiftDay(1); if(typeof showToast==='function')showToast('내일로 옮겼어요'); }
@@ -26508,6 +26514,10 @@ function setTaskCanceled(task, val){
   try{ if(typeof renderList==='function')renderList(); }catch(e){}
   try{ if(typeof renderCal==='function')renderCal(); }catch(e){}
   try{ if(typeof renderHomeTasks==='function')renderHomeTasks(); }catch(e){}
+  /* 계획 취소가 계획창·나탭 타임블록에도 즉시 반영되도록(예전엔 이 두 곳을 다시
+     그리지 않아 '취소했는데 그대로 남아 있다'는 문제가 있었다). */
+  try{ if(typeof renderPlanner==='function' && document.getElementById('plan-grid'))renderPlanner(); }catch(e){}
+  try{ if(typeof renderHomeTimeBlocks==='function')renderHomeTimeBlocks(); }catch(e){}
 }
 function toggleTaskCanceled(task){ setTaskCanceled(task, !taskIsCanceled(task)); }
 /* 체크 동그라미 공통 동작 — 취소된 계획이면 '되돌리기(계획 복귀)', 아니면 완료 토글.
