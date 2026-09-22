@@ -17904,26 +17904,33 @@ function _planBindGridCreate(grid){
     document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
   });
 }
-function _planBindTrayDrag(item){
+/* opts.onTap / opts.onLongPress — 있으면 기본 동작 대신 사용한다. 종일 할일 칩처럼
+   '탭=편집창, 길게=현재 조작창(빠른 처리)'을 나누고 싶을 때. 드래그(시간 배치)는 그대로. */
+function _planBindTrayDrag(item, opts){
+  opts=opts||{};
   item.addEventListener('pointerdown',function(e){
     e.preventDefault();
     var kind=item.getAttribute('data-pkind'), pid=item.getAttribute('data-pid');
     var label=((item.querySelector('.pti-t')||{}).textContent)||'항목';
     var grid=document.getElementById('plan-grid'), rule=document.getElementById('plan-droprule');
-    var ghost=null, moved=false;
+    var ghost=null, moved=false, x0=e.clientX, y0=e.clientY, lpFired=false, lpTimer=null;
     try{ item.setPointerCapture(e.pointerId); }catch(_e){}
+    function clearLp(){ if(lpTimer){ clearTimeout(lpTimer); lpTimer=null; } }
+    if(typeof opts.onLongPress==='function'){ lpTimer=setTimeout(function(){ lpTimer=null; if(!moved){ lpFired=true; try{ item.classList.remove('dragging'); }catch(_e){} opts.onLongPress(); } }, 460); }
     function overRect(ev){ if(!grid)return null; var r=grid.getBoundingClientRect(); return (ev.clientX>=r.left&&ev.clientX<=r.right&&ev.clientY>=r.top&&ev.clientY<=r.bottom)?r:null; }
     function mv(ev){
-      if(!moved){ moved=true; item.classList.add('dragging'); ghost=document.createElement('div'); ghost.className='plan-drag-ghost'; ghost.textContent=label; document.body.appendChild(ghost); }
+      if(lpFired)return;
+      if(!moved){ if(Math.abs(ev.clientX-x0)<=6&&Math.abs(ev.clientY-y0)<=6)return; clearLp(); moved=true; item.classList.add('dragging'); ghost=document.createElement('div'); ghost.className='plan-drag-ghost'; ghost.textContent=label; document.body.appendChild(ghost); }
       ghost.style.left=(ev.clientX+12)+'px'; ghost.style.top=(ev.clientY+12)+'px';
       var r=overRect(ev);
       if(r){ var pr=_planPrefs(); grid.classList.add('drop-active'); var m=Math.round((pr.start*60+(ev.clientY-r.top)/pr.slotH*60)/15)*15; m=Math.max(pr.start*60,Math.min(m,pr.end*60-15)); if(rule){ rule.style.display='block'; rule.style.top=((m-pr.start*60)/60*pr.slotH)+'px'; rule.setAttribute('data-t',_planHMp(m)); } item._planDropMin=m; }
       else { if(grid)grid.classList.remove('drop-active'); if(rule)rule.style.display='none'; item._planDropMin=null; }
     }
-    function up(){ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); item.classList.remove('dragging'); if(ghost&&ghost.parentNode)ghost.parentNode.removeChild(ghost); if(grid)grid.classList.remove('drop-active'); if(rule)rule.style.display='none';
+    function up(){ clearLp(); document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); item.classList.remove('dragging'); if(ghost&&ghost.parentNode)ghost.parentNode.removeChild(ghost); if(grid)grid.classList.remove('drop-active'); if(rule)rule.style.display='none';
       var m=item._planDropMin; item._planDropMin=null;
+      if(lpFired)return;
       if(moved && m!=null){ _planSchedule(kind,pid,m); }
-      else if(!moved){ _planOpenTrayItem(kind,pid); }
+      else if(!moved){ if(typeof opts.onTap==='function')opts.onTap(); else _planOpenTrayItem(kind,pid); }
     }
     document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
   });
@@ -18339,7 +18346,13 @@ function renderPlanner(){
     var _adSched=dayTasks.filter(function(t){return !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && (t.catId==='schedule'||t._isTt||t.allDay);});
     var _adUntimed=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && !(t.catId==='schedule'||t._isTt||t.allDay);});
     _adSched.forEach(function(t){ var c=document.createElement('button'); c.className='plan-allday-chip'; c.type='button'; c.textContent=t.text||'일정'; c.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); }); alldayEl.appendChild(c); });
-    _adUntimed.forEach(function(t){ var c=document.createElement('div'); c.className='plan-allday-chip untimed'; c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent='○ '+(t.text||'할일'); c.appendChild(sp); if(typeof _planBindTrayDrag==='function')_planBindTrayDrag(c); alldayEl.appendChild(c); });
+    _adUntimed.forEach(function(t){ var c=document.createElement('div'); c.className='plan-allday-chip untimed'; c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent='○ '+(t.text||'할일'); c.appendChild(sp);
+      /* 종일 할일: 탭=할일 편집창, 길게=현재 조작창(빠른 처리), 드래그=시간 배치. */
+      if(typeof _planBindTrayDrag==='function')_planBindTrayDrag(c,{
+        onTap:function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); },
+        onLongPress:function(){ if(typeof _planTaskQuick==='function')_planTaskQuick(t.id); }
+      });
+      alldayEl.appendChild(c); });
   }
   _planBindGridCreate(grid);
   _planRenderTray();

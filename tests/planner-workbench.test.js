@@ -21,6 +21,11 @@ t.ok('완료 판정 remain===0', /var doneAll=\(remain===0\);/.test(html) && /re
 t.ok('분류 헤더 항상+빈 곳 ✓', /function section\(icon,label,count,bodyHtml,emptyMsg\)\{[\s\S]*?count>0\?'<span class="cnt">'\+count\+'<\/span>':'<span class="cnt ok">✓<\/span>'/.test(html));
 t.ok('4개 분류(마감·연결·인박스·지난)', /section\('⏳','다가오는 마감'[\s\S]*?section\('🔗','연결 필요'[\s\S]*?section\('📥','인박스'[\s\S]*?section\('↩︎','지난 할일'/.test(html));
 t.ok('시간 미정 트레이 섹션 제거(종일 줄로 이동)', !/section\('🕘','시간 미정 할일'/.test(html));
+// 종일 할일: 탭=편집창, 길게=현재 조작창(빠른 처리), 드래그=시간 배치
+t.ok('_planBindTrayDrag가 onTap/onLongPress 옵션 지원', /function _planBindTrayDrag\(item, ?opts\)\{\s*opts=opts\|\|\{\};/.test(html));
+t.ok('길게 누르면 onLongPress(460ms) 발동', /if\(typeof opts\.onLongPress==='function'\)\{ lpTimer=setTimeout\(function\(\)\{ lpTimer=null; if\(!moved\)\{ lpFired=true;[\s\S]*?opts\.onLongPress\(\);[\s\S]*?\}, ?460\);/.test(html));
+t.ok('탭은 onTap 우선(없으면 기존 동작)', /else if\(!moved\)\{ if\(typeof opts\.onTap==='function'\)opts\.onTap\(\); else _planOpenTrayItem\(kind,pid\); \}/.test(html));
+t.ok('종일 칩: 탭→편집창, 길게→빠른 처리', /_planBindTrayDrag\(c,\{\s*onTap:function\(\)\{ if\(typeof tasksOpenModal==='function'\)tasksOpenModal\(t\); \},\s*onLongPress:function\(\)\{ if\(typeof _planTaskQuick==='function'\)_planTaskQuick\(t\.id\); \}/.test(html));
 t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link)', /section\('🔗','연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('link',t\.id,'🔗'[\s\S]*?연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치/.test(html));
 
 // ── 오늘 상황처럼 계획창에서도 인라인 '연결' (탭 → 이름·날짜 → homeMakeLinkedTask) ──

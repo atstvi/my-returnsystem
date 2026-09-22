@@ -47,7 +47,7 @@ t.ok('홈 타임블록에 계획 진입 버튼', /id="htb-plan-btn"/.test(html) 
 t.ok('더보기 메뉴에 계획', /onclick="mMore\('planner'\)"/.test(html));
 t.ok('빈 곳 드래그로 새 블록 생성', /function _planBindGridCreate\(grid\)\{[\s\S]*?_planCreateTask\(s,en\)/.test(html) && /function _planCreateTask\(sm,em\)\{[\s\S]*?tasks\.unshift\(t\)/.test(html));
 t.ok('블록 이동/리사이즈', /function _planBindBlock\(el,t,o,START,SLOT_H,rz\)\{[\s\S]*?t\.date=baseDate; t\.timeStart=_planHM\(a\.min\); t\.timeEnd=_planHM\(em2\)/.test(html));
-t.ok('트레이 드래그로 시간 배치', /function _planBindTrayDrag\(item\)\{[\s\S]*?_planSchedule\(kind,pid,m\)/.test(html));
+t.ok('트레이 드래그로 시간 배치', /function _planBindTrayDrag\(item, ?opts\)\{[\s\S]*?_planSchedule\(kind,pid,m\)/.test(html));
 t.ok('배치: task/inbox/deadline 각각 처리', /function _planSchedule\(kind,pid,sm\)\{[\s\S]*?kind==='task'[\s\S]*?kind==='inbox'[\s\S]*?kind==='deadline'/.test(html));
 t.ok('인박스 배치 시 처리됨 표시', /it\.unread=false;/.test(html));
 t.ok('마감 배치 시 연결 준비 할일', /deadlineId:String\(dt\.id\), ?sourceTaskId:String\(dt\.id\)/.test(html));
