@@ -23,9 +23,14 @@ t.ok('기본값이 entity로 되돌아가지 않았는지(회귀 가드)',
 // ── 2. 엔티티 병합은 dual-write 필요 ──
 t.ok('fbEntityMergeIntoLocal: dual-write 없으면 skip',
   /if\(!RETURN_ENTITY_DUALWRITE\)return \{skipped:true, ?reason:'no-dualwrite'\};/.test(html));
-// 순서: RETURN_SYNC_MODEL 가드 → dual-write 가드 → fbDb/fbUser 가드
-t.ok('가드 순서(모델→dualwrite→로그인)',
-  /if\(RETURN_SYNC_MODEL!=='entity'\)return \{skipped:true\};[\s\S]{0,900}?if\(!RETURN_ENTITY_DUALWRITE\)return \{skipped:true[\s\S]{0,80}?if\(!fbDb\|\|!fbUser\)return \{skipped:true\};/.test(html));
+// Stage-9 게이트: 검증 안 됐으면(기본) 병합 안 함
+t.ok('fbEntityMergeIntoLocal: Stage-9 미검증이면 skip',
+  /if\(!RETURN_ENTITY_MERGE_VERIFIED\)return \{skipped:true, ?reason:'stage9-unverified'\};/.test(html));
+t.ok('RETURN_ENTITY_MERGE_VERIFIED 기본 off(명시 opt-in만)',
+  /var RETURN_ENTITY_MERGE_VERIFIED=\(function\(\)\{ try\{var v=localStorage\.getItem\('return_entity_merge_verified'\); return v==='1'\|\|v==='true'; \}catch\(e\)\{ return false; \} \}\)\(\);/.test(html));
+// 순서: RETURN_SYNC_MODEL 가드 → dual-write 가드 → Stage-9 가드 → fbDb/fbUser 가드
+t.ok('가드 순서(모델→dualwrite→stage9→로그인)',
+  /if\(RETURN_SYNC_MODEL!=='entity'\)return \{skipped:true\};[\s\S]{0,900}?if\(!RETURN_ENTITY_DUALWRITE\)return \{skipped:true[\s\S]{0,400}?if\(!RETURN_ENTITY_MERGE_VERIFIED\)return \{skipped:true[\s\S]{0,320}?if\(!fbDb\|\|!fbUser\)return \{skipped:true\};/.test(html));
 
 // ── 3. 런타임 확인: dual-write off면 미러를 아예 읽지 않음(로컬 편집 보존) ──
 const block = sliceBlock(html, 'async function fbEntityMergeIntoLocal(ref){', 'window.returnEntityMergeArray=returnEntityMergeArray;');

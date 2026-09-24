@@ -39816,6 +39816,18 @@ function fbCollectData(){
    while the entity model stays experimental (RETURN_SYNC_MODEL === 'legacy').
    Opt in explicitly via localStorage.setItem('return_entity_dualwrite','true'). */
 var RETURN_ENTITY_DUALWRITE=(function(){ try{var v=localStorage.getItem('return_entity_dualwrite'); return v!=null&&v!=='0'&&v!=='false'; }catch(e){ return false; } })();
+/* Stage-9 gate for the per-entity MERGE AUTHORITY. The two-device verification
+   matrix (docs/STAGE9_VERIFICATION.md) has NOT passed, so per docs the merge
+   must not run in production. Real devices were found running it (return_sync_model
+   ='entity' + dual-write both manually set in an old test session) against a
+   CORRUPT cloud mirror (every entity doc updatedAt:0, seen via returnSyncConflicts):
+   that churns 50 conflicts per sync and can silently roll a fresh local edit back
+   to a stale/zero-stamped mirror doc. Every entity collection is ALSO in the
+   blob sync (DATA_KEYS), so gating the merge off loses NOTHING — the mature blob
+   union-merge (with the recent/pending anti-revert guards) stays authoritative.
+   Set localStorage 'return_entity_merge_verified'='1' to opt a device into the
+   merge for actual Stage-9 testing. */
+var RETURN_ENTITY_MERGE_VERIFIED=(function(){ try{var v=localStorage.getItem('return_entity_merge_verified'); return v==='1'||v==='true'; }catch(e){ return false; } })();
 /* In-scope collections (design §2.3), each mapped to its localStorage key,
    _eid prefix, and shape. 'object' = date-keyed (diary). */
 var RETURN_ENTITY_COLLECTIONS=[
@@ -40150,6 +40162,10 @@ async function fbEntityMergeIntoLocal(ref){
      applied by fbApplyData). This holds even if an explicit stale
      return_sync_model='entity' is stored, so the revert can't sneak back in. */
   if(!RETURN_ENTITY_DUALWRITE)return {skipped:true, reason:'no-dualwrite'};
+  /* Stage-9 gate: do not let the (unverified) per-entity merge be authoritative
+     in production. All entity collections are blob-synced too, so the blob path
+     (with recent/pending anti-revert guards) covers everything. */
+  if(!RETURN_ENTITY_MERGE_VERIFIED)return {skipped:true, reason:'stage9-unverified'};
   if(!fbDb||!fbUser)return {skipped:true};
   var cloud=await fbEntityReadAllDocs(ref);
   var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
