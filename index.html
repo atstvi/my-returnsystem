@@ -21511,7 +21511,19 @@ window.returnStampUpdate=returnStampUpdate;
    a bug here cannot lose data; worst case is a wrong timestamp that no code
    reads. The legacy numeric `id` is never touched.
    ════════════════════════════════════════════════════════════════════════ */
-var RETURN_SYNC_MODEL=(function(){ try{return localStorage.getItem('return_sync_model')||'entity';}catch(e){return 'entity';} })();
+/* DEFAULT MUST BE 'legacy' (see docs/STAGE9_VERIFICATION.md §"flag-flip gate"
+   and every comment below): the per-entity merge (6d) is only proven — and only
+   safe — once the two-device matrix passes. The default had regressed to
+   'entity', which silently enabled per-entity MERGE AUTHORITY on every device
+   that never opted in. Combined with RETURN_ENTITY_DUALWRITE defaulting to
+   false, fbEntityMergeIntoLocal then merged a STALE / never-maintained cloud
+   entity mirror into fresh local state on every login and every remote snapshot
+   — i.e. a device's just-made edit got rolled back to an old mirror snapshot
+   whenever another device/widget triggered a sync. That is the "직전 변경사항이
+   되돌려짐" (previous change reverts) report. Back to 'legacy' = the mature blob
+   union-merge path (LWW per item). Opt into 'entity' only via
+   returnSyncModelSet('entity'), and only WITH dual-write on (enforced below). */
+var RETURN_SYNC_MODEL=(function(){ try{return localStorage.getItem('return_sync_model')||'legacy';}catch(e){return 'legacy';} })();
 var RETURN_ENVELOPE_FIELDS=['_eid','updatedAt','createdAt','deletedAt','schemaVersion','_rev','modifiedBy'];
 
 /* Assign `_eid` where missing. Deterministic from the legacy id so two devices
@@ -40029,6 +40041,15 @@ async function fbEntityReadAllDocs(ref){
    apply lock so it doesn't trigger a save), resyncs shadows, logs conflicts. */
 async function fbEntityMergeIntoLocal(ref){
   if(RETURN_SYNC_MODEL!=='entity')return {skipped:true};
+  /* Entity-merge authority REQUIRES dual-write. Merging FROM a per-entity mirror
+     that THIS device never writes to is inherently unsafe: the mirror holds a
+     stale/foreign snapshot, so LWW pulls that old state over the fresh local
+     edits this device made but never mirrored — the just-made change reverts.
+     A mirror is only trustworthy as merge input when it is actively maintained
+     (dual-write on). Without it, fall back to the blob union-merge (already
+     applied by fbApplyData). This holds even if an explicit stale
+     return_sync_model='entity' is stored, so the revert can't sneak back in. */
+  if(!RETURN_ENTITY_DUALWRITE)return {skipped:true, reason:'no-dualwrite'};
   if(!fbDb||!fbUser)return {skipped:true};
   var cloud=await fbEntityReadAllDocs(ref);
   var tombs=(typeof tombstonesLoad==='function')?tombstonesLoad():{};
