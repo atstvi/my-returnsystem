@@ -37,7 +37,10 @@ t.ok('목표 대표는 체크 대신 진행 뱃지(🎯 done/total)', /if\(isGoa
 t.ok('하위 행에 시각 표기(대표가 시간 다 못 덮으니)', /if\(\/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(ch\.timeStart\|\|''\)\)\)\{ var tmc=document\.createElement\('span'\); tmc\.className='pbs-time'; tmc\.textContent=ch\.timeStart;/.test(html));
 t.ok('블록 안에 하위/소속 할일 목록 렌더', /if\(repChildren\.length && hgt>52\)\{[\s\S]*?subs\.className='plan-block-subs'[\s\S]*?pbs-check plan-block-ctl[\s\S]*?pbs-name/.test(html));
 t.ok('하위 행 미니 체크=완료 토글, 이름 탭=편집창', /sck\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(typeof taskCheckToggle==='function'\)taskCheckToggle\(ch\)[\s\S]*?row\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\);[\s\S]*?tasksOpenModal\(live\)/.test(html));
-t.ok('목표 대표 pseudo는 드래그 없이 탭만', /if\(isGoalRep\)\{[\s\S]*?el\.style\.cursor='pointer'[\s\S]*?return el;\s*\}\s*var rz=document\.createElement\('div'\); rz\.className='plan-block-resize'/.test(html));
+t.ok('목표 대표는 드래그로 소속 이동(_planBindGoalRep) + 탭', /if\(isGoalRep\)\{[\s\S]*?el\.style\.cursor='grab';\s*_planBindGoalRep\(el,t,o,START,SLOT_H\);\s*return el;\s*\}/.test(html));
+t.ok('_planBindGoalRep: 소속 할일들을 같은 delta로 이동', /function _planBindGoalRep\(el,t,o,START,SLOT_H\)\{[\s\S]*?var delta=o\.sm - sm0;[\s\S]*?\(t\._repMembers\|\|\[\]\)\.forEach\(function\(m\)\{[\s\S]*?m\.timeStart=_planHM\(ns2\); m\.timeEnd=_planHM\(ns2\+d\); m\.updatedAt=Date\.now\(\);[\s\S]*?saveTaskData\(\)/.test(html));
+t.ok('_planBindGoalRep: 안 움직이면 첫 소속 편집창', /\} else \{\s*var first=\(t\._repMembers\|\|\[\]\)\[0\];[\s\S]*?tasksOpenModal\(live\)/.test(html));
+t.ok('saveTaskData: 계획창 열려 있으면 즉시 반영(모달·일괄 등)', /if\(!window\._fbApplyReloadPhase && typeof renderPlanner==='function' && \(typeof _planEditId==='undefined'\|\|_planEditId==null\)\)\{[\s\S]*?_pp\.classList\.contains\('active'\)\)renderPlanner\(\);/.test(html));
 t.ok('하위 목록 CSS', /\.plan-block-subs\{[\s\S]*?flex-direction:column/.test(html) && /\.pbs-check\.done\{background:currentColor\}/.test(html));
 
 t.done();
