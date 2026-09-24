@@ -18,10 +18,10 @@ t.ok('recent-edit 맵/헬퍼 정의',
   /var _returnRecentLocalEdits=\{\};[\s\S]*?function returnMarkRecentLocalEdit\(id\)\{[\s\S]*?function returnIsRecentLocalEdit\(id\)\{[\s\S]*?Date\.now\(\)-t\)<RETURN_RECENT_EDIT_GRACE_MS/.test(html));
 t.ok('스탬프 시 recent-edit 기록(id + _eid)',
   /returnMarkRecentLocalEdit\(e\.id\); returnMarkRecentLocalEdit\(e\._eid\);/.test(html));
-t.ok('fbApplyData 블롭 병합: recent면 로컬 유지',
-  /var _recentA=\(typeof returnIsRecentLocalEdit==='function'\)&&\(returnIsRecentLocalEdit\(ct\.id\)\|\|returnIsRecentLocalEdit\(ct\._eid\)\);[\s\S]*?if\(_luA>_cuA\|\|_recentA\)\{ _lwwChanged=true; return lt; \}/.test(html));
-t.ok('fbSaveNow 흡수 병합: recent면 로컬 유지',
-  /if\(Number\(lt\.updatedAt\|\|0\)>Number\(ct\.updatedAt\|\|0\)\|\|\(\(typeof returnIsRecentLocalEdit==='function'\)&&\(returnIsRecentLocalEdit\(ct\.id\)\|\|returnIsRecentLocalEdit\(ct\._eid\)\)\)\)\{_snLwwChanged=true;return lt;\}/.test(html));
+t.ok('fbApplyData 블롭 병합: recent/pending면 로컬 유지',
+  /var _recentA=\(\(typeof returnIsRecentLocalEdit==='function'\)&&\(returnIsRecentLocalEdit\(ct\.id\)\|\|returnIsRecentLocalEdit\(ct\._eid\)\)\)\s*\|\|\(\(typeof returnPendingEditUnconfirmed==='function'\)&&returnPendingEditUnconfirmed\(ct\)\);[\s\S]*?if\(_luA>_cuA\|\|_recentA\)\{ _lwwChanged=true; return lt; \}/.test(html));
+t.ok('fbSaveNow 흡수 병합: recent/pending면 로컬 유지',
+  /if\(Number\(lt\.updatedAt\|\|0\)>Number\(ct\.updatedAt\|\|0\)\|\|\(\(typeof returnIsRecentLocalEdit==='function'\)&&\(returnIsRecentLocalEdit\(ct\.id\)\|\|returnIsRecentLocalEdit\(ct\._eid\)\)\)\|\|\(\(typeof returnPendingEditUnconfirmed==='function'\)&&returnPendingEditUnconfirmed\(ct\)\)\)\{_snLwwChanged=true;return lt;\}/.test(html));
 t.ok('엔티티 결정: recent면 로컬 유지(clock skew), tie는 여전히 cloud(수렴)',
   /if\(_recentE\)return L;\s*return cUpd>lUpd\?C\.payload:\(lUpd>cUpd\?L:\(C\.payload\|\|L\)\); \/\* tie → cloud \(deterministic\) \*\//.test(html));
 

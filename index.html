@@ -21572,6 +21572,66 @@ function returnIsRecentLocalEdit(id){
   return t!=null && (Date.now()-t)<RETURN_RECENT_EDIT_GRACE_MS;
 }
 try{ window.returnIsRecentLocalEdit=returnIsRecentLocalEdit; window.returnMarkRecentLocalEdit=returnMarkRecentLocalEdit; }catch(_e){}
+/* ── Pending-local-edit guard (persistent, confirm-based anti-revert) ─────────
+   The 60s window above is not enough when the stale writer is PERSISTENT — an
+   offline-then-online device, or the desktop widget that never received the
+   change — because it keeps re-pushing its old copy and, once the window lapses,
+   wins again. So we also remember each locally-edited item's PAYLOAD HASH and
+   hold the local copy until the cloud actually reflects it (cloud payload hash
+   == the hash we saved). This is skew-proof (no clock compare at all), survives
+   reloads (localStorage, device-local `__`-prefixed = NOT synced), and can't
+   stall forever: it clears the instant the cloud agrees, and a TTL backstop
+   drops entries the cloud never confirms so a genuine remote edit still lands.
+   `_entityPayloadHash` excludes envelope fields, so a true self-echo (identical
+   content, different updatedAt) counts as confirmed → clears immediately. */
+var RETURN_PENDING_EDIT_KEY='__return_pending_edits_v1';
+var RETURN_PENDING_EDIT_TTL_MS=10*60*1000; /* 10min backstop: give up protecting if cloud never confirms */
+var RETURN_PENDING_EDIT_MAX=1000;
+var _returnPendingEdits=null;
+function _returnPendingLoad(){
+  if(_returnPendingEdits)return _returnPendingEdits;
+  try{ _returnPendingEdits=JSON.parse(localStorage.getItem(RETURN_PENDING_EDIT_KEY)||'{}')||{}; }catch(_e){ _returnPendingEdits={}; }
+  if(typeof _returnPendingEdits!=='object'||Array.isArray(_returnPendingEdits))_returnPendingEdits={};
+  return _returnPendingEdits;
+}
+function _returnPendingSave(){
+  /* Synchronous: the guard must be durable BEFORE the next remote snapshot can
+     arrive (an async gap). Called once per stamping pass, not per item. */
+  try{ var w=(typeof _rawSetItem==='function')?_rawSetItem:localStorage.setItem.bind(localStorage); w(RETURN_PENDING_EDIT_KEY, JSON.stringify(_returnPendingLoad())); }catch(_e){}
+}
+/* Record (in-memory) that this device edited item `id`/`eid` to payload-hash `h`.
+   Does NOT persist — the stamping pass calls _returnPendingSave() once at the end
+   so a bulk save is one write, not one per item. */
+function returnMarkPendingEdit(id, eid, h){
+  if(!h)return; var m=_returnPendingLoad(), now=Date.now(), rec={h:h,at:now};
+  if(id!=null&&id!=='')m[String(id)]=rec;
+  if(eid!=null&&eid!==''&&String(eid)!==String(id))m[String(eid)]=rec;
+  var ks=Object.keys(m);
+  if(ks.length>RETURN_PENDING_EDIT_MAX){ /* prune oldest */
+    ks.sort(function(a,b){return (m[a].at||0)-(m[b].at||0);});
+    for(var i=0;i<ks.length-RETURN_PENDING_EDIT_MAX;i++)delete m[ks[i]];
+  }
+}
+/* True if we have an UNCONFIRMED local edit for this cloud item (cloud payload
+   differs from the hash we last saved locally, still within TTL). Side effect:
+   clears the entry when the cloud has caught up (or TTL lapsed), so protection
+   ends the moment it's safe. `cloudItem` is a plain payload object from a blob. */
+function returnPendingEditUnconfirmed(cloudItem){
+  if(!cloudItem||typeof cloudItem!=='object')return false;
+  var m=_returnPendingLoad();
+  var keys=[]; if(cloudItem.id!=null&&cloudItem.id!=='')keys.push(String(cloudItem.id)); if(cloudItem._eid)keys.push(String(cloudItem._eid));
+  var hit=false, cloudH=null, cleared=false;
+  for(var i=0;i<keys.length;i++){
+    var rec=m[keys[i]]; if(!rec)continue;
+    if((Date.now()-(rec.at||0))>=RETURN_PENDING_EDIT_TTL_MS){ delete m[keys[i]]; cleared=true; continue; }
+    if(cloudH==null){ try{ cloudH=_entityPayloadHash(cloudItem); }catch(_e){ cloudH=''; } }
+    if(cloudH===rec.h){ delete m[keys[i]]; cleared=true; /* cloud confirmed — stop protecting */ }
+    else { hit=true; }
+  }
+  if(cleared)_returnPendingSave();
+  return hit;
+}
+try{ window.returnPendingEditUnconfirmed=returnPendingEditUnconfirmed; window.returnMarkPendingEdit=returnMarkPendingEdit; }catch(_e){}
 /* Shadow-diff stamping. The shadow (per collection) is a device-local map
    {_eid: payloadHash} of the last-seen state. Keys are prefixed `__eid_shadow_`
    so they are NOT synced (they describe THIS device's view). Returns the set of
@@ -21589,10 +21649,12 @@ function returnEntityStampChanged(collection, arr){
       if(e.createdAt==null)e.createdAt=now;
       e.updatedAt=now;
       if(e.schemaVersion==null)e.schemaVersion=RETURN_SCHEMA_VERSION;
-      /* This device just changed this item — protect it from a clock-skewed
-         stale cloud copy overwriting it during the grace window (by legacy id
-         AND _eid, since the merge paths key on whichever they have). */
+      /* This device just changed this item — protect it from a stale cloud copy
+         overwriting it: a short in-memory window (recent) AND a persistent,
+         confirm-based hold keyed on the new payload hash (pending). Both by
+         legacy id AND _eid, since merge paths key on whichever they have. */
       returnMarkRecentLocalEdit(e.id); returnMarkRecentLocalEdit(e._eid);
+      returnMarkPendingEdit(e.id, e._eid, h);
       stamped++;
     } else if(e.updatedAt==null){
       e.updatedAt=e.createdAt||now;
@@ -21602,6 +21664,9 @@ function returnEntityStampChanged(collection, arr){
   var removed=[];
   Object.keys(shadow).forEach(function(eid){ if(!seen[eid])removed.push(eid); });
   try{ setReturnStorageItem(shadowKey, JSON.stringify(next)); }catch(_e){}
+  /* Persist pending-edit protections once for the whole pass (durable before any
+     remote snapshot can arrive). Only tasks carry the id-keyed protection. */
+  if(stamped>0)try{ _returnPendingSave(); }catch(_e){}
   return {stamped:stamped,removed:removed};
 }
 /* ════════════════════════════════════════════════════════════════════════
@@ -39990,7 +40055,8 @@ function _returnEntityDecide(eid,L,C,tombstones,collection,conflicts){
        remote clock must not roll back a fresh local edit). This is device-local
        and self-heals — after the window, the deterministic rule below (tie →
        cloud, so two devices converge) resumes. */
-    var _recentE=(typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(eid)||(L&&returnIsRecentLocalEdit(L.id)));
+    var _recentE=((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(eid)||(L&&returnIsRecentLocalEdit(L.id))))
+               ||((typeof returnPendingEditUnconfirmed==='function')&&C&&returnPendingEditUnconfirmed(C.payload||{_eid:eid,id:(L&&L.id)}));
     if(lUpd!==cUpd&&conflicts)conflicts.push({collection:collection,_eid:eid,localUpd:lUpd,cloudUpd:cUpd,winner:(cUpd>lUpd&&!_recentE)?'cloud':'local',at:Date.now()});
     if(_recentE)return L;
     return cUpd>lUpd?C.payload:(lUpd>cUpd?L:(C.payload||L)); /* tie → cloud (deterministic) */
@@ -40663,7 +40729,8 @@ function fbApplyData(data){
                 var lt=_localById[String(ct.id)];
                 if(!lt)return ct;
                 var _luA=Number(lt.updatedAt||0), _cuA=Number(ct.updatedAt||0);
-                var _recentA=(typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid));
+                var _recentA=((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid)))
+                           ||((typeof returnPendingEditUnconfirmed==='function')&&returnPendingEditUnconfirmed(ct));
                 /* Keep local when it is newer, OR was edited on THIS device within
                    the grace window (clock-skew-proof anti-revert). Mark changed so
                    the kept-local value is pushed back; a plain equal-stamp echo is
@@ -41573,7 +41640,7 @@ async function fbSaveNow(opts){
                 if(!ct||ct.id==null)return ct;
                 var lt=_snLocalById[String(ct.id)];
                 if(!lt)return ct;
-                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)||((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid)))){_snLwwChanged=true;return lt;}
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)||((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid)))||((typeof returnPendingEditUnconfirmed==='function')&&returnPendingEditUnconfirmed(ct))){_snLwwChanged=true;return lt;}
                 return ct;
               });
               var _snLocalOnly=_snOursArr.filter(function(t){
