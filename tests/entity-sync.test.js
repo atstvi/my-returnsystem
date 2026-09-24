@@ -239,6 +239,10 @@ const t = runner('Stage 6c — entity dual-write + migration');
 
     // Wire up remaining stubs fbEntityMergeIntoLocal needs
     sandbox.RETURN_SYNC_MODEL = 'entity';
+    // Entity-merge authority now requires dual-write (merging a mirror this
+    // device never maintains would revert local edits). This test exercises the
+    // merge path itself, so enable dual-write to opt past that guard.
+    sandbox.RETURN_ENTITY_DUALWRITE = true;
     sandbox._rawSetItem = (k, v) => { store[k] = String(v); };
     sandbox._applyingFbData = false;
 
