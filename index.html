@@ -17878,15 +17878,49 @@ function _planBlockEl(o, START, SLOT_H){
     el.appendChild(subs);
   }
   if(isGoalRep){
-    /* 목표 대표는 저장 대상 pseudo — 드래그/리사이즈 없이 탭하면 첫 소속 할일 편집창을 연다. */
-    el.style.cursor='pointer';
-    el.addEventListener('click',function(e){ if(el._dragMoved){el._dragMoved=false;return;} var first=repChildren[0]; var live=first&&(tasks||[]).find(function(x){return String(x.id)===String(first.id);}); if(live&&typeof tasksOpenModal==='function')tasksOpenModal(live); });
-    el.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+    /* 목표 대표는 pseudo지만 끌면 소속(시간 있는) 할일들을 같은 만큼 통째로 옮긴다.
+       탭하면 첫 소속 할일 편집창. (리사이즈는 없음 — 목표 자체 길이는 소속들이 정함.) */
+    el.style.cursor='grab';
+    _planBindGoalRep(el,t,o,START,SLOT_H);
     return el;
   }
   var rz=document.createElement('div'); rz.className='plan-block-resize'; el.appendChild(rz);
   _planBindBlock(el,t,o,START,SLOT_H,rz);
   return el;
+}
+/* 목표 대표 블록 드래그 — 소속(오늘, 시간 있는) 할일들을 같은 delta로 이동(상대 배치 유지).
+   탭(안 움직임)이면 첫 소속 할일 편집창. 하위 컨트롤(.plan-block-ctl)은 제외. */
+function _planBindGoalRep(el,t,o,START,SLOT_H){
+  var END=_planPrefs().end;
+  el.addEventListener('contextmenu',function(e){ e.preventDefault(); });
+  el.addEventListener('pointerdown',function(e){
+    if(e.button&&e.button!==0)return;
+    if(e.target.closest&&e.target.closest('.plan-block-ctl'))return;
+    var y0=e.clientY, x0=e.clientX, sm0=o.sm, dur=o.em-o.sm, moved=false;
+    try{ el.setPointerCapture(e.pointerId); }catch(_e){}
+    function mv(ev){ var dy=ev.clientY-y0, dx=ev.clientX-x0; if(!moved&&(Math.abs(dy)>4||Math.abs(dx)>4)){ moved=true; el.classList.add('dragging'); } if(!moved)return;
+      var ns=Math.round((sm0+dy/SLOT_H*60)/5)*5; ns=Math.max(START*60, Math.min(ns, END*60-dur)); o.sm=ns; o.em=ns+dur; el.style.top=((o.sm-START*60)/60*SLOT_H)+'px'; }
+    function up(){ document.removeEventListener('pointermove',mv); document.removeEventListener('pointerup',up); el.classList.remove('dragging');
+      if(moved){
+        var delta=o.sm - sm0;
+        if(delta!==0){
+          (t._repMembers||[]).forEach(function(m){
+            if(!m||!/^\d{1,2}:\d{2}$/.test(String(m.timeStart||'')))return;
+            var s=_planMins(m.timeStart), e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):s+45), d=Math.max(15,e-s);
+            var ns2=Math.max(0,Math.min(s+delta,1440-d));
+            m.timeStart=_planHM(ns2); m.timeEnd=_planHM(ns2+d); m.updatedAt=Date.now();
+          });
+          if(typeof saveTaskData==='function')saveTaskData();
+          if(typeof showToast==='function')showToast('목표 일정을 옮겼어요');
+        }
+        renderPlanner();
+      } else {
+        var first=(t._repMembers||[])[0]; var live=first&&(tasks||[]).find(function(x){return String(x.id)===String(first.id);});
+        if(live&&typeof tasksOpenModal==='function')tasksOpenModal(live);
+      }
+    }
+    document.addEventListener('pointermove',mv); document.addEventListener('pointerup',up);
+  });
 }
 /* 블록 컨텍스트 메뉴 — 완료·타이머·길이·어제/내일·시간비우기·복제·삭제(4·5). */
 function _planBlockMenu(t, x, y){
@@ -24850,6 +24884,13 @@ function saveTaskData(){
     if (typeof renderHomeSituation === 'function') renderHomeSituation();
     if (typeof window.homeRenderTimeGrid === 'function') window.homeRenderTimeGrid();
   }
+  /* 계획창이 열려 있으면 어떤 경로(모달 편집·일괄·체크 등)로 바뀌어도 바로 반영한다 —
+     예전엔 saveTaskData가 홈 카드만 새로고침하고 계획창은 안 그려, 편집이 반영 안 된 것
+     처럼 보이던(그래서 '저장 안 됨'으로 오해되던) 문제. renderPlanner는 저장을 안 하므로
+     재진입 위험 없음. 인라인 편집 중(_planEditId)에는 커밋 쪽에서 다시 그리므로 건너뜀. */
+  try{ if(!window._fbApplyReloadPhase && typeof renderPlanner==='function' && (typeof _planEditId==='undefined'||_planEditId==null)){
+    var _pp=document.getElementById('page-planner'); if(_pp&&_pp.classList.contains('active'))renderPlanner();
+  } }catch(_e){}
   return true;
 }
 if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({source:'loadTaskData'});
