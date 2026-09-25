@@ -46161,20 +46161,53 @@ function gcalQueueTaskEventDeletion(t){
   if(t.id!=null)delete _gcalCfg.eventIds[String(t.id)];
   setReturnStorageItem('gcal_cfg_v1',JSON.stringify(_gcalCfg));
 }
+/* Normalize a time to a valid zero-padded "HH:MM", or null if unparseable.
+   Accepts "9:00", "09:00", "9:0" → "09:00"; rejects "", "환기", "25:00". */
+function _gcalNormTime(x){
+  var m=/^(\d{1,2}):(\d{1,2})$/.exec(String(x==null?'':x).trim());
+  if(!m)return null;
+  var h=Number(m[1]), mi=Number(m[2]);
+  if(!(h>=0&&h<=23&&mi>=0&&mi<=59))return null;
+  return (h<10?'0':'')+h+':'+(mi<10?'0':'')+mi;
+}
+/* Format a Date as local wall-clock "YYYY-MM-DDTHH:MM:SS" (NO UTC conversion —
+   the value is tagged timeZone:'Asia/Seoul', so it must stay in local components;
+   the old code used toISOString() which shifted −9h and produced end<start →
+   "The specified time range is empty" 400s). */
+function _gcalFmtLocal(d){
+  function p(n){return (n<10?'0':'')+n;}
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes())+':00';
+}
+/* Valid "YYYY-MM-DD"? */
+function _gcalValidDate(s){ return /^\d{4}-\d{2}-\d{2}$/.test(String(s==null?'':s).trim()); }
 function gcalEventFromTask(t, taskKey){
   var title=t.text||'Return';
   var desc=(t.note||'')+(t.deadlineDate?'\n마감: '+t.deadlineDate:'');
   var ev={summary:title,description:desc};
-  if(t.timeStart || (t.deadlineDate&&t.deadlineTime)){
-    var baseDate=(t.timeStart?t.date:(t.deadlineDate||t.date));
-    var start=baseDate+'T'+(t.timeStart||t.deadlineTime)+':00';
-    var end=t.date+'T'+(t.timeEnd||t.timeStart)+':00';
-    if(!t.timeStart && t.deadlineTime)end=baseDate+'T'+t.deadlineTime+':00';
-    if(!t.timeEnd||t.timeEnd===t.timeStart||(!t.timeStart&&t.deadlineTime)){var d=new Date(start);d.setMinutes(d.getMinutes()+30);end=d.toISOString().slice(0,16)+':00';}
-    ev.start={dateTime:start,timeZone:'Asia/Seoul'};ev.end={dateTime:end,timeZone:'Asia/Seoul'};
+  /* Timed only when we have a REAL date + a parseable time. A malformed time or
+     missing date must not be concatenated into a dateTime (→ "Invalid start
+     time" 400s that re-fail on every sync); fall through to an all-day event. */
+  var timedBaseDate=(t.timeStart?t.date:(t.deadlineDate||t.date));
+  var timedStartRaw=(t.timeStart||(t.deadlineDate&&t.deadlineTime?t.deadlineTime:''));
+  var nStart=_gcalNormTime(timedStartRaw);
+  if(nStart && _gcalValidDate(timedBaseDate)){
+    var startDt=new Date(timedBaseDate+'T'+nStart+':00');
+    var endBaseDate=(!t.timeStart&&t.deadlineTime)?timedBaseDate:(_gcalValidDate(t.date)?t.date:timedBaseDate);
+    var nEnd=_gcalNormTime((!t.timeStart&&t.deadlineTime)?t.deadlineTime:(t.timeEnd||t.timeStart));
+    var endDt=(nEnd)?new Date(endBaseDate+'T'+nEnd+':00'):null;
+    /* Ensure a positive duration: no/equal/earlier end → start + 30min (computed
+       in local time, formatted in local components — never via toISOString). */
+    if(!endDt||isNaN(endDt.getTime())||endDt.getTime()<=startDt.getTime()){
+      endDt=new Date(startDt.getTime()+30*60000);
+    }
+    ev.start={dateTime:_gcalFmtLocal(startDt),timeZone:'Asia/Seoul'};
+    ev.end={dateTime:_gcalFmtLocal(endDt),timeZone:'Asia/Seoul'};
   } else {
-    ev.start={date:t.deadlineDate||t.date};
-    var d2=new Date((t.deadlineDate||t.date)+'T00:00');d2.setDate(d2.getDate()+1);ev.end={date:d2.toISOString().slice(0,10)};
+    var allDay=_gcalValidDate(t.deadlineDate)?t.deadlineDate:(_gcalValidDate(t.date)?t.date:null);
+    if(!allDay)return null; /* no usable date at all → caller skips (no bad push) */
+    ev.start={date:allDay};
+    var d2=new Date(allDay+'T00:00');d2.setDate(d2.getDate()+1);
+    ev.end={date:_gcalFmtLocal(d2).slice(0,10)};
   }
   if(_gcalCfg.reminderMin){ev.reminders={useDefault:false,overrides:[{method:'popup',minutes:_gcalCfg.reminderMin}]};}
   ev.extendedProperties={private:{returnTaskKey:String(taskKey||gcalTaskStableKey(t)),returnTaskId:String(t.id||''),returnSyncSource:'return'}};
@@ -46218,7 +46251,10 @@ async function gcalApiCal(method,path,body,calId){
     throw new Error('Google 인증이 만료됐어요 (401). 다시 로그인해주세요.');
   }
   if(res.status===403) throw new Error('Google Calendar 권한이 없어요. Client ID의 승인된 원본 설정을 확인해주세요. (403)');
-  if(!res.ok) throw new Error((data.error&&data.error.message)||data.message||('Google Calendar 오류 '+res.status));
+  if(!res.ok){ var _em=(data.error&&data.error.message)||data.message||'';
+    /* Always embed the numeric status so callers can detect 404/410 (already
+       gone → idempotent success) even when Google's message omits the code. */
+    throw new Error('Google Calendar 오류 '+res.status+(_em?': '+_em:'')); }
   return data;
 }
 var _gcalAutoTimer=null;
@@ -46265,7 +46301,11 @@ async function _gcalSyncInner(opts){
           await gcalDeleteReturnEventsByKey(del.taskKey,del.calId,'');
         }
       }catch(de){
-        if((de&&de.message||'').indexOf('404')<0)remainingDeletes.push(del);
+        /* 404 (not found) AND 410 (Gone) both mean the event is already deleted
+           → drop from the queue. Previously only 404 was treated as done, so a
+           410 was re-attempted on every single sync forever. */
+        var _dm=(de&&de.message||'');
+        if(_dm.indexOf('404')<0 && _dm.indexOf('410')<0)remainingDeletes.push(del);
       }
     }
     _gcalCfg.deletedEvents=remainingDeletes;
@@ -46281,6 +46321,9 @@ async function _gcalSyncInner(opts){
     try{
       var taskKey=gcalTaskStableKey(t);
       var ev=gcalEventFromTask(t,taskKey);
+      /* No usable date/time → don't push a malformed event (which would 400 on
+         every sync). Silently skip; it syncs once it has a real date/time. */
+      if(!ev){ continue; }
       var metaForKey=_gcalCfg.eventMeta[taskKey]||{};
       var id=t.google_event_id||metaForKey.eventId||_gcalCfg.eventIds[String(t.id)];
       var r=null;
