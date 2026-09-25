@@ -21,4 +21,10 @@ t.ok('부팅 settle에서 호출', /_idbMarkSettled[\s\S]*?if\(typeof returnStor
 t.ok('주기 타이머(15분) 설정', /window\._storageReliefTimer=setInterval\(function\(\)\{[\s\S]*?returnStorageProactiveRelief\(\);[\s\S]*?\}, ?15\*60\*1000\);/.test(html));
 t.ok('저장 시 사용률 상승하면 예방 정리', /if\(_uPct>=\(typeof RETURN_STORAGE_SOFT_PCT!=='undefined'\?RETURN_STORAGE_SOFT_PCT:80\) && typeof returnStorageProactiveRelief==='function'\)\{[\s\S]*?returnStorageProactiveRelief\(\);/.test(html));
 
+/* 100% 막힘 = 즉시(바로바로) 정리 트리거 — 15분 타이머를 기다리지 않는다.
+   예전엔 60초 뒤 '막힌 저장'만 재시도해 꽉 찬 채로 머물렀다. */
+t.ok('100% 푸시 차단 시 즉시 auto-relief 호출', /if\(!window\._autoReliefBusy\)\{\s*setTimeout\(function\(\)\{[\s\S]*?returnStorageAutoRelief\(\)[\s\S]*?returnStorageProactiveRelief\(\{force:true\}\)[\s\S]*?if\(_rel&&_rel\.then\)_rel\.then/.test(html));
+t.ok('정리 후 막혔던 업로드 재개(fbSaveAll)', /_rel\.then\(function\(\)\{ try\{ if\(typeof fbSaveAll==='function'\)fbSaveAll\(\); \}catch\(_e\)\{\} \}\)/.test(html));
+t.ok('그래도 부족할 때 대비 60초 폴백 재시도 유지', /window\._fbQuotaFullRetry=setTimeout\(function\(\)\{ window\._fbQuotaFullRetry=null; try\{fbSaveAll\(\);\}catch\(_e\)\{\} \}, ?60000\);/.test(html));
+
 t.done();
