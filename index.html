@@ -41802,7 +41802,7 @@ async function fbSaveNow(opts){
     try {
       if (window.__SYNC_DEBUG) {
         window.__SYNC_DEBUG.log('fb','per-key merge', {
-          push:Object.keys(ourKeysToWrite).length,
+          candidates:Object.keys(ourKeysToWrite).length, /* pre-delta; actual writes logged after the delta filter */
           preservedFromCloud:preservedFromCloud.length,
           absorbedToLocal:absorbedToLocal.length,
           baseline:localApplyBaseline,
@@ -41821,6 +41821,7 @@ async function fbSaveNow(opts){
     /* Delta filter: skip keys whose value is identical to what we last
        confirmed writing. Typical user edit changes 1-3 keys; this turns
        every save from ~54 writes down to just those changed keys. */
+    var _deltaCandidates = Object.keys(ourKeysToWrite).length;
     if (!opts.force && _fbLastPushedSnapshot !== null) {
       var _deltaFiltered = {};
       Object.keys(ourKeysToWrite).forEach(function(k){
@@ -41828,6 +41829,11 @@ async function fbSaveNow(opts){
       });
       ourKeysToWrite = _deltaFiltered;
     }
+    /* Truthful write count: the "per-key merge push:N" line above is the
+       pre-delta CANDIDATE count (all collected keys), not Firestore writes.
+       Log the ACTUAL keys written after the delta filter so a normal save no
+       longer looks like it pushes the whole keyspace. */
+    try{ if(window.__SYNC_DEBUG){ window.__SYNC_DEBUG.log('fb','delta filter', {candidates:_deltaCandidates, writes:Object.keys(ourKeysToWrite).length, keys:Object.keys(ourKeysToWrite).slice(0,12)}); } }catch(_e){}
     /* Early exit: nothing to write and nothing absorbed from cloud. */
     if (Object.keys(ourKeysToWrite).length === 0 && absorbedToLocal.length === 0) {
       try{ if(window.SyncManager)SyncManager.markIdle('delta-no-change'); }catch(_e){}
