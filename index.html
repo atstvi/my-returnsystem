@@ -41459,8 +41459,23 @@ async function fbSaveNow(opts){
     var _uPct=_fbStorageUsedPct();
     if(_uPct>=RETURN_FB_QUOTA_PUSH_BLOCK_PCT){
       clearTimeout(_fbSaveTimer);
-      try{ if(typeof setFbStatus==='function') setFbStatus('이 기기 저장공간이 가득 차 업로드를 멈췄어요('+_uPct+'%) — 공간 정리 후 자동 재개','err'); }catch(_e){}
+      try{ if(typeof setFbStatus==='function') setFbStatus('이 기기 저장공간이 가득 차 업로드를 멈췄어요('+_uPct+'%) — 자동 정리 중…','err'); }catch(_e){}
       try{ if(typeof bannerDebugLog==='function') bannerDebugLog('fb:push-blocked-quota',{usedPct:_uPct}); }catch(_e){}
+      /* Kick an IMMEDIATE cleanup instead of just retrying a still-blocked save
+         in 60s. The same returnStorageCleanupNow the settings "비우기" button
+         runs (proven to work on this device) spills big media/data to IDB and
+         prunes — and re-runs fbSaveAll itself once usedPct drops below 100%.
+         This is what makes storage self-heal "바로바로" instead of waiting for
+         the 15-min timer. force:true bypasses the 10-min proactive throttle. */
+      if(!window._autoReliefBusy){
+        setTimeout(function(){
+          try{
+            var _rel=(typeof returnStorageAutoRelief==='function')?returnStorageAutoRelief():((typeof returnStorageProactiveRelief==='function')?returnStorageProactiveRelief({force:true}):null);
+            if(_rel&&_rel.then)_rel.then(function(){ try{ if(typeof fbSaveAll==='function')fbSaveAll(); }catch(_e){} }).catch(function(){});
+          }catch(_e){}
+        },0);
+      }
+      /* Fallback retry in case cleanup could not free enough this pass. */
       if(!window._fbQuotaFullRetry){ window._fbQuotaFullRetry=setTimeout(function(){ window._fbQuotaFullRetry=null; try{fbSaveAll();}catch(_e){} }, 60000); }
       return false;
     }
