@@ -25405,11 +25405,26 @@ var CARET_SVG_R='<svg class="caret-ico" viewBox="0 0 24 24" aria-hidden="true"><
 var CARET_SVG_D='<svg class="caret-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
 var CARET_SVG_R_OPEN='<svg class="caret-ico open" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
 function visibleTasks(){
+  /* 목표처럼: '그날'에 속한 하위/후손 할일을 가진 (최상위) 상위 할일은, 자기 날짜가
+     달라도 그날 목록에 나타난다(그 아래엔 그날 하위만 보임 — buildTaskEl에서 필터).
+     이렇게 해야 다른 날짜의 하위 할일이 그날에 단독으로 다 뜨지 않으면서도, 각 하위는
+     자기 날짜에서 상위와 함께 보인다. selDate에 있는 각 할일의 조상 체인을 표시해 둔다. */
+  var _ancHasSel={};
+  for(var i=0;i<tasks.length;i++){
+    var _t=tasks[i]; if(!_t||_t._travelOnly||_t.date!==selDate)continue;
+    var _pid=_t.parentId, _guard=0;
+    while(_pid!=null&&_pid!==''&&_guard++<50){
+      _ancHasSel[String(_pid)]=1;
+      var _p=(typeof _taskById==='function')?_taskById(_pid):null; _pid=_p?_p.parentId:null;
+    }
+  }
   return tasks.filter(function(t){
-    if(t.date!==selDate)return false;
     if(t._travelOnly)return false;
     if(!_taskCatMatch(t,activeCat))return false;
-    return true;
+    if(t.date===selDate)return true;
+    /* 자기 날짜가 아니어도, selDate 후손을 가진 최상위 상위면 그날 목록에 표시. */
+    if(t.id!=null && _ancHasSel[String(t.id)] && !(typeof taskIsNested==='function'&&taskIsNested(t)))return true;
+    return false;
     /* NOTE: hideTt (시간표 숨기기) is calendar-only — tasks always show in list */
   });
 }
@@ -26703,11 +26718,19 @@ function buildTaskEl(task){
      안 되지만(편집창 기본 추가는 이제 진짜 하위 할일을 만든다), 모양·동그라미 위치는
      완전히 동일. 하위 할일은 클릭해 열기·완료 토글·드래그로 종속 조절 모두 가능. */
   var _kidRows=(typeof taskDescendantRows==='function')?taskDescendantRows(task.id):[];
-  var _hasSubs=!!(task.subs&&task.subs.length);
+  /* 날짜별 목록(기본 뷰)에서는 상위 아래에 '그날' 하위 할일만 보인다(목표처럼) — 다른
+     날짜 하위는 각자 자기 날짜에서 상위와 함께 보인다. 검색/전체(scope!=='current')
+     뷰에선 전부 보여준다. legacy 체크리스트(subs, 날짜 없음)는 상위 자기 날짜에서만. */
+  var _dayScoped=(typeof taskSearchScope==='undefined'||!taskSearchScope||taskSearchScope==='current');
+  if(_dayScoped && typeof selDate!=='undefined'){
+    _kidRows=_kidRows.filter(function(row){ return row.t && row.t.date===selDate; });
+  }
+  var _showSubs=(!_dayScoped)||(typeof selDate==='undefined')||(task.date===selDate);
+  var _hasSubs=!!(task.subs&&task.subs.length&&_showSubs);
   if(_hasSubs||_kidRows.length){
     var kidWrap=document.createElement('div');kidWrap.className='task-children';
     /* 1) legacy 체크리스트 항목 (같은 모양, 드래그 없음) */
-    (task.subs||[]).forEach(function(sub){
+    (_showSubs?(task.subs||[]):[]).forEach(function(sub){
       var sdone=!!sub.done;
       var sr=document.createElement('div');sr.className='task-child task-child-sub'+(sdone?' done':'');
       var sck=document.createElement('button');sck.type='button';sck.className='task-child-check'+(sdone?' done':'');sck.setAttribute('aria-label','완료 토글');
