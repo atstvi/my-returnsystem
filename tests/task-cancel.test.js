@@ -51,7 +51,7 @@ t.ok('불변식 유지(취소면 done)', !(ct2.canceled === true && ct2.done ===
 // ── 소스 배선 ──
 // 모달 버튼
 t.ok('모달에 계획 취소 버튼', /id="modal-cancelplan-btn"/.test(html));
-t.ok('모달 버튼이 상태에 따라 라벨/동작 토글', /_cxlBtn\.onclick=function\(\)\{ setTaskCanceled\(task, !task\.canceled\); tasksCloseModal\(\); \}/.test(html));
+t.ok('모달 버튼이 상태에 따라 라벨/동작 토글(+스냅샷 비움)', /_cxlBtn\.onclick=function\(\)\{ setTaskCanceled\(task, !task\.canceled\); taskModalSnapshot=null; tasksCloseModal\(\); \}/.test(html));
 // 행 렌더: canceled 클래스 + 배지 + 체크 복원
 t.ok('행에 canceled 클래스', /\(task\.canceled\?' canceled':''\)/.test(html));
 t.ok('취소 행은 done 클래스 대신 canceled', /task\.done&&!task\.canceled\?' done':''/.test(html));
