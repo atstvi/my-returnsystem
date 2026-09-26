@@ -22,4 +22,9 @@ t.ok('집중 프리셋: 삭제 로직 공유 함수(askDelete)', /function askDe
 // 계획창 블록은 원래부터 우클릭+롱프레스 둘 다 (회귀 방지)
 t.ok('계획창 블록: 우클릭 컨텍스트 메뉴 유지', /el\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); _planBlockMenu\(t, e\.clientX, e\.clientY\); \}\);/.test(html));
 
+// 계획창 우클릭 메뉴에 '오늘로 이동' 추가 (어제/오늘/내일)
+t.ok('메뉴에 오늘로 이동 항목', /data-act="today">📅 오늘로 이동<\/button>/.test(html));
+t.ok('오늘로 이동: 오늘 날짜로 이동 + 수동변경 표시 + 저장', /else if\(a==='today'\)\{ var _tk=\(typeof _planToday==='function'\)\?_planToday\(\):dk\(new Date\(\)\);[\s\S]*?markTaskDateManualChange\(t,_tk\); t\.date=_tk; t\.updatedAt=Date\.now\(\); if\(typeof saveTaskData==='function'\)saveTaskData\(\);[\s\S]*?오늘로 옮겼어요/.test(html));
+t.ok('오늘/어제/내일 이동 항목 공존', /data-act="prevday"[\s\S]*?data-act="today"[\s\S]*?data-act="nextday"/.test(html));
+
 t.done();
