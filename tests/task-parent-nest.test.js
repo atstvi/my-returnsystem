@@ -116,4 +116,19 @@ const r = runner('task parent/child nesting — taskSetParent');
   r.ok('children done count 1/2', stat.done===1 && stat.total===2, JSON.stringify(stat));
 }
 
+/* 8. 하위 할일·목표 소속 할일은 홈 '오늘 할일' 목록/아이젠하워에서 개별로 안 보인다
+      (목록·계획창·타임블록과 동일하게 상위/목표 아래에서만 — 부모와 날짜가 달라도
+      그 날짜에 단독으로 안 뜬다). 세 뷰 모두 동일한 제외 규칙을 쓰는지 회귀 확인. */
+{
+  // renderHomeTasks: today 목록을 nested/goal 제외로 필터
+  r.ok('홈 오늘할일: nested/goal 제외 필터',
+    /var today = homeTodayTasks\(\)\.filter\(function\(t\)\{[\s\S]*?taskIsNested\(t\)\) return false;[\s\S]*?t\.goalId && typeof findGoal[\s\S]*?findGoal\(t\.goalId\)\) return false;/.test(html));
+  // 목록 뷰(filteredTaskList)는 이미 nested 제외
+  r.ok('목록 뷰: nested 제외 유지', /if\(taskIsNested\(t\)\)return false;/.test(html));
+  // 홈 타임블록도 nested+goal 제외 유지
+  r.ok('홈 타임블록: nested+goal 제외 유지', /if \(typeof taskIsNested === 'function' && taskIsNested\(t\)\) return;\s*if \(t\.goalId && typeof findGoal === 'function' && findGoal\(t\.goalId\)\) return;/.test(html));
+  // 계획창(_planWindowBlocks)도 nested+goal 제외 유지
+  r.ok('계획창: nested+goal 제외 유지', /if\(typeof taskIsNested==='function' && taskIsNested\(t\)\)return;\s*if\(t\.goalId && typeof findGoal==='function' && findGoal\(t\.goalId\)\)return;/.test(html));
+}
+
 r.done();
