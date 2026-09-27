@@ -42,9 +42,18 @@ t.ok('다른날(D2): 다른날짜 하위 C1은 안 보임', d2.indexOf(2)<0, d2)
 var d0=mk(list, '2026-11-01');
 t.ok('후손 없는 날: 목록 비어 있음', d0.length===0, d0);
 
-// ── 소스 배선: buildTaskEl이 그날 하위만 + subs는 상위 날짜에서만 ──
-t.ok('buildTaskEl: 기본(current) 뷰에서 그날 하위만', /var _dayScoped=\(typeof taskSearchScope==='undefined'\|\|!taskSearchScope\|\|taskSearchScope==='current'\);\s*if\(_dayScoped && typeof selDate!=='undefined'\)\{\s*_kidRows=_kidRows\.filter\(function\(row\)\{ return row\.t && row\.t\.date===selDate; \}\);/.test(html));
-t.ok('buildTaskEl: legacy subs는 상위 자기 날짜에서만', /var _showSubs=\(!_dayScoped\)\|\|\(typeof selDate==='undefined'\)\|\|\(task\.date===selDate\);/.test(html));
+// ── 소스 배선: buildTaskEl이 그날 하위만 + subs는 상위 날짜에서만 + 그날 완료 ──
+t.ok('buildTaskEl: 기본(current) 뷰에서 그날 하위만', /var _dayScoped=\(typeof taskSearchScope==='undefined'\|\|!taskSearchScope\|\|taskSearchScope==='current'\)&&\(typeof selDate!=='undefined'\);[\s\S]*?if\(_dayScoped\)\{ _kidRows=_kidRows\.filter\(function\(row\)\{ return row\.t && row\.t\.date===selDate; \}\); \}/.test(html));
+t.ok('buildTaskEl: legacy subs는 상위 자기 날짜에서만', /var _showSubs=\(!_dayScoped\)\|\|\(task\.date===selDate\);/.test(html));
 t.ok('visibleTasks: 그날 후손 가진 최상위 상위 포함', /if\(t\.id!=null && _ancHasSel\[String\(t\.id\)\] && !\(typeof taskIsNested==='function'&&taskIsNested\(t\)\)\)return true;/.test(html));
+
+// ── 기능2: 그날 하위 할당량 완료 → 상위도 '그날 완료'로 표시(전역 done은 그대로) ──
+t.ok('상위 그날 완료 판정(_dayQuotaDone)', /var _dayQuotaDone=_dayScoped && _kidRows\.length>0 && _kidRows\.every\(function\(row\)\{ return \(typeof taskEffectiveDone==='function'\)\?taskEffectiveDone\(row\.t\):!!\(row\.t&&row\.t\.done\); \}\);/.test(html));
+t.ok('상위 표시 done = 전역 done 또는 그날 할당량 완료', /var _shownDone=\(!!task\.done\|\|_dayQuotaDone\)&&!task\.canceled;/.test(html));
+t.ok('행/체크에 _shownDone 반영', /el\.className='task-item pri-'\+\(task\.priority\|\|'none'\)\+\(_shownDone\?' done':''\)/.test(html) && /ck\.className='task-check'\+\(_shownDone\?' done':''\)/.test(html));
+
+// ── 기능1: 편집창 하위 할일을 달력으로 끌어 날짜 지정(dragSrcId 세팅) ──
+t.ok('하위 행 draggable + data-kid-drag', /class="msub-row msub-kid'\+\(kd\?' done':''\)\+'" draggable="true" data-kid-drag="'\+_e\(k\.id\)\+'"/.test(html));
+t.ok('하위 dragstart가 dragSrcId 세팅(캘린더 드롭 경로)', /row\.addEventListener\('dragstart',function\(e\)\{[\s\S]*?if\(typeof dragSrcId!=='undefined'\)dragSrcId=kid\?kid\.id:null;/.test(html));
 
 t.done();

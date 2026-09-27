@@ -26655,8 +26655,18 @@ function openAddForCategory(catId){
 
 /* ── BUILD TASK ELEMENT ── */
 function buildTaskEl(task){
+  /* 날짜별 목록(기본 뷰)에서 '그날' 하위 할일을 미리 계산해 두 곳에 쓴다:
+     (1) 상위 아래엔 그날 하위만 렌더(다른 날짜 하위는 각자 자기 날짜에서 상위와 함께),
+     (2) 그날 하위 할당량을 다 끝내면 상위도 '그날은 완료'로 보이게(전역 done은 그대로).
+     검색/전체(scope!=='current') 뷰에선 날짜 스코프가 없어 하위 전부·전역 done만. */
+  var _dayScoped=(typeof taskSearchScope==='undefined'||!taskSearchScope||taskSearchScope==='current')&&(typeof selDate!=='undefined');
+  var _kidRows=(typeof taskDescendantRows==='function')?taskDescendantRows(task.id):[];
+  if(_dayScoped){ _kidRows=_kidRows.filter(function(row){ return row.t && row.t.date===selDate; }); }
+  var _dayQuotaDone=_dayScoped && _kidRows.length>0 && _kidRows.every(function(row){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(row.t):!!(row.t&&row.t.done); });
+  var _shownDone=(!!task.done||_dayQuotaDone)&&!task.canceled;
+  var _showSubs=(!_dayScoped)||(task.date===selDate);
   var el=document.createElement('div');
-  el.className='task-item pri-'+(task.priority||'none')+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'')+(selIds.has(task.id)?' selected-item':'');
+  el.className='task-item pri-'+(task.priority||'none')+(_shownDone?' done':'')+(task.canceled?' canceled':'')+(selIds.has(task.id)?' selected-item':'');
   el.setAttribute('data-id',task.id);
   el.setAttribute('draggable','true');
 
@@ -26675,8 +26685,8 @@ function buildTaskEl(task){
   /* Check */
   var ckWrap=document.createElement('div');ckWrap.className='task-check-wrap';
   var ck=document.createElement('button');
-  ck.className='task-check'+(task.done&&!task.canceled?' done':'')+(task.canceled?' canceled':'');
-  ck.setAttribute('aria-label',task.canceled?'계획 취소됨 — 되돌리기':(task.done?'완료됨':'완료 표시'));
+  ck.className='task-check'+(_shownDone?' done':'')+(task.canceled?' canceled':'');
+  ck.setAttribute('aria-label',task.canceled?'계획 취소됨 — 되돌리기':(_shownDone?'완료됨':'완료 표시'));
   /* 취소된 할일의 동그라미는 '되돌리기'(계획 복귀). 아니면 완료 토글. */
   ck.addEventListener('click',function(e){e.stopPropagation();if(task.canceled){setTaskCanceled(task,false);return;}toggleDone(task,el,ck);});
   ckWrap.appendChild(ck);
@@ -26717,15 +26727,7 @@ function buildTaskEl(task){
      한 컨테이너에 같은 모양으로 렌더한다. 체크리스트 항목은 진짜 할일이 아니라 드래그가
      안 되지만(편집창 기본 추가는 이제 진짜 하위 할일을 만든다), 모양·동그라미 위치는
      완전히 동일. 하위 할일은 클릭해 열기·완료 토글·드래그로 종속 조절 모두 가능. */
-  var _kidRows=(typeof taskDescendantRows==='function')?taskDescendantRows(task.id):[];
-  /* 날짜별 목록(기본 뷰)에서는 상위 아래에 '그날' 하위 할일만 보인다(목표처럼) — 다른
-     날짜 하위는 각자 자기 날짜에서 상위와 함께 보인다. 검색/전체(scope!=='current')
-     뷰에선 전부 보여준다. legacy 체크리스트(subs, 날짜 없음)는 상위 자기 날짜에서만. */
-  var _dayScoped=(typeof taskSearchScope==='undefined'||!taskSearchScope||taskSearchScope==='current');
-  if(_dayScoped && typeof selDate!=='undefined'){
-    _kidRows=_kidRows.filter(function(row){ return row.t && row.t.date===selDate; });
-  }
-  var _showSubs=(!_dayScoped)||(typeof selDate==='undefined')||(task.date===selDate);
+  /* _kidRows(그날 하위)·_showSubs는 함수 상단에서 계산됨(상위 '그날 완료' 표시와 공유). */
   var _hasSubs=!!(task.subs&&task.subs.length&&_showSubs);
   if(_hasSubs||_kidRows.length){
     var kidWrap=document.createElement('div');kidWrap.className='task-children';
@@ -27585,7 +27587,7 @@ function renderTaskModalSubs(obj, commit){
       +'<button type="button" class="msub-del" data-sub-del="'+i+'" aria-label="삭제">×</button></div>';
   }).join('');
   html+=kids.map(function(k){var kd=taskEffectiveDone(k);var c=(typeof getCat==='function')?getCat(k.catId):null;
-    return '<div class="msub-row msub-kid'+(kd?' done':'')+'"><button type="button" class="msub-check'+(kd?' done':'')+'" data-kid-toggle="'+_e(k.id)+'" aria-label="완료 토글"></button>'
+    return '<div class="msub-row msub-kid'+(kd?' done':'')+'" draggable="true" data-kid-drag="'+_e(k.id)+'" title="달력 날짜로 끌어 날짜 지정"><button type="button" class="msub-check'+(kd?' done':'')+'" data-kid-toggle="'+_e(k.id)+'" aria-label="완료 토글"></button>'
       +'<span class="msub-kidtext" data-kid-open="'+_e(k.id)+'" title="이 할일 열기">'+(c&&c.emoji?_e(c.emoji)+' ':'')+_e(k.text)+'</span>'
       +'<button type="button" class="msub-del" data-kid-unlink="'+_e(k.id)+'" title="하위에서 빼기" aria-label="하위에서 빼기">×</button></div>';
   }).join('');
@@ -27596,6 +27598,18 @@ function renderTaskModalSubs(obj, commit){
       +(parent?'':'<button type="button" class="msub-link" id="msub-parent-set">↰ 상위 할일 지정</button>')+'</div>';
   }
   host.innerHTML=html;
+
+  /* 하위 '할일'을 달력 날짜 셀로 끌어 날짜를 지정한다 — 캘린더 셀 드롭 핸들러가 읽는
+     전역 dragSrcId를 세팅한다(setupCalDragDrop와 동일 경로). 편집창이 열린 채로
+     보이는 캘린더의 날짜에 떨어뜨리면 그 하위 할일의 date가 바뀐다. */
+  host.querySelectorAll('[data-kid-drag]').forEach(function(row){
+    row.addEventListener('dragstart',function(e){
+      var id=row.getAttribute('data-kid-drag');
+      var kid=(typeof tasks!=='undefined'&&Array.isArray(tasks))?tasks.find(function(x){return String(x.id)===String(id);}):null;
+      if(typeof dragSrcId!=='undefined')dragSrcId=kid?kid.id:null;
+      try{ e.dataTransfer.setData('text/plain',String(id)); e.dataTransfer.effectAllowed='move'; }catch(_e){}
+    });
+  });
 
   /* 체크리스트 항목 */
   host.querySelectorAll('[data-sub-toggle]').forEach(function(b){b.addEventListener('click',function(){ var i=+b.getAttribute('data-sub-toggle'); if(subs[i]){subs[i].done=!subs[i].done; obj.updatedAt=Date.now(); if(typeof _syncTaskDoneFromSubs==='function')_syncTaskDoneFromSubs(obj); var mc=document.getElementById('modalCheck'); if(mc)mc.className='modal-check'+(obj.done?' done':''); commit(); re();} });});

@@ -54,7 +54,7 @@ t.ok('모달에 계획 취소 버튼', /id="modal-cancelplan-btn"/.test(html));
 t.ok('모달 버튼이 상태에 따라 라벨/동작 토글(+스냅샷 비움)', /_cxlBtn\.onclick=function\(\)\{ setTaskCanceled\(task, !task\.canceled\); taskModalSnapshot=null; tasksCloseModal\(\); \}/.test(html));
 // 행 렌더: canceled 클래스 + 배지 + 체크 복원
 t.ok('행에 canceled 클래스', /\(task\.canceled\?' canceled':''\)/.test(html));
-t.ok('취소 행은 done 클래스 대신 canceled', /task\.done&&!task\.canceled\?' done':''/.test(html));
+t.ok('취소 행은 done 클래스 대신 canceled(_shownDone이 canceled 제외)', /var _shownDone=\(!!task\.done\|\|_dayQuotaDone\)&&!task\.canceled;/.test(html) && /el\.className='task-item pri-'\+\(task\.priority\|\|'none'\)\+\(_shownDone\?' done':''\)\+\(task\.canceled\?' canceled':''\)/.test(html));
 t.ok('🚫 취소됨 배지', /if\(task\.canceled\)mkBadge\('b-canceled','🚫 취소됨'\);/.test(html));
 t.ok('취소된 할일 체크 클릭은 되돌리기', /if\(task\.canceled\)\{setTaskCanceled\(task,false\);return;\}toggleDone/.test(html));
 // 복제는 취소 상태 안 물려줌
