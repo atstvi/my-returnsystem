@@ -18502,8 +18502,13 @@ function renderPlanner(){
   var alldayEl=document.getElementById('plan-allday');
   if(alldayEl){
     alldayEl.innerHTML='';
-    var _adSched=dayTasks.filter(function(t){return !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && (t.catId==='schedule'||t._isTt||t.allDay);});
-    var _adUntimed=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && !(t.catId==='schedule'||t._isTt||t.allDay);});
+    /* '준비 할일'(연결 준비 — sourceTaskId/_ruleSourceId가 실제 목표를 가리킴)은 고정
+       일정이 아니라 '내가 하는 할일'이다. 목표 카테고리(예: schedule)를 물려받아도 종일
+       줄에서 고정 일정 칩(클릭 전용)이 아니라, 다른 할일처럼 끌어서 시간 배치할 수 있는
+       untimed 칩으로 취급한다("준비할일이 드래그가 안 되고 다르게 취급되던" 문제). */
+    var _isSchedLike=function(t){ return (t.catId==='schedule'||t._isTt||t.allDay) && !(typeof _taskIsLinkPrep==='function'&&_taskIsLinkPrep(t)); };
+    var _adSched=dayTasks.filter(function(t){return !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && _isSchedLike(t);});
+    var _adUntimed=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && !_isSchedLike(t);});
     _adSched.forEach(function(t){ var c=document.createElement('button'); c.className='plan-allday-chip'; c.type='button'; c.textContent=t.text||'일정'; c.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); }); alldayEl.appendChild(c); });
     _adUntimed.forEach(function(t){ var c=document.createElement('div'); c.className='plan-allday-chip untimed'; c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent='○ '+(t.text||'할일'); c.appendChild(sp);
       /* 종일 할일: 탭=할일 편집창, 우클릭=현재 조작창(빠른 처리), 드래그=시간 배치.
@@ -25695,7 +25700,7 @@ function renderCal(){
     /* 목표에 담긴 하위 할일은 달력에서 개별로 안 보이고 목표로 묶인다. */
     var dayItems=_calCollapseGoals(dayTasks);
     var dayHobby=(showHobby&&!dlOnly&&typeof _hobbyItemsForDate==='function')?_hobbyItemsForDate(dkey):[];
-    var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done) && !(t.goalId&&typeof findGoal==='function'&&findGoal(t.goalId)) && !(dlOnly&&_taskIsLinkPrep(t));});
+    var dlTasks=(dlDay[dkey]||[]).filter(function(t){return !(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):t.done) && !(t.goalId&&typeof findGoal==='function'&&findGoal(t.goalId)) && !(typeof taskIsNested==='function'&&taskIsNested(t)) && !(dlOnly&&_taskIsLinkPrep(t));});
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='today';}))cell.classList.add('has-dl-today');
     if(dlTasks.some(function(t){return dlState(t.deadlineDate)==='overdue';}))cell.classList.add('has-dl-overdue');
     if(dlTasks.some(function(t){return t.isSpecial;}))cell.classList.add('has-special');
@@ -25897,6 +25902,10 @@ function renderDlCanvas(){
   tasks.forEach(function(task){
     if((!task.deadlineId&&!task.deadlineDate)||!task.date)return;
     if(task.done)return;
+    /* 하위 할일(부모가 있는 것)은 달력에서 상위 아래로 접혀 보이고 개별 pill/칩도 안
+       그리므로, 자기 마감 화살표(연결)도 그리지 않는다 — 상위 할일의 연결만 남긴다.
+       (하위항목이 '연결 필요 대상'처럼 잘못 인식돼 화살표가 중복되던 문제.) */
+    if(typeof taskIsNested==='function'&&taskIsNested(task))return;
     var target=task.deadlineId
       ?tasks.find(function(t){return String(t.id)===String(task.deadlineId);})
       :task;
@@ -28001,6 +28010,14 @@ function _writeTaskFromModal(task,fields){
   task.note=fields.note;
   task.priority=fields.priority;
   if(typeof _modalPrioTouched!=='undefined'&&_modalPrioTouched)task._prioExplicit=true; /* 우선순위를 직접 건드렸으면 목표 기본값을 안 따름 */
+  /* '마감일 할일'(요일 규칙·대상이 날짜인 할일 등 date===deadlineDate로 묶인 항목):
+     편집창에는 날짜·마감일 입력칸이 따로 있어, 날짜만 바꾸면 마감일 칸엔 옛 날짜가
+     남아 마감일이 되돌아 쓰여진다 → 달력의 '마감' 칩이 안 옮겨진다. 편집 전 둘이
+     같았고(=커플링) 마감일을 따로 손대지 않은 채 날짜만 옮겼다면 마감일도 함께 옮긴다. */
+  var _oldTaskDate=task.date;
+  if(fields.deadlineDate && _oldTaskDate && fields.deadlineDate===_oldTaskDate && fields.date && fields.date!==_oldTaskDate){
+    fields=Object.assign({},fields,{deadlineDate:fields.date});
+  }
   markTaskDateManualChange(task,fields.date);
   task.date=fields.date;
   task.deadlineDate=fields.deadlineDate;
