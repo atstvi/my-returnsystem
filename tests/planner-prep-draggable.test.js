@@ -17,10 +17,10 @@ const t = runner('계획창: 준비 할일 드래그 가능(종일 줄)');
 // ── 소스 배선 ──
 t.ok('_isSchedLike가 준비 할일 제외',
   /var _isSchedLike=function\(t\)\{ return \(t\.catId==='schedule'\|\|t\._isTt\|\|t\.allDay\) && !\(typeof _taskIsLinkPrep==='function'&&_taskIsLinkPrep\(t\)\); \};/.test(html));
-t.ok('_adSched가 _isSchedLike 사용',
-  /var _adSched=dayTasks\.filter\(function\(t\)\{return !\(\/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(t\.timeStart\|\|''\)\)\) && _isSchedLike\(t\);\}\);/.test(html));
-t.ok('_adUntimed가 _isSchedLike로 제외',
-  /var _adUntimed=dayTasks\.filter\(function\(t\)\{return t&&!t\.done&&!t\._travelOnly && !\(\/\^\\d\{1,2\}:\\d\{2\}\$\/\.test\(String\(t\.timeStart\|\|''\)\)\) && !_isSchedLike\(t\);\}\);/.test(html));
+t.ok('_adSched가 _isSchedLike 사용(+nested 제외)',
+  /var _adSched=dayTasks\.filter\(function\(t\)\{return _untimed\(t\) && _isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
+t.ok('종일 untimed 집합이 _isSchedLike로 고정 일정 제외',
+  /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\.done&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
 
 // ── 런타임: _taskIsLinkPrep로 준비/일반/일정 구분 ──
 const block = sliceBlock(html, 'function _taskIsLinkPrep(t){', 'function dlOnlyFilter(list){');

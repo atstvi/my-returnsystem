@@ -1396,6 +1396,8 @@ button.sit-arc-item { cursor:pointer; }
 .plan-allday-chip.untimed{cursor:grab;touch-action:none;background:var(--bg-card);color:var(--fg-3);border-style:dashed}
 .plan-allday-chip.untimed:active{cursor:grabbing}
 .plan-allday-chip.untimed .pti-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px}
+.plan-allday-chip.done{opacity:.55;text-decoration:line-through}
+.plan-allday-chip.done .pti-t{text-decoration:line-through}
 .plan-grid-wrap{position:relative;flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;display:flex;padding-top:var(--sp-4);-webkit-overflow-scrolling:touch}
 .plan-axis{width:56px;flex-shrink:0;position:relative}
 .plan-tick{position:absolute;right:10px;font-size:var(--text-2xs);color:var(--fg-4);font-weight:var(--fw-semibold);font-variant-numeric:tabular-nums;transform:translateY(-50%);white-space:nowrap}
@@ -4024,6 +4026,7 @@ html.pjb-fs-lock{overflow:hidden}
 .hobby-item-note{font-size:var(--text-xs);color:var(--fg-3);margin-top:2px}
 .cal-event-pill.cpill--hobby{background:color-mix(in srgb,var(--hobc,#B0863F) 16%,var(--bg-card));color:color-mix(in srgb,var(--hobc,#B0863F) 82%,var(--fg));border:1px dashed color-mix(in srgb,var(--hobc,#B0863F) 55%,var(--border));font-weight:var(--fw-semibold)}
 .cal-event-pill.cpill--hobby.done{opacity:.5;text-decoration:line-through}
+.cal-event-pill.done{opacity:.5;text-decoration:line-through}
 .cal-day-dot.hobby{width:5px;height:5px;border-radius:2px}
 
 /* ── TASK ITEM ── */
@@ -18507,10 +18510,24 @@ function renderPlanner(){
        줄에서 고정 일정 칩(클릭 전용)이 아니라, 다른 할일처럼 끌어서 시간 배치할 수 있는
        untimed 칩으로 취급한다("준비할일이 드래그가 안 되고 다르게 취급되던" 문제). */
     var _isSchedLike=function(t){ return (t.catId==='schedule'||t._isTt||t.allDay) && !(typeof _taskIsLinkPrep==='function'&&_taskIsLinkPrep(t)); };
-    var _adSched=dayTasks.filter(function(t){return !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && _isSchedLike(t);});
-    var _adUntimed=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))) && !_isSchedLike(t);});
+    var _untimed=function(t){ return !(/^\d{1,2}:\d{2}$/.test(String(t.timeStart||''))); };
+    var _nested=function(t){ return (typeof taskIsNested==='function'&&taskIsNested(t)); };
+    var _adSched=dayTasks.filter(function(t){return _untimed(t) && _isSchedLike(t) && !_nested(t);});
+    /* 하위 할일(parentId)은 종일 줄에서 개별로 안 보이고 상위 할일 하나로 묶인다(목록과
+       동일). 대신 그날 하위를 가진 (최상위) 상위 할일은 자기 날짜가 달라도 그날 종일
+       줄에 나타난다 — '그날로 지정된 하위할일'을 대표한다. 그날 하위를 다 끝냈으면 그
+       상위 칩을 '그날 완료'로 표시한다(목록의 _dayQuotaDone과 통일). */
+    var _adBase=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && _untimed(t) && !_isSchedLike(t) && !_nested(t);});
+    var _adSeen={}; _adBase.forEach(function(t){_adSeen[String(t.id)]=1;});
+    var _adParents=(typeof tasks!=='undefined'?tasks:[]).filter(function(p){
+      if(!p||p._travelOnly||p.done||_adSeen[String(p.id)])return false;
+      if(!_untimed(p)||_isSchedLike(p)||_nested(p))return false;
+      var kids=(typeof taskChildren==='function')?taskChildren(p.id):[];
+      return kids.some(function(k){return k&&k.date===_planDate;});
+    });
+    var _adUntimed=_adBase.concat(_adParents);
     _adSched.forEach(function(t){ var c=document.createElement('button'); c.className='plan-allday-chip'; c.type='button'; c.textContent=t.text||'일정'; c.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); }); alldayEl.appendChild(c); });
-    _adUntimed.forEach(function(t){ var c=document.createElement('div'); c.className='plan-allday-chip untimed'; c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent='○ '+(t.text||'할일'); c.appendChild(sp);
+    _adUntimed.forEach(function(t){ var c=document.createElement('div'); var _dqDone=(typeof taskDayQuotaDone==='function'&&taskDayQuotaDone(t,_planDate))||(typeof taskEffectiveDone==='function'&&taskEffectiveDone(t)); c.className='plan-allday-chip untimed'+(_dqDone?' done':''); c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent=(_dqDone?'✓ ':'○ ')+(t.text||'할일'); c.appendChild(sp);
       /* 종일 할일: 탭=할일 편집창, 우클릭=현재 조작창(빠른 처리), 드래그=시간 배치.
          드래그가 주 동작이라 롱프레스는 걸지 않는다(드래그 배치가 안 잡히던 문제 해결). */
       if(typeof _planBindTrayDrag==='function')_planBindTrayDrag(c,{
@@ -24996,9 +25013,24 @@ function syncDeadlineCompletions(){
 function taskEffectiveDone(task){
   if(!task)return false;
   if(task.done)return true;
-  if(!task.deadlineDate||typeof tasks==='undefined')return false;
+  if(typeof tasks==='undefined')return false;
+  /* 하위 할일(parentId)이 있으면, 모두 완료 시 상위도 완료로 본다 — 목록의 '그날 완료'
+     판정(_kidRows.every(taskEffectiveDone))과 통일해 달력·계획창에서도 상위가 완료로
+     보이게 한다(순환은 taskSetParent가 막으므로 재귀 안전). */
+  var kids=(typeof taskChildren==='function')?taskChildren(task.id):[];
+  if(kids.length)return kids.every(function(t){return taskEffectiveDone(t);});
+  if(!task.deadlineDate)return false;
   var prep=tasks.filter(function(t){return t && String(t.deadlineId||'')===String(task.id) && t.id!==task.id && !t._travelOnly;});
   return !!prep.length && prep.every(function(t){return !!t.done;});
+}
+/* 특정 날짜 기준 '그날 완료' — 상위 할일이 그날 하위 할일을 모두 끝냈는지(목록의
+   _dayQuotaDone과 동일: 그날 하위가 하나라도 있고 전부 완료). 달력·계획창에서 그날
+   상위 표시에 쓴다. 그날 하위가 없으면 false(전역 완료는 taskEffectiveDone로 판정). */
+function taskDayQuotaDone(task,dateKey){
+  if(!task||!dateKey||typeof tasks==='undefined')return false;
+  var kids=(typeof taskChildren==='function')?taskChildren(task.id):[];
+  var dayKids=kids.filter(function(t){return t&&t.date===dateKey;});
+  return dayKids.length>0 && dayKids.every(function(t){return taskEffectiveDone(t);});
 }
 function saveTaskData(){
   if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'saveTaskData'});
@@ -25736,7 +25768,10 @@ function renderCal(){
         var t=it.task;
         var cat=getCat(t.catId);
         var pill=document.createElement('div');
-        pill.className='cal-event-pill '+((t.catId==='schedule'||t._isTt)?'cpill--schedule':'cpill--task');
+        /* 상위 할일이 (전역) 완료되었거나 '그날 하위 분량'을 다 끝냈으면 달력에서도 완료로
+           보이게 한다(목록의 '그날 완료' 표시와 통일). */
+        var _pillDone=(typeof taskEffectiveDone==='function'?taskEffectiveDone(t):!!t.done)||(typeof taskDayQuotaDone==='function'&&taskDayQuotaDone(t,dkey));
+        pill.className='cal-event-pill '+((t.catId==='schedule'||t._isTt)?'cpill--schedule':'cpill--task')+(_pillDone?' done':'');
         pill.setAttribute('data-task-id', t.id);
         pill.setAttribute('data-role','task'); /* source anchor for arrow */
         if(t.deadlineDate||t.deadlineId){
@@ -26344,6 +26379,13 @@ function renderDueDateSection(container){
   var due=(tasks||[]).filter(function(t){
     if(!t||t.done||t._travelOnly)return false;
     if(!_taskCatMatch(t,activeCat))return false;
+    /* '준비 할일'(연결 준비)은 대상(마감 할일)의 마감일을 물려받을 뿐, 그날이 자기
+       마감이 아니다. 마감일 섹션에 넣으면 준비 할일이 '마감'인 척 떠서 실제 마감 할일과
+       중복돼 보인다 → 준비 할일은 제외하고, 마감일 섹션엔 실제 마감 대상만 남긴다.
+       (준비 할일은 자기 카테고리·자기 날짜에서 그대로 보인다.) */
+    if(typeof _taskIsLinkPrep==='function'&&_taskIsLinkPrep(t))return false;
+    /* 하위 할일도 상위 아래로 묶여 보이므로 마감일 섹션에 개별로 넣지 않는다. */
+    if(typeof taskIsNested==='function'&&taskIsNested(t))return false;
     return t.deadlineDate===selDate&&t.date!==selDate;
   });
   if(!due.length)return;
