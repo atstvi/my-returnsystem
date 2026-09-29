@@ -32,7 +32,7 @@ const t = runner('반복 시작일');
   const i = html.indexOf('function syncTaskRepeatItem(');
   const seg = i >= 0 ? html.slice(i, i + 2400) : '';
   t.ok('신규 규칙 생성 시 rep.startDate 사용',
-    /if\(!item\)\{item=\{id:id,startDate:rep\.startDate\|\|task\.date\|\|TK\};/.test(seg));
+    /if\(!item\)\{item=\{id:id,startDate:rep\.startDate\|\|task\.date\|\|TK(,createdAt:Date\.now\(\))?\};/.test(seg));
   t.ok('기존 규칙에도 rep.startDate 우선',
     /item\.startDate=rep\.startDate\|\|item\.startDate\|\|task\.date\|\|TK;/.test(seg));
   t.ok('시작일이 미래면 그 시점부터 생성 스캔',
