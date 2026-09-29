@@ -16070,7 +16070,7 @@ function openHomeRepeatModal(){
     var freq=data.freq||'daily';
     var rng=(Array.isArray(data.dateRanges)?data.dateRanges:[]).filter(function(x){return x&&x.start&&x.end;});
     var repeats=loadRepeatItems();
-    var entry={id:returnNewId('ri_'),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:rng.length?rng[0].start:TK,endDate:rng.length?rng[0].end:''};
+    var entry={id:returnNewId('ri_'),text:text,catId:data.catId||'etc',priority:data.priority||'',freq:freq,weekdays:data.weekdays||'',monthDay:parseInt(data.monthDay,10)||new Date().getDate(),startDate:rng.length?rng[0].start:TK,endDate:rng.length?rng[0].end:'',createdAt:Date.now(),updatedAt:Date.now()};
     repeats.push(entry); saveRepeatItems(repeats);
     generateRepeatTasks(entry, TK, 21);
     renderHomeTasks(); renderHomeOpsPanel(); renderHomeSituation();
@@ -16643,6 +16643,7 @@ function editHomeRepeat(id){
     var rng=(Array.isArray(data.dateRanges)?data.dateRanges:[]).filter(function(x){return x&&x.start&&x.end;});
     if(rng.length){r.startDate=rng[0].start;r.endDate=rng[0].end;}else{r.endDate='';}
     r.skipLink=data.skipLink==='on';
+    r.updatedAt=Date.now(); /* 규칙 편집 시각 — 크로스기기 union-merge LWW 기준(요일 등 편집이 스테일 클라우드에 안 덮이게) */
     if (typeof tasks !== 'undefined') {
       tasks.forEach(function(t){ if (t._repeatId === id) { t.text = r.text; t.catId = r.catId; t.priority = r.priority; } });
       if (typeof saveTaskData === 'function') saveTaskData();
@@ -27488,7 +27489,7 @@ function syncTaskRepeatItem(task){
   var id=task._repeatId||('ri_task_'+task.id);
   task._repeatId=id;
   var item=repeats.find(function(x){return x.id===id;});
-  if(!item){item={id:id,startDate:rep.startDate||task.date||TK};repeats.push(item);}
+  if(!item){item={id:id,startDate:rep.startDate||task.date||TK,createdAt:Date.now()};repeats.push(item);}
   item.text=task.text||'반복 할일';
   item.catId=task.catId||'etc';
   item.priority=task.priority||'';
@@ -27515,6 +27516,7 @@ function syncTaskRepeatItem(task){
   item.travelMin=parseInt(task.travelMin,10)||0;
   item.prepItems=Array.isArray(task.prepItems)?task.prepItems:[];
   item.note=task.note||'반복 할일';
+  item.updatedAt=Date.now(); /* 크로스기기 union-merge LWW 기준 */
   saveRepeatItems(repeats);
   /* 시작일이 할일 날짜보다 미래면 그 시점부터 스캔해 즉시 생성되게 한다(먼 미래 시작일 대응). */
   var _genFrom=(item.startDate && item.startDate>(task.date||TK)) ? item.startDate : (task.date||TK);
@@ -40944,6 +40946,38 @@ function fbApplyData(data){
             }
           }catch(_te){}
         }
+        /* repeat_items_v1: 반복 규칙(격주 요일 등)도 union-merge. 스테일 클라우드
+           블롭이 로컬의 최근 규칙 편집(요일·주기·기간)을 통째로 덮어 '격주 요일이
+           풀리거나 생성이 안 되던' 문제를 막는다. id 기준 per-item LWW(updatedAt:
+           로컬이 더 최신이면 유지) + 이 세션에서 새로 만든 로컬 전용 규칙 보존. */
+        if(k==='repeat_items_v1'){
+          try{
+            var _rpCloudA=JSON.parse(data.keys[k]||'[]')||[];
+            var _rpLocalA=JSON.parse(localStorage.getItem(k)||'[]')||[];
+            if(Array.isArray(_rpCloudA)&&Array.isArray(_rpLocalA)){
+              var _rpCloudIdsA={}; _rpCloudA.forEach(function(t){if(t&&t.id!=null)_rpCloudIdsA[String(t.id)]=true;});
+              var _rpLocalByIdA={}; _rpLocalA.forEach(function(t){if(t&&t.id!=null)_rpLocalByIdA[String(t.id)]=t;});
+              var _rpChangedA=false;
+              var _rpLwwA=_rpCloudA.map(function(ct){
+                if(!ct||ct.id==null)return ct;
+                var lt=_rpLocalByIdA[String(ct.id)];
+                if(!lt)return ct;
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)){_rpChangedA=true;return lt;}
+                return ct;
+              });
+              var _rpLocalOnlyA=_rpLocalA.filter(function(t){
+                if(!t||t.id==null||_rpCloudIdsA[String(t.id)])return false;
+                return Number(t.createdAt||t.updatedAt||0)>_returnSessionLoadMs; /* 이 세션에서 만든 규칙만 보존(삭제 되살림 방지) */
+              });
+              if(_rpChangedA||_rpLocalOnlyA.length){
+                _fbWriter(k,JSON.stringify(_rpLwwA.concat(_rpLocalOnlyA)));
+                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+                taskUnionMergeAfterFbApply=true;
+                return;
+              }
+            }
+          }catch(_rpe){}
+        }
         /* routine_habits_v1 / routine_bundles_v1: simple overwrite from cloud,
            but the cloud blob may still hold duplicate ids from earlier broken
            sync rounds. Dedup before writing so localStorage stays clean, and
@@ -41841,6 +41875,33 @@ async function fbSaveNow(opts){
               }
             }
           }catch(_ae){}
+        }
+        if(k==='repeat_items_v1'){
+          /* 반복 규칙도 union-merge — 스테일 클라우드가 로컬 규칙 편집(격주 요일 등)을
+             덮지 않게. id 기준 per-item LWW(updatedAt) + 최근 만든 로컬 전용 규칙 보존. */
+          try{
+            var _rpCloudB=JSON.parse(cloud.fullValue||'[]')||[];
+            var _rpOursB=JSON.parse(ours||'[]')||[];
+            if(Array.isArray(_rpCloudB)&&Array.isArray(_rpOursB)&&localApplyBaseline>0){
+              var _rpCloudIdsB={}; _rpCloudB.forEach(function(t){if(t&&t.id!=null)_rpCloudIdsB[String(t.id)]=true;});
+              var _rpLocalByIdB={}; _rpOursB.forEach(function(t){if(t&&t.id!=null)_rpLocalByIdB[String(t.id)]=t;});
+              var _rpChangedB=false;
+              var _rpLwwB=_rpCloudB.map(function(ct){
+                if(!ct||ct.id==null)return ct;
+                var lt=_rpLocalByIdB[String(ct.id)];
+                if(!lt)return ct;
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)){_rpChangedB=true;return lt;}
+                return ct;
+              });
+              var _rpLocalOnlyB=_rpOursB.filter(function(t){
+                if(!t||t.id==null||_rpCloudIdsB[String(t.id)])return false;
+                return Number(t.createdAt||t.updatedAt||0)>localApplyBaseline;
+              });
+              if(_rpChangedB||_rpLocalOnlyB.length){
+                valueToAbsorb=JSON.stringify(_rpLwwB.concat(_rpLocalOnlyB));
+              }
+            }
+          }catch(_rpeB){}
         }
         if(k==='diary_entries_v1'){
           /* Per-date LWW merge: dates only on one device are preserved; same-date
