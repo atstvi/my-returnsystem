@@ -25018,6 +25018,37 @@ function syncDeadlineCompletions(){
     if(prep.length && prep.every(function(t){return !!t.done;})) target.done=true;
   });
 }
+/* 상위 할일의 '실제 완료'를 하위 할일에 맞춘다 — 하위를 다 끝내면 상위도 실제로
+   done=true가 되고(표시만이 아니라), 하위가 하나라도 미완료면 상위도 미완료로 되돌린다.
+   (예전엔 taskEffectiveDone로 '보이기'만 완료였고 실제 done은 안 바뀌어, 상위 완료 취급이
+   안 되던 문제.) 취소된 상위는 canceled 불변식을 지키려 건드리지 않는다. 깊은 위계는
+   taskEffectiveDone이 재귀로 판정하므로 한 번 순회로 충분하지만, 안전하게 고정점까지 반복. */
+function syncParentCompletions(){
+  if(!Array.isArray(tasks))return;
+  for(var pass=0;pass<20;pass++){
+    var changed=false;
+    tasks.forEach(function(p){
+      if(!p||p._travelOnly||p.canceled)return;
+      var kids=(typeof taskChildren==='function')?taskChildren(p.id):[];
+      if(!kids.length)return;
+      var allDone=kids.every(function(k){return taskEffectiveDone(k);});
+      if(allDone && !p.done){ p.done=true; p.updatedAt=Date.now(); changed=true; }
+      else if(!allDone && p.done){ p.done=false; p.updatedAt=Date.now(); changed=true; }
+    });
+    if(!changed)break;
+  }
+}
+/* 상위 할일 완료 토글이 하위 할일까지 전파(체크=하위 모두 완료, 해제=하위 모두 미완료).
+   syncParentCompletions(양방향)와 짝을 이뤄, 상위 체크를 눌러도 하위와 어긋나지 않게 한다.
+   취소된 하위는 건드리지 않는다. */
+function taskCascadeDoneToChildren(task){
+  if(!task||typeof taskChildren!=='function')return;
+  taskChildren(task.id).forEach(function(k){
+    if(!k||k.canceled)return;
+    if(!!k.done!==!!task.done){ k.done=!!task.done; k.updatedAt=Date.now(); }
+    taskCascadeDoneToChildren(k);
+  });
+}
 function taskEffectiveDone(task){
   if(!task)return false;
   if(task.done)return true;
@@ -25045,6 +25076,7 @@ function saveTaskData(){
   else if(typeof cleanupInvalidRepeatGeneratedTasks==='function')cleanupInvalidRepeatGeneratedTasks(true);
   normalizeTimetableTaskCategories();
   syncDeadlineCompletions();
+  if(typeof syncParentCompletions==='function')syncParentCompletions();
   normalizeTaskOrder();
   returnEntityPrepareForSave('tasks', tasks, 't_'); /* Stage 6a: _eid + updatedAt (additive) */
   var saved=setReturnStorageItem('task_items_v1', JSON.stringify(tasks));
@@ -26909,6 +26941,7 @@ function _syncTaskDoneFromSubs(task){
 function toggleDone(task,el,ck){
   task.done=!task.done;
   task.updatedAt=Date.now();
+  if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task); /* 상위 완료/해제 → 하위도 전파 */
   saveTaskData();
   try { renderHomeTasks(); } catch(e) {}
   if(task.done){
@@ -26950,6 +26983,7 @@ function taskCheckToggle(task){
   if(!task)return null;
   if(task.canceled){ setTaskCanceled(task, false); return 'reverted'; }
   task.done=!task.done; task.updatedAt=Date.now();
+  if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task); /* 상위 완료/해제 → 하위도 전파 */
   if(typeof saveTaskData==='function')saveTaskData();
   return task.done?'done':'undone';
 }
@@ -27811,7 +27845,7 @@ function tasksOpenModal(task){
 
   var mc=document.getElementById('modalCheck');
   mc.className='modal-check'+(task.done?' done':'');
-  mc.onclick=function(){task.done=!task.done;mc.className='modal-check'+(task.done?' done':'');};
+  mc.onclick=function(){task.done=!task.done;if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task);mc.className='modal-check'+(task.done?' done':'');};
 
   /* Priority buttons */
   document.querySelectorAll('.prio-btn').forEach(function(btn){
