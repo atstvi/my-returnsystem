@@ -18256,7 +18256,12 @@ function _planSchedule(kind,pid,sm){
   if(kind==='task'){
     var t=(tasks||[]).find(function(x){return String(x.id)===String(pid);}); if(!t)return;
     if(t.date!==dd && typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,dd);
-    t.date=dd; t.timeStart=ts; t.timeEnd=te; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData();
+    t.date=dd; t.timeStart=ts; t.timeEnd=te; t.updatedAt=Date.now();
+    /* 반복·규칙 생성 항목은 '이 항목만' 시간 배치 — reconcile이 시간을 규칙값('')으로
+       되돌려 배치가 안 되던 문제. 이 occurrence를 사용자 편집으로 표시(userModifiedDate)해
+       기본적으로 이 항목만 바뀌게 한다. */
+    if(typeof isGeneratedTask==='function'&&isGeneratedTask(t))t.userModifiedDate=true;
+    if(typeof saveTaskData==='function')saveTaskData();
     if(typeof showToast==='function')showToast('“'+(t.text||'할일')+'” '+ts+' 배치');
   } else if(kind==='inbox'){
     var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(pid);}); if(!it)return;
@@ -18518,7 +18523,9 @@ function renderPlanner(){
        동일). 대신 그날 하위를 가진 (최상위) 상위 할일은 자기 날짜가 달라도 그날 종일
        줄에 나타난다 — '그날로 지정된 하위할일'을 대표한다. 그날 하위를 다 끝냈으면 그
        상위 칩을 '그날 완료'로 표시한다(목록의 _dayQuotaDone과 통일). */
-    var _adBase=dayTasks.filter(function(t){return t&&!t.done&&!t._travelOnly && _untimed(t) && !_isSchedLike(t) && !_nested(t);});
+    /* 완료된 종일 할일도 종일 줄에 남겨 '완료 여부'를 보이게 한다(취소선·✓). 완료라고
+       사라지면 "그날 뭘 끝냈는지"가 안 보였다. */
+    var _adBase=dayTasks.filter(function(t){return t&&!t._travelOnly && _untimed(t) && !_isSchedLike(t) && !_nested(t);});
     var _adSeen={}; _adBase.forEach(function(t){_adSeen[String(t.id)]=1;});
     var _adParents=(typeof tasks!=='undefined'?tasks:[]).filter(function(p){
       if(!p||p._travelOnly||p.done||_adSeen[String(p.id)])return false;
