@@ -20,7 +20,7 @@ t.ok('_isSchedLike가 준비 할일 제외',
 t.ok('_adSched가 _isSchedLike 사용(+nested 제외)',
   /var _adSched=dayTasks\.filter\(function\(t\)\{return _untimed\(t\) && _isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
 t.ok('종일 untimed 집합이 _isSchedLike로 고정 일정 제외',
-  /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\.done&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
+  /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
 
 // ── 런타임: _taskIsLinkPrep로 준비/일반/일정 구분 ──
 const block = sliceBlock(html, 'function _taskIsLinkPrep(t){', 'function dlOnlyFilter(list){');

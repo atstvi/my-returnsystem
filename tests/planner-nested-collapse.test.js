@@ -10,7 +10,7 @@ const t = runner('계획창: 종일 줄 상·하위 처리');
 
 // (1) 하위 제외 + (2) 그날 하위 가진 상위 추가
 t.ok('종일 base가 하위(nested) 제외',
-  /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\.done&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
+  /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
 t.ok('그날 하위 가진 상위를 종일 줄에 추가',
   /var _adParents=\(typeof tasks!=='undefined'\?tasks:\[\]\)\.filter\(function\(p\)\{[\s\S]*?var kids=\(typeof taskChildren==='function'\)\?taskChildren\(p\.id\):\[\];\s*return kids\.some\(function\(k\)\{return k&&k\.date===_planDate;\}\);\s*\}\);/.test(html));
 t.ok('_adUntimed = base + 상위',
