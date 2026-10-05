@@ -41182,8 +41182,14 @@ function fbApplyData(data){
               _mCloud.playlists.forEach(function(p){if(p&&p.id!=null)_mCloudPlIds[String(p.id)]=true;});
               var _mSongsOnly=_mLocal.songs.filter(function(s){return s&&s.id!=null&&!_mCloudSongIds[String(s.id)]&&Number(s.createdAt||0)>_returnSessionLoadMs;});
               var _mPlsOnly=_mLocal.playlists.filter(function(p){return p&&p.id!=null&&!_mCloudPlIds[String(p.id)]&&Number(p.createdAt||0)>_returnSessionLoadMs;});
-              if(_mSongsOnly.length||_mPlsOnly.length){
-                _fbWriter(k,JSON.stringify({songs:_mCloud.songs.concat(_mSongsOnly),playlists:_mCloud.playlists.concat(_mPlsOnly)}));
+              /* 둘 다 있는 항목은 updatedAt LWW — 로컬이 더 최신이면(방금 편집/추가) 유지. */
+              var _mLocalSongById={}; _mLocal.songs.forEach(function(s){if(s&&s.id!=null)_mLocalSongById[String(s.id)]=s;});
+              var _mLocalPlById={}; _mLocal.playlists.forEach(function(p){if(p&&p.id!=null)_mLocalPlById[String(p.id)]=p;});
+              var _mChanged=false;
+              var _mSongsLww=_mCloud.songs.map(function(cs){ if(!cs||cs.id==null)return cs; var ls=_mLocalSongById[String(cs.id)]; if(ls&&Number(ls.updatedAt||ls.createdAt||0)>Number(cs.updatedAt||cs.createdAt||0)){_mChanged=true;return ls;} return cs; });
+              var _mPlsLww=_mCloud.playlists.map(function(cp){ if(!cp||cp.id==null)return cp; var lp=_mLocalPlById[String(cp.id)]; if(lp&&Number(lp.updatedAt||lp.createdAt||0)>Number(cp.updatedAt||cp.createdAt||0)){_mChanged=true;return lp;} return cp; });
+              if(_mSongsOnly.length||_mPlsOnly.length||_mChanged){
+                _fbWriter(k,JSON.stringify({songs:_mSongsLww.concat(_mSongsOnly),playlists:_mPlsLww.concat(_mPlsOnly)}));
                 if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
                 taskUnionMergeAfterFbApply=true;
                 return;
@@ -41943,6 +41949,32 @@ async function fbSaveNow(opts){
               }
             }
           }catch(_rpeB){}
+        }
+        if(k==='music_playlists_v1'){
+          /* 음악 라이브러리도 union-merge(아웃바운드 absorb) — 예전엔 fbApplyData에만
+             병합이 있고 fbSaveAll absorb엔 없어, 저장 푸시의 콜드리드에서 스테일 클라우드가
+             방금 추가한 노래/플레이리스트를 덮어 '저장 안 됨'처럼 보였다. {songs,playlists}
+             형태만 병합: id 기준 LWW(updatedAt) + baseline 이후 로컬 전용 보존. */
+          try{
+            var _mcCloud=JSON.parse(cloud.fullValue||'null');
+            var _mcOurs=JSON.parse(ours||'null');
+            if(_mcCloud&&typeof _mcCloud==='object'&&!Array.isArray(_mcCloud)&&Array.isArray(_mcCloud.songs)&&Array.isArray(_mcCloud.playlists)&&
+               _mcOurs&&typeof _mcOurs==='object'&&!Array.isArray(_mcOurs)&&Array.isArray(_mcOurs.songs)&&Array.isArray(_mcOurs.playlists)&&localApplyBaseline>0){
+              var _mcCloudSongIds={}, _mcCloudPlIds={};
+              _mcCloud.songs.forEach(function(s){if(s&&s.id!=null)_mcCloudSongIds[String(s.id)]=true;});
+              _mcCloud.playlists.forEach(function(p){if(p&&p.id!=null)_mcCloudPlIds[String(p.id)]=true;});
+              var _mcLocalSongById={}; _mcOurs.songs.forEach(function(s){if(s&&s.id!=null)_mcLocalSongById[String(s.id)]=s;});
+              var _mcLocalPlById={}; _mcOurs.playlists.forEach(function(p){if(p&&p.id!=null)_mcLocalPlById[String(p.id)]=p;});
+              var _mcChanged=false;
+              var _mcSongsLww=_mcCloud.songs.map(function(cs){ if(!cs||cs.id==null)return cs; var ls=_mcLocalSongById[String(cs.id)]; if(ls&&Number(ls.updatedAt||ls.createdAt||0)>Number(cs.updatedAt||cs.createdAt||0)){_mcChanged=true;return ls;} return cs; });
+              var _mcPlsLww=_mcCloud.playlists.map(function(cp){ if(!cp||cp.id==null)return cp; var lp=_mcLocalPlById[String(cp.id)]; if(lp&&Number(lp.updatedAt||lp.createdAt||0)>Number(cp.updatedAt||cp.createdAt||0)){_mcChanged=true;return lp;} return cp; });
+              var _mcSongsOnly=_mcOurs.songs.filter(function(s){return s&&s.id!=null&&!_mcCloudSongIds[String(s.id)]&&Number(s.createdAt||0)>localApplyBaseline;});
+              var _mcPlsOnly=_mcOurs.playlists.filter(function(p){return p&&p.id!=null&&!_mcCloudPlIds[String(p.id)]&&Number(p.createdAt||0)>localApplyBaseline;});
+              if(_mcChanged||_mcSongsOnly.length||_mcPlsOnly.length){
+                valueToAbsorb=JSON.stringify({songs:_mcSongsLww.concat(_mcSongsOnly),playlists:_mcPlsLww.concat(_mcPlsOnly)});
+              }
+            }
+          }catch(_mceB){}
         }
         if(k==='diary_entries_v1'){
           /* Per-date LWW merge: dates only on one device are preserved; same-date
