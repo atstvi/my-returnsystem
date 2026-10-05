@@ -21831,6 +21831,36 @@ function returnDedupById(arr){
 }
 window.returnDedupById=returnDedupById;
 
+/* 배열 컬렉션(각 항목 {id 또는 _eid/ts, updatedAt?/createdAt?})의 크로스기기
+   union-merge. 스테일 클라우드가 로컬 편집·추가를 통째로 덮던 유실을 막는다.
+   - 클라우드를 기준으로 시작하되, 같은 id의 로컬이 더 최신이면 유지(LWW).
+   - 클라우드에 없는 로컬 항목(로컬 전용)은 보존 — opts.keepAllLocalOnly면 전부(삭제는
+     tombstone이 거름), 아니면 createdAt/ts가 baseline 이후인 것만(최근 추가).
+   - opts.tombstones면 returnEntityFilterTombstoned로 삭제된 항목 되살림 방지.
+   - 결과는 id/_eid로 dedup. 변경이 없으면 null 반환(호출부는 기존 동작 유지). */
+function returnSyncArrayMerge(cloudStr, localStr, opts){
+  opts=opts||{};
+  var cloud, local;
+  try{ cloud=JSON.parse(cloudStr==null?'null':cloudStr); }catch(e){ return null; }
+  try{ local=JSON.parse(localStr==null?'null':localStr); }catch(e){ return null; }
+  if(!Array.isArray(cloud)||!Array.isArray(local))return null;
+  var kof=function(x){ if(!x||typeof x!=='object')return null; var v=(x.id!=null)?x.id:((x._eid!=null)?x._eid:x.ts); return v==null?null:String(v); };
+  var tsof=function(x){ return Number((x&&(x.updatedAt||x.createdAt||x.ts))||0); };
+  var createdOf=function(x){ return Number((x&&(x.createdAt||x.ts))||0); };
+  var cloudIds={}; cloud.forEach(function(x){var kk=kof(x); if(kk)cloudIds[kk]=1;});
+  var localByK={}; local.forEach(function(x){var kk=kof(x); if(kk)localByK[kk]=x;});
+  var baseline=Number(opts.baseline||0), changed=false;
+  var lww=cloud.map(function(c){ var kk=kof(c); if(!kk)return c; var l=localByK[kk]; if(l&&tsof(l)>tsof(c)){changed=true;return l;} return c; });
+  var localOnly=local.filter(function(x){ var kk=kof(x); if(!kk||cloudIds[kk])return false; return opts.keepAllLocalOnly?true:(createdOf(x)>baseline); });
+  var merged=lww.concat(localOnly);
+  var tomb=0;
+  if(opts.tombstones&&typeof returnEntityFilterTombstoned==='function'){ var _b=merged.length; merged=returnEntityFilterTombstoned(merged); tomb=_b-merged.length; }
+  var dd=returnDedupById(merged);
+  if(!changed && !localOnly.length && !tomb && !dd.removed)return null;
+  return dd.arr;
+}
+window.returnSyncArrayMerge=returnSyncArrayMerge;
+
 /* One call for save sites: backfill ids, stamp changed entities, and (for
    user-owned collections) tombstone vanished _eids + clear tombstones for any
    _eid that is present and live again. */
@@ -41024,7 +41054,18 @@ function fbApplyData(data){
            sync rounds. Dedup before writing so localStorage stays clean, and
            push the cleaned value back when duplicates were collapsed. */
         if(k==='routine_habits_v1'||k==='routine_bundles_v1'){
+          /* 예전엔 '클라우드 dedup 후 그대로 덮어쓰기'라, 다른 기기에서 아직 안 올라온
+             로컬 습관/번들(추가·편집)이 스테일 클라우드 적용 시 통째로 사라졌다
+             (인바운드에서도 유실). union-merge로 로컬 전용/편집을 보존한다. 삭제는
+             tombstone이 거르므로 로컬 전용 전부 보존해도 안전(키 안정성 없음 대응). */
           try{
+            var _rMerged=returnSyncArrayMerge(data.keys[k], localStorage.getItem(k), {keepAllLocalOnly:true, tombstones:true});
+            if(_rMerged!=null){
+              _fbWriter(k,JSON.stringify(_rMerged));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              taskUnionMergeAfterFbApply=true;
+              return;
+            }
             var _rCloud=JSON.parse(data.keys[k]||'[]')||[];
             if(Array.isArray(_rCloud)){
               var _rdd=returnDedupById(_rCloud);
@@ -41975,6 +42016,16 @@ async function fbSaveNow(opts){
               }
             }
           }catch(_mceB){}
+        }
+        /* 아웃바운드 absorb에도 배열 컬렉션 union-merge 추가(인바운드에만 있던 영역).
+           스테일 클라우드가 저장 푸시 콜드리드에서 로컬 추가·편집을 덮던 유실 방지.
+           routine 습관/번들은 tombstone으로 삭제 보호 + 로컬 전용 전부 보존,
+           memos/hobby는 baseline 이후 추가 보존(+편집 LWW). */
+        if(k==='routine_habits_v1'||k==='routine_bundles_v1'){
+          try{ var _rm=returnSyncArrayMerge(cloud.fullValue, ours, {keepAllLocalOnly:true, tombstones:true}); if(_rm!=null)valueToAbsorb=JSON.stringify(_rm); }catch(_rmo){}
+        }
+        if(k==='memos_v5'||k==='hobby_items_v2'){
+          try{ var _hm=returnSyncArrayMerge(cloud.fullValue, ours, {baseline:localApplyBaseline}); if(_hm!=null)valueToAbsorb=JSON.stringify(_hm); }catch(_hmo){}
         }
         if(k==='diary_entries_v1'){
           /* Per-date LWW merge: dates only on one device are preserved; same-date
