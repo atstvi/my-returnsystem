@@ -15268,9 +15268,13 @@ function suppressGeneratedTasks(list, reason){
   if(!Array.isArray(list)||!list.length)return 0;
   var gmap=loadGeneratedTaskSuppressions(), rmap=null, n=0, rn=0;
   list.forEach(function(task){
-    if(!isGeneratedOccurrenceTask(task))return;
+    /* 반복 '원본'(생일 등 사용자가 만든 반복 할일 자체)은 occurrence는 아니지만 자기 날짜 슬롯을
+       차지한다(reconcile의 sourceOccupied). 원본을 지우면 그 날짜가 비어 '미완료' 생성본이
+       새로 생기므로, 원본 날짜 슬롯도 억제한다(규칙은 그대로). */
+    var isSrc=!!(task&&task._repeatId&&!task._isTt&&typeof isRepeatSourceTask==='function'&&isRepeatSourceTask(task));
+    if(!isSrc&&!isGeneratedOccurrenceTask(task))return;
     var isTt=!!(task._isTt||task.sourceType==='timetable');
-    var key=isTt?String(task.generationKey||task._ttKey||''):generatedTaskKey(task);
+    var key=isTt?String(task.generationKey||task._ttKey||''):(isSrc?generatedScheduleKey('repeat',String(task._repeatId),task.date,''):generatedTaskKey(task));
     if(!key)return;
     var occ=task.occurrenceDate||task._repeatOccurrence||task.triggerDate||task.date||'';
     gmap[key]={sourceType:isTt?'timetable':(task.sourceType||(task._repeatId?'repeat':(task._ruleGen?'activeRule':''))),repeatRuleId:task.repeatRuleId||task._repeatId||'',activeRuleId:task.activeRuleId||task._ruleId||'',sourceTaskId:task.sourceTaskId||task._ruleSourceId||'',ttId:isTt?String(task._ttId||''):'',occurrenceDate:occ,reason:reason||'deleted',at:Date.now()};
@@ -15279,7 +15283,7 @@ function suppressGeneratedTasks(list, reason){
       var rocc=taskDateKeyLocal(task._repeatOccurrence||task.date);
       if(rocc){
         if(!rmap)rmap=loadRepeatSuppressions();
-        var rkey=task._generationKey||String(task._repeatId||task.repeatRuleId)+'|'+rocc;
+        var rkey=(!isSrc&&task._generationKey)||String(task._repeatId||task.repeatRuleId)+'|'+rocc;
         rmap[rkey]={repeatId:task._repeatId||task.repeatRuleId,occurrence:rocc,reason:reason||'deleted',at:Date.now()};
         rn++;
       }
@@ -27316,12 +27320,14 @@ bulkDelete=function(){
   });
 };
 bulkDeleteDone=function(){
-  var n=tasks.filter(function(t){return t.done&&t.date===selDate;}).length;
+  var pick=function(){ return tasks.filter(function(t){ return _isClearableDone(t)&&t.date===selDate; }); };
+  var n=pick().length;
   if(!n){if(typeof showToast==='function')showToast('완료된 항목이 없어요.');return;}
   openConfirmDialog('완료 항목 삭제', n+'개 완료 항목을 삭제할까요?', function(){
-    tasks.forEach(function(t){if(t.done&&t.date===selDate&&typeof noteGeneratedTaskDeleted==='function')noteGeneratedTaskDeleted(t);});
-    tasks=tasks.filter(function(t){return!(t.done&&t.date===selDate);});
-    if(typeof saveTaskData==='function')saveTaskData();
+    /* 확인 시점 목록으로 다시 고른다(대화상자가 떠 있는 동안 동기화로 바뀌었을 수 있음).
+       예전엔 noteGeneratedTaskDeleted를 써서 완료된 반복 '원본'이 섞이면 반복 규칙(시리즈
+       전체)까지 지웠다 → 완료 정리와 같은 공용 경로로. */
+    returnRemoveTasks(pick(),'cleared');
     renderList();renderCal();closeMoreMenu();
   });
 };
@@ -47094,34 +47100,29 @@ function handleImport(e) {
   e.target.value = '';
 }
 
+/* 여러 할일을 한 번에 지우는 공용 경로 — 완료 정리(설정)·그날 완료 삭제(목록)·지난 자동 생성
+   정리가 같은 규칙을 쓴다(예전엔 셋이 따로 구현돼 하나는 반복 '규칙'까지 지웠다).
+   순서가 중요: 생성 회차 억제(재생성 방지)와 tombstone(다른 기기 사본 부활 방지)을 '쓰기
+   (동기화 트리거)' 전에 남긴다. 반복 '규칙' 자체는 지우지 않는다 — 시리즈 삭제는 개별 삭제
+   경로(noteGeneratedTaskDeleted)만 한다. 반환: 지운 개수. */
+function returnRemoveTasks(list, reason){
+  if(!Array.isArray(list)||!list.length||typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
+  try{ if(typeof suppressGeneratedTasks==='function')suppressGeneratedTasks(list, reason||'deleted'); }catch(_e){}
+  try{ if(typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(list.map(function(t){ return t._eid||('t_'+String(t.id)); }),'tasks'); }catch(_e){}
+  var before=tasks.length;
+  tasks=tasks.filter(function(t){ return list.indexOf(t)<0; });
+  list.forEach(function(t){ try{ if(typeof gcalQueueTaskEventDeletion==='function')gcalQueueTaskEventDeletion(t); }catch(_e){} });
+  if(typeof saveTaskData==='function')saveTaskData();
+  else setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
+  return before-tasks.length;
+}
+window.returnRemoveTasks=returnRemoveTasks;
+/* 계획 취소(canceled)는 '완료'가 아니라 '안 하기로 함'이므로 완료 정리로 지우지 않는다(기록 유지). */
+function _isClearableDone(t){ return !!(t&&t.done&&!t.canceled); }
 function clearDone() {
   if (!confirm('완료된 할일을 모두 삭제할까요?')) return;
   try {
-    var items = JSON.parse(localStorage.getItem('task_items_v1') || '[]');
-    /* 계획 취소(canceled)는 '완료'가 아니라 '안 하기로 함'이므로 '완료 정리'로 지우지
-       않는다 — 취소 기록을 남긴다(내부적으로 done=true여도 제외). */
-    var removed = items.filter(function(t){ return t && t.done && !t.canceled; });
-    items = items.filter(function(t){ return !t.done || t.canceled; });
-    /* 생성 회차(반복·규칙 준비·시간표 수업)는 생성기가 '빈 슬롯'으로 보고 즉시 다시
-       만든다 — 결정적 id + 새 updatedAt이라 tombstone도 못 막아 '미완료'로 부활했다.
-       쓰기(동기화 트리거) 전에 generation suppression부터 남긴다. 반복 '규칙'은 건드리지
-       않는다(noteGeneratedTaskDeleted는 원본 삭제 시 규칙까지 지우므로 쓰지 않음). */
-    if(removed.length && typeof suppressGeneratedTasks === 'function'){
-      try{ suppressGeneratedTasks(removed, 'cleared'); }catch(_e){}
-    }
-    /* user 삭제 → tombstone (완료 할일 일괄 삭제가 다른 기기에서 되살아나지 않게) */
-    if(removed.length && typeof returnTombstoneMarkMany === 'function'){
-      try{ returnTombstoneMarkMany(removed.map(function(t){ return t._eid||('t_'+String(t.id)); }),'tasks'); }catch(_e){}
-    }
-    setReturnStorageItem('task_items_v1', JSON.stringify(items));
-    /* Clean up Google Calendar events and eventMeta for deleted done tasks */
-    if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
-      removed.forEach(function(t){ try{ gcalQueueTaskEventDeletion(t); }catch(_e){} });
-    }
-    /* Keep in-memory tasks in sync (취소 항목은 유지) */
-    if(typeof tasks !== 'undefined' && Array.isArray(tasks)){
-      tasks = tasks.filter(function(t){ return !t.done || t.canceled; });
-    }
+    returnRemoveTasks((typeof tasks!=='undefined'&&Array.isArray(tasks)?tasks:[]).filter(_isClearableDone), 'cleared');
     showToast('완료 할일이 삭제됐어요 ✓');
     calcDataSize();
   } catch(e) {}
@@ -47151,19 +47152,7 @@ function returnStaleGeneratedScan(todayKey){
   ['timetable','repeat','rule'].forEach(function(k){ out[k].sort(function(a,b){ return String(a.date).localeCompare(String(b.date)); }); });
   return out;
 }
-function returnStaleGeneratedRemove(list){
-  if(!Array.isArray(list)||!list.length||typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
-  /* 쓰기(동기화 트리거) 전에 억제·tombstone부터 — clearDone과 같은 순서 */
-  try{ if(typeof suppressGeneratedTasks==='function')suppressGeneratedTasks(list,'stale-cleanup'); }catch(_e){}
-  try{ if(typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(list.map(function(t){ return t._eid||('t_'+String(t.id)); }),'tasks'); }catch(_e){}
-  var before=tasks.length;
-  tasks=tasks.filter(function(t){ return list.indexOf(t)<0; });
-  var n=before-tasks.length;
-  list.forEach(function(t){ try{ if(typeof gcalQueueTaskEventDeletion==='function')gcalQueueTaskEventDeletion(t); }catch(_e){} });
-  if(typeof saveTaskData==='function')saveTaskData();
-  else setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
-  return n;
-}
+function returnStaleGeneratedRemove(list){ return returnRemoveTasks(list,'stale-cleanup'); }
 window.returnStaleGeneratedScan=returnStaleGeneratedScan; window.returnStaleGeneratedRemove=returnStaleGeneratedRemove;
 function openStaleGeneratedCleanup(){
   var scan=returnStaleGeneratedScan();

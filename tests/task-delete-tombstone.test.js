@@ -55,7 +55,8 @@ t.ok('프로젝트 삭제 캐스케이드 tombstone',
   /프로젝트 삭제로 함께 지워지는 할일도 tombstone/.test(html));
 // 완료 일괄 삭제도 tombstone
 t.ok('clearDone가 지운 완료 항목 tombstone',
-  /returnTombstoneMarkMany\(removed\.map\(function\(t\)\{ return t\._eid\|\|\('t_'\+String\(t\.id\)\); \}\),'tasks'\)/.test(html));
+  /returnRemoveTasks\(\(typeof tasks!=='undefined'&&Array\.isArray\(tasks\)\?tasks:\[\]\)\.filter\(_isClearableDone\), 'cleared'\);/.test(html)
+  && /function returnRemoveTasks\(list, reason\)\{[\s\S]*?returnTombstoneMarkMany\(list\.map\(function\(t\)\{ return t\._eid\|\|\('t_'\+String\(t\.id\)\); \}\),'tasks'\)/.test(html));
 
 // union-merge 게이트 예외 + 백필
 t.ok('게이트: 보호 항목은 세션-나이와 무관하게 보존',

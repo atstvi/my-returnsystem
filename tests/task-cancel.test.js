@@ -60,7 +60,7 @@ t.ok('취소된 할일 체크 클릭은 되돌리기', /if\(task\.canceled\)\{se
 // 복제는 취소 상태 안 물려줌
 t.ok('복제 시 canceled 해제', /delete copy\.canceled; delete copy\.canceledAt;/.test(html));
 // 완료 정리에서 취소 항목 제외
-t.ok('완료 정리가 취소 항목 보존', /items\.filter\(function\(t\)\{ return !t\.done \|\| t\.canceled; \}\)/.test(html));
+t.ok('완료 정리가 취소 항목 보존(공용 판정 _isClearableDone)', /function _isClearableDone\(t\)\{ return !!\(t&&t\.done&&!t\.canceled\); \}/.test(html) && /\.filter\(_isClearableDone\), 'cleared'\);/.test(html));
 // CSS
 t.ok('취소 행 스타일(취소선+흐림)', /\.task-item\.canceled\{opacity/.test(html));
 t.ok('취소 체크 대각선 표시', /\.task-check\.canceled::after/.test(html));

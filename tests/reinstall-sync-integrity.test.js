@@ -53,9 +53,9 @@ const t = runner('재설치·다기기 동기화 무결성(완료 정리 부활�
   t.ok('빈 목록 → 0, 저장 없음', ctx.suppressGeneratedTasks([], 'x') === 0 && saves.gen === 1);
 })();
 
-// ── 1b) clearDone: 억제 → tombstone → 쓰기 순서, 취소 항목 보존 ──
+// ── 1b) clearDone(→ 공용 returnRemoveTasks): 억제 → tombstone → 쓰기 순서, 취소 항목 보존 ──
 (function(){
-  const block = sliceBlock(html, 'function clearDone() {', '\n/* ── 지난 자동 생성 정리');
+  const block = sliceBlock(html, '/* 여러 할일을 한 번에 지우는 공용 경로', '\n/* ── 지난 자동 생성 정리');
   const order = [];
   const items = [
     { id:'tt_a', _isTt:true, done:true, date:'2026-09-07' },
@@ -74,6 +74,7 @@ const t = runner('재설치·다기기 동기화 무결성(완료 정리 부활�
     returnTombstoneMarkMany: function(eids){ order.push('tombstone'); tombArg = eids; return eids.length; },
     gcalQueueTaskEventDeletion: function(){},
     showToast: function(){}, calcDataSize: function(){},
+    window: {},
     tasks: items.slice(),
   };
   vm.createContext(ctx); vm.runInContext(block, ctx); vm.runInContext('clearDone()', ctx);
@@ -84,6 +85,10 @@ const t = runner('재설치·다기기 동기화 무결성(완료 정리 부활�
   t.ok('완료 정리: 취소·미완료 보존', left.join(',') === '2,3', JSON.stringify(left));
   t.ok('완료 정리: 메모리 tasks 동기화', ctx.tasks.map(function(x){ return x.id; }).join(',') === '2,3');
   t.ok('완료 정리: 반복 규칙 삭제 경로(noteGeneratedTaskDeleted) 안 씀', !/noteGeneratedTaskDeleted\(/.test(block));
+  /* 그날 완료 삭제(목록)도 같은 공용 경로 — 예전엔 완료된 반복 '원본'이 섞이면 반복 규칙까지 지웠다 */
+  const bdd = sliceBlock(html, 'bulkDeleteDone=function(){', '\nbulkMoveDate=function(){');
+  t.ok('그날 완료 삭제: 공용 경로 사용·규칙 삭제 안 함', /returnRemoveTasks\(pick\(\),'cleared'\);/.test(bdd) && !/noteGeneratedTaskDeleted\(/.test(bdd));
+  t.ok('그날 완료 삭제: 계획 취소 항목 보존(완료 정리와 동일 기준)', /_isClearableDone\(t\)&&t\.date===selDate/.test(bdd));
 })();
 
 // ── 1c) reconcileTimetableTasks: 억제된 회차는 재생성 안 함 ──
@@ -196,6 +201,7 @@ t.ok('할일 섹션 밀림 배지: 수업 제외(카테고리·프로젝트)', (
     returnTombstoneMarkMany: function(e){ order.push('tomb:'+e.length); return e.length; },
     gcalQueueTaskEventDeletion: function(){},
     saveTaskData: function(){ order.push('save'); return true; },
+    window: {},
     tasks: [
       { id:'tt1', _isTt:true, date:'2026-09-07', done:false },                 /* 후보 */
       { id:'tt2', _isTt:true, date:'2026-09-14', done:true },                  /* 완료 → 제외 */
@@ -210,7 +216,7 @@ t.ok('할일 섹션 밀림 배지: 수업 제외(카테고리·프로젝트)', (
       { id:555, text:'진짜 놓친 할일', date:'2026-09-30', done:false },        /* 생성 아님 → 제외 */
     ],
   };
-  vm.createContext(ctx); vm.runInContext(block, ctx);
+  vm.createContext(ctx); vm.runInContext(sliceBlock(html, '/* 여러 할일을 한 번에 지우는 공용 경로', '\n/* 계획 취소(canceled)는'), ctx); vm.runInContext(block, ctx);
   const sc = ctx.returnStaleGeneratedScan();
   const ids = function(a){ return a.map(function(x){ return x.id; }).join(','); };
   t.ok('정리 후보: 손대지 않은 지난 미완료 수업만', ids(sc.timetable) === 'tt1', ids(sc.timetable));
@@ -220,6 +226,8 @@ t.ok('할일 섹션 밀림 배지: 수업 제외(카테고리·프로젝트)', (
   t.ok('정리: 선택분만 제거', n === 2 && !ctx.tasks.some(function(x){ return x.id === 'tt1' || x.id === 'p1'; }) && ctx.tasks.some(function(x){ return x.id === 'r1'; }) && ctx.tasks.some(function(x){ return x.id === 555; }));
   t.ok('정리: 억제·tombstone → 저장 순서(다른 기기 재생성 방지)', order.join('|') === 'suppress:2|tomb:2|save', order.join('|'));
 })();
+// 8) 반복 '원본'을 지울 때 원본 날짜 슬롯도 억제(아니면 그날 미완료 생성본이 새로 생김)
+t.ok('억제: 반복 원본 날짜 슬롯 포함', /var isSrc=!!\(task&&task\._repeatId&&!task\._isTt&&typeof isRepeatSourceTask==='function'&&isRepeatSourceTask\(task\)\);/.test(html) && /isSrc\?generatedScheduleKey\('repeat',String\(task\._repeatId\),task\.date,''\)/.test(html));
 t.ok('설정 데이터 관리에 정리 버튼', /onclick="openStaleGeneratedCleanup\(\)"/.test(html));
 t.ok('정리 전 버전 스냅샷', /returnSnapshotNow\(\{reason:'before-stale-cleanup',force:true\}\)/.test(html));
 
