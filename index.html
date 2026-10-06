@@ -15213,17 +15213,19 @@ function suppressRepeatOccurrence(task){
 }
 function loadGeneratedTaskSuppressions(){try{return JSON.parse(localStorage.getItem('generated_task_suppressions_v1')||'{}')||{};}catch(e){ console.error('[repeat] loadGeneratedTaskSuppressions: corrupt data, resetting to {}', e); return {};}}
 function pruneGeneratedTaskSuppressionsOld(map){
-  var cutoff=Date.now()-180*24*60*60*1000;
-  var cutoffDate=new Date(cutoff).toISOString().slice(0,10);
+  /* 억제(suppression)는 그 occurrence를 '다시 만들 수 있는 생성기'가 남아 있는 동안 유지해야
+     한다. 예전엔 억제한 지 180일(at)이 지나면 지워서, 시간표(최대 365일 범위)나 활성 규칙의
+     지난 occurrence가 억제가 사라진 뒤 '미완료'로 되살아날 수 있었다. 이제 occurrence 날짜가
+     400일 넘게 지난 것만 정리한다(어떤 생성기도 그보다 이전 날짜는 만들지 않음). 날짜를 알 수
+     없는 항목만 기록 시각(at) 기준 400일. */
+  var DAY=24*60*60*1000, cutoffMs=Date.now()-400*DAY;
+  var cutoffDate=new Date(cutoffMs).toISOString().slice(0,10);
   Object.keys(map).forEach(function(k){
     var e=map[k];
-    if(e&&e.at&&e.at<cutoff){delete map[k];return;}
-    /* For old entries without at: use occurrenceDate field or parse from key */
-    if(e&&!e.at){
-      var occ=e.occurrenceDate||'';
-      if(!occ){var parts=k.split('|');occ=parts[parts.length-1];}
-      if(/^\d{4}-\d{2}-\d{2}$/.test(occ)&&occ<cutoffDate)delete map[k];
-    }
+    var occ=(e&&e.occurrenceDate)||'';
+    if(!occ){ var parts=String(k).split(/[|:]/); occ=parts[parts.length-1]; }
+    if(/^\d{4}-\d{2}-\d{2}$/.test(String(occ))){ if(String(occ)<cutoffDate)delete map[k]; return; }
+    if(e&&e.at&&e.at<cutoffMs)delete map[k];
   });
 }
 function saveGeneratedTaskSuppressions(map){
@@ -15248,10 +15250,48 @@ function suppressGeneratedTask(task, reason){
   map[key]={sourceType:task.sourceType||(task._repeatId?'repeat':(task._ruleGen?'activeRule':'')),repeatRuleId:task.repeatRuleId||task._repeatId||'',activeRuleId:task.activeRuleId||task._ruleId||'',sourceTaskId:task.sourceTaskId||task._ruleSourceId||'',occurrenceDate:task.occurrenceDate||task._repeatOccurrence||task.triggerDate||task.date||'',reason:reason||'deleted',at:Date.now()};
   saveGeneratedTaskSuppressions(map);
 }
+/* 생성 occurrence(반복·활성 규칙·시간표 수업)인지 — '지우면 다시 만들어지는' 항목. 반복
+   '원본'(isRepeatSourceTask)은 occurrence가 아니므로 제외(원본 규칙은 건드리지 않는다). */
+function isGeneratedOccurrenceTask(t){
+  if(!t)return false;
+  if(t._isTt||t.sourceType==='timetable')return true;
+  return !!(typeof generatedCanonicalType==='function'&&generatedCanonicalType(t));
+}
+/* 여러 생성 occurrence를 한 번에 억제(맵을 한 번만 읽고 쓴다 — '완료 정리'처럼 수십 개를
+   지울 때 저장·동기화가 수십 번 일어나지 않게). suppressGeneratedTask와 같은 항목 형식. */
+function suppressGeneratedTasks(list, reason){
+  if(!Array.isArray(list)||!list.length)return 0;
+  var gmap=loadGeneratedTaskSuppressions(), rmap=null, n=0, rn=0;
+  list.forEach(function(task){
+    if(!isGeneratedOccurrenceTask(task))return;
+    var isTt=!!(task._isTt||task.sourceType==='timetable');
+    var key=isTt?String(task.generationKey||task._ttKey||''):generatedTaskKey(task);
+    if(!key)return;
+    var occ=task.occurrenceDate||task._repeatOccurrence||task.triggerDate||task.date||'';
+    gmap[key]={sourceType:isTt?'timetable':(task.sourceType||(task._repeatId?'repeat':(task._ruleGen?'activeRule':''))),repeatRuleId:task.repeatRuleId||task._repeatId||'',activeRuleId:task.activeRuleId||task._ruleId||'',sourceTaskId:task.sourceTaskId||task._ruleSourceId||'',ttId:isTt?String(task._ttId||''):'',occurrenceDate:occ,reason:reason||'deleted',at:Date.now()};
+    n++;
+    if(!isTt&&(task._repeatId||task.repeatRuleId)){
+      var rocc=taskDateKeyLocal(task._repeatOccurrence||task.date);
+      if(rocc){
+        if(!rmap)rmap=loadRepeatSuppressions();
+        var rkey=task._generationKey||String(task._repeatId||task.repeatRuleId)+'|'+rocc;
+        rmap[rkey]={repeatId:task._repeatId||task.repeatRuleId,occurrence:rocc,reason:reason||'deleted',at:Date.now()};
+        rn++;
+      }
+    }
+  });
+  if(n)saveGeneratedTaskSuppressions(gmap);
+  if(rn&&rmap)saveRepeatSuppressions(rmap);
+  return n;
+}
+window.suppressGeneratedTasks=suppressGeneratedTasks;
 function noteGeneratedTaskDeleted(task){
   if(!task)return;
   if(task._repeatId||task.repeatRuleId||task._ruleGen||task.sourceType==='repeat'||task.sourceType==='rule'||task.sourceType==='activeRule'){
     suppressGeneratedTask(task,'deleted');
+  }else if(task._isTt||task.sourceType==='timetable'){
+    /* 시간표 수업을 지우면(휴강 등) 재조정이 바로 다시 만들던 문제 — 이 수업만 억제. */
+    suppressGeneratedTasks([task],'deleted');
   }
   /* 사용자가 직접 지운 할일은 tombstone에 남긴다(_eid='t_'+id, 결정적이라 기기 공통).
      tasks는 생성 churn 때문에 자동 tombstone(autoTombstone)에서 빠져 있어, 저장 시점의
@@ -17391,6 +17431,10 @@ function buildExpectedGeneratedMap(opts){
         if(String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return;
         var anchor=taskDateKeyLocal(src.deadlineDate||src.date);
         if(!anchor)return;
+        /* 이미 지난 마감의 준비 할일은 새로 만들지 않는다(기존 것은 아래
+           expectedForExistingGenerated가 유지). 과거 전체가 생성 대상이라 '완료 정리'
+           뒤나 새 기기에서 옛 준비 할일이 미완료로 뭉텅이 부활하던 원인. */
+        if(anchor<from)return;
         var due=taskAddDaysKey(anchor,-offset);
         if(!ruleDateInRange(rule,due))return;
         var exp=buildRuleExpected(rule,due,src,String(src.id));
@@ -18568,7 +18612,9 @@ function homePullOverdueToToday(){
   if(typeof tasks==='undefined')return;
   var n=0;
   tasks.forEach(function(t){
-    if(!t||t.done||!t.date||t.date>=TK||t._travelOnly)return;
+    /* 지난 시간표 수업은 옮기지 않는다 — 수업은 그 날짜에 묶인 일정이고, 옮겨도 재조정이
+       원래 날짜로 되돌린다(데모 시간표의 지난 수업 79개가 '밀린 할일'로 오늘에 쏟아지던 경로). */
+    if(!t||t.done||!t.date||t.date>=TK||t._travelOnly||t._isTt)return;
     if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,TK);
     else if(t._repeatId&&typeof suppressRepeatOccurrence==='function'){suppressRepeatOccurrence(t);t._repeatMoved=true;}
     if(t._repeatId||t.repeatRuleId||t._ruleGen||t._ruleId||t.sourceType==='repeat'||t.sourceType==='activeRule')t.userModifiedDate=true;
@@ -19341,7 +19387,8 @@ function renderHomeTimeBlocks(){
     /* Nothing scheduled today at all — the usual reason is overdue tasks still
        parked on past dates. Offer a one-tap pull-to-today (audit C2 idea). */
     if(!_htbHasTimed){
-      var _overdue=(tasks||[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&t.date&&t.date<TK;}).length;
+      /* 지난 시간표 수업은 '일정'이지 밀린 할일이 아니다(알림 센터와 동일 기준) — 오늘로 옮길 대상도 아님 */
+      var _overdue=(tasks||[]).filter(function(t){return t&&!t.done&&!t._travelOnly&&!t._isTt&&t.date&&t.date<TK;}).length;
       if(_overdue){
         var pull=document.createElement('button');
         pull.type='button'; pull.className='allday-chip htb-pull-chip';
@@ -21385,7 +21432,7 @@ var RETURN_DATA_MAP = {
      notes: known hazards (audit root-cause refs Rn) */
   tasks:            {owner:'localStorage', keys:['task_items_v1'], read:'inline @load', write:'saveTaskData', sync:'firebase-blob', media:false, ids:'Date.now() (weak)', versioned:false, notes:'R5 dup; generated tasks reconciled post-sync'},
   recurringRules:   {owner:'localStorage', keys:['task_rules_v1','repeat_items_v1'], read:'loadTaskRules/loadRepeatItems', write:'saveTaskRules/saveRepeatItems', sync:'firebase-blob', media:false, ids:'rule_/ri_+Date.now() (weak)', versioned:false, notes:'R5 id collision cross-device'},
-  generatedTasks:   {owner:'derived (in task_items_v1)', keys:['generated_task_suppressions_v1','repeat_suppressions_v1'], read:'reconcileGeneratedTasks', write:'via saveTaskData', sync:'firebase-blob', media:false, ids:'Date.now()+random', versioned:'generationKey only', notes:'R8 suppressions not pre-distributed'},
+  generatedTasks:   {owner:'derived (in task_items_v1)', keys:['generated_task_suppressions_v1','repeat_suppressions_v1'], read:'reconcileGeneratedTasks', write:'via saveTaskData', sync:'firebase-blob', media:false, ids:'Date.now()+random', versioned:'generationKey only', notes:'R8 suppressions not pre-distributed; suppressions union-merged both ways; delete + 완료 정리 suppress repeat/rule/timetable occurrences (suppressGeneratedTasks) so generators never resurrect them undone; pruned by occurrence date (400d)'},
   schedules:        {owner:'localStorage', keys:['timetables_v1','timetable_palette_v1'], read:'loadTimetables', write:'saveTimetables', sync:'firebase-blob', media:false, ids:'slot id includes Date.now()+random (UNSTABLE)', versioned:false, notes:'R5 slot-id regen → dup tasks'},
   routines:         {owner:'localStorage', keys:['routine_habits_v1','routine_bundles_v1','routine_logs_v1','routine_condition_v1'], read:'loadRoutineData', write:'saveRoutineData', sync:'firebase-blob', media:false, ids:'seeded/Date.now()', versioned:false, notes:'reseeds when empty'},
   stamina:          {owner:'localStorage', keys:['stamina_level_v1','stamina_photos_v1'], read:'staminaGet', write:'staminaStore/staminaSetPhoto', sync:'firebase-blob', media:'stamina_photos_v1 = per-band dataURL INLINE', ids:false, versioned:false, notes:'per-day 0-100 shared slider; derives routineCondition (3-band) + currentEnergy/recharge_energy (5-band). Change anywhere reflects everywhere.'},
@@ -21762,6 +21809,34 @@ function returnTombstoneMarkMany(eids, collection){
   return n;
 }
 function returnTombstoneMark(eid, collection){ return returnTombstoneMarkMany([eid], collection)>0; }
+/* 캐시 무효화 — 동기화(apply/absorb)가 레지스트리를 직접 쓰면 반드시 호출. 안 그러면
+   스테일 _tombstones로 판정하고, 다음 Mark/Save가 그 스테일 맵으로 다른 기기의 삭제
+   기록을 덮어써 지운 항목이 되살아났다. */
+function returnTombstoneInvalidate(){ _tombstones=null; }
+/* 기기 간 레지스트리 합집합: eid마다 더 늦은 deletedAt을 유지하고 TTL 지난 항목은 버린다.
+   예전엔 return_tombstones_v1이 일반 키라 클라우드 blob이 통째로 덮어써, 한 기기에서
+   지운 기록이 다른 기기의 푸시로 사라졌다(재설치 기기·오래된 기기가 특히 위험).
+   반환: {value(JSON 문자열), addedVsCloud(로컬에만 있던/더 최신 수), addedVsLocal} — 파싱 실패 시 null. */
+function returnTombstoneMergeStr(cloudStr, localStr, now){
+  var c, l;
+  try{ c=JSON.parse(cloudStr||'{}')||{}; l=JSON.parse(localStr||'{}')||{}; }catch(e){ return null; }
+  if(typeof c!=='object'||Array.isArray(c)||typeof l!=='object'||Array.isArray(l))return null;
+  now=Number(now)||Date.now();
+  var out={}, addedVsCloud=0, addedVsLocal=0;
+  function live(v){ var d=v&&Number(v.deletedAt); return d>0&&(now-d)<=RETURN_TOMBSTONE_TTL_MS; }
+  Object.keys(c).forEach(function(eid){ if(live(c[eid]))out[eid]=c[eid]; });
+  Object.keys(l).forEach(function(eid){
+    if(!live(l[eid]))return;
+    var cur=out[eid];
+    if(!cur||Number(l[eid].deletedAt)>Number(cur.deletedAt)){ out[eid]=l[eid]; addedVsCloud++; }
+  });
+  Object.keys(out).forEach(function(eid){
+    var lv=l[eid];
+    if(!lv||Number(lv.deletedAt)<Number(out[eid].deletedAt))addedVsLocal++;
+  });
+  return { value:JSON.stringify(out), addedVsCloud:addedVsCloud, addedVsLocal:addedVsLocal };
+}
+window.returnTombstoneMergeStr=returnTombstoneMergeStr;
 function returnTombstoneIsActive(eid, entityUpdatedAt){
   if(!eid)return false;
   var ts=tombstonesLoad()[eid];
@@ -24549,108 +24624,172 @@ function returnDayCutoffHours(){ try{ var v=parseInt(localStorage.getItem(RETURN
 function returnLogicalNow(nowMs){ return new Date((nowMs!=null?nowMs:Date.now()) - returnDayCutoffHours()*3600000); }
 function returnLogicalDayKey(nowMs){ var d=returnLogicalNow(nowMs); return d.getFullYear()+'-'+(d.getMonth()<9?'0':'')+(d.getMonth()+1)+'-'+(d.getDate()<10?'0':'')+d.getDate(); }
 
-/* Whether hardcoded sample/demo data may be seeded (and thus eventually synced).
-   The app ships with a built-in Firebase config, so the cloud is active by
-   default even without a user-saved fb_config; seeding before the cloud's real
-   data loads pushes demo items up and pollutes every device. So allow seeding
-   ONLY for explicit local-only users, or after the cloud has loaded once
-   (_fb_loaded_once, set at the end of fbApplyData). */
+/* 샘플(데모) 데이터 시딩 허용 여부.
+   클라우드 계정에서 '그 영역이 비어 있다'는 건 "그 기능을 안 쓴다"는 뜻이지 "데모로
+   채워라"가 아니다. 예전엔 클라우드를 한 번 불러온 뒤(_fb_loaded_once)엔 시딩을 허용해서,
+   새 기기·앱 재설치 직후 '두 번째' 동기화(onSnapshot)에서 빈 시간표/루틴/취미에 데모가
+   채워졌다 → 데모 시간표('2026년 1학기')가 지난 학기 수업 79개(전부 미완료)를 만들고 →
+   클라우드로 올라가 모든 기기에 퍼졌다("예전 할일이 뭉텅이로 미완료" + "추가한 적 없는
+   기본 할일"). 이제 시딩은 '클라우드를 한 번도 쓴 적 없는 명시적 로컬 전용 사용자'만. */
 function returnAllowSampleSeed(){
   try{
-    if(localStorage.getItem('_fb_local_only')==='1')return true;
-    return localStorage.getItem('_fb_loaded_once')==='1';
+    if(localStorage.getItem('_fb_loaded_once')==='1')return false; /* 클라우드 계정 기기 — 절대 시딩 안 함 */
+    return localStorage.getItem('_fb_local_only')==='1';
   }catch(e){ return false; }
 }
-/* One-time cleanup of hardcoded demo/sample items that were previously seeded
-   and synced to Firebase before the returnAllowSampleSeed gate was in place.
-   Runs once per device after the cloud has been loaded (_fb_loaded_once).
-   Uses tombstones for future-proofing + saves via the normal paths so the
-   cleaned arrays propagate to Firebase. Only removes items whose id/text
-   matches the exact hardcoded demo signatures — user-created items are safe. */
-var DEMO_CLEANUP_KEY = 'return_demo_cleanup_v1';
+/* 이 기기에서 클라우드 데이터를 한 번이라도 받았는지 — 데모 정리의 실행 게이트(시딩
+   게이트와 분리: 정리는 '진짜 데이터가 도착한 뒤'에만 안전하다). */
+function returnCloudLoadedOnce(){
+  try{ return localStorage.getItem('_fb_loaded_once')==='1'; }catch(e){ return false; }
+}
+/* 이미 클라우드로 새어 나간 데모 데이터 정리 — 기기당 1회(v2), 클라우드 로드 후.
+   v1은 시간표를 '이름(2026년 1학기)만으로' 지워 실제 학생의 같은 이름 시간표까지 지울 수
+   있었고, 1회 키가 이미 소진돼 재설치로 새로 퍼진 데모를 못 지웠다. v2는 모든 항목을
+   '정확한 데모 서명'으로만 판별한다(사용자 데이터는 절대 안 건드림):
+   - 할일: 정수 id 1~10 + 데모 문구 일치
+   - 시간표: 이름 + 기간(2026-03-03~06-20) + 5개 슬롯(제목·요일·시간) 모두 일치
+   - 시간표 수업 할일: 데모 시간표 소속, 또는(고아) 데모 메모·기간·슬롯 서명 일치 — 단
+     실제(데모 아님) 시간표 소속이면 제외
+   - 루틴 습관/번들: 데모 id + 데모 제목 + (습관) 체크 기록이 한 번도 없음
+   - 취미: 데모 id + 데모 문구
+   지운 항목은 tombstone으로 남겨 다른 기기 사본이 병합으로 되살아나지 않게 한다. */
+/* 기기 로컬 플래그('_' 접두사 → shouldFbSyncKey 대상 아님). 동기화되면 한 기기가 정리한
+   뒤 다른 기기(특히 재설치 기기)는 정리를 영영 건너뛰어 자기 로컬 데모가 남는다. */
+var DEMO_CLEANUP_KEY = '_demo_cleanup_v2';
 var DEMO_TASK_IDS = {1:1,2:1,3:1,4:1,5:1,6:1,7:1,8:1,9:1,10:1};
 var DEMO_TASK_TEXTS = {
   '기말 보고서 최종 제출':1,'주간 리뷰 작성':1,'운동 30분':1,'팀 미팅':1,
   '참고문헌 최종 정리':1,'독서 — 아토믹 해빗':1,'발표 자료 준비':1,
   '월별 지출 정리':1,'수업 — 데이터베이스':1,'수업 — 알고리즘':1
 };
+var DEMO_HOBBY_TEXTS = {demo1:'수채화 연습',demo2:'알고리즘 문제 풀기',demo3:'영화 감상'};
 var DEMO_HOBBY_IDS = {demo1:1,demo2:1,demo3:1};
+var DEMO_ROUTINE_HABITS = {rh_water:'물 한 컵',rh_stretch:'몸 깨우기',rh_plan:'오늘 보기',rh_journal:'마감 정리'};
 var DEMO_ROUTINE_HABIT_IDS = {rh_water:1,rh_stretch:1,rh_plan:1,rh_journal:1};
+var DEMO_ROUTINE_BUNDLES = {rb_morning:'아침 루틴',rb_night:'저녁 루틴'};
 var DEMO_ROUTINE_BUNDLE_IDS = {rb_morning:1,rb_night:1};
+var DEMO_TT_NAME='2026년 1학기', DEMO_TT_START='2026-03-03', DEMO_TT_END='2026-06-20';
+var DEMO_TT_SLOTS=['알고리즘|0|09:00|10:30','알고리즘|2|09:00|10:30','데이터베이스|1|13:00|14:30','데이터베이스|3|13:00|14:30','운영체제|4|11:00|12:30'];
 function _isDemoTask(t){ return t && typeof t.id==='number' && DEMO_TASK_IDS[t.id] && DEMO_TASK_TEXTS[t.text]; }
+function _isDemoTimetable(tt){
+  if(!tt||tt.name!==DEMO_TT_NAME||tt.startDate!==DEMO_TT_START||tt.endDate!==DEMO_TT_END||!Array.isArray(tt.slots))return false;
+  var sig=tt.slots.map(function(s){ return s?[s.title,s.day,s.timeStart,s.timeEnd].join('|'):''; }).sort().join(',');
+  return sig===DEMO_TT_SLOTS.slice().sort().join(',');
+}
+function _isDemoTimetableTask(t, demoTtIds, realTtIds){
+  if(!t||!t._isTt)return false;
+  var ttId=(t._ttId!=null)?String(t._ttId):'';
+  if(ttId&&demoTtIds&&demoTtIds[ttId])return true;
+  if(ttId&&realTtIds&&realTtIds[ttId])return false; /* 실제 시간표 소속 수업은 절대 안 지움 */
+  if(String(t.note||'')!=='시간표 · '+DEMO_TT_NAME)return false;
+  var d=String(t.date||'');
+  if(!(d>=DEMO_TT_START&&d<=DEMO_TT_END))return false;
+  var dt=new Date(d+'T00:00'); if(isNaN(dt.getTime()))return false;
+  var jsDow=dt.getDay(), slotDay=(jsDow===0)?6:jsDow-1;
+  return DEMO_TT_SLOTS.indexOf([t.text,slotDay,t.timeStart,t.timeEnd].join('|'))>=0;
+}
+function _demoHabitHasLogs(habitId){
+  var logs=null;
+  try{ logs=(typeof routineLogs!=='undefined'&&routineLogs&&typeof routineLogs==='object')?routineLogs:JSON.parse(localStorage.getItem('routine_logs_v1')||'{}'); }catch(e){ logs={}; }
+  return Object.keys(logs||{}).some(function(day){ var lg=logs[day]; return !!(lg&&typeof lg==='object'&&lg[habitId]); });
+}
 function returnDemoCleanupOnce(){
   try{
     if(localStorage.getItem(DEMO_CLEANUP_KEY)==='1')return;
-    if(!returnAllowSampleSeed())return; /* wait until cloud is loaded */
-    var changed=false;
-    /* Tasks */
+    if(!returnCloudLoadedOnce())return; /* 실제 클라우드 데이터가 도착한 뒤에만 */
+    var report={tasks:0,timetables:0,timetableTasks:0,hobby:0,habits:0,bundles:0};
+    /* 시간표(정확한 서명) — 먼저 지워 재조정이 데모 수업을 다시 만들지 않게 */
+    var demoTtIds={}, realTtIds={};
+    try{
+      if(typeof timetables!=='undefined'&&Array.isArray(timetables)){
+        var _ttKept=timetables.filter(function(tt){
+          if(_isDemoTimetable(tt)){ if(tt&&tt.id!=null)demoTtIds[String(tt.id)]=1; return false; }
+          if(tt&&tt.id!=null)realTtIds[String(tt.id)]=1;
+          return true;
+        });
+        if(_ttKept.length!==timetables.length){
+          report.timetables=timetables.length-_ttKept.length;
+          timetables=_ttKept; /* 메모리만 먼저 교체 — 저장(재조정)은 할일 정리·tombstone 뒤에 */
+        }
+      }
+    }catch(_tte){}
+    /* 할일: 데모 할일 + 데모 시간표 수업(고아 포함) */
     try{
       if(typeof tasks!=='undefined'&&Array.isArray(tasks)){
         var demoEids=[];
-        var kept=tasks.filter(function(t){ if(_isDemoTask(t)){if(t._eid)demoEids.push(t._eid);return false;}return true; });
+        var kept=tasks.filter(function(t){
+          var demo=false;
+          if(_isDemoTask(t)){ demo=true; report.tasks++; }
+          else if(_isDemoTimetableTask(t,demoTtIds,realTtIds)){ demo=true; report.timetableTasks++; }
+          if(!demo)return true;
+          var eid=(t._eid)||((t.id!=null&&String(t.id)!=='')?('t_'+String(t.id)):'');
+          if(eid)demoEids.push(eid);
+          return false;
+        });
         if(kept.length!==tasks.length){
-          tasks=kept; changed=true;
+          tasks=kept;
           if(demoEids.length&&typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(demoEids,'tasks');
           if(typeof saveTaskData==='function')saveTaskData();
         }
       }
     }catch(_te){}
-    /* Hobby items */
+    /* 데모 수업을 모두 tombstone한 뒤에 시간표 저장 → 재조정이 tombstone 없이 지우는 일 없음 */
+    try{ if(report.timetables&&typeof saveTimetables==='function')saveTimetables(); }catch(_tts){}
+    /* 취미 */
     try{
       var _rawHobby=localStorage.getItem('hobby_items_v2');
       if(_rawHobby){
         var _hobbyArr=JSON.parse(_rawHobby)||[];
         if(Array.isArray(_hobbyArr)){
           var _hobbyEids=[];
-          var _hobbyKept=_hobbyArr.filter(function(h){ if(h&&DEMO_HOBBY_IDS[h.id]){if(h._eid)_hobbyEids.push(h._eid);return false;}return true; });
+          var _hobbyKept=_hobbyArr.filter(function(h){ if(h&&DEMO_HOBBY_TEXTS[h.id]&&h.text===DEMO_HOBBY_TEXTS[h.id]){ if(h._eid)_hobbyEids.push(h._eid); return false; } return true; });
           if(_hobbyKept.length!==_hobbyArr.length){
-            changed=true;
+            report.hobby=_hobbyArr.length-_hobbyKept.length;
             if(_hobbyEids.length&&typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(_hobbyEids,'hobby');
             setReturnStorageItem('hobby_items_v2',JSON.stringify(_hobbyKept));
           }
         }
       }
     }catch(_he){}
-    /* Timetables — only remove if the timetable name is exactly '2026년 1학기' */
-    try{
-      if(typeof timetables!=='undefined'&&Array.isArray(timetables)){
-        var _ttKept=timetables.filter(function(tt){ return !tt||tt.name!=='2026년 1학기'; });
-        if(_ttKept.length!==timetables.length){
-          timetables=_ttKept; changed=true;
-          if(typeof saveTimetables==='function')saveTimetables();
-        }
-      }
-    }catch(_tte){}
-    /* Routine habits */
+    /* 루틴 — 한 번도 체크 안 한 데모 습관만(써 본 습관은 사용자 것으로 존중) */
+    var _routineChanged=false;
     try{
       if(typeof routineHabits!=='undefined'&&Array.isArray(routineHabits)){
         var _rhEids=[];
-        var _rhKept=routineHabits.filter(function(h){ if(h&&DEMO_ROUTINE_HABIT_IDS[h.id]){if(h._eid)_rhEids.push(h._eid);return false;}return true; });
+        var _rhKept=routineHabits.filter(function(h){
+          if(h&&DEMO_ROUTINE_HABITS[h.id]&&h.title===DEMO_ROUTINE_HABITS[h.id]&&!_demoHabitHasLogs(h.id)){ if(h._eid)_rhEids.push(h._eid); return false; }
+          return true;
+        });
         if(_rhKept.length!==routineHabits.length){
-          routineHabits=_rhKept; changed=true;
+          report.habits=routineHabits.length-_rhKept.length;
+          routineHabits=_rhKept; _routineChanged=true;
           if(_rhEids.length&&typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(_rhEids,'routineHabits');
         }
       }
     }catch(_rhe){}
-    /* Routine bundles */
     try{
       if(typeof routineBundles!=='undefined'&&Array.isArray(routineBundles)){
         var _rbEids=[];
-        var _rbKept=routineBundles.filter(function(b){ if(b&&DEMO_ROUTINE_BUNDLE_IDS[b.id]){if(b._eid)_rbEids.push(b._eid);return false;}return true; });
+        var _liveHabit={}; (typeof routineHabits!=='undefined'&&Array.isArray(routineHabits)?routineHabits:[]).forEach(function(h){ if(h&&h.id!=null)_liveHabit[String(h.id)]=1; });
+        var _rbKept=routineBundles.filter(function(b){
+          if(!(b&&DEMO_ROUTINE_BUNDLES[b.id]&&b.title===DEMO_ROUTINE_BUNDLES[b.id]))return true;
+          /* 번들에 남은 습관이 하나라도 실제로 살아 있으면(사용자가 쓰는 중) 보존 */
+          var stillUsed=(Array.isArray(b.habitIds)?b.habitIds:[]).some(function(id){ return _liveHabit[String(id)]; });
+          if(stillUsed)return true;
+          if(b._eid)_rbEids.push(b._eid);
+          return false;
+        });
         if(_rbKept.length!==routineBundles.length){
-          routineBundles=_rbKept; changed=true;
+          report.bundles=routineBundles.length-_rbKept.length;
+          routineBundles=_rbKept; _routineChanged=true;
           if(_rbEids.length&&typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(_rbEids,'routineBundles');
         }
       }
     }catch(_rbe){}
-    /* Save routines together if anything changed */
-    try{
-      if(changed&&(typeof routineHabits!=='undefined'||typeof routineBundles!=='undefined')){
-        if(typeof saveRoutineData==='function')saveRoutineData();
-      }
-    }catch(_rse){}
-    /* Mark done even if nothing was found — demo items may already be gone */
+    try{ if(_routineChanged&&typeof saveRoutineData==='function')saveRoutineData(); }catch(_rse){}
+    /* 정리할 게 없었어도 완료 표시 — 데모가 이미 없을 수 있음 */
     try{ localStorage.setItem(DEMO_CLEANUP_KEY,'1'); }catch(_){}
+    try{ window.__returnDemoCleanupReport=report; if(report.tasks||report.timetables||report.timetableTasks||report.hobby||report.habits||report.bundles)console.info('[demo-cleanup v2]',report); }catch(_){}
   }catch(e){}
 }
 /* Sample tasks */
@@ -24929,8 +25068,13 @@ function reconcileTimetableTasks(opts){
     }
     next.push(t);
   });
+  /* 사용자가 지웠거나 '완료 정리'로 비운 수업 회차(generation suppression)는 다시
+     만들지 않는다. 결정적 id(tt_+hash)라 재생성본은 updatedAt이 새로워 tombstone도
+     못 막고, 과거 회차가 '미완료'로 대량 부활했다(재설치·다른 기기 동기화 직후 특히). */
+  var _ttSupp=(typeof loadGeneratedTaskSuppressions==='function')?(loadGeneratedTaskSuppressions()||{}):{};
   expectedKeys.forEach(function(k){
     if(byKey[k])return;
+    if(_ttSupp[k])return;
     var exp=Object.assign({},expected[k],{createdAt:Date.now(),updatedAt:Date.now()});
     next.push(exp);
     changed++;
@@ -26472,14 +26616,14 @@ function renderByCategory(container,vt){
     var cid = catDef.id;
     if(cid==='project'){
       var pOverdue=(selDate===TK&&(activeCat==='all'||activeCat==='project'))?tasks.filter(function(t){
-        return t&&!t.done&&!t._travelOnly&&taskEffectiveCatId(t)==='project'&&t.date&&t.date<TK;
+        return t&&!t.done&&!t._travelOnly&&!t._isTt&&taskEffectiveCatId(t)==='project'&&t.date&&t.date<TK;
       }).length:0;
       renderProjectSection(container, cg['project'] || [], pOverdue); return;
     }
     var cat=getCat(cid);
     var items=orderTaskSubset(cg[cid] || []);
     var overdueCnt=(selDate===TK&&(activeCat==='all'||activeCat===cid))?tasks.filter(function(t){
-      return t&&!t.done&&!t._travelOnly&&taskEffectiveCatId(t)===cid&&t.date&&t.date<TK;
+      return t&&!t.done&&!t._travelOnly&&!t._isTt&&taskEffectiveCatId(t)===cid&&t.date&&t.date<TK;
     }).length:0;
     renderSection(container,cat.emoji+' '+cat.label,items,false,cid,overdueCnt);
   });
@@ -40905,6 +41049,22 @@ function fbApplyData(data){
        flags. Blobs written before this fix may still carry them; skip on apply so
        a cloud value of e.g. 'entity' cannot re-enable entity mode on reload. */
     var _fbApplySkip = {'return_sync_model': true};
+    /* 삭제 기록(tombstone) 레지스트리는 다른 키보다 먼저 합집합 병합해 둔다 — 키 순회
+       순서와 무관하게 아래 task/routine 병합이 '다른 기기에서 지운 것'을 보게 하기 위함.
+       덮어쓰기 금지(합집합). 로컬에만 있던 기록이 있으면 다시 푸시해 클라우드도 수렴시킨다. */
+    if(Object.prototype.hasOwnProperty.call(data.keys,'return_tombstones_v1')&&typeof returnTombstoneMergeStr==='function'){
+      _fbApplySkip['return_tombstones_v1']=true;
+      try{
+        var _tbm=returnTombstoneMergeStr(data.keys['return_tombstones_v1'], localStorage.getItem('return_tombstones_v1'));
+        if(_tbm){
+          if(_tbm.value!==localStorage.getItem('return_tombstones_v1'))_fbWriter('return_tombstones_v1',_tbm.value);
+          if(_tbm.addedVsCloud>0)taskUnionMergeAfterFbApply=true;
+        }else{
+          _fbApplySkip['return_tombstones_v1']=false;
+        }
+      }catch(_tbe){ _fbApplySkip['return_tombstones_v1']=false; }
+      if(typeof returnTombstoneInvalidate==='function')returnTombstoneInvalidate();
+    }
     /* Stale full-blob docs written before a key was excluded from
        shouldFbSyncKey (e.g. gcal_cfg_v1, diary_notion_cfg, groq_api_key —
        these now sync via the dedicated settings/main doc with their own
@@ -42068,6 +42228,9 @@ async function fbSaveNow(opts){
             }
           }catch(_dko2){}
         }
+        if(k==='return_tombstones_v1'&&typeof returnTombstoneMergeStr==='function'){
+          try{ var _snTb=returnTombstoneMergeStr(cloud.fullValue, ours); if(_snTb)valueToAbsorb=_snTb.value; }catch(_tb2){}
+        }
         if(k==='repeat_suppressions_v1'||k==='generated_task_suppressions_v1'){
           try{
             var _snCloudSupp=JSON.parse(cloud.fullValue||'{}')||{};
@@ -42106,6 +42269,7 @@ async function fbSaveNow(opts){
           if (prev !== valueToAbsorb) {
             _applyingFbData = true;
             try { _rawSetItem(k, valueToAbsorb); } finally { _applyingFbData = false; }
+            if(k==='return_tombstones_v1'&&typeof returnTombstoneInvalidate==='function')returnTombstoneInvalidate();
             absorbedToLocal.push(k);
           }
         } catch(e){ console.error('[fb] absorb cloud→local failed for key "'+k+'":', e); }
@@ -42114,7 +42278,7 @@ async function fbSaveNow(opts){
            it on the next save — propagating our local-only items/images to cloud. */
         if(_fbLastPushedSnapshot !== null) _fbLastPushedSnapshot[k] = cloud.fullValue;
         /* For union-merge keys, push the merged value outbound. */
-        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1' || k==='hobby_items_v2' || k==='memos_v5') && valueToAbsorb !== cloud.fullValue){
+        if((k === MEDIA_SYNC_KEY || k==='task_items_v1' || k==='inbox_v1' || k==='projects_v1' || k==='diary_entries_v1' || k==='routine_logs_v1' || k==='diary_tracker_values_v1' || k==='recharge_energy' || k==='repeat_suppressions_v1' || k==='generated_task_suppressions_v1' || k==='return_tombstones_v1' || k==='hobby_items_v2' || k==='memos_v5') && valueToAbsorb !== cloud.fullValue){
           ourKeysToWrite[k] = valueToAbsorb;
         } else {
           preservedFromCloud.push(k);
@@ -42143,6 +42307,7 @@ async function fbSaveNow(opts){
           if (prev !== cloud.fullValue) {
             _applyingFbData = true;
             try { _rawSetItem(k, cloud.fullValue); } finally { _applyingFbData = false; }
+            if(k==='return_tombstones_v1'&&typeof returnTombstoneInvalidate==='function')returnTombstoneInvalidate();
             absorbedToLocal.push(k);
           }
         } catch(e){ console.error('[fb] absorb cloud-only key "'+k+'" to local failed:', e); }
@@ -46811,14 +46976,21 @@ function clearDone() {
        않는다 — 취소 기록을 남긴다(내부적으로 done=true여도 제외). */
     var removed = items.filter(function(t){ return t && t.done && !t.canceled; });
     items = items.filter(function(t){ return !t.done || t.canceled; });
+    /* 생성 회차(반복·규칙 준비·시간표 수업)는 생성기가 '빈 슬롯'으로 보고 즉시 다시
+       만든다 — 결정적 id + 새 updatedAt이라 tombstone도 못 막아 '미완료'로 부활했다.
+       쓰기(동기화 트리거) 전에 generation suppression부터 남긴다. 반복 '규칙'은 건드리지
+       않는다(noteGeneratedTaskDeleted는 원본 삭제 시 규칙까지 지우므로 쓰지 않음). */
+    if(removed.length && typeof suppressGeneratedTasks === 'function'){
+      try{ suppressGeneratedTasks(removed, 'cleared'); }catch(_e){}
+    }
+    /* user 삭제 → tombstone (완료 할일 일괄 삭제가 다른 기기에서 되살아나지 않게) */
+    if(removed.length && typeof returnTombstoneMarkMany === 'function'){
+      try{ returnTombstoneMarkMany(removed.map(function(t){ return t._eid||('t_'+String(t.id)); }),'tasks'); }catch(_e){}
+    }
     setReturnStorageItem('task_items_v1', JSON.stringify(items));
     /* Clean up Google Calendar events and eventMeta for deleted done tasks */
     if(removed.length && typeof gcalQueueTaskEventDeletion === 'function'){
       removed.forEach(function(t){ try{ gcalQueueTaskEventDeletion(t); }catch(_e){} });
-    }
-    /* user 삭제 → tombstone (완료 할일 일괄 삭제가 다른 기기에서 되살아나지 않게) */
-    if(removed.length && typeof returnTombstoneMark === 'function'){
-      removed.forEach(function(t){ try{ returnTombstoneMark(t._eid||('t_'+String(t.id)),'tasks'); }catch(_e){} });
     }
     /* Keep in-memory tasks in sync (취소 항목은 유지) */
     if(typeof tasks !== 'undefined' && Array.isArray(tasks)){

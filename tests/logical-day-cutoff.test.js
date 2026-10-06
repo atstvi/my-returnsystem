@@ -7,7 +7,7 @@ const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
-const block = sliceBlock(html, 'var RETURN_DAY_CUTOFF_HOURS = 4;', '\n/* Whether hardcoded');
+const block = sliceBlock(html, 'var RETURN_DAY_CUTOFF_HOURS = 4;', '\n/* 샘플(데모) 데이터 시딩 허용 여부.');
 
 const sb = { Date };
 vm.createContext(sb);
