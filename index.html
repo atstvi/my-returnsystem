@@ -43352,9 +43352,11 @@ async function _runTaskArchive(){
   if(!cfg.auto) return 0;
   if(typeof tasks==='undefined'||!Array.isArray(tasks)) return 0;
   var cutoffMs=Date.now()-cfg.taskDays*86400000;
-  var toArchive=tasks.filter(function(t){
-    return t&&t.done&&(t.updatedAt||t.createdAt||0)<cutoffMs;
-  });
+  function eligible(t){ return !!(t&&t.done&&!t._travelOnly&&(t.updatedAt||t.createdAt||0)<cutoffMs); }
+  var toArchive=tasks.filter(eligible);
+  /* 계층 보존: 보관 대상이 아닌 하위 할일이 남는 상위는 보관하지 않는다(하위가 고아가 됨). */
+  var candIds={}; toArchive.forEach(function(t){ candIds[String(t.id)]=1; });
+  if(typeof taskChildren==='function')toArchive=toArchive.filter(function(t){ return !taskChildren(t.id).some(function(k){ return !candIds[String(k.id)]; }); });
   if(!toArchive.length) return 0;
   var successes=[];
   for(var i=0;i<toArchive.length;i++){
@@ -43362,15 +43364,21 @@ async function _runTaskArchive(){
     try{ await _archiveWrite('task:'+t.id, t); successes.push(t); }
     catch(e){ console.warn('[archive] task failed:',t.id,e&&e.message); }
   }
-  if(successes.length){
-    var removeIds={};
-    successes.forEach(function(t){ removeIds[String(t.id)]=1; });
-    for(var j=tasks.length-1;j>=0;j--){ if(tasks[j]&&removeIds[String(tasks[j].id)]) tasks.splice(j,1); }
-    if(typeof saveTaskData==='function'){ try{ saveTaskData(); }catch(_){} }
-    console.log('[archive] tasks: archived '+successes.length);
-    _updateArchiveStatusUI();
-  }
-  return successes.length;
+  if(!successes.length) return 0;
+  /* 비우기는 '지금' 상태로 다시 판정 — await 동안 사용자가 완료를 풀었거나 고친 항목(=더 이상
+     보관 대상 아님)은 남긴다. 원격 적용으로 객체가 바뀌었어도 id로 현재 객체를 찾는다. */
+  var removed=[];
+  successes.forEach(function(t){ var cur=(typeof _taskById==='function')?_taskById(t.id):t; if(eligible(cur)&&removed.indexOf(cur)<0)removed.push(cur); });
+  if(!removed.length) return 0;
+  /* 생성 회차(시간표 수업·반복·규칙 준비)는 억제를 남겨야 재조정이 '미완료'로 다시 만들지
+     않는다 — 시간표는 학기 전체(최대 365일)를 생성하므로 90일 지난 완료 수업이 보관되면
+     곧바로 미완료로 부활했다. */
+  try{ if(typeof suppressGeneratedTasks==='function')suppressGeneratedTasks(removed,'archived'); }catch(_e){}
+  tasks=tasks.filter(function(x){ return removed.indexOf(x)<0; });
+  if(typeof saveTaskData==='function'){ try{ saveTaskData(); }catch(_){} }
+  console.log('[archive] tasks: archived '+removed.length);
+  _updateArchiveStatusUI();
+  return removed.length;
 }
 
 /* Routine logs({날짜:{습관id:{state…}}}): hot 보존 기간(ROUTINE_LOG_HOT_DAYS)보다 오래된
