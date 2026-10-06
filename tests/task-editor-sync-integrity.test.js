@@ -36,10 +36,22 @@ const dupOut = ctx.returnAdoptTasksInPlace([X], [{ id: 11, text:'p' }, { id: 11,
 t.ok('중복 id 안전', dupOut[0] === X && dupOut[1] !== X && dupOut[1].text === 'q');
 
 // 3) 배선
-t.ok('원격 적용 재적재가 제자리 갱신 사용', /tasks=returnAdoptTasksInPlace\(tasks, remoteTasks\);/.test(html));
-t.ok('버전 복원·부팅 재수화도 동일', (html.match(/tasks=\(typeof returnAdoptTasksInPlace==='function'\)\?returnAdoptTasksInPlace\(tasks, rt\):rt;/g) || []).length === 2);
+t.ok('원격 적용 재적재가 제자리 갱신 사용', /tasks=returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(remoteTasks\)\);/.test(html));
+t.ok('버전 복원·부팅 재수화도 동일', (html.match(/tasks=\(typeof returnAdoptTasksInPlace==='function'\)\?returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(rt\)\):rt;/g) || []).length === 2);
 const closeFn = sliceBlock(html, 'function tasksCloseModal(){', '\nfunction closeModal(){');
 t.ok('닫기(취소)는 저장소 값 기준으로 되돌림', /_persisted=\(JSON\.parse\(localStorage\.getItem\('task_items_v1'\)\|\|'\[\]'\)\|\|\[\]\)\.find\(/.test(closeFn) && /var _base=_persisted\|\|taskModalSnapshot/.test(closeFn));
 t.ok('되돌림도 제자리(참조 유지)', /returnAdoptValueInPlace\(_live,_base\)/.test(closeFn));
 t.ok('열 때 스냅샷을 그대로 덮어쓰지 않음', !/tasks\[idx\]=taskModalSnapshot;/.test(closeFn));
+
+// 4) 깨진 할일 데이터 정리(경계): null 항목 하나로 목록 렌더가 통째로 실패하던 문제
+const sanBlock = sliceBlock(html, 'function returnSanitizeTaskArray(arr){', '\nfunction _taskById(id){');
+const sctx = { Array, Date, console:{ warn(){} } }; vm.createContext(sctx); vm.runInContext(sanBlock, sctx);
+const okArr = [{ id:1 }, { id:2 }];
+t.ok('정상 배열은 같은 배열 그대로(참조 유지)', sctx.returnSanitizeTaskArray(okArr) === okArr);
+const fixed = sctx.returnSanitizeTaskArray([{ id:1 }, null, 42, 'x', [1], { text:'id 없음' }, { id:3, subs:'bad', prepItems:{} }]);
+t.ok('비객체 항목 제거', fixed.length === 3, fixed.length);
+t.ok('id 없는 항목에 id 부여', typeof fixed[1].id === 'string' && fixed[1].id.indexOf('t_fix_') === 0);
+t.ok('subs/prepItems 배열 보정', Array.isArray(fixed[2].subs) && Array.isArray(fixed[2].prepItems));
+t.ok('배열이 아니면 빈 배열', Array.isArray(sctx.returnSanitizeTaskArray(null)) && sctx.returnSanitizeTaskArray({}).length === 0);
+t.ok('경계 배선: 초기 로드·원격 적용·저장', /tasks = returnSanitizeTaskArray\(storedTasks\);/.test(html) && /function saveTaskData\(\)\{\s*tasks=returnSanitizeTaskArray\(tasks\);/.test(html));
 t.done();

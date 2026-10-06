@@ -20405,7 +20405,7 @@ function returnRehydrateOverflowedState(){
     if(!hit) return false;
     try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','rehydrating overflowed synced keys after IDB ready'); }catch(_e){}
     /* tasks (inline load; no dedicated reload fn) */
-    try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, rt):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'idbRehydrate'}); } }catch(_e){}
+    try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, returnSanitizeTaskArray(rt)):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'idbRehydrate'}); } }catch(_e){}
     try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
     try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
     try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
@@ -20622,7 +20622,7 @@ function returnReloadMemoryFromStorage(){
      캡처를 잠시 억제(복원 자체는 하나의 동작). */
   var _prevUR=(typeof _undoRestoring!=='undefined')?_undoRestoring:false; try{ _undoRestoring=true; }catch(_e){}
   try{
-  try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, rt):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'versionRestore'}); } }catch(_e){}
+  try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, returnSanitizeTaskArray(rt)):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'versionRestore'}); } }catch(_e){}
   try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
   try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
   try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
@@ -24540,7 +24540,7 @@ var tasks = [
 ];
 try {
   var storedTasks = JSON.parse(localStorage.getItem('task_items_v1') || 'null');
-  if (Array.isArray(storedTasks) && storedTasks.length) tasks = storedTasks;
+  if (Array.isArray(storedTasks) && storedTasks.length) tasks = returnSanitizeTaskArray(storedTasks);
   else if (!returnAllowSampleSeed()) tasks = []; /* cloud user pre-load: show nothing rather than demo */
 } catch(e) {}
 function normalizeTimetableTaskCategories(){
@@ -24878,6 +24878,24 @@ function orderTaskSubset(list){
    하위 할일도 자체 날짜·카테고리·배지를 가진 진짜 '할일'이며, 목록·달력에서는
    상위 할일 아래에 들여쓰기로 접혀 보인다(목표 하위와 동일한 개념). 목표(goalId)
    그룹과는 상호배타 — 하위로 넣으면 goalId를 비운다. */
+/* 할일 배열 구조 정리 — 저장소/클라우드에서 들어온 값이 깨져 있어도(null·숫자·문자열 항목,
+   id 없음, subs/prepItems가 배열 아님) 앱 전체가 멈추지 않게 경계에서 고친다. 예전엔 null
+   항목 하나로 목록 렌더(renderList)가 예외를 던져 할일 화면 전체가 안 그려졌고, 저장하면
+   그대로 다시 퍼졌다. 정상 배열이면 같은 배열을 그대로 돌려준다(객체 참조 유지). */
+function returnSanitizeTaskArray(arr){
+  if(!Array.isArray(arr))return [];
+  var dropped=0, seq=0, stamp=Date.now().toString(36);
+  for(var i=0;i<arr.length;i++){
+    var t=arr[i];
+    if(!t||typeof t!=='object'||Array.isArray(t)){ dropped++; continue; }
+    if(t.id==null||t.id==='')t.id='t_fix_'+stamp+'_'+(seq++);
+    if(t.subs!=null&&!Array.isArray(t.subs))t.subs=[];
+    if(t.prepItems!=null&&!Array.isArray(t.prepItems))t.prepItems=[];
+  }
+  if(!dropped)return arr;
+  try{ console.warn('[tasks] dropped '+dropped+' malformed task entr'+(dropped>1?'ies':'y')); }catch(_e){}
+  return arr.filter(function(t){ return t&&typeof t==='object'&&!Array.isArray(t); });
+}
 function _taskById(id){ if(id==null||typeof tasks==='undefined')return null; for(var i=0;i<tasks.length;i++){ if(tasks[i]&&String(tasks[i].id)===String(id))return tasks[i]; } return null; }
 /* 저장소에서 다시 읽은 할일 배열로 교체할 때, 같은 id의 '기존 객체'를 살려 내용만 새 값으로
    맞춘다(새 배열의 순서·구성은 그대로). 원격 적용·버전 복원이 tasks를 통째로 새 객체로
@@ -25013,6 +25031,7 @@ function taskDayQuotaDone(task,dateKey){
   return dayKids.length>0 && dayKids.every(function(t){return taskEffectiveDone(t);});
 }
 function saveTaskData(){
+  tasks=returnSanitizeTaskArray(tasks);
   if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'saveTaskData'});
   else if(typeof cleanupInvalidRepeatGeneratedTasks==='function')cleanupInvalidRepeatGeneratedTasks(true);
   normalizeTimetableTaskCategories();
@@ -41214,7 +41233,7 @@ function fbApplyData(data){
     try {
       var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
       if(Array.isArray(remoteTasks)){
-        tasks=returnAdoptTasksInPlace(tasks, remoteTasks); /* 편집 중 객체 참조 유지 */
+        tasks=returnAdoptTasksInPlace(tasks, returnSanitizeTaskArray(remoteTasks)); /* 깨진 항목 정리 + 편집 중 객체 참조 유지 */
         if(tasks.some(function(t){return t&&t._order!=null;}))tasks.sort(function(a,b){return taskOrderValue(a,0)-taskOrderValue(b,0);});
         normalizeTaskOrder();
         if(typeof repairGeneratedTasks==='function'){
