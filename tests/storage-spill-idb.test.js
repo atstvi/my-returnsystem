@@ -14,6 +14,9 @@ const t = runner('저장공간 텍스트 데이터 IDB 스필');
 const block = sliceBlock(html,
   'async function returnSpillDataToIdb(targetPct){',
   'window.returnSpillDataToIdb=returnSpillDataToIdb;');
+const moveBlock = sliceBlock(html,
+  'async function _returnMoveKeyToIdb(k){',
+  '\nasync function returnSpillDataToIdb(');
 
 function makeCtx(){
   const store = {};
@@ -32,6 +35,8 @@ function makeCtx(){
       removeItem: (k) => { delete store[k]; },
     },
     _idbSet: (k,v) => new Promise((res)=>{ _idbCache[k]=v; res(); }),
+    _idbDelete: (k) => { delete _idbCache[k]; },
+    Storage: { prototype: { getItem: function(k){ return this.getItem(k); } } },
     /* usedPct = localStorage 크기 기준(5MB). removeItem 하면 즉시 내려간다. */
     returnStorageReport: () => {
       let total=0; Object.keys(store).forEach(k=>{ total+=(k.length+String(store[k]).length)*2; });
@@ -40,6 +45,7 @@ function makeCtx(){
     __store: store, __idbCache: _idbCache, __win: win,
   };
   vm.createContext(ctx);
+  vm.runInContext(moveBlock, ctx);
   vm.runInContext(block, ctx);
   return ctx;
 }

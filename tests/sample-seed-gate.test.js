@@ -9,9 +9,15 @@
    BEFORE fbApplyData pulled the real cloud data. The demo items then propagated
    to every device and never went away.
 
-   Fix: returnAllowSampleSeed() gates every seed path. It permits seeding only
-   for explicit local-only users, or after the cloud has been loaded once
-   (_fb_loaded_once, set at the end of fbApplyData). */
+   Fix: returnAllowSampleSeed() gates every seed path.
+
+   v2 ("앱 재설치 후 예전 할일이 뭉텅이로 미완료 + 추가한 적 없는 기본 할일"): the
+   gate used to ALLOW seeding once _fb_loaded_once was set. On a reinstalled device
+   the 2nd fbApplyData (onSnapshot) then saw an empty timetable/routine/hobby for a
+   user who simply doesn't use those features and seeded the demo — the demo
+   timetable generated ~79 past class sessions (all undone) that synced to every
+   device. A cloud account must NEVER be seeded: only an explicit local-only user
+   who has never loaded cloud data gets sample data. */
 
 const { readIndex, sliceBlock, runner } = require('./lib');
 const vm = require('vm');
@@ -47,17 +53,23 @@ const r = runner('Sample/demo seed gate (returnAllowSampleSeed)');
 /* ── Fresh cloud device, cloud not yet loaded → MUST NOT seed ── */
 r.ok('fresh device (nothing set) → no seed', allow({}) === false, allow({}));
 
-/* ── Cloud has been loaded once → seeding allowed (cloud was genuinely empty) ── */
-r.ok('after cloud loaded once → seed allowed',
-  allow({ '_fb_loaded_once': '1' }) === true);
+/* ── Cloud has been loaded once → NEVER seed (empty area = feature unused) ── */
+r.ok('after cloud loaded once → no seed (cloud account)',
+  allow({ '_fb_loaded_once': '1' }) === false, allow({ '_fb_loaded_once': '1' }));
 
-/* ── Explicit local-only user → seeding allowed even without cloud load ── */
+/* ── Explicit local-only user → seeding allowed (never touched cloud) ── */
 r.ok('explicit local-only user → seed allowed',
   allow({ '_fb_local_only': '1' }) === true);
 
-/* ── local-only takes precedence regardless of loaded flag ── */
-r.ok('local-only + not loaded → seed allowed',
-  allow({ '_fb_local_only': '1' }) === true);
+/* ── local-only flag on a device that has loaded cloud data → no seed ── */
+r.ok('local-only + cloud loaded once → no seed',
+  allow({ '_fb_local_only': '1', '_fb_loaded_once': '1' }) === false);
+
+/* ── Every seed site goes through the gate ── */
+r.ok('task demo seed gated', /else if \(!returnAllowSampleSeed\(\)\) tasks = \[\];/.test(html));
+r.ok('timetable demo seed gated', /if \(!timetables\.length && typeof returnAllowSampleSeed==='function' && returnAllowSampleSeed\(\)\)/.test(html));
+r.ok('hobby demo seed gated', /if \(!items\.length && cats\.length && typeof returnAllowSampleSeed==='function' && returnAllowSampleSeed\(\)\)/.test(html));
+r.ok('routine demo seed gated', /typeof returnAllowSampleSeed==='function'&&returnAllowSampleSeed\(\)\)seedRoutineData\(\);/.test(html));
 
 /* ── Defensive: a throwing localStorage must fail closed (no seed) ── */
 {

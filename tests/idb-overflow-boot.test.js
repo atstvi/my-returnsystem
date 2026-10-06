@@ -24,7 +24,7 @@ t.ok('동기화 컬렉션 키 목록', /var RETURN_SYNC_COLLECTION_KEYS=\['task_
 // ── 재수화 ──
 t.ok('returnRehydrateOverflowedState 정의', /function returnRehydrateOverflowedState\(\)\{/.test(html));
 t.ok('overflow된 키가 있을 때만 재수화', /RETURN_SYNC_COLLECTION_KEYS\.some\(function\(k\)\{ return Object\.prototype\.hasOwnProperty\.call\(_idbCache,k\); \}\)/.test(html));
-t.ok('tasks 재수화', /var rt=JSON\.parse\(localStorage\.getItem\('task_items_v1'\)\|\|'null'\); if\(Array\.isArray\(rt\)&&typeof tasks!=='undefined'\)\{ tasks=rt;/.test(html));
+t.ok('tasks 재수화(기존 객체 참조 유지)', /var rt=JSON\.parse\(localStorage\.getItem\('task_items_v1'\)\|\|'null'\); if\(Array\.isArray\(rt\)&&typeof tasks!=='undefined'\)\{ tasks=\(typeof returnAdoptTasksInPlace==='function'\)\?returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(rt\)\):rt;/.test(html));
 
 // ── settle 처리 ──
 t.ok('_idbMarkSettled 정의 + 저장 플러시', /function _idbMarkSettled\(\)\{ if\(_idbInitSettled\)return; _idbInitSettled=true;[\s\S]*?fbSaveAll\(\)/.test(html));

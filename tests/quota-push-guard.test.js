@@ -35,7 +35,7 @@ t.ok('usedPct 막대 + 퍼센트 표시', /width:'\+Math\.min\(100,pct\)\+'%/.te
 t.ok('정리 시 인라인 이미지 MediaStore 이동', /if\(typeof diaryMigrateInlineImagesToMediaStore==='function'\)\{ imgMoved=\(await diaryMigrateInlineImagesToMediaStore\(\)\)\|\|0; \}/.test(html));
 // ── 큰 미디어 키를 IDB로 압축(실제 localStorage 확보) ──
 t.ok('returnCompactMediaToIdb 정의+노출', /async function returnCompactMediaToIdb\(\)\{/.test(html) && /window\.returnCompactMediaToIdb=returnCompactMediaToIdb;/.test(html));
-t.ok('미디어/이미지 키를 _idbSet으로 IDB 이동 + localStorage 제거', /await _idbSet\(ck,cv\); try\{ localStorage\.removeItem\(ck\); \}catch\(_e\)\{\}/.test(html));
+t.ok('미디어/이미지 키를 안전 이동 헬퍼로 IDB 이동 + localStorage 제거', /var r=await _returnMoveKeyToIdb\(ck\);/.test(html) && /await _idbSet\(k, v\);\s*if\(raw\(\)!==v\)[\s\S]{0,200}?localStorage\.removeItem\(k\)/.test(html));
 t.ok('미디어 매니페스트·테마·스티커·배너 대상', /var mediaKeys=\{ 'return_media_sync_v1':1[\s\S]*?'global_stickers_v1':1[\s\S]*?'home_banner_v1':1/.test(html));
 t.ok('정리에서 압축 먼저 실행', /compacted=await returnCompactMediaToIdb\(\)\|\|compacted;/.test(html));
 

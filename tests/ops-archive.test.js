@@ -16,7 +16,9 @@ t.ok('ops 카드 overflow 해제(스크롤 클리핑 방지)', /\.ops-modal \.ho
 // 생성 제외
 t.ok('보관 반복은 생성 대상 제외', /loadRepeatItems\(\)\.forEach\(function\(rep\)\{\s*if\(!rep\|\|!rep\.id\)return;\s*if\(rep\.archived\)return;/.test(html));
 t.ok('보관 규칙은 생성 대상 제외', /loadTaskRules\(\)\.forEach\(function\(rule\)\{\s*if\(!rule\|\|!rule\.id\|\|!rule\.taskText\)return;\s*if\(rule\.archived\)return;/.test(html));
-t.ok('applyActiveTaskRules도 보관 규칙 건너뜀', /rules\.forEach\(function\(rule\)\{\s*if\(!rule\.taskText\)return;\s*if\(rule\.archived\)return;/.test(html));
+/* applyActiveTaskRules는 reconcileGeneratedTasks 래퍼라 위 생성기(buildExpectedGeneratedMap)의
+   보관 규칙 제외를 그대로 따른다(예전 단언이 보던 별도 본문은 실행되지 않는 죽은 코드였음). */
+t.ok('applyActiveTaskRules도 보관 규칙 건너뜀(생성기 공유)', /applyActiveTaskRules=function\(\)\{return reconcileGeneratedTasks\(\{source:'applyActiveTaskRules'\}\);\};/.test(html));
 
 // 보관/복원 함수
 t.ok('archiveHomeRule: archived=true + 대기 정리 + reconcile', /function archiveHomeRule\(id\)\{[\s\S]*?r\.archived=true;[\s\S]*?tasks=tasks\.filter\(function\(t\)\{return t\._ruleId!==id\|\|t\.done;\}\);[\s\S]*?reconcileGeneratedTasks/.test(html));

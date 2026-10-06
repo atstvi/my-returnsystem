@@ -56,14 +56,37 @@ const noAnchor = fromTask({ id: 8, text: '기념일', date: '2026-07-09',
   _repeatId: 'ri_task_8', _repeat: { kind: 'yearly' } });
 t.ok('monthDay 기본값 = task.date의 일', noAnchor.monthDay === 9);
 
-// ── 소스 배선: repairGeneratedTasks가 삭제 대신 복원 분기를 탄다 ──
-t.ok('repair가 원본 판별 후 복원(삭제 tombstone 아닐 때만)',
-  /if\(repeatTaskIsHealableSource\(t\)&&!_srcTomb\)\{\s*rep=repeatRuleFromSourceTask\(t\);/.test(html));
-t.ok('복원 시 규칙을 repeats에 추가',
-  /repeats\.push\(rep\); repeatById\[String\(rep\.id\)\]=rep;/.test(html));
-t.ok('생성본(또는 삭제된 원본)은 삭제(else 분기)',
-  /\}else\{[\s\S]{0,200}changed\+\+;\s*action='removed missing repeat rule';/.test(html));
-t.ok('복원한 규칙을 setReturnStorageItem으로 저장(saveRepeatItems 재귀 회피)',
-  /if\(_healedRepeats\)\{\s*try\{ setReturnStorageItem\('repeat_items_v1',JSON\.stringify\(repeats\)\); \}/.test(html));
+// ── 실제 실행 경로 배선 ──
+// 예전 단언은 '실행되지 않는' 옛 repairGeneratedTasks 본문(나중에 reconcileGeneratedTasks
+// 래퍼로 덮어써짐)만 정규식으로 확인해, 치유가 실제로는 한 번도 돌지 않는데도 통과했다
+// (규칙 유실 시 생일 원본이 삭제됨 — Playwright로 재현). 이제 live 경로를 런타임으로 검증한다.
+t.ok('reconcileGeneratedTasks가 먼저 치유를 호출', /function reconcileGeneratedTasks\(opts\)\{\s*opts=opts\|\|\{\};\s*if\(typeof tasks==='undefined'\|\|!Array\.isArray\(tasks\)\)return 0;\s*try\{ healMissingRepeatRules\(\); \}catch\(_e\)\{\}/.test(html));
+t.ok('repairGeneratedTasks는 reconcile 래퍼(옛 본문 없음)', /repairGeneratedTasks=function\(opts\)\{return reconcileGeneratedTasks\(/.test(html) && !/function repairGeneratedTasks\(opts\)\{/.test(html));
+(function(){
+  const healBlock = sliceBlock(html, 'function healMissingRepeatRules(){', '\nfunction reconcileGeneratedTasks(opts){');
+  let stored = [];
+  const tombs = {};
+  const hctx = {
+    String, JSON,
+    repeatTaskIsHealableSource: ctx.repeatTaskIsHealableSource,
+    repeatRuleFromSourceTask: ctx.repeatRuleFromSourceTask,
+    loadRepeatItems: () => stored.slice(),
+    setReturnStorageItem: (k, v) => { if (k === 'repeat_items_v1') stored = JSON.parse(v); return true; },
+    returnTombstoneIsActive: (eid) => !!tombs[eid],
+    generatedRepairLog: () => {},
+    tasks: [
+      { id: 42, text:'엄마 생일', date:'2026-11-15', _repeatId:'ri_task_42', _repeat:{kind:'yearly',month:11,monthDay:15} }, // 규칙 유실 → 복원
+      { id: 43, text:'완료 원본', date:'2026-01-01', done:true, _repeatId:'ri_task_43', _repeat:{kind:'yearly'} },        // 완료 → 복원 안 함
+      { id: 44, text:'지운 원본', date:'2026-02-01', _repeatId:'ri_task_44', _repeat:{kind:'yearly'} },                   // tombstone → 복원 안 함
+      { id: 45.5, text:'생성본', date:'2027-11-15', _repeatId:'ri_task_42', occurrenceDate:'2027-11-15' },               // 생성본 → 대상 아님
+    ],
+  };
+  tombs['t_44'] = true;
+  vm.createContext(hctx); vm.runInContext(healBlock, hctx);
+  const n = hctx.healMissingRepeatRules();
+  const ids = stored.map(r => r.id).join(',');
+  t.ok('규칙 유실된 미완료 원본만 복원', n === 1 && ids === 'ri_task_42', ids);
+  t.ok('있는 규칙은 중복 복원 안 함', hctx.healMissingRepeatRules() === 0 && stored.length === 1);
+})();
 
 t.done();

@@ -55,7 +55,8 @@ t.ok('프로젝트 삭제 캐스케이드 tombstone',
   /프로젝트 삭제로 함께 지워지는 할일도 tombstone/.test(html));
 // 완료 일괄 삭제도 tombstone
 t.ok('clearDone가 지운 완료 항목 tombstone',
-  /removed\.forEach\(function\(t\)\{ try\{ returnTombstoneMark\(t\._eid\|\|\('t_'\+String\(t\.id\)\),'tasks'\)/.test(html));
+  /returnRemoveTasks\(\(typeof tasks!=='undefined'&&Array\.isArray\(tasks\)\?tasks:\[\]\)\.filter\(_isClearableDone\), 'cleared'\);/.test(html)
+  && /function returnRemoveTasks\(list, reason\)\{[\s\S]*?returnTombstoneMarkMany\(list\.map\(function\(t\)\{ return t\._eid\|\|\('t_'\+String\(t\.id\)\); \}\),'tasks'\)/.test(html));
 
 // union-merge 게이트 예외 + 백필
 t.ok('게이트: 보호 항목은 세션-나이와 무관하게 보존',
@@ -64,10 +65,11 @@ t.ok('merge 전 tasks _eid 결정적 백필',
   /if\(k==='task_items_v1'&&typeof returnEntityBackfillIds==='function'\)\{ try\{ returnEntityBackfillIds\(_ddArr,'t_'\);/.test(html));
 
 // heal이 tombstone(삭제)보다 우선하지 않게
+/* (live 경로: healMissingRepeatRules — 옛 repairGeneratedTasks 본문은 실행되지 않아 제거됨) */
 t.ok('heal 전 원본 tombstone 확인',
-  /var _srcTomb=\(typeof returnTombstoneIsActive==='function'\)&&returnTombstoneIsActive\(t\._eid\|\|\('t_'\+String\(t\.id\)\),t\.updatedAt\);/.test(html));
-t.ok('삭제가 최신이면 heal 안 함',
-  /if\(repeatTaskIsHealableSource\(t\)&&!_srcTomb\)\{/.test(html));
+  /function healMissingRepeatRules\(\)\{[\s\S]*?if\(typeof returnTombstoneIsActive==='function'&&returnTombstoneIsActive\(t\._eid\|\|\('t_'\+String\(t\.id\)\),t\.updatedAt\)\)return;/.test(html));
+t.ok('삭제가 최신이면 heal 안 함(완료 원본도 제외)',
+  /if\(!t\|\|t\.done\|\|!repeatTaskIsHealableSource\(t\)\|\|have\[String\(t\._repeatId\)\]\)return;/.test(html));
 
 // 반복 원본 삭제 시 규칙도 제거(생성본 재생성으로 '되살아남' 방지)
 t.ok('원본 삭제 시 규칙 제거 배선',

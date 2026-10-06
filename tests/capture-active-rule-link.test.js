@@ -16,6 +16,8 @@ t.ok('_commitCaptureTask: 추가 직후 applyActiveTaskRules 호출', /function 
 // 연결 판정이 정/역방향 소스 id를 본다(회귀 기준)
 t.ok('연결 판정: _ruleSourceId/deadlineId/sourceTaskId 매칭', /if\(String\(t\.deadlineId\|\|''\)===tid\|\|String\(t\.sourceTaskId\|\|''\)===tid\|\|String\(t\._ruleSourceId\|\|''\)===tid\)return true;/.test(html));
 // 규칙 생성 태스크가 소스 마감을 가리킨다(회귀 기준)
-t.ok('규칙 생성 태스크가 소스 마감 id로 연결', /_ruleSourceId:sourceId[\s\S]{0,80}?_generationKey:genKey/.test(html) || /deadlineId:src\?String\(src\.id\):''[\s\S]*?_ruleSourceId:sourceId/.test(html));
+/* live 생성기(buildRuleExpected → reconcileGeneratedTasks) 기준. 예전 단언은 실행되지 않는
+   옛 applyActiveTaskRules 본문을 보고 있었다(덮어써져 죽은 코드 → 제거됨). */
+t.ok('규칙 생성 태스크가 소스 마감 id로 연결', /function buildRuleExpected\(rule, occ, sourceTask, sourceTaskId\)\{[\s\S]*?deadlineId:sourceTask\?String\(sourceTask\.id\):''/.test(html) && /applyActiveTaskRules=function\(\)\{return reconcileGeneratedTasks\(/.test(html));
 
 t.done();
