@@ -20694,7 +20694,7 @@ function returnRehydrateOverflowedState(){
     if(!hit) return false;
     try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','rehydrating overflowed synced keys after IDB ready'); }catch(_e){}
     /* tasks (inline load; no dedicated reload fn) */
-    try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'idbRehydrate'}); } }catch(_e){}
+    try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, rt):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'idbRehydrate'}); } }catch(_e){}
     try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
     try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
     try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
@@ -20911,7 +20911,7 @@ function returnReloadMemoryFromStorage(){
      캡처를 잠시 억제(복원 자체는 하나의 동작). */
   var _prevUR=(typeof _undoRestoring!=='undefined')?_undoRestoring:false; try{ _undoRestoring=true; }catch(_e){}
   try{
-  try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'versionRestore'}); } }catch(_e){}
+  try{ var rt=JSON.parse(localStorage.getItem('task_items_v1')||'null'); if(Array.isArray(rt)&&typeof tasks!=='undefined'){ tasks=(typeof returnAdoptTasksInPlace==='function')?returnAdoptTasksInPlace(tasks, rt):rt; if(typeof normalizeTaskOrder==='function')normalizeTaskOrder(); if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'versionRestore'}); } }catch(_e){}
   try{ if(typeof CATS!=='undefined'){ var rc=JSON.parse(localStorage.getItem('task_cats_v1')||'null'); if(Array.isArray(rc)&&rc.length)CATS=rc; if(typeof ensureSpecialTaskCats==='function')ensureSpecialTaskCats(); } }catch(_e){}
   try{ if(typeof loadCats==='function')loadCats(); }catch(_e){}
   try{ if(typeof loadInboxItems==='function')loadInboxItems(); }catch(_e){}
@@ -25168,6 +25168,40 @@ function orderTaskSubset(list){
    상위 할일 아래에 들여쓰기로 접혀 보인다(목표 하위와 동일한 개념). 목표(goalId)
    그룹과는 상호배타 — 하위로 넣으면 goalId를 비운다. */
 function _taskById(id){ if(id==null||typeof tasks==='undefined')return null; for(var i=0;i<tasks.length;i++){ if(tasks[i]&&String(tasks[i].id)===String(id))return tasks[i]; } return null; }
+/* 저장소에서 다시 읽은 할일 배열로 교체할 때, 같은 id의 '기존 객체'를 살려 내용만 새 값으로
+   맞춘다(새 배열의 순서·구성은 그대로). 원격 적용·버전 복원이 tasks를 통째로 새 객체로
+   바꾸면, 열린 편집창·계획창 드래그·클로저가 쥔 옛 객체가 고아가 되어 그 뒤의 편집(하위 할일
+   체크·이미지·준비물 등)이 저장되는 배열에 없어서 조용히 사라졌다. 내용은 새 값과 동일하므로
+   병합 정책은 바뀌지 않는다. */
+/* 값 o를 n과 같은 내용으로 '제자리' 갱신하고 o를 돌려준다(배열·일반 객체는 재귀, 그 외 n).
+   편집창 클로저는 task.subs 같은 '중첩 배열'도 붙잡고 있어서 겉 객체만 살리면 부족하다. */
+function returnAdoptValueInPlace(o, n){
+  if(o===n)return o;
+  if(Array.isArray(o)&&Array.isArray(n)){
+    o.length=n.length;
+    for(var i=0;i<n.length;i++)o[i]=returnAdoptValueInPlace(o[i],n[i]);
+    return o;
+  }
+  if(o&&n&&typeof o==='object'&&typeof n==='object'&&!Array.isArray(o)&&!Array.isArray(n)){
+    Object.keys(o).forEach(function(p){ if(!Object.prototype.hasOwnProperty.call(n,p))delete o[p]; });
+    Object.keys(n).forEach(function(p){ o[p]=returnAdoptValueInPlace(o[p],n[p]); });
+    return o;
+  }
+  return n;
+}
+function returnAdoptTasksInPlace(oldArr, newArr){
+  if(!Array.isArray(newArr)||!Array.isArray(oldArr)||!oldArr.length)return newArr;
+  var byId={};
+  oldArr.forEach(function(o){ if(o&&typeof o==='object'&&o.id!=null&&!byId[String(o.id)])byId[String(o.id)]=o; });
+  var used={};
+  return newArr.map(function(n){
+    if(!n||typeof n!=='object'||n.id==null)return n;
+    var k=String(n.id), o=byId[k];
+    if(!o||o===n||used[k])return n;
+    used[k]=1;
+    return returnAdoptValueInPlace(o, n);
+  });
+}
 function taskParentOf(t){ if(!t||t.parentId==null||t.parentId==='')return null; var p=_taskById(t.parentId); return (p&&!p._travelOnly&&String(p.id)!==String(t.id))?p:null; }
 function taskIsNested(t){ return !!taskParentOf(t); }
 function taskChildren(id){ if(id==null||typeof tasks==='undefined')return []; return tasks.filter(function(t){ return t&&!t._travelOnly&&t.parentId!=null&&t.parentId!==''&&String(t.parentId)===String(id); }); }
@@ -28725,9 +28759,19 @@ function tasksCloseModal(){
   /* Remove any open scope picker so it doesn't linger after cancel/Escape. */
   var scopePicker=document.getElementById('repeat-scope-dialog');
   if(scopePicker)scopePicker.remove();
+  /* 취소: 이 편집창에서 '아직 저장 안 된' 변경만 되돌린다 — 기준은 열 때 스냅샷이 아니라
+     지금 저장소에 있는 값. 열 때 스냅샷으로 되돌리면 ① 편집창 안에서 즉시 저장된 하위 할일
+     체크·이미지 변경과 ② 열려 있는 동안 다른 기기에서 온 변경을 메모리에서만 되돌려(저장소와
+     어긋남) 다음 저장 때 그 되돌림이 영구 반영됐다(백드롭/ESC로 닫아도 같은 경로). */
   if(taskModalSnapshot&&editId!=null){
     var idx=tasks.findIndex(function(t){return String(t.id)===String(editId);});
-    if(idx>=0)tasks[idx]=taskModalSnapshot;
+    if(idx>=0){
+      var _persisted=null;
+      try{ _persisted=(JSON.parse(localStorage.getItem('task_items_v1')||'[]')||[]).find(function(t){return t&&String(t.id)===String(editId);})||null; }catch(_e){ _persisted=null; }
+      var _base=_persisted||taskModalSnapshot, _live=tasks[idx];
+      if(_live&&typeof _live==='object'&&typeof returnAdoptValueInPlace==='function')returnAdoptValueInPlace(_live,_base);
+      else tasks[idx]=_base;
+    }
   }
   taskModalSnapshot=null;
   taskModalDraft=null;
@@ -41476,7 +41520,7 @@ function fbApplyData(data){
     try {
       var remoteTasks=JSON.parse(localStorage.getItem('task_items_v1')||'null');
       if(Array.isArray(remoteTasks)){
-        tasks=remoteTasks;
+        tasks=returnAdoptTasksInPlace(tasks, remoteTasks); /* 편집 중 객체 참조 유지 */
         if(tasks.some(function(t){return t&&t._order!=null;}))tasks.sort(function(a,b){return taskOrderValue(a,0)-taskOrderValue(b,0);});
         normalizeTaskOrder();
         if(typeof repairGeneratedTasks==='function'){
