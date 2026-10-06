@@ -42078,6 +42078,18 @@ async function fbSaveNow(opts){
       catch(_cse){ try{console.warn('[fb] settings write failed (main save unaffected):',_cse&&_cse.message);}catch(_){} }
     }
 
+    /* 위 await(콜드 읽기·설정 쓰기, 수백 ms~수 초) 동안 사용자가 편집했거나 원격 적용
+       (fbApplyData)이 로컬을 바꿨을 수 있다. 첫 수집본으로 아래 absorb를 하면 병합값을
+       localStorage에 써서 그 사이 편집을 덮고, 적용 이전 값을 클라우드로 밀어 원격 변경을
+       되돌린다. 충돌 해결 직전에 다시 수집한다 — 여기서 absorb 루프 끝까지는 동기 구간이라
+       끼어들 수 없다. */
+    data=fbCollectData();
+    if(window.SyncManager&&!SyncManager.protectCloudOverwrite(data,cloudByKey,opts)){
+      setFbStatus('Firebase 저장 보류: 빈 로컬 데이터가 클라우드를 덮지 않도록 막았어요.','err');
+      try{if(typeof SyncManager.markIdle==='function')SyncManager.markIdle('protected-empty-overwrite');}catch(_e){}
+      return false;
+    }
+
     /* Conflict resolution. */
     var preservedFromCloud = []; // keys we did NOT overwrite
     var absorbedToLocal = [];    // keys we pulled into localStorage
@@ -42507,6 +42519,18 @@ async function fbSaveNow(opts){
       }
     }
     try{ if(window.SyncManager)SyncManager.markError(e); }catch(_e){}
+    /* 실패한 저장은 스스로 다시 시도해야 한다 — 예전엔 다음 편집·포그라운드 복귀가 없으면
+       로컬 변경이 클라우드에 영영 안 올라갔다(다른 기기는 모르는 상태로 계속 사용).
+       백오프 창이 있으면 그 끝에, 없으면 30초 뒤 한 번 예약(중복 예약 없음). */
+    try{
+      if(!window._fbBackoffRetryTimer){
+        var _retryIn=Math.max(30000, (_fbQuotaBackoffUntil||0)-Date.now()+500);
+        window._fbBackoffRetryTimer=setTimeout(function(){
+          window._fbBackoffRetryTimer=null;
+          try{ if(typeof fbSaveAll==='function')fbSaveAll(); }catch(_e){}
+        }, _retryIn);
+      }
+    }catch(_e){}
     return false;
   }finally{
     _fbSaveNowBusy=false;
