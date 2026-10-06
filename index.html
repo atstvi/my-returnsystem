@@ -20664,6 +20664,13 @@ if(!window.__staleQuotaKeys) window.__staleQuotaKeys = {};
    ─────────────────────────────────────────────────────────────────────────── */
 var _idbOverflow = null;
 var _idbCache = {};  // sync-readable mirror of IDB values
+/* 키별 localStorage 쓰기 세대(generation). _rawSetItem이 성공할 때마다 증가한다.
+   _idbSet은 시작 시점의 세대를 기억했다가 IDB 커밋이 끝났을 때 세대가 바뀌었으면(=그 사이
+   localStorage에 더 새 값이 써짐) 자기 값을 버린다. 패치된 getItem은 _idbCache를 우선하므로,
+   이 검사가 없으면 늦게 끝난 IDB 커밋이 방금 한 편집을 가리고(공간 정리가 그 뒤
+   localStorage를 지우면 영구 유실) — 백그라운드 저장공간 정리·오버플로 폴백의 실제 유실 경로. */
+var _idbWriteGen = {};
+function _idbBumpGen(key){ _idbWriteGen[key]=(_idbWriteGen[key]||0)+1; }
 var _idbReady = false;
 /* _idbInitSettled: true once we KNOW whether IDB-overflow exists and (if so)
    its keys are loaded into _idbCache + the getItem patch is installed — OR the
@@ -21393,12 +21400,21 @@ function _filterArchivedDiaryDates(entriesObj){
 }
 
 function _idbSet(key, value){
+  var gen=_idbWriteGen[key]||0;
   return new Promise(function(resolve, reject){
     if(!_idbOverflow){ reject(new Error('idb not ready')); return; }
     try {
       var tx = _idbOverflow.transaction('kv','readwrite');
       var req = tx.objectStore('kv').put(value, key);
-      tx.oncomplete = function(){ _idbCache[key] = value; resolve(); };
+      tx.oncomplete = function(){
+        if((_idbWriteGen[key]||0)!==gen){
+          /* 커밋 도중 localStorage에 더 새 값이 써졌다 → 이 사본은 스테일. 지우고 localStorage를 유일 사본으로. */
+          _idbDelete(key);
+          var sup=new Error('idb write superseded by a newer localStorage write'); sup.superseded=true;
+          reject(sup); return;
+        }
+        _idbCache[key] = value; resolve();
+      };
       tx.onerror = function(e){ reject(e); };
     } catch(e){ reject(e); }
   });
@@ -22099,6 +22115,7 @@ function setReturnStorageItem(key,value){
       /* Trigger sync after IDB commit so fbCollectData finds the updated _idbCache */
       _afterWriteSideEffects();
     }).catch(function(e2){
+      if(e2&&e2.superseded){ __storageHealthRecord({key:key,mode:'local',ok:true}); return; } /* 더 새 값이 localStorage에 안착 — 실패 아님 */
       if(typeof __markStaleQuota==='function')__markStaleQuota(key);
       __storageHealthRecord({key:key,mode:'failed',ok:false,idbWasPending:true,error:'idb-overflow: '+String(e2&&e2.message||e2)});
       console.error('[storage] IDB fallback also failed for key "'+key+'":', e2&&e2.message||e2);
@@ -42754,7 +42771,9 @@ function showFirebaseRulesHelp(){
   var cl=document.getElementById('fb-rules-close');
   if(cl) cl.addEventListener('click', function(){ ov.remove(); });
 }
-var _rawSetItem = localStorage.setItem.bind(localStorage);
+var _nativeSetItem = localStorage.setItem.bind(localStorage);
+/* 모든 앱 쓰기의 최종 관문 — 성공한 쓰기마다 IDB 쓰기 세대를 올린다(_idbSet 스테일 판정용). */
+var _rawSetItem = function(k, v){ _nativeSetItem(k, v); try{ if(typeof _idbBumpGen==='function')_idbBumpGen(k); }catch(_e){} };
 
 /* Storage health report — callable from the browser console as
    returnStorageReport() or returnStorageReport(true) to log a full breakdown.
@@ -42945,12 +42964,26 @@ async function returnCompactMediaToIdb(){
   }catch(e){}
   var moved=0, freed=0;
   for(var j=0;j<cands.length;j++){
-    var ck=cands[j][0], cv=cands[j][1];
-    try{ await _idbSet(ck,cv); try{ localStorage.removeItem(ck); }catch(_e){} moved++; freed+=(ck.length+cv.length)*2; }catch(e){}
+    var ck=cands[j][0];
+    try{ var r=await _returnMoveKeyToIdb(ck); if(r){ moved++; freed+=r; } }catch(e){}
   }
   return { moved:moved, freedKB:Math.round(freed/1024) };
 }
 window.returnCompactMediaToIdb=returnCompactMediaToIdb;
+/* localStorage 키 하나를 IDB 오버플로로 '안전하게' 옮긴다. 값은 후보 수집 시점이 아니라
+   지금(이동 직전) 원시 localStorage에서 다시 읽는다 — 앞선 키를 옮기는 await 동안 사용자가
+   이 키를 고쳤을 수 있어서. _idbSet이 커밋 중 새 쓰기를 감지하면 거절(superseded)하므로
+   localStorage를 지우지 않는다. 커밋 직후에도 원시 값이 그대로일 때만 localStorage에서 지운다.
+   반환: 확보한 바이트 수(0 = 옮기지 않음). */
+async function _returnMoveKeyToIdb(k){
+  var raw=function(){ try{ return Storage.prototype.getItem.call(localStorage, k); }catch(_e){ return null; } };
+  var v=raw();
+  if(v==null)return 0;
+  await _idbSet(k, v);
+  if(raw()!==v){ try{ _idbDelete(k); }catch(_e){} return 0; } /* 방어: 이론상 _idbSet이 먼저 거절함 */
+  try{ localStorage.removeItem(k); }catch(_e){}
+  return (k.length+v.length)*2;
+}
 /* 큰 '텍스트' 동기화 데이터를 IDB 오버플로로 옮겨 localStorage를 실제로 비운다.
    returnCompactMediaToIdb는 미디어/base64만 옮기므로, 일기·루틴로그·메모처럼 순수
    텍스트가 쌓인 기기에선 정리 결과가 0%가 된다 → usedPct가 안 내려가 quota PUSH가
@@ -42985,8 +43018,9 @@ async function returnSpillDataToIdb(targetPct){
   var moved=0, freed=0;
   for(var j=0;j<cands.length;j++){
     if(pctNow() <= targetPct) break;                 /* 목표 사용률 도달 → 중단(불필요한 이동 방지) */
-    var ck=cands[j][0], cv=cands[j][1];
-    try{ await _idbSet(ck,cv); try{ localStorage.removeItem(ck); }catch(_e){} moved++; freed+=(ck.length+cv.length)*2; }catch(_e){}
+    var ck=cands[j][0];
+    if(stale[ck]) continue;
+    try{ var r=await _returnMoveKeyToIdb(ck); if(r){ moved++; freed+=r; } }catch(_e){}
   }
   return { moved:moved, freedKB:Math.round(freed/1024) };
 }
