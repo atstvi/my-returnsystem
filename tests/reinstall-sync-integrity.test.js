@@ -55,7 +55,7 @@ const t = runner('재설치·다기기 동기화 무결성(완료 정리 부활�
 
 // ── 1b) clearDone: 억제 → tombstone → 쓰기 순서, 취소 항목 보존 ──
 (function(){
-  const block = sliceBlock(html, 'function clearDone() {', '\nfunction clearAllData() {');
+  const block = sliceBlock(html, 'function clearDone() {', '\n/* ── 지난 자동 생성 정리');
   const order = [];
   const items = [
     { id:'tt_a', _isTt:true, done:true, date:'2026-09-07' },
@@ -182,5 +182,45 @@ t.ok('무효화 헬퍼', /function returnTombstoneInvalidate\(\)\{ _tombstones=n
 t.ok('홈 밀린 할일 칩: 수업 제외', /var _overdue=\(tasks\|\|\[\]\)\.filter\(function\(t\)\{return t&&!t\.done&&!t\._travelOnly&&!t\._isTt&&t\.date&&t\.date<TK;\}\)\.length;/.test(html));
 t.ok('밀린 할일 오늘로: 수업은 안 옮김', /if\(!t\|\|t\.done\|\|!t\.date\|\|t\.date>=TK\|\|t\._travelOnly\|\|t\._isTt\)return;/.test(html));
 t.ok('할일 섹션 밀림 배지: 수업 제외(카테고리·프로젝트)', (html.match(/!t\.done&&!t\._travelOnly&&!t\._isTt&&taskEffectiveCatId\(t\)===/g) || []).length === 2);
+
+// ── 7) 이미 섞인 '지난 미완료 자동 생성분' 정리 도구 ──
+(function(){
+  const block = sliceBlock(html, 'function returnStaleGeneratedScan(todayKey){', 'window.returnStaleGeneratedScan=returnStaleGeneratedScan;');
+  const order = [];
+  const ctx = {
+    Array, String, JSON, TK:'2026-10-06',
+    isGeneratedOccurrenceTask: function(t){ return !!(t._isTt || t._repeatId || t._ruleGen); },
+    generatedCanonicalType: function(t){ return t._repeatId ? 'repeat' : (t._ruleGen ? 'rule' : ''); },
+    taskChildren: function(id){ return ctx.tasks.filter(function(x){ return String(x.parentId) === String(id); }); },
+    suppressGeneratedTasks: function(l){ order.push('suppress:'+l.length); return l.length; },
+    returnTombstoneMarkMany: function(e){ order.push('tomb:'+e.length); return e.length; },
+    gcalQueueTaskEventDeletion: function(){},
+    saveTaskData: function(){ order.push('save'); return true; },
+    tasks: [
+      { id:'tt1', _isTt:true, date:'2026-09-07', done:false },                 /* 후보 */
+      { id:'tt2', _isTt:true, date:'2026-09-14', done:true },                  /* 완료 → 제외 */
+      { id:'tt3', _isTt:true, date:'2026-09-21', done:false, userModifiedDate:true }, /* 사용자가 옮김 → 제외 */
+      { id:'tt4', _isTt:true, date:'2026-09-28', done:false, prepItems:[{done:true}] }, /* 진행 중 → 제외 */
+      { id:'tt5', _isTt:true, date:'2026-10-06', done:false },                 /* 오늘 → 제외 */
+      { id:'r1', _repeatId:'ri', date:'2026-09-29', done:false },              /* 후보(반복) */
+      { id:'p1', _ruleGen:true, date:'2026-09-01', done:false },               /* 후보(규칙) */
+      { id:'p2', _ruleGen:true, date:'2026-09-02', done:false },
+      { id:'kid', parentId:'p2', text:'하위', date:'2026-09-02', done:false }, /* p2는 하위 있음 → 제외 */
+      { id:'c1', _isTt:true, date:'2026-09-01', done:false, canceled:true },   /* 취소 → 제외 */
+      { id:555, text:'진짜 놓친 할일', date:'2026-09-30', done:false },        /* 생성 아님 → 제외 */
+    ],
+  };
+  vm.createContext(ctx); vm.runInContext(block, ctx);
+  const sc = ctx.returnStaleGeneratedScan();
+  const ids = function(a){ return a.map(function(x){ return x.id; }).join(','); };
+  t.ok('정리 후보: 손대지 않은 지난 미완료 수업만', ids(sc.timetable) === 'tt1', ids(sc.timetable));
+  t.ok('정리 후보: 반복', ids(sc.repeat) === 'r1', ids(sc.repeat));
+  t.ok('정리 후보: 규칙 준비(하위 있는 것 제외)', ids(sc.rule) === 'p1', ids(sc.rule));
+  const n = ctx.returnStaleGeneratedRemove(sc.timetable.concat(sc.rule));
+  t.ok('정리: 선택분만 제거', n === 2 && !ctx.tasks.some(function(x){ return x.id === 'tt1' || x.id === 'p1'; }) && ctx.tasks.some(function(x){ return x.id === 'r1'; }) && ctx.tasks.some(function(x){ return x.id === 555; }));
+  t.ok('정리: 억제·tombstone → 저장 순서(다른 기기 재생성 방지)', order.join('|') === 'suppress:2|tomb:2|save', order.join('|'));
+})();
+t.ok('설정 데이터 관리에 정리 버튼', /onclick="openStaleGeneratedCleanup\(\)"/.test(html));
+t.ok('정리 전 버전 스냅샷', /returnSnapshotNow\(\{reason:'before-stale-cleanup',force:true\}\)/.test(html));
 
 t.done();

@@ -12282,6 +12282,11 @@ to{opacity:1;transform:translateY(0)}}
             <span class="da-label">완료 할일 정리</span>
             <span class="da-desc">완료된 할일을 모두 삭제해요</span>
           </button>
+          <button class="data-action" onclick="openStaleGeneratedCleanup()">
+            <span class="da-icon">🧹</span>
+            <span class="da-label">지난 자동 생성 정리</span>
+            <span class="da-desc">지난 날짜에 미완료로 남은 시간표 수업·반복·준비 할일을 골라 정리해요</span>
+          </button>
           <button class="data-action danger" onclick="clearAllData()">
             <span class="da-icon">🗑</span>
             <span class="da-label">모든 기록 삭제</span>
@@ -47000,6 +47005,86 @@ function clearDone() {
     calcDataSize();
   } catch(e) {}
 }
+
+/* ── 지난 자동 생성 정리 — 이미 섞여 들어온 '미완료 부활분' 정리 도구 ─────────────────
+   예전 버그(완료 정리 후 재생성, 재설치 기기의 데모 시간표 등)로 지난 날짜에 미완료로
+   쌓인 '자동 생성' 회차(시간표 수업·반복·규칙 준비)는 진짜로 놓친 것과 데이터상 구별이
+   안 된다 → 자동 삭제하지 않고, 사용자가 종류별 개수·미리보기를 보고 골라서 지운다.
+   - 사용자가 손댄 항목은 후보에서 제외: 날짜를 직접 옮김(userModifiedDate), 체크리스트·
+     준비물 일부 완료, 하위 할일이 있음, 취소됨.
+   - 지운 회차는 generation suppression + tombstone → 어느 기기에서도 다시 생기지 않음.
+   - 실행 전 버전 기록 스냅샷(설정→버전 기록에서 복원) + 되돌리기(↶) 스택에도 잡힌다. */
+function returnStaleGeneratedScan(todayKey){
+  var tk=todayKey||TK, out={timetable:[],repeat:[],rule:[]};
+  (typeof tasks!=='undefined'&&Array.isArray(tasks)?tasks:[]).forEach(function(t){
+    if(!t||t.done||t.canceled||t._travelOnly)return;
+    var d=String(t.date||''); if(!d||d>=tk)return;
+    if(typeof isGeneratedOccurrenceTask!=='function'||!isGeneratedOccurrenceTask(t))return;
+    if(t.userModifiedDate)return;
+    if((Array.isArray(t.subs)?t.subs:[]).some(function(x){return x&&x.done;}))return;
+    if((Array.isArray(t.prepItems)?t.prepItems:[]).some(function(x){return x&&x.done;}))return;
+    if(typeof taskChildren==='function'&&taskChildren(t.id).length)return;
+    var type=(t._isTt||t.sourceType==='timetable')?'timetable':((typeof generatedCanonicalType==='function'&&generatedCanonicalType(t)==='repeat')?'repeat':'rule');
+    out[type].push(t);
+  });
+  ['timetable','repeat','rule'].forEach(function(k){ out[k].sort(function(a,b){ return String(a.date).localeCompare(String(b.date)); }); });
+  return out;
+}
+function returnStaleGeneratedRemove(list){
+  if(!Array.isArray(list)||!list.length||typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
+  /* 쓰기(동기화 트리거) 전에 억제·tombstone부터 — clearDone과 같은 순서 */
+  try{ if(typeof suppressGeneratedTasks==='function')suppressGeneratedTasks(list,'stale-cleanup'); }catch(_e){}
+  try{ if(typeof returnTombstoneMarkMany==='function')returnTombstoneMarkMany(list.map(function(t){ return t._eid||('t_'+String(t.id)); }),'tasks'); }catch(_e){}
+  var before=tasks.length;
+  tasks=tasks.filter(function(t){ return list.indexOf(t)<0; });
+  var n=before-tasks.length;
+  list.forEach(function(t){ try{ if(typeof gcalQueueTaskEventDeletion==='function')gcalQueueTaskEventDeletion(t); }catch(_e){} });
+  if(typeof saveTaskData==='function')saveTaskData();
+  else setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
+  return n;
+}
+window.returnStaleGeneratedScan=returnStaleGeneratedScan; window.returnStaleGeneratedRemove=returnStaleGeneratedRemove;
+function openStaleGeneratedCleanup(){
+  var scan=returnStaleGeneratedScan();
+  var groups=[['timetable','📅 지난 시간표 수업'],['repeat','🔁 지난 반복 할일'],['rule','🧩 지난 준비 할일(규칙)']];
+  var total=scan.timetable.length+scan.repeat.length+scan.rule.length;
+  if(!total){ showToast('정리할 지난 자동 생성 항목이 없어요 ✓'); return; }
+  function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function md(d){ d=String(d||''); return d.length>=10?(Number(d.slice(5,7))+'/'+Number(d.slice(8,10))):d; }
+  var old=document.getElementById('stale-gen-modal'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='stale-gen-modal';
+  var rows=groups.filter(function(g){ return scan[g[0]].length; }).map(function(g){
+    var arr=scan[g[0]];
+    var range=md(arr[0].date)+(arr.length>1?(' ~ '+md(arr[arr.length-1].date)):'');
+    var preview=arr.slice(0,6).map(function(t){ return '<li>'+esc(md(t.date))+' · '+esc(t.text||'(제목 없음)')+'</li>'; }).join('')+(arr.length>6?'<li>… 외 '+(arr.length-6)+'개</li>':'');
+    return '<label class="sg-group" style="display:block;padding:var(--sp-3);border:1px solid var(--line,rgba(127,127,127,.25));border-radius:10px;margin-bottom:var(--sp-2);cursor:pointer">'
+      +'<div style="display:flex;align-items:center;gap:8px"><input type="checkbox" data-sg="'+g[0]+'" checked> <b>'+g[1]+'</b> <span style="margin-left:auto;color:var(--fg-3)">'+arr.length+'개 · '+esc(range)+'</span></div>'
+      +'<ul style="margin:6px 0 0 26px;padding:0;color:var(--fg-2);font-size:.9em;line-height:1.5">'+preview+'</ul></label>';
+  }).join('');
+  ov.innerHTML='<div class="modal" style="max-width:520px"><div class="modal-head"><div class="modal-title">지난 자동 생성 정리</div></div>'
+    +'<div class="modal-body"><div class="field-help" style="margin-bottom:var(--sp-3)">지난 날짜에 <b>미완료</b>로 남은 자동 생성 항목이에요. 예전 동기화 문제로 다시 생긴 것들이 섞여 있을 수 있어요. 직접 손댄 항목(날짜 이동·체크리스트 진행·하위 할일)은 목록에서 뺐어요. 정리한 항목은 다른 기기에서도 다시 생기지 않아요. 실행 전 버전이 저장돼 설정 → 버전 기록에서 되돌릴 수 있어요.</div>'
+    +rows+'</div>'
+    +'<div class="modal-foot"><button class="btn btn-ghost" id="sg-cancel">취소</button><button class="btn btn-primary" id="sg-go">선택 항목 정리</button></div></div>';
+  document.body.appendChild(ov);
+  function close(){ ov.remove(); }
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
+  ov.querySelector('#sg-cancel').addEventListener('click',close);
+  ov.querySelector('#sg-go').addEventListener('click',function(){
+    var pick=[];
+    ov.querySelectorAll('[data-sg]').forEach(function(cb){ if(cb.checked)pick=pick.concat(scan[cb.getAttribute('data-sg')]||[]); });
+    if(!pick.length){ close(); return; }
+    var btn=this; btn.disabled=true;
+    var snap=(typeof returnSnapshotNow==='function')?returnSnapshotNow({reason:'before-stale-cleanup',force:true}):Promise.resolve(false);
+    Promise.resolve(snap).catch(function(){ return false; }).then(function(){
+      var n=returnStaleGeneratedRemove(pick);
+      close();
+      try{ if(typeof renderList==='function')renderList(); if(typeof renderCal==='function')renderCal(); }catch(_e){}
+      showToast(n+'개 정리했어요 ✓');
+      try{ calcDataSize(); }catch(_e){}
+    });
+  });
+}
+window.openStaleGeneratedCleanup=openStaleGeneratedCleanup;
 
 function clearAllData() {
   if (!confirm('정말 모든 기록을 삭제할까요? 이 작업은 복구할 수 없어요. 먼저 백업을 권장합니다.')) return;
