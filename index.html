@@ -15239,14 +15239,6 @@ function saveGeneratedTaskSuppressions(map){
   if(!ok)console.error('[repeat] saveGeneratedTaskSuppressions: storage write failed — suppression may re-generate on reload');
   return ok;
 }
-function generatedTaskKey(task){
-  if(!task)return '';
-  if(task.generationKey)return String(task.generationKey);
-  if(task._generationKey)return String(task._generationKey);
-  if(task._repeatId||task.repeatRuleId)return repeatGenerationKey({id:task.repeatRuleId||task._repeatId},task.occurrenceDate||task._repeatOccurrence||task.date);
-  if(task._ruleId||task.activeRuleId)return activeRuleGenerationKey(task.activeRuleId||task._ruleId,task.sourceTaskId||task._ruleSourceId||'',task.occurrenceDate||task.triggerDate||task.date);
-  return '';
-}
 function suppressGeneratedTask(task, reason){
   var key=generatedTaskKey(task);
   if(!key)return;
@@ -16241,39 +16233,6 @@ function renderHomeOpsPanel(){
   }
 }
 
-function hasRepeatToday(rep){
-  if (typeof tasks === 'undefined') return false;
-  return tasks.some(function(t){ return t._repeatId === rep.id && t.date === TK && !t.done; });
-}
-function repeatMatchesDate(rep, dkey){
-  if (rep.endDate && dkey > rep.endDate) return false;
-  if (rep.startDate && dkey < rep.startDate) return false;
-  var d = new Date(dkey + 'T00:00');
-  if ((rep.freq || 'daily') === 'daily') return true;
-  if (rep.freq === 'weekly') {
-    var map = {'일':0,'월':1,'화':2,'수':3,'목':4,'금':5,'토':6};
-    var raw = String(rep.weekdays || '').split(/[, ]+/).filter(Boolean);
-    if (!raw.length) return d.getDay() === new Date((rep.startDate || TK)+'T00:00').getDay();
-    return raw.some(function(x){ return (map[x] != null ? map[x] : parseInt(x,10)) === d.getDay(); });
-  }
-  if (rep.freq === 'monthly') return d.getDate() === (parseInt(rep.monthDay,10) || new Date((rep.startDate || TK)+'T00:00').getDate());
-  return true;
-}
-function generateRepeatTasks(rep, fromDate, days){
-  if (typeof tasks === 'undefined') return;
-  var base = new Date((fromDate || TK) + 'T00:00');
-  for (var i=0;i<=(days||0);i++){
-    var d = new Date(base); d.setDate(base.getDate()+i);
-    var dk = d.getFullYear()+'-'+tPad(d.getMonth()+1)+'-'+tPad(d.getDate());
-    if (!repeatMatchesDate(rep, dk)) continue;
-    if (tasks.some(function(t){ return t._repeatId === rep.id && t.date === dk; })) continue;
-    tasks.push({id:Date.now()+Math.random(),text:rep.text,catId:rep.catId||'etc',date:dk,priority:rep.priority||'',done:false,deadlineDate:'',deadlineId:'',timeStart:rep.timeStart||'',timeEnd:rep.timeEnd||'',note:rep.note||'반복 할일',subs:[],_repeatId:rep.id,_repeat:{kind:rep.freq},createdAt:Date.now(),updatedAt:Date.now()});
-  }
-  if(typeof saveTaskData==='function')saveTaskData();
-}
-function refreshRepeatTasks(){
-  loadRepeatItems().forEach(function(rep){ generateRepeatTasks(rep, TK, 21); });
-}
 
 hasRepeatToday=function(rep){
   if(typeof tasks==='undefined')return false;
@@ -16345,25 +16304,6 @@ function repeatYearlyOccurrences(rep, fromKey){
   return out;
 }
 window.repeatYearlyOccurrences=repeatYearlyOccurrences;
-generateRepeatTasks=function(rep,fromDate,days){
-  if(typeof tasks==='undefined'||!rep||!rep.id)return;
-  var baseKey=taskDateKeyLocal(fromDate)||taskTodayKeyLocal();
-  var suppressions=loadRepeatSuppressions();
-  var made=false;
-  for(var i=0;i<=(days||0);i++){
-    var dk=taskAddDaysKey(baseKey,i);
-    var key=repeatGenerationKey(rep,dk);
-    var match=repeatMatchesDate(rep,dk);
-    var suppressed=!!suppressions[key];
-    repeatDebugLog('candidate',{ruleId:rep.id,title:rep.text,startDate:rep.startDate,weekdays:rep.weekdays,interval:rep.interval||rep.every||rep.everyDays||1,candidate:dk,weekday:taskDateFromKey(dk)&&taskDateFromKey(dk).getDay(),match:match,suppressed:suppressed,occurrenceDate:dk,dueDate:dk,generationKey:key});
-    if(!match||suppressed)continue;
-    if(tasks.some(function(t){return t._repeatId===rep.id&&(t.date===dk||t._repeatOccurrence===dk||t._generationKey===key);}))continue;
-    tasks.push({id:Date.now()+Math.random(),text:rep.text,catId:rep.catId||'etc',date:dk,priority:rep.priority||'',done:false,deadlineDate:'',deadlineId:'',timeStart:rep.timeStart||'',timeEnd:rep.timeEnd||'',note:rep.note||'반복 할일',subs:[],sourceType:'repeat',repeatRuleId:rep.id,occurrenceDate:dk,generationKey:key,_repeatId:rep.id,_repeat:{kind:rep.freq},_repeatOccurrence:dk,_generationKey:key,createdAt:Date.now(),updatedAt:Date.now()});
-    made=true;
-  }
-  if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'generateRepeatTasks'});
-  if(made&&typeof saveTaskData==='function')saveTaskData();
-};
 function cleanupInvalidRepeatGeneratedTasks(skipSave){
   if(typeof repairGeneratedTasks==='function')return repairGeneratedTasks({skipSave:!!skipSave,source:'cleanupInvalidRepeatGeneratedTasks'});
   if(typeof tasks==='undefined')return 0;
@@ -16499,128 +16439,6 @@ function repeatRuleFromSourceTask(t){
 }
 window.repeatTaskIsHealableSource=repeatTaskIsHealableSource;
 window.repeatRuleFromSourceTask=repeatRuleFromSourceTask;
-function repairGeneratedTasks(opts){
-  opts=opts||{};
-  if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
-  var changed=0;
-  var repeats=loadRepeatItems(), repeatById={};
-  repeats.forEach(function(r){if(r&&r.id)repeatById[String(r.id)]=r;});
-  var rules=loadTaskRules(), ruleById={};
-  rules.forEach(function(r){if(r&&r.id)ruleById[String(r.id)]=r;});
-  var sourceById={};
-  tasks.forEach(function(t){if(t&&t.id!=null)sourceById[String(t.id)]=t;});
-  var suppressions=loadRepeatSuppressions();
-  var generatedSuppressions=typeof loadGeneratedTaskSuppressions==='function'?loadGeneratedTaskSuppressions():{};
-  var seen={};
-  var repaired=[];
-  var _healedRepeats=false;
-  tasks.forEach(function(t){
-    if(!t){return;}
-    var isRepeat=!!(t.sourceType==='repeat'||t._repeatId||t.repeatRuleId||t._repeatOccurrence);
-    var isRule=!!(t.sourceType==='activeRule'||t._ruleGen||t.activeRuleId);
-    if(!isRepeat&&!isRule){repaired.push(t);return;}
-    var expected='', key='', action='kept';
-    if(isRepeat){
-      var rid=String(t.repeatRuleId||t._repeatId||'');
-      var rep=repeatById[rid];
-      var keyDate='';
-      if((t.generationKey||t._generationKey)&&String(t.generationKey||t._generationKey).indexOf('|')>=0)keyDate=String(t.generationKey||t._generationKey).split('|').pop();
-      expected=taskDateKeyLocal(t.occurrenceDate||t._repeatOccurrence||keyDate||t.date);
-      if(!rep&&!generatedDateManuallyModified(t)&&!t.done){
-        /* 규칙이 없다 — 원본이면 '삭제'가 아니라 '규칙 유실'이므로(repeat_items_v1가
-           스테일 클라우드로 덮여 규칙만 사라지는 경우) 원본을 지우지 말고 규칙을
-           task에서 복원한다. 생성본(occurrence)만 삭제. → 생일이 통째로 사라지던 회귀. */
-        var _srcTomb=(typeof returnTombstoneIsActive==='function')&&returnTombstoneIsActive(t._eid||('t_'+String(t.id)),t.updatedAt);
-        if(repeatTaskIsHealableSource(t)&&!_srcTomb){
-          rep=repeatRuleFromSourceTask(t);
-          repeats.push(rep); repeatById[String(rep.id)]=rep; rid=String(rep.id);
-          _healedRepeats=true;
-          action='healed missing repeat rule';
-          generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-          /* 아래 정상 처리로 흐르게 둔다(rep 세팅됨) → task 보존 */
-        }else{
-          /* 원본이라도 삭제(tombstone)가 편집보다 최신이면 heal하지 않고 삭제 우선 —
-             한 기기에서 지운 생일이 다른 기기의 heal로 되살아나는 것 방지. */
-          changed++;
-          action='removed missing repeat rule';
-          generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-          return;
-        }
-      }
-      if(rep&&expected&&!repeatMatchesDate(rep,expected)){
-        if(!generatedDateManuallyModified(t)&&!t.done){
-          changed++;
-          action='removed invalid occurrence';
-          generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-          return;
-        }
-      }
-      key=repeatGenerationKey({id:rid},expected);
-      if((suppressions[key]||generatedSuppressions[key])&&!t.done&&!generatedDateManuallyModified(t)){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'repeat',ruleId:rid,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:action});return;}
-      t.sourceType='repeat';t.repeatRuleId=rid;t.occurrenceDate=expected;t.generationKey=key;t._repeatId=rid;t._repeatOccurrence=expected;t._generationKey=key;t._repeat=t._repeat||{kind:rep&&rep.freq};
-      if(expected&&taskDateKeyLocal(t.date)!==expected&&!generatedDateManuallyModified(t)){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
-    }else if(isRule){
-      var ruleId=String(t.activeRuleId||t._ruleId||'');
-      var rule=ruleById[ruleId];
-      var sourceId=inferActiveRuleSourceId(rule,t,sourceById);
-      var sourceIsWeekday=sourceId.indexOf('weekday:')===0;
-      var sourceTask=sourceIsWeekday?null:sourceById[sourceId];
-      if((!rule||(!sourceIsWeekday&&!sourceTask))&&!generatedDateManuallyModified(t)&&!t.done){
-        changed++;
-        action=!rule?'removed missing active rule':'removed missing source task';
-        generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:'',actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-        return;
-      }
-      if(rule&&!sourceIsWeekday&&sourceTask){
-        var matchText=String(rule.matchText||'').trim();
-        var stillMatches=!matchText||String(sourceTask.text||'').indexOf(matchText)>=0||String(sourceTask.note||'').indexOf(matchText)>=0;
-        var hasAnchor=!!(sourceTask.deadlineDate||sourceTask.date);
-        if((!stillMatches||!hasAnchor)&&!generatedDateManuallyModified(t)&&!t.done){
-          changed++;
-          action=!stillMatches?'removed source no longer matches':'removed source missing date';
-          generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:'',actualDueDate:t.date,generationKey:t.generationKey||t._generationKey,userModifiedDate:false,action:action});
-          return;
-        }
-      }
-      expected=expectedActiveRuleDate(rule,t,sourceById);
-      if(!expected)expected=taskDateKeyLocal(t.occurrenceDate||t.date);
-      key=activeRuleGenerationKey(ruleId,sourceId,expected);
-      if(generatedSuppressions[key]&&!generatedDateManuallyModified(t)&&!t.done){changed++;action='removed suppressed';generatedRepairLog({source:opts.source,sourceType:'activeRule',ruleId:ruleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:false,action:action});return;}
-      t.sourceType='activeRule';t.activeRuleId=ruleId;t.sourceTaskId=sourceId;t.occurrenceDate=expected;t.triggerDate=t.triggerDate||expected;t.generationKey=key;t._ruleId=ruleId;t._ruleGen=true;t._ruleSourceId=sourceId;
-      if(expected&&taskDateKeyLocal(t.date)!==expected&&!generatedDateManuallyModified(t)){t.date=expected;t.updatedAt=Date.now();changed++;action='date repaired';}
-    }
-    var mergeKey=key;
-    if(generatedDateManuallyModified(t)&&expected&&taskDateKeyLocal(t.date)!==expected)mergeKey=key+'|manual:'+taskDateKeyLocal(t.date);
-    if(mergeKey&&seen[mergeKey]){
-      mergeGeneratedTaskInto(seen[mergeKey],t);
-      changed++;
-      generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:'merged duplicate'});
-      return;
-    }
-    if(mergeKey)seen[mergeKey]=t;
-    generatedRepairLog({source:opts.source,sourceType:t.sourceType,ruleId:t.repeatRuleId||t.activeRuleId,taskId:t.id,expectedOccurrenceDate:expected,actualDueDate:t.date,generationKey:key,userModifiedDate:!!generatedDateManuallyModified(t),action:action});
-    repaired.push(t);
-  });
-  /* 복원한 반복 규칙을 저장한다 — saveRepeatItems가 아니라 setReturnStorageItem으로
-     직접 써서 repairGeneratedTasks 재귀를 피하고, 동기화 사이드이펙트로 클라우드에
-     규칙을 되민다(스테일 클라우드가 다시 덮어써도 이 기기가 계속 복원·재푸시). */
-  if(_healedRepeats){
-    try{ setReturnStorageItem('repeat_items_v1',JSON.stringify(repeats)); }catch(_e){}
-  }
-  if(changed){
-    tasks=repaired;
-    if(!opts.skipSave){
-      setReturnStorageItem('task_items_v1',JSON.stringify(tasks));
-    }
-  }
-  return changed;
-}
-refreshRepeatTasks=function(){
-  var today=taskTodayKeyLocal();
-  repairGeneratedTasks({source:'refreshRepeatTasks'});
-  loadRepeatItems().forEach(function(rep){generateRepeatTasks(rep,today,21);});
-  repairGeneratedTasks({source:'refreshRepeatTasks:afterGenerate'});
-};
 
 function editHomeRule(id){
   var rules = loadTaskRules();
@@ -16803,29 +16621,6 @@ function restoreHomeRepeat(id){
   renderHomeOpsPanel(); if(typeof homeToast==='function')homeToast('반복 할일을 다시 켰어요');
 }
 
-function applyActiveTaskRules(){
-  if (typeof tasks === 'undefined') return;
-  var rules = loadTaskRules();
-  if (!rules.length) return;
-  var made = false;
-  rules.forEach(function(rule){
-    var key = String(rule.matchText || '').trim();
-    if (!key) return;
-    tasks.slice().forEach(function(src){
-      if (src._ruleGen || src._repeatId || src._travelOnly) return;
-      if (String(src.text || '').indexOf(key) < 0) return;
-      var anchor = src.deadlineDate || src.date;
-      if (!anchor) return;
-      var d = new Date(anchor + 'T00:00');
-      d.setDate(d.getDate() - (parseInt(rule.offsetDays,10) || 0));
-      var dk = d.getFullYear()+'-'+tPad(d.getMonth()+1)+'-'+tPad(d.getDate());
-      if (tasks.some(function(t){ return t._ruleId === rule.id && t._ruleSourceId === src.id && t.date === dk; })) return;
-      tasks.push({id:Date.now()+Math.random(),text:rule.taskText,catId:rule.taskCatId||src.catId||'etc',date:dk,priority:rule.taskPriority||'mid',done:false,deadlineDate:src.deadlineDate||src.date,deadlineId:String(src.id),timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],_ruleId:rule.id,_ruleGen:true,_ruleSourceId:src.id,createdAt:Date.now(),updatedAt:Date.now()});
-      made = true;
-    });
-  });
-  if (made && typeof saveTaskData === 'function') saveTaskData();
-}
 
 function ruleWeekdayLabel(value){
   var names=['일','월','화','수','목','금','토'];
@@ -16900,63 +16695,6 @@ editHomeRule=function(id){
   });
 };
 
-applyActiveTaskRules=function(){
-  if(typeof tasks==='undefined')return;
-  var rules=loadTaskRules();
-  if(!rules.length)return;
-  var made=false;
-  var horizon=21;
-  var seen={};
-  tasks=tasks.filter(function(t){
-    if(!t||!t._ruleId)return true;
-    // Prune non-done generated tasks that belong to a rule whose endDate has passed.
-    var parentRule=rules.find(function(r){return r.id===t._ruleId;});
-    if(parentRule&&parentRule.endDate&&t.date>parentRule.endDate&&!t.done)return false;
-    var sig=[t._ruleId,t._ruleSourceId||'',t.date||'',t.deadlineDate||'',t.text||''].join('|');
-    if(seen[sig]&&!t.done)return false;
-    seen[sig]=true;
-    return true;
-  });
-  function addRuleTask(rule, dk, src){
-    if(rule.endDate && dk > rule.endDate) return;
-    if(rule.startDate && dk < rule.startDate) return;
-    var sourceId=src?String(src.id):('weekday:'+dk);
-    var deadline=(src&&(src.deadlineDate||src.date))||dk;
-    if(tasks.some(function(t){return t._ruleId===rule.id&&t._ruleSourceId===sourceId&&t.date===dk&&t.deadlineDate===deadline;}))return;
-    tasks.push({id:Date.now()+Math.random(),text:rule.taskText,catId:rule.taskCatId||(src&&src.catId)||'etc',date:dk,priority:rule.taskPriority||'',done:false,deadlineDate:deadline,deadlineId:src?String(src.id):'',timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],_ruleId:rule.id,_ruleGen:true,_ruleSourceId:sourceId,createdAt:Date.now(),updatedAt:Date.now()});
-    made=true;
-  }
-  rules.forEach(function(rule){
-    if(!rule.taskText)return;
-    if(rule.archived)return; /* 보관된 규칙은 자동 생성 안 함 */
-    var triggerType=rule.triggerType || (rule.weekdays ? 'weekday' : 'keyword');
-    var key=String(rule.matchText||'').trim();
-    if(triggerType==='keyword'&&key){
-      tasks.slice().forEach(function(src){
-        if(src._ruleGen||src._repeatId||src._travelOnly)return;
-        if(String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return;
-        var anchor=src.deadlineDate||src.date;
-        if(!anchor)return;
-        var d=new Date(anchor+'T00:00');
-        d.setDate(d.getDate()-(parseInt(rule.offsetDays,10)||0));
-        var dk=d.getFullYear()+'-'+tPad(d.getMonth()+1)+'-'+tPad(d.getDate());
-        addRuleTask(rule,dk,src);
-      });
-    }
-    var raw=String(rule.weekdays||'').split(/[, ]+/).filter(Boolean).map(function(x){return parseInt(x,10);}).filter(function(n){return n>=0&&n<=6;});
-    if(triggerType==='weekday'&&raw.length){
-      var base=new Date(TK+'T00:00');
-      for(var i=0;i<=horizon;i++){
-        var d2=new Date(base);d2.setDate(base.getDate()+i);
-        if(raw.indexOf(d2.getDay())<0)continue;
-        d2.setDate(d2.getDate()-(parseInt(rule.offsetDays,10)||0));
-        var dk2=d2.getFullYear()+'-'+tPad(d2.getMonth()+1)+'-'+tPad(d2.getDate());
-        addRuleTask(rule,dk2,null);
-      }
-    }
-  });
-  if(made&&typeof saveTaskData==='function')saveTaskData();
-};
 
 renderHomeOpsPanel=function(){
   var list=ensureHomeOpsPanel();
@@ -17200,62 +16938,6 @@ function openHomeRuleEditor(ruleId){
 }
 openHomeRuleModal=function(){openHomeRuleEditor(null);};
 editHomeRule=function(id){openHomeRuleEditor(id);};
-applyActiveTaskRules=function(){
-  if(typeof tasks==='undefined')return;
-  var rules=loadTaskRules();
-  if(!rules.length)return;
-  var made=false, removed=false, horizon=21, seen={};
-  var generatedSuppressions=typeof loadGeneratedTaskSuppressions==='function'?loadGeneratedTaskSuppressions():{};
-  tasks=tasks.filter(function(t){
-    if(!t||!t._ruleId)return true;
-    var sig=[t._ruleId,t._ruleSourceId||'',t.date||'',t.deadlineDate||'',t.text||''].join('|');
-    if(seen[sig]&&!t.done){removed=true;return false;}
-    seen[sig]=true;
-    return true;
-  });
-  function addRuleTask(rule, dk, src){
-    if(!ruleDateInRange(rule, dk))return;
-    var sourceId=src?String(src.id):('weekday:'+dk);
-    var deadline=(src&&(src.deadlineDate||src.date))||dk;
-    var genKey=activeRuleGenerationKey(rule.id,sourceId,dk);
-    if(generatedSuppressions[genKey])return;
-    if(tasks.some(function(t){return (t.generationKey===genKey||t._generationKey===genKey)||(t._ruleId===rule.id&&t._ruleSourceId===sourceId&&t.date===dk&&t.deadlineDate===deadline);})){return;}
-    tasks.push({id:Date.now()+Math.random(),text:rule.taskText,catId:rule.taskCatId||(src&&src.catId)||'etc',date:dk,priority:rule.taskPriority||'',done:false,deadlineDate:deadline,deadlineTime:(src&&src.deadlineTime)||'',deadlineId:src?String(src.id):'',timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],sourceType:'activeRule',activeRuleId:rule.id,sourceTaskId:sourceId,occurrenceDate:dk,triggerDate:dk,generationKey:genKey,_ruleId:rule.id,_ruleGen:true,_ruleSourceId:sourceId,_generationKey:genKey,createdAt:Date.now(),updatedAt:Date.now()});
-    made=true;
-  }
-  rules.forEach(function(rule){
-    if(!rule.taskText)return;
-    if(rule.archived)return; /* 보관된 규칙은 자동 생성 안 함 */
-    var triggerType=rule.triggerType || (rule.weekdays ? 'weekday' : 'keyword');
-    var key=String(rule.matchText||'').trim();
-    if(triggerType==='keyword'&&key){
-      tasks.slice().forEach(function(src){
-        if(src._ruleGen||src._repeatId||src._travelOnly)return;
-        if(String(src.text||'').indexOf(key)<0&&String(src.note||'').indexOf(key)<0)return;
-        var anchor=src.deadlineDate||src.date;
-        if(!anchor)return;
-        var dk=taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
-        addRuleTask(rule,dk,src);
-      });
-    }
-    var raw=String(rule.weekdays||'').split(/[, ]+/).filter(Boolean).map(function(x){return parseInt(x,10);}).filter(function(n){return n>=0&&n<=6;});
-    if(triggerType==='weekday'&&raw.length){
-      var base=taskDateFromKey(rule.startDate&&rule.startDate>TK?rule.startDate:TK);
-      if(!base)return;
-      var maxEnd=rule.endDate||'';
-      for(var i=0;i<=horizon;i++){
-        var d2=new Date(base);d2.setDate(base.getDate()+i);
-        var anchor=taskDateKeyLocal(d2);
-        if(maxEnd&&anchor>maxEnd)break;
-        if(raw.indexOf(d2.getDay())<0)continue;
-        var dk2=taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
-        addRuleTask(rule,dk2,null);
-      }
-    }
-  });
-  if(typeof repairGeneratedTasks==='function')repairGeneratedTasks({skipSave:true,source:'applyActiveTaskRules'});
-  if((made||removed)&&typeof saveTaskData==='function')saveTaskData();
-};
 
 /* Generated task reconciliation v2.
    Repeats/rules are sources; generated tasks are reconciled against expected
@@ -17511,9 +17193,34 @@ function createGeneratedTaskFromExpected(exp){
   normalizeGeneratedTaskMeta(base,exp);
   return base;
 }
+/* 반복 규칙 유실 자가 치유 — 반복 '원본'(id가 ri_task_+자기id인 미완료 할일)이 남아 있는데
+   규칙(repeat_items_v1)만 사라졌으면(스테일 동기화 등) 원본에서 규칙을 복원한다. 안 그러면
+   아래 reconcile이 원본을 '규칙 없는 생성본'으로 보고 지워 생일·기념일이 통째로 사라졌다.
+   (이 치유는 예전엔 실행되지 않는 옛 repairGeneratedTasks 본문에만 있었다.)
+   완료된 원본·삭제 tombstone이 더 최신인 원본은 복원하지 않는다 — 의도적 시리즈 삭제
+   (deleteHomeRepeat는 미완료 원본의 _repeatId를 지움)나 다른 기기의 삭제가 되살아나지 않게. */
+function healMissingRepeatRules(){
+  if(typeof tasks==='undefined'||!Array.isArray(tasks)||typeof repeatTaskIsHealableSource!=='function')return 0;
+  var reps=loadRepeatItems(), have={}, healed=0;
+  reps.forEach(function(r){ if(r&&r.id)have[String(r.id)]=1; });
+  tasks.forEach(function(t){
+    if(!t||t.done||!repeatTaskIsHealableSource(t)||have[String(t._repeatId)])return;
+    if(typeof returnTombstoneIsActive==='function'&&returnTombstoneIsActive(t._eid||('t_'+String(t.id)),t.updatedAt))return;
+    var rep=repeatRuleFromSourceTask(t);
+    if(!rep||!rep.id)return;
+    reps.push(rep); have[String(rep.id)]=1; healed++;
+  });
+  if(healed){
+    /* saveRepeatItems는 reconcile을 다시 부르므로(재귀) 직접 저장 */
+    try{ setReturnStorageItem('repeat_items_v1',JSON.stringify(reps)); }catch(_e){}
+    try{ generatedRepairLog({source:'healMissingRepeatRules',healed:healed}); }catch(_e){}
+  }
+  return healed;
+}
 function reconcileGeneratedTasks(opts){
   opts=opts||{};
   if(typeof tasks==='undefined'||!Array.isArray(tasks))return 0;
+  try{ healMissingRepeatRules(); }catch(_e){}
   var expected=buildExpectedGeneratedMap(opts);
   var genSuppressions=loadGeneratedTaskSuppressions();
   var changed=0, seen={}, next=[];
@@ -27257,25 +26964,6 @@ document.getElementById('btn-sel-mode').addEventListener('click',function(){
 
 function bulkDone(){tasks.forEach(function(t){if(selIds.has(t.id))t.done=true;});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
 function bulkUndone(){tasks.forEach(function(t){if(selIds.has(t.id))t.done=false;});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
-function bulkDelete(){
-  if(!selIds.size)return;
-  var n=selIds.size;
-  var run=function(){tasks=tasks.filter(function(t){return!selIds.has(t.id);});exitSelMode();renderCal();};
-  if(typeof openConfirmDialog==='function')openConfirmDialog('할일 삭제',n+'개 항목을 삭제할까요?',run,{danger:true,confirmText:'삭제'});
-  else if(confirm(n+'개 항목을 삭제할까요?'))run();
-}
-function bulkDeleteDone(){
-  var n=tasks.filter(function(t){return t.done&&t.date===selDate;}).length;
-  if(!n){alert('완료된 항목이 없어요.');return;}
-  var run=function(){tasks=tasks.filter(function(t){return!(t.done&&t.date===selDate);});renderList();renderCal();closeMoreMenu();};
-  if(typeof openConfirmDialog==='function')openConfirmDialog('완료 항목 삭제',n+'개 완료 항목을 삭제할까요?',run,{danger:true,confirmText:'삭제'});
-  else if(confirm(n+'개 완료 항목을 삭제할까요?'))run();
-}
-function bulkMoveDate(){
-  var d=prompt('이동할 날짜를 입력해주세요 (YYYY-MM-DD)',TK);
-  if(!d||!/^\d{4}-\d{2}-\d{2}$/.test(d)){alert('날짜 형식이 올바르지 않아요.');return;}
-  tasks.forEach(function(t){if(selIds.has(t.id))t.date=d;});exitSelMode();renderCal();
-}
 function moveAllPast(){
   var n=0;
   tasks.forEach(function(t){
