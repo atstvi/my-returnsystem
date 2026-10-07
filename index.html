@@ -1499,6 +1499,11 @@ button.sit-arc-item { cursor:pointer; }
 .plan-triage-opt .o-x{display:flex;flex-direction:column;gap:1px;min-width:0}
 .plan-triage-opt .o-t{font-size:var(--text-sm);font-weight:var(--fw-semibold);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-triage-opt .o-d{font-size:var(--text-2xs);color:var(--fg-4)}
+.plan-triage-quick{display:flex;gap:var(--sp-2);margin-top:var(--sp-4);flex-wrap:wrap}
+.ptq-btn{flex:1 1 0;min-width:96px;padding:var(--sp-3) var(--sp-2);border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-card);color:var(--fg-2);font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;white-space:nowrap}
+.ptq-btn:hover{border-color:var(--accent);color:var(--fg)}
+.ptq-btn.danger{color:var(--danger)}
+.ptq-btn.danger:hover{border-color:var(--danger)}
 .plan-triage-back{background:none;border:none;color:var(--fg-4);font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;padding:0;margin-bottom:var(--sp-2)}
 .plan-drag-ghost{position:fixed;z-index:3000;pointer-events:none;padding:6px 12px;border-radius:var(--r-md);background:var(--accent);color:var(--n-0,#fff);font-size:var(--text-sm);font-weight:var(--fw-bold);box-shadow:var(--elev-3);max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .plan-grid.drop-active{box-shadow:inset 0 0 0 2px var(--accent)}
@@ -17554,6 +17559,10 @@ function _planGoalReps(START,END){
        잡되 상한. 완료해도(미완료 0) 대표는 계속 보이게(완료 표시로 남긴다). */
     var timed=today.filter(_timed);
     if(!timed.length)return; /* 시간 있는 멤버가 전혀 없으면 타임라인 블록 못 만듦(종일 처리는 별도) */
+    /* 위치는 '미완료' 멤버 기준(위 원칙) — 완료한 이른 시각 멤버가 블록을 끌어올려, 지금 시간에
+       새로 넣은 할일(인박스→프로젝트 목표 등)이 엉뚱한 시각에 보이던 문제. 다 끝났으면 전체 기준. */
+    var _undoneTimed=timed.filter(function(x){ return !_md(x); });
+    if(_undoneTimed.length)timed=_undoneTimed;
     var sMin=null, eMax=null;
     timed.forEach(function(m){ var s=_planMins(m.timeStart), e=(/^\d{1,2}:\d{2}$/.test(String(m.timeEnd||''))?_planMins(m.timeEnd):_planMins(m.timeStart)+45); if(sMin==null||s<sMin)sMin=s; if(eMax==null||e>eMax)eMax=e; });
     if(sMin==null||sMin>=Math.min(END*60,1440)||eMax<=START*60)return;
@@ -18077,6 +18086,11 @@ function _planInboxTriage(id){
         +opt('pt-ptask','📁','프로젝트 할일','프로젝트를 골라 그 할일로')
         +opt('pt-plog','📝','프로젝트 로그','프로젝트 작업 로그로 기록')
         +opt('pt-pmat','📎','프로젝트 자료','프로젝트 보드에 자료로 저장')
+      +'</div>'
+      +'<div class="plan-triage-quick">'
+        +'<button type="button" class="ptq-btn" id="pt-unneed" title="인박스에 남기되 처리 필요 목록에서 뺌">✓ 처리 필요 해제</button>'
+        +'<button type="button" class="ptq-btn" id="pt-done" title="이 인박스 항목을 완료로">✔ 완료</button>'
+        +'<button type="button" class="ptq-btn danger" id="pt-del" title="인박스에서 삭제">🗑 삭제</button>'
       +'</div></div>'
       +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-open">인박스에서 열기</button><button type="button" class="btn btn-ghost" id="pt-cancel">취소</button></div></div>';
     ov.querySelector('#pt-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); tasks.unshift(mkTask({date:_planToday(),timeStart:ts,timeEnd:te})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=_planToday(); finish('오늘 '+ts+'에 배치했어요'); });
@@ -18086,6 +18100,19 @@ function _planInboxTriage(id){
     ov.querySelector('#pt-pmat').addEventListener('click',function(){ projPick('material'); });
     ov.querySelector('#pt-open').addEventListener('click',function(){ close(); if(typeof openInboxItemFromHome==='function'){ _planReturnPage='planner'; openInboxItemFromHome(id); } else if(typeof goPage==='function')goPage('inbox'); });
     ov.querySelector('#pt-cancel').addEventListener('click',close);
+    /* 빠른 처리: 처리 필요 해제(항목은 인박스에 남음) · 완료 · 삭제 */
+    ov.querySelector('#pt-unneed').addEventListener('click',function(){ it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('처리 필요를 해제했어요'); });
+    ov.querySelector('#pt-done').addEventListener('click',function(){ it.done=true; it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('인박스 항목을 완료했어요'); });
+    ov.querySelector('#pt-del').addEventListener('click',function(){
+      var run=function(){
+        /* saveInboxItems의 autoTombstone이 사라진 항목을 삭제 기록으로 남겨 다른 기기에서도 지워진다 */
+        inboxItems=inboxItems.filter(function(x){ return String(x.id)!==String(it.id); });
+        if(typeof saveInboxItems==='function')saveInboxItems();
+        finish('인박스 항목을 삭제했어요');
+      };
+      if(typeof openConfirmDialog==='function'){ close(); openConfirmDialog('인박스 항목 삭제','“'+String(it.text||'항목').slice(0,40)+'” 항목을 삭제할까요?',run,{danger:true,confirmText:'삭제'}); }
+      else if(confirm('이 인박스 항목을 삭제할까요?'))run();
+    });
   }
   function projPick(kind){
     var ps=activeProjects();
@@ -18113,11 +18140,12 @@ function _planInboxTriage(id){
     var slot=_nowSlot();
     var extra={ catId:'project', projectId:String(p.id), date:_planToday(), timeStart:slot.ts, timeEnd:slot.te };
     if(goalId){ extra.goalId=String(goalId); }
-    tasks.unshift(mkTask(extra));
+    var _nt=mkTask(extra); tasks.unshift(_nt);
     markProcessed(); if(typeof saveTaskData==='function')saveTaskData();
     _planDate=_planToday();
     var g=(goalId&&typeof findGoal==='function')?findGoal(goalId):null;
-    finish('‘'+(p.title||'프로젝트')+((g&&g.goal)?' · '+(g.goal.title||'목표'):'')+'’ 할일로 '+slot.ts+' 배치했어요');
+    finish('‘'+(p.title||'프로젝트')+((g&&g.goal)?' · '+(g.goal.title||'목표'):'')+'’ 할일로 지금('+slot.ts+') 배치했어요');
+    try{ var _b=document.querySelector('#page-planner .plan-block[data-tid="'+(goalId?('goalrep_'+String(goalId)):String(_nt.id))+'"]')||null; if(_b)_b.scrollIntoView({block:'center',behavior:'smooth'}); }catch(_e){}
   }
   /* 프로젝트 선택 후 그 프로젝트의 목표(있으면)도 고를 수 있게. 목표 없이 넘어갈 수도 있음. */
   function goalPick(p){
