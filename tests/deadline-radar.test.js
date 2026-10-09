@@ -94,7 +94,7 @@ const find = (r, title) => r.items.find(i => i.title === title);
   t.ok('과제류 반복 회차는 마감으로 + 반복 표시', find(r,'화학 과제 제출') && find(r,'화학 과제 제출').recur === '매주 수');
   t.ok('과제가 아닌 반복·매일 반복은 제외', !find(r,'운동') && !find(r,'과제 체크'));
   const q = find(r,'통계 퀴즈 준비');
-  t.ok('요일 규칙 → 가상 마감 + 준비 날짜', q && q.virtual && q.recur === '매주 수 · 2일 전 자동' && q.state === 'planned' && q.work[0].date === '2026-10-12');
+  t.ok('요일 규칙 → 가상 마감 + 준비 날짜', q && q.virtual && q.recur === '' && q.ruleTag === '매주 수 · 2일 전 준비' && q.state === 'planned' && q.work[0].date === '2026-10-12');
   const merged = R([
     { id:1, text:'통계 퀴즈', date:'2026-10-14', _repeatId:'r9' },
     { id:4, text:'통계 퀴즈 준비', date:'2026-10-12', _ruleId:'ru1', _ruleGen:true, sourceTaskId:'weekday:2026-10-14', deadlineDate:'2026-10-14' },
