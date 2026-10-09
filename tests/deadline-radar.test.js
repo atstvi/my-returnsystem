@@ -94,7 +94,7 @@ const find = (r, title) => r.items.find(i => i.title === title);
   t.ok('과제류 반복 회차는 마감으로 + 반복 표시', find(r,'화학 과제 제출') && find(r,'화학 과제 제출').recur === '매주 수');
   t.ok('과제가 아닌 반복·매일 반복은 제외', !find(r,'운동') && !find(r,'과제 체크'));
   const q = find(r,'통계 퀴즈 준비');
-  t.ok('요일 규칙 → 가상 마감 + 준비 날짜', q && q.virtual && q.recur === '매주 수 · 2일 전 자동' && q.state === 'planned' && q.work[0].date === '2026-10-12');
+  t.ok('요일 규칙 → 가상 마감 + 준비 날짜', q && q.virtual && q.recur === '' && q.ruleTag === '매주 수 · 2일 전 준비' && q.state === 'planned' && q.work[0].date === '2026-10-12');
   const merged = R([
     { id:1, text:'통계 퀴즈', date:'2026-10-14', _repeatId:'r9' },
     { id:4, text:'통계 퀴즈 준비', date:'2026-10-12', _ruleId:'ru1', _ruleGen:true, sourceTaskId:'weekday:2026-10-14', deadlineDate:'2026-10-14' },
@@ -166,7 +166,7 @@ const find = (r, title) => r.items.find(i => i.title === title);
 // 8) 배선
 t.ok('오늘 상황은 한 줄 대기열(다음 차례) 하나 — 목록 여러 개 없음', /id="sit-queue"/.test(html) && !/id="sit-must"/.test(html) && !/id="sit-tidy"/.test(html) && !/id="sit-missed"/.test(html) && !/id="sit-next"/.test(html));
 t.ok('타임그리드 + 마감 레이더 = 한 카드(테마 클래스 유지)', /<section class="card home-timegrid-card home-radar-card" id="home-radar-card"/.test(html) && (html.match(/id="home-radar-card"/g)||[]).length === 1 && /id="tgCanvasWrap"/.test(html) && /id="radar-list"/.test(html));
-t.ok('레이더 카드는 오른쪽 열 맨 위(맨 아래 전폭 X) · 모바일은 오늘 상황 바로 다음', /\[timeGrid,dday,projectsCard,habits,widget\]\.forEach/.test(html) && !/\[timeGrid\]\.forEach\(function\(n\)\{ if\(n\)root\.appendChild\(n\); \}\);/.test(html) && /\.home-content \.home-timegrid-card\{order:2\}/.test(html));
+t.ok('레이더 카드는 특별 일정 바로 아래(맨 아래 전폭 X) · 모바일도 특별 일정 다음', /\[dday,timeGrid,projectsCard,habits,widget\]\.forEach/.test(html) && !/\[timeGrid\]\.forEach\(function\(n\)\{ if\(n\)root\.appendChild\(n\); \}\);/.test(html) && /\.home-content \.home-timegrid-card\{order:4\}/.test(html) && /\.home-content \.home-dday-card\{order:4\}/.test(html));
 t.ok('타임그리드: 예시 알약 섞지 않음 · 준비 할일의 복사된 마감/같은 날 중복 알약 없음 · 레이더 상태 링', /\/\* 실제 데이터가 있으면\(할일이 비어 있어도\) 예시 알약을 섞지 않는다 \*\/\n    return out;/.test(html) && /var _dupDeadline = /.test(html) && /var _sameDay = /.test(html) && /pill\.classList\.add\('rstate-' \+ _st\)/.test(html));
 t.ok('타임그리드 주 이동이 레이더 목록과 같은 7일을 봄', /window\.homeTimeGridRange = function/.test(html) && /window\.homeTimeGridShift = function/.test(html) && /var rg=\(typeof window\.homeTimeGridRange==='function'\)/.test(html));
 t.ok('오늘 상황 안 배너 추가·위치 조정 버튼 제거(위 날짜 줄 버튼만)', !/id="home-banner-add"/.test(html) && !/id="home-banner-editbtn"/.test(html) && !/class="home-banner-editzone"/.test(html) && /id="home-banner-btn"/.test(html) && /id="home-banner-pos-btn"/.test(html));

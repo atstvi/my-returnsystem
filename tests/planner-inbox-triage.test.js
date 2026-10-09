@@ -10,7 +10,7 @@ const html = readIndex();
 const t = runner('플래너 인박스 정리 시트');
 
 // ── _planInboxToBoard 순수 로직(노트+이미지 카드 생성) ──
-const block = sliceBlock(html, 'function _planInboxToBoard(p,it){', 'function _planInboxTriage(id){');
+const block = sliceBlock(html, 'function _planInboxToBoard(p,it){', 'function _planInboxTriage(id, opts){');
 const ctx = {
   Date, Math, Array, String, Object,
   projectBoardEnsure:function(p){ if(!p.board)p.board={items:[]}; if(!Array.isArray(p.board.items))p.board.items=[]; return p.board; },
@@ -55,6 +55,8 @@ t.ok('처리됨으로 비우기(unread=false, 기록 유지)', /function markPro
 t.ok('프로젝트는 시트 목록에서 선택', /function projPick\(kind\)\{[\s\S]*?data-pp="'\+esc\(String\(p\.id\)\)/.test(html));
 t.ok('프로젝트 없으면 안내', /먼저 프로젝트를 하나 만들어 주세요/.test(html));
 t.ok('뒤로 버튼으로 메뉴 복귀', /#pt-back'\)\.addEventListener\('click',menu\);/.test(html));
-t.ok('인박스에서 열기 폴백 유지', /pt-open'\)\.addEventListener\('click',function\(\)\{ close\(\); if\(typeof openInboxItemFromHome/.test(html));
+t.ok('인박스에서 열기 폴백 유지(계획창에서 열었을 때)', /var _po=ov\.querySelector\('#pt-open'\); if\(_po\)_po\.addEventListener\('click',function\(\)\{ close\(\); if\(typeof openInboxItemFromHome/.test(html));
+t.ok('인박스 ⋯도 같은 정리 창(+분류·보드 카드로)', /if\(typeof _planInboxTriage==='function'\)\{ _planInboxTriage\(it\.id,\{from:'inbox',cats:cats,colIdOf:colIdOf,jump:/.test(html));
+t.ok('정리 창 맨 위 내용 편집 — 정리 동작 전에 먼저 저장', /<textarea class="pt-text" id="pt-text"/.test(html) && /addEventListener\('click',commitText,true\)/.test(html) && /function close\(\)\{ commitText\(\); ov\.remove\(\); refresh\(\); \}/.test(html));
 
 t.done();
