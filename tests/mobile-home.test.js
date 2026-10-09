@@ -11,7 +11,9 @@ const t = runner('모바일 홈 화면');
 
 // 데스크톱 원본 규칙은 그대로 존재(회귀 방지 기준선)
 t.ok('데스크톱: has-sit min-height:300px 유지', /\.home-banner\.has-sit\{height:auto;min-height:300px;pointer-events:auto\}/.test(html));
-t.ok('상황 카드는 배너 위 절대배치(원본)', /\.home-banner \.sit-card\.sit-on-banner\{\s*position:absolute;inset:0;/.test(html));
+/* 데스크톱도 in-flow(relative): 절대배치(inset:0)일 땐 내용이 min-height 300px를 넘으면
+   카드 아래가 잘렸다(비서 브리핑 개편 때 재현). 배경은 절대배치 레이어로 깔린다. */
+t.ok('상황 카드는 배너 위 in-flow(잘림 방지)', /\.home-banner\.has-sit \.banner-bg\{position:absolute;inset:0\}\s*\.home-banner \.sit-card\.sit-on-banner\{[\s\S]{0,160}?position:relative;inset:auto;min-height:300px;/.test(html));
 
 // 모바일: 빈 배너일 때만 콘텐츠 높이로
 t.ok('모바일 빈 배너 min-height 해제', /\.home-banner\.has-sit:not\(\.has-image\)\{ min-height:0; height:auto; \}/.test(html));
