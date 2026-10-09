@@ -1644,6 +1644,12 @@ div.sit-now-title{cursor:default}
 .plan-tray-progress.done{background:color-mix(in srgb,var(--success,#4a9) 12%,var(--bg-raised));border-color:color-mix(in srgb,var(--success,#4a9) 35%,var(--border-subtle))}
 .plan-tray-progress.done .ptp-ic{color:var(--success,#4a9)}
 .plan-tray-progress.done .ptp-t{color:var(--success,#4a9)}
+.plan-triage-edit{margin-bottom:var(--sp-3)}
+.plan-triage-edit .pt-text{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;font:inherit;font-size:var(--text-sm);line-height:1.5;color:var(--fg);background:var(--bg-sunken);border:1px solid var(--border-subtle);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4)}
+.plan-triage-edit .pt-text:focus{outline:none;border-color:var(--accent);background:var(--bg-card)}
+.pt-edit-row{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2);flex-wrap:wrap}
+.pt-edit-row .pt-cat{height:30px;font-size:var(--text-xs);max-width:180px;padding:0 24px 0 10px}
+.pt-edit-hint{margin-left:auto;font-size:var(--text-2xs);color:var(--fg-4)}
 .plan-triage-preview{font-size:var(--text-sm);color:var(--fg-2);background:var(--bg-sunken);border-radius:var(--r-md);padding:var(--sp-3) var(--sp-4);margin-bottom:var(--sp-3);word-break:break-word;line-height:1.5}
 .plan-triage-opts{display:flex;flex-direction:column;gap:var(--sp-3)}
 .plan-triage-opt{display:flex;align-items:center;gap:var(--sp-3);width:100%;padding:var(--sp-4);border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-raised);color:var(--fg);cursor:pointer;text-align:left;transition:border-color var(--t-snap),background var(--t-snap)}
@@ -3286,7 +3292,7 @@ html.pjb-fs-lock{overflow:hidden}
      packs its cards tightly so there are no per-card grid gaps. Left: 날짜 →
      배너 → 오늘 할일 → 타임블록. Right: 오늘 상황 → 오늘 습관 → 처리 필요 →
      빠른 메모. Columns stretch to equal height and the last card in the shorter
-     column grows to fill. 마감 레이더(타임그리드 통합)는 오른쪽 열 맨 위. */
+     column grows to fill. 마감 레이더(타임그리드 통합)는 오른쪽 열 특별 일정 바로 아래. */
   .home-content > .home-col{display:flex;flex-direction:column;gap:var(--sp-6);min-width:0}
   .home-content > #home-col-l{grid-column:1;grid-row:1}
   .home-content > #home-col-r{grid-column:2;grid-row:1}
@@ -3340,7 +3346,7 @@ html.pjb-fs-lock{overflow:hidden}
   .home-content .home-inbox-card{order:7}
   .home-content .home-timeblock-card{order:8}
   .home-content .home-widget-card{order:9}
-  .home-content .home-timegrid-card{order:2}
+  .home-content .home-timegrid-card{order:4} /* 특별 일정(4) 바로 다음 — DOM 순서(디데이 → 레이더)로 정렬 */
 }
 
 @keyframes slide-up {
@@ -10114,7 +10120,6 @@ to{opacity:1;transform:translateY(0)}}
       <div class="topbar-actions">
         <button class="topbar-icon-btn" id="topbar-undo-btn" type="button" title="되돌리기 · 다시" aria-label="되돌리기">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v1"/></svg>
-          <span class="topbar-badge" id="undo-badge" style="display:none"></span>
         </button>
         <button class="sync-pill" id="sync-pill" type="button" data-state="local" title="이 기기에 저장됨" onclick="openSyncSettings()"><span class="sync-pill-ic"></span><span class="sync-pill-t">기기에 저장</span></button>
         <button class="topbar-icon-btn m-only" id="m-more-btn" type="button" title="더보기" aria-label="더보기" onclick="mMoreOpen()">
@@ -12865,9 +12870,8 @@ function normalizeHomeLayoutOrder(){
      (배너가 없을 때도 위치는 그대로 두고, "배너 추가" 버튼만 오버레이 위로
      올려서 눌리게 한다 — .home-banner-add{z-index:3}) */
   if(sit&&banner){ banner.appendChild(sit); banner.classList.add('has-sit'); sit.classList.add('sit-on-banner'); }
-  /* right: 마감 레이더(타임그리드 통합) → 특별 일정(디데이) → 프로젝트(진행중) → 오늘 습관 → 위젯.
-     레이더는 맨 아래 전폭 대신 오른쪽 열 맨 위 — 오늘 상황과 나란히 바로 보이게 */
-  [timeGrid,dday,projectsCard,habits,widget].forEach(function(n){ if(n)colR.appendChild(n); });
+  /* right: 특별 일정(디데이) → 마감 레이더(타임그리드 통합) → 프로젝트(진행중) → 오늘 습관 → 위젯 */
+  [dday,timeGrid,projectsCard,habits,widget].forEach(function(n){ if(n)colR.appendChild(n); });
 }
 
 /* ── HOME FLEX WIDGET ──
@@ -18954,23 +18958,50 @@ function _planInboxToLog(p,it){
   if(typeof renderProjects==='function'){ try{ renderProjects(); }catch(_e){} }
   return true;
 }
-function _planInboxTriage(id){
+/* opts.from==='inbox': 인박스 탭의 ⋯에서 연 경우 — 같은 정리 창에 '보드 카드로 이동'·분류 바꾸기를 더한다.
+   두 곳 모두 맨 위에서 내용을 바로 고칠 수 있다(고친 내용은 정리 동작 전에 먼저 저장). */
+function _planInboxTriage(id, opts){
+  opts=opts||{};
+  var fromInbox=opts.from==='inbox';
   var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(id);});
   if(!it){ if(typeof showToast==='function')showToast('인박스 항목을 찾지 못했어요'); return; }
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
   var old=document.getElementById('plan-triage-ov'); if(old)old.remove();
   var ov=document.createElement('div'); ov.className='overlay open'; ov.id='plan-triage-ov';
   document.body.appendChild(ov);
-  function close(){ ov.remove(); }
+  function refresh(){ try{ if(typeof renderPlanner==='function')renderPlanner(); }catch(_e){} try{ if(fromInbox&&typeof renderFeed==='function')renderFeed(); }catch(_e){} }
+  /* 편집한 내용을 항목에 반영(바뀌었을 때만 저장) */
+  function commitText(){
+    var ta=ov.querySelector('#pt-text'); if(!ta)return;
+    var v=String(ta.value||'').trim();
+    if(v&&v!==String(it.text||'')){ it.text=v; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); }
+  }
+  function close(){ commitText(); ov.remove(); refresh(); }
   function markProcessed(){ it.unread=false; if(typeof saveInboxItems==='function')saveInboxItems(); }
-  function finish(msg){ close(); if(typeof showToast==='function')showToast(msg); try{ renderPlanner(); }catch(_e){} }
+  function finish(msg){ ov.remove(); if(typeof showToast==='function')showToast(msg); refresh(); }
   function mkTask(extra){ return Object.assign({ id:Date.now()+Math.floor(Math.random()*100000), inboxId:String(it.id), text:it.text||'할일', catId:'etc', date:_planToday(), priority:'', done:false, timeStart:'', timeEnd:'', deadlineDate:'', deadlineId:'', note:'인박스 정리', subs:[], createdAt:Date.now(), updatedAt:Date.now() }, extra||{}); }
   function activeProjects(){ var arr=(typeof projects!=='undefined'&&Array.isArray(projects))?projects.slice():[]; return arr.sort(function(a,b){ var ax=a.status==='archived'?1:0, bx=b.status==='archived'?1:0; return ax-bx; }); }
   var previewHtml='<div class="plan-triage-preview">'+esc((it.text||'(내용 없음)')).slice(0,120)+((it.text&&it.text.length>120)?'…':'')+'</div>';
+  /* 맨 위 편집칸: 내용 고치기 + ♥ + (인박스에서 연 경우) 분류 */
+  function editorHtml(){
+    var catSel='';
+    if(fromInbox&&typeof opts.cats==='function'){
+      var cs=opts.cats()||[], cur=(typeof opts.colIdOf==='function')?opts.colIdOf(it):'';
+      if(cs.length)catSel='<select class="set-select pt-cat" id="pt-cat" title="분류(보드 열) 바꾸기">'+cs.map(function(c){ return '<option value="'+esc(c.id)+'"'+(c.id===cur?' selected':'')+'>'+esc((c.emoji||'')+' '+c.label)+'</option>'; }).join('')+'</select>';
+    }
+    return '<div class="plan-triage-edit"><textarea class="pt-text" id="pt-text" rows="3" placeholder="내용">'+esc(it.text||'')+'</textarea>'
+      +'<div class="pt-edit-row">'+(typeof inboxLikeHtml==='function'?inboxLikeHtml(it):'')+catSel+'<span class="pt-edit-hint">고친 내용은 바로 저장돼요</span></div></div>';
+  }
+  function bindEditor(){
+    var ta=ov.querySelector('#pt-text'); if(ta){ ta.addEventListener('change',commitText); ta.addEventListener('blur',commitText); }
+    if(typeof inboxBindLikes==='function')inboxBindLikes(ov);
+    var sel=ov.querySelector('#pt-cat');
+    if(sel)sel.addEventListener('change',function(){ var col=sel.value||'_uncat'; it.cat=col; var pid=/^p:/.test(col)?col.slice(2):null; if(pid)it.projectId=pid; else delete it.projectId; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); if(typeof showToast==='function')showToast('분류를 바꿨어요'); });
+  }
   function opt(id2,ic,title,desc){ return '<button type="button" class="plan-triage-opt" id="'+id2+'"><span class="o-ic">'+ic+'</span><span class="o-x"><span class="o-t">'+title+'</span><span class="o-d">'+desc+'</span></span></button>'; }
   function menu(){
     ov.innerHTML='<div class="modal" style="max-width:400px"><div class="modal-head"><div class="modal-title">📥 인박스 정리</div></div>'
-      +'<div class="modal-body">'+previewHtml
+      +'<div class="modal-body">'+editorHtml()
       +'<div class="plan-triage-opts">'
         +opt('pt-now','🎯','바로 시행','오늘 지금 시간에 바로 배치')
         +opt('pt-task','✅','그냥 할일','오늘 할 일로 추가(시간 미정)')
@@ -18979,21 +19010,28 @@ function _planInboxTriage(id){
         +opt('pt-pmat','📎','프로젝트 자료','프로젝트 보드에 자료로 저장')
       +'</div>'
       +'<div class="plan-triage-quick">'
-        +'<button type="button" class="ptq-btn" id="pt-unneed" title="인박스에 남기되 처리 필요 목록에서 뺌">✓ 처리 필요 해제</button>'
-        +'<button type="button" class="ptq-btn" id="pt-done" title="이 인박스 항목을 완료로">✔ 완료</button>'
+        +(it.unread?'<button type="button" class="ptq-btn" id="pt-unneed" title="인박스에 남기되 처리 필요 목록에서 뺌">✓ 처리 필요 해제</button>':'<button type="button" class="ptq-btn" id="pt-need" title="처리 필요 목록(오늘 상황·계획창)에 올림">★ 처리 필요</button>')
+        +(it.done?'<button type="button" class="ptq-btn" id="pt-undone" title="완료를 취소">↩︎ 완료 취소</button>':'<button type="button" class="ptq-btn" id="pt-done" title="이 인박스 항목을 완료로">✔ 완료</button>')
         +'<button type="button" class="ptq-btn danger" id="pt-del" title="인박스에서 삭제">🗑 삭제</button>'
       +'</div></div>'
-      +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="pt-open">인박스에서 열기</button><button type="button" class="btn btn-ghost" id="pt-cancel">취소</button></div></div>';
+      +'<div class="modal-foot">'+(fromInbox?'<button type="button" class="btn btn-ghost" id="pt-jump">↳ 보드 카드로</button>':'<button type="button" class="btn btn-ghost" id="pt-open">인박스에서 열기</button>')+'<button type="button" class="btn btn-ghost" id="pt-cancel">닫기</button></div></div>';
+    bindEditor();
+    /* 정리 동작 전에 편집 내용을 먼저 반영(할일·로그·자료가 고친 내용으로 만들어지게) */
+    ov.querySelectorAll('.plan-triage-opt, .ptq-btn').forEach(function(b){ b.addEventListener('click',commitText,true); });
     ov.querySelector('#pt-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); tasks.unshift(mkTask({date:_planToday(),timeStart:ts,timeEnd:te})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=_planToday(); finish('오늘 '+ts+'에 배치했어요'); });
     ov.querySelector('#pt-task').addEventListener('click',function(){ tasks.unshift(mkTask({})); markProcessed(); if(typeof saveTaskData==='function')saveTaskData(); finish('오늘 할일로 추가했어요'); });
     ov.querySelector('#pt-ptask').addEventListener('click',function(){ projPick('task'); });
     ov.querySelector('#pt-plog').addEventListener('click',function(){ projPick('log'); });
     ov.querySelector('#pt-pmat').addEventListener('click',function(){ projPick('material'); });
-    ov.querySelector('#pt-open').addEventListener('click',function(){ close(); if(typeof openInboxItemFromHome==='function'){ _planReturnPage='planner'; openInboxItemFromHome(id); } else if(typeof goPage==='function')goPage('inbox'); });
+    var _po=ov.querySelector('#pt-open'); if(_po)_po.addEventListener('click',function(){ close(); if(typeof openInboxItemFromHome==='function'){ _planReturnPage='planner'; openInboxItemFromHome(id); } else if(typeof goPage==='function')goPage('inbox'); });
+    var _pj=ov.querySelector('#pt-jump'); if(_pj)_pj.addEventListener('click',function(){ close(); if(typeof opts.jump==='function')opts.jump(); });
     ov.querySelector('#pt-cancel').addEventListener('click',close);
     /* 빠른 처리: 처리 필요 해제(항목은 인박스에 남음) · 완료 · 삭제 */
-    ov.querySelector('#pt-unneed').addEventListener('click',function(){ it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('처리 필요를 해제했어요'); });
-    ov.querySelector('#pt-done').addEventListener('click',function(){ it.done=true; it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('인박스 항목을 완료했어요'); });
+    var _q=function(sel,fn){ var b=ov.querySelector(sel); if(b)b.addEventListener('click',fn); };
+    _q('#pt-unneed',function(){ it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('처리 필요를 해제했어요'); });
+    _q('#pt-need',function(){ it.unread=true; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('처리 필요로 올렸어요'); });
+    _q('#pt-done',function(){ it.done=true; it.unread=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('인박스 항목을 완료했어요'); });
+    _q('#pt-undone',function(){ it.done=false; it.updatedAt=Date.now(); if(typeof saveInboxItems==='function')saveInboxItems(); finish('완료를 취소했어요'); });
     ov.querySelector('#pt-del').addEventListener('click',function(){
       var run=function(){
         /* saveInboxItems의 autoTombstone이 사라진 항목을 삭제 기록으로 남겨 다른 기기에서도 지워진다 */
@@ -19001,7 +19039,7 @@ function _planInboxTriage(id){
         if(typeof saveInboxItems==='function')saveInboxItems();
         finish('인박스 항목을 삭제했어요');
       };
-      if(typeof openConfirmDialog==='function'){ close(); openConfirmDialog('인박스 항목 삭제','“'+String(it.text||'항목').slice(0,40)+'” 항목을 삭제할까요?',run,{danger:true,confirmText:'삭제'}); }
+      if(typeof openConfirmDialog==='function'){ ov.remove(); openConfirmDialog('인박스 항목 삭제','“'+String(it.text||'항목').slice(0,40)+'” 항목을 삭제할까요?',run,{danger:true,confirmText:'삭제'}); }
       else if(confirm('이 인박스 항목을 삭제할까요?'))run();
     });
   }
@@ -22021,7 +22059,8 @@ function _refreshUndoFab(){
   var btn=document.getElementById('topbar-undo-btn'); if(!btn)return;
   var uc=returnUndoCount(), rc=returnRedoCount(), has=(uc>0||rc>0);
   btn.classList.toggle('has',has);
-  var badge=document.getElementById('undo-badge'); if(badge){ if(uc>0){ badge.textContent=String(uc); badge.style.display='flex'; } else { badge.style.display='none'; } }
+  /* 숫자 배지는 두지 않는다 — 되돌릴 게 있으면 버튼 색(.has)만 바뀐다 */
+  btn.setAttribute('title', has?('되돌리기 · 다시 ('+uc+'개 되돌릴 수 있어요)'):'되돌리기 · 다시');
   var pop=document.getElementById('return-undo-pop'); if(pop&&pop.classList.contains('open'))_buildUndoPop();
 }
 window._refreshUndoFab=_refreshUndoFab; window.returnUndoFab=_ensureUndoFab;
@@ -25284,8 +25323,10 @@ function _initInbox(){
     var it=newItem(text,colId); inboxItems.unshift(it); saveInboxItems(); renderFeed(); return it;
   };
   /* 빠른 담기 스레드 항목 편집 시트 — 정리 보드 카드와 동일한 조작을 챗 버블에서도. */
+  /* ⋯ → 계획창 '인박스 정리'와 같은 창(+내용 편집·분류·보드 카드로). 정리 창이 없으면 예전 시트로. */
   function openInboxItemSheet(it){
     if(!it)return;
+    if(typeof _planInboxTriage==='function'){ _planInboxTriage(it.id,{from:'inbox',cats:cats,colIdOf:colIdOf,jump:function(){ jumpToCard(it.id); }}); return; }
     var old=document.getElementById('ib2-item-sheet'); if(old)old.remove();
     var ov=document.createElement('div'); ov.className='overlay open'; ov.id='ib2-item-sheet';
     var acts=[['edit','✎ 편집 · 분류 이동',''],['done',(it.done?'↩︎ 완료 취소':'✓ 완료'),''],['need',(it.unread?'☆ 처리 필요 해제':'★ 처리 필요'),''],['jump','↳ 보드 카드로 이동',''],['del','🗑 삭제','danger']];

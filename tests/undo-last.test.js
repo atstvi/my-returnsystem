@@ -61,7 +61,8 @@ t.ok('상단줄 되돌리기 버튼 존재', /id="topbar-undo-btn"/.test(html) &
 t.ok('버튼→body 팝오버(드롭다운)로 연결', /function _ensureUndoFab\(\)\{[\s\S]*?document\.getElementById\('topbar-undo-btn'\)[\s\S]*?return-undo-pop/.test(html) && /return-undo-fab/.test(html) === false);
 t.ok('팝오버: 되돌리기/다시 + 최근 동작', /data-uf="undo"[\s\S]*?data-uf="redo"[\s\S]*?최근 동작/.test(html));
 t.ok('최근 항목 클릭 = 그때까지 되돌리기', /el\.addEventListener\('click',function\(\)\{ returnUndoUntil\(Number\(el\.getAttribute\('data-uf-ts'\)\)\); _closeUndoFab\(\); \}\)/.test(html));
-t.ok('버튼 뱃지=되돌리기 개수, 있을 때만 진하게', /badge\.textContent=String\(uc\); badge\.style\.display='flex'/.test(html) && /btn\.classList\.toggle\('has',has\)/.test(html));
+/* 숫자 배지는 사용자 요청으로 제거 — 되돌릴 게 있을 때 버튼 색(.has)과 툴팁(개수)만 */
+t.ok('버튼: 숫자 배지 없음, 있을 때만 진하게 + 툴팁에 개수', !/id="undo-badge"/.test(html) && !/badge\.textContent=String\(uc\)/.test(html) && /btn\.classList\.toggle\('has',has\)/.test(html) && /'되돌리기 · 다시 \('\+uc\+'개 되돌릴 수 있어요\)'/.test(html));
 t.ok('되돌리기/다시 후 버튼 갱신', /try\{ _refreshUndoFab\(\); \}catch\(e\)\{\}\s*\n\s*return true;/.test(html));
 t.ok('팝오버는 버튼 아래로 위치', /pop\.style\.top=\(r\.bottom\+6\)\+'px';/.test(html));
 

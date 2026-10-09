@@ -7,10 +7,10 @@ const vm = require('vm');
 const html = readIndex();
 const t = runner('계획창 인박스 빠른 처리·목표 지금 배치');
 
-const triage = sliceBlock(html, 'function _planInboxTriage(id){', '\nfunction _planSchedule(kind,pid,sm){');
+const triage = sliceBlock(html, 'function _planInboxTriage(id, opts){', '\nfunction _planSchedule(kind,pid,sm){');
 t.ok('빠른 처리 버튼 3개', /id="pt-unneed"[\s\S]*?처리 필요 해제/.test(triage) && /id="pt-done"[\s\S]*?완료/.test(triage) && /id="pt-del"[\s\S]*?삭제/.test(triage));
-t.ok('처리 필요 해제: unread만 끔(항목 유지)', /#pt-unneed'\)\.addEventListener\('click',function\(\)\{ it\.unread=false; it\.updatedAt=Date\.now\(\); if\(typeof saveInboxItems==='function'\)saveInboxItems\(\);/.test(triage));
-t.ok('완료: done + unread 해제', /#pt-done'\)\.addEventListener\('click',function\(\)\{ it\.done=true; it\.unread=false;/.test(triage));
+t.ok('처리 필요 해제: unread만 끔(항목 유지)', /_q\('#pt-unneed',function\(\)\{ it\.unread=false; it\.updatedAt=Date\.now\(\); if\(typeof saveInboxItems==='function'\)saveInboxItems\(\);/.test(triage));
+t.ok('완료: done + unread 해제', /_q\('#pt-done',function\(\)\{ it\.done=true; it\.unread=false;/.test(triage));
 t.ok('삭제: 확인 후 제거 + 저장(autoTombstone)', /openConfirmDialog\('인박스 항목 삭제'/.test(triage) && /inboxItems=inboxItems\.filter\(function\(x\)\{ return String\(x\.id\)!==String\(it\.id\); \}\);\s*if\(typeof saveInboxItems==='function'\)saveInboxItems\(\);/.test(triage));
 t.ok('목표 할일은 지금 시간 슬롯', /var slot=_nowSlot\(\);\s*var extra=\{ catId:'project', projectId:String\(p\.id\), date:_planToday\(\), timeStart:slot\.ts, timeEnd:slot\.te \};/.test(triage));
 
