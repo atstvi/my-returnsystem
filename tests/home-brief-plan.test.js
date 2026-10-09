@@ -85,7 +85,7 @@ function plan(tasks, extra){ return ctx.homeBriefPlan(Object.assign({ tasks, tod
 }
 // 10) 배선
 t.ok('renderHomeSituation이 브리핑 엔진·렌더 사용', /var plan = homeBriefPlan\(\{/.test(html) && /_homeBriefRender\(card, plan, \{/.test(html));
-t.ok('카드 마크업: 지금 할 일·놓친 일·이따가·그 밖에', /id="sit-now"/.test(html) && /id="sit-missed"/.test(html) && /aria-label="이따가"/.test(html) && /class="sit-signals" aria-label="그 밖에"/.test(html));
+t.ok('카드 마크업: 지금 할 일·다음 차례(한 번에 하나)·그 밖에', /id="sit-now"/.test(html) && /id="sit-queue"/.test(html) && /class="sit-signals" aria-label="그 밖에"/.test(html));
 t.ok('옛 다가오는 할일 목록 제거', !/id="sit-upcoming"/.test(html));
 t.ok('지금 하기·놓친 일 지금: 다음 일정 전 상한 적용', (html.match(/_briefMoveTask\(t, TK, nm, plan\.nextLeaveMin\);/g)||[]).length === 2);
 t.done();

@@ -147,9 +147,30 @@ const find = (r, title) => r.items.find(i => i.title === title);
   t.ok('♥ 필터는 ♥ 있는 미완료만', c2.inboxPriorityList(items, { liked:true }).map(i => i.id).join() === '3,2');
 }
 
+// 7b) 다음 차례 순서 · 주 시작 · 보는 범위 확장
+{
+  const qb = sliceBlock(html, 'function homeBriefQueue(o){', "window.returnDeadlineRadar=returnDeadlineRadar;");
+  const c3 = { Math, String, parseInt }; vm.createContext(c3); vm.runInContext(qb, c3);
+  const must = [{ key:'t:1', sev:5, target:{ id:1 }, work:[{ task:{ id:9 } }] }, { key:'t:2', sev:3, target:{ id:2 }, work:[] }];
+  const Q = c3.homeBriefQueue({ must, soon:[{ key:'t:7', sev:2, target:{ id:7 } }],
+    missed:[{ task:{ id:9 }, kind:'past' }, { task:{ id:5 }, kind:'past' }, { task:{ id:6 }, kind:'today' }],
+    inbox:[{ id:'a', likes:4 }, { id:'b', likes:0 }, { id:'c', likes:1 }], skipGuardKey:'t:2' });
+  t.ok('순서: 꼭 챙길 것 → 오늘 놓친 일 → ♥3+ 인박스 → 밀린 일 → 미리 챙길 마감 → 나머지 인박스', Q.items.map(x => x.key).join() === 'g:t:1,m:6,i:a,m:5,g:t:7,i:b,i:c', Q.items.map(x => x.key).join());
+  t.ok('지금 할 일 카드에 나온 건 빼고, 꼭 챙길 것에 엮인 할일은 놓친 일에서 제외', Q.counts.must === 1 && !Q.items.some(x => x.key === 'm:9') && Q.missedAll.length === 2);
+  const sun = R([{ id:1, text:'과제', date:'2026-10-11', deadlineDate:'2026-10-11' }], { weekStartsOn:0 });
+  t.ok('주 시작 일요일 설정 반영', sun.range.mon === '2026-10-04' && sun.items[0].week === 'next');
+  const far = [{ id:1, text:'먼 과제', date:'2026-10-28', deadlineDate:'2026-10-28' }];
+  t.ok('보는 주가 멀면 범위 확장(untilKey)', !R(far).items.length && R(far, { untilKey:'2026-10-31' }).items.length === 1);
+}
+
 // 8) 배선
-t.ok('나 탭: 꼭 챙길 것·하나씩 정리·마감 레이더 카드', /id="sit-must"/.test(html) && /id="sit-tidy"/.test(html) && /id="home-radar-card"/.test(html));
-t.ok('renderHomeSituation → 레이더 계산·브리핑 guard·카드 렌더', /_radar = returnDeadlineRadar\(\{/.test(html) && /guard: _radar \? _radar\.must : \[\]/.test(html) && /renderHomeRadar\(_radar\)/.test(html));
+t.ok('오늘 상황은 한 줄 대기열(다음 차례) 하나 — 목록 여러 개 없음', /id="sit-queue"/.test(html) && !/id="sit-must"/.test(html) && !/id="sit-tidy"/.test(html) && !/id="sit-missed"/.test(html) && !/id="sit-next"/.test(html));
+t.ok('타임그리드 + 마감 레이더 = 한 카드(테마 클래스 유지)', /<section class="card home-timegrid-card home-radar-card" id="home-radar-card"/.test(html) && (html.match(/id="home-radar-card"/g)||[]).length === 1 && /id="tgCanvasWrap"/.test(html) && /id="radar-list"/.test(html));
+t.ok('레이더 카드는 오른쪽 열 맨 위(맨 아래 전폭 X) · 모바일은 오늘 상황 바로 다음', /\[timeGrid,dday,projectsCard,habits,widget\]\.forEach/.test(html) && !/\[timeGrid\]\.forEach\(function\(n\)\{ if\(n\)root\.appendChild\(n\); \}\);/.test(html) && /\.home-content \.home-timegrid-card\{order:2\}/.test(html));
+t.ok('타임그리드: 예시 알약 섞지 않음 · 준비 할일의 복사된 마감/같은 날 중복 알약 없음 · 레이더 상태 링', /\/\* 실제 데이터가 있으면\(할일이 비어 있어도\) 예시 알약을 섞지 않는다 \*\/\n    return out;/.test(html) && /var _dupDeadline = /.test(html) && /var _sameDay = /.test(html) && /pill\.classList\.add\('rstate-' \+ _st\)/.test(html));
+t.ok('타임그리드 주 이동이 레이더 목록과 같은 7일을 봄', /window\.homeTimeGridRange = function/.test(html) && /window\.homeTimeGridShift = function/.test(html) && /var rg=\(typeof window\.homeTimeGridRange==='function'\)/.test(html));
+t.ok('오늘 상황 안 배너 추가·위치 조정 버튼 제거(위 날짜 줄 버튼만)', !/id="home-banner-add"/.test(html) && !/id="home-banner-editbtn"/.test(html) && !/class="home-banner-editzone"/.test(html) && /id="home-banner-btn"/.test(html) && /id="home-banner-pos-btn"/.test(html));
+t.ok('renderHomeSituation → 레이더 계산·브리핑 guard·카드 렌더', /_radar = homeComputeRadar\(\);/.test(html) && /guard: _radar \? _radar\.must : \[\]/.test(html) && /renderHomeRadar\(_radar\)/.test(html));
 t.ok('인박스는 ♥ 순으로 브리핑에 전달', /var inboxNeed = \(typeof inboxItems !== 'undefined'\) \? \(\(typeof inboxPriorityList==='function'\)/.test(html));
 t.ok('설정: 마감 준비(준비 시점·여유·꼭 챙길 범위)', /prepLeadDays:2, prepMarginDays:1, guardDays:3/.test(html) && /sel\('prepLeadDays'/.test(html) && /sel\('prepMarginDays'/.test(html) && /sel\('guardDays'/.test(html));
 t.ok('인박스 피드 ♥ 버튼 + ♥ 많은 순 필터', /metaRow\.appendChild\(inboxLikeButton\(item\)\)/.test(html) && /liked\.dataset\.filter = 'liked'/.test(html));
