@@ -64,7 +64,8 @@ for (const [label, task, extra] of [
   const ok = e.ctx._planTaskToInbox(task);
   t.ok(label, ok === false && e.calls.removed.length === 0 && e.ctx.inboxItems.length === 0 && e.calls.toasts.length === 1);
 }
-t.ok('드래그 놓기 배선', /if\(moved&&overInbox\)\{ _planTaskToInbox\(t\); renderPlanner\(\); return; \}/.test(html) && /overInbox=_planInboxDropHover\(lx,ly\);/.test(html));
+/* 놓으면 고스트가 인박스로 날아간 뒤(_planGhostFlyToInbox) 옮긴다 — 애니메이션 추가 */
+t.ok('드래그 놓기 배선', /if\(moved&&overInbox\)\{[\s\S]{0,200}_planGhostFlyToInbox\(function\(\)\{ if\(_planTaskToInbox\(t\)\)\{ renderPlanner\(\);/.test(html) && /overInbox=_planInboxDropHover\(lx,ly\);/.test(html));
 t.ok('인박스 섹션 표식', /' data-sec="inbox"'/.test(html));
 t.ok('인박스에서 만든 할일은 출처 기억(inboxId)', (html.match(/inboxId:String\(it\.id\)/g) || []).length === 2);
 t.done();
