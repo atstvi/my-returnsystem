@@ -14795,7 +14795,7 @@ function homeMakeLinkedTask(target, text, opts){
     deadlineDate:deadline,
     deadlineId:String(target.id),
     timeStart:'', timeEnd:'',
-    note:'오늘 상황 · 연결 할일', subs:[],
+    note:'', origin:'link', subs:[],
     sourceTaskId:String(target.id), _ruleId:'', _repeat:false,
     createdAt:Date.now(), updatedAt:Date.now()
   };
@@ -15049,11 +15049,13 @@ function returnDeadlineRadar(o){
   /* 타임그리드에서 더 뒤 주를 볼 때는 그 주 끝까지 점검 범위를 넓힌다 */
   var until=(o.untilKey&&o.untilKey>nextEnd)?o.untilKey:nextEnd, lookAhead=_radarAdd(TKK,30); if(until>lookAhead)lookAhead=until;
   var all=(o.tasks||[]).filter(function(t){ return t&&typeof t==='object'&&!t._travelOnly&&!t.canceled; });
-  var byId={}; all.forEach(function(t){ byId[String(t.id)]=t; });
+  var byId={}, bySched={}; all.forEach(function(t){ byId[String(t.id)]=t; var sk=t.scheduleKey||t.generationKey||t._generationKey; if(sk)bySched[String(sk)]=t; });
   function isTt(t){ return !!t._isTt||t.sourceType==='timetable'||!!t._ttKey; }
   /* 이 할일이 어떤 대상의 '준비 할일'인지(정방향 링크) */
   function prepTargetId(t){
     var s=String(t.sourceTaskId||t._ruleSourceId||'');
+    /* 반복 회차 원본(repeat:<규칙>:<날짜>) → 그 회차 할일 */
+    if(s.indexOf('repeat:')===0){ var occ=bySched[s]; if(occ)return String(occ.id); if(t.deadlineId&&byId[String(t.deadlineId)])return String(t.deadlineId); return ''; }
     if(s&&s!==String(t.id))return s;
     if(t.deadlineId&&t.catId!=='schedule'&&String(t.deadlineId)!==String(t.id)&&byId[String(t.deadlineId)])return String(t.deadlineId);
     return '';
@@ -15092,7 +15094,10 @@ function returnDeadlineRadar(o){
     return '';
   }
   function isTarget(t){
-    if(nested(t)||isTt(t)||prepTargetId(t))return false;
+    if(nested(t)||prepTargetId(t))return false;
+    /* 시간표 수업은 보통 마감이 아니지만, 활성 규칙(키워드)이 이름을 보고 준비 할일을 연결했다면
+       그 준비를 챙겨야 하므로 대상으로 본다(예: '화학 실험' → '실험 예비보고서' 2일 전). */
+    if(isTt(t))return !!(t.date&&prepsOf[String(t.id)]);
     if(t.deadlineDate)return true;
     if(!t.date)return false;
     if(t.catId==='schedule')return true;
@@ -15160,7 +15165,7 @@ function returnDeadlineRadar(o){
   var usedGroups={};
   all.forEach(function(t){
     if(!isTarget(t))return;
-    var due=t.deadlineDate||t.date, kind=(!t.deadlineDate&&t.catId==='schedule')?'schedule':'deadline';
+    var due=t.deadlineDate||t.date, kind=(!t.deadlineDate&&(t.catId==='schedule'||isTt(t)))?'schedule':'deadline';
     var tDone=isDone(t);
     var work=(prepsOf[String(t.id)]||[]).filter(function(p){ return p.date&&!nested(p); }).map(function(p){ return {task:p,date:p.date,done:isDone(p)}; });
     if(kind==='deadline'&&t.date&&t.date<due)work.push({task:t,date:t.date,done:tDone,self:true});
@@ -17251,7 +17256,7 @@ function openHomeRepeatModal(){
   var repeats=loadRepeatItems();
   var entry={id:returnNewId('ri_'),text:text,catId:'etc',priority:'',freq:freq,startDate:TK,endDate:''};
   repeats.push(entry); saveRepeatItems(repeats);
-  tasks.unshift({id:Date.now(),text:text,catId:'etc',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'반복 할일',subs:[],_repeatId:entry.id,_repeat:{kind:freq},createdAt:Date.now(),updatedAt:Date.now()});
+  tasks.unshift({id:Date.now(),text:text,catId:'etc',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'',origin:'repeat',subs:[],_repeatId:entry.id,_repeat:{kind:freq},createdAt:Date.now(),updatedAt:Date.now()});
   if(typeof saveTaskData==='function')saveTaskData();
   renderHomeTasks();
   homeToast('반복 할일을 등록했어요');
@@ -17440,7 +17445,7 @@ function cleanupInvalidRepeatGeneratedTasks(skipSave){
   var removed=0, seen={};
   tasks=tasks.filter(function(t){
     if(!t||!t._repeatId)return true;
-    var generatedLike=!!(t._generationKey||t._repeatOccurrence||t._repeat||String(t.note||'').indexOf('반복')>=0);
+    var generatedLike=!!(t._generationKey||t._repeatOccurrence||t._repeat||t.origin==='repeat'||String(t.note||'').indexOf('반복')>=0);
     var rep=byId[t._repeatId];
     if(!rep){
       if(generatedLike&&!t.done){removed++;return false;}
@@ -18070,6 +18075,30 @@ editHomeRule=function(id){openHomeRuleEditor(id);};
 /* Generated task reconciliation v2.
    Repeats/rules are sources; generated tasks are reconciled against expected
    source schedules instead of appended opportunistically. */
+/* ── 할일 메모(note)는 사용자 메모 전용 — 앱이 '어디서 왔는지'를 메모에 적지 않는다.
+   예전엔 '홈 빠른 캡처', '시간표 · 이름', '반복 할일', '활성 규칙으로 자동 생성됨', '인박스에서 전환' 등을
+   메모에 써서 사용자 메모와 섞였다(어떤 인식에도 쓰이지 않는 표시용 문구). 출처는 origin 필드로만 두고,
+   남아 있는 그런 문구는 재조정 때 메모에서 지운다(사용자가 직접 쓴 메모는 그대로). ── */
+var TASK_SYSTEM_NOTE_RE=/^(홈 빠른 캡처( \(AI\))?|시간표( · .*)?|반복 할일|활성 규칙으로 자동 생성됨|인박스에서 전환( · ♥\d+)?|인박스 정리|인박스에서 계획|마감 준비 · 계획|오늘 상황 · 연결 할일|자연어 캡처 · 연결 할일|체크인에서 담음)$/;
+var TASK_SYSTEM_NOTE_ORIGIN=[[/^홈 빠른 캡처|^자연어 캡처/,'capture'],[/^시간표/,'timetable'],[/^반복 할일/,'repeat'],[/^활성 규칙/,'rule'],[/^인박스/,'inbox'],[/^마감 준비/,'planner'],[/^오늘 상황/,'link'],[/^체크인/,'checkin']];
+function taskIsSystemNote(note){ return TASK_SYSTEM_NOTE_RE.test(String(note==null?'':note).trim()); }
+function taskCleanSystemNote(note){ return taskIsSystemNote(note)?'':String(note==null?'':note); }
+/* 할일 배열에서 시스템 문구 메모를 걷어 낸다. 바뀐 개수 반환(저장은 호출자). */
+function taskMigrateSystemNotes(list){
+  var n=0;
+  (list||[]).forEach(function(t){
+    if(!t||!t.note)return;
+    var note=String(t.note).trim();
+    /* 아주 옛 시간표 생성기가 남긴 '📅 시간표: 이름(\n🎒 준비물: …)' — 준비물은 prepItems에 이미 있음 */
+    var legacyTt=!!t._isTt&&/^📅 시간표: /.test(note);
+    if(!legacyTt&&!taskIsSystemNote(note))return;
+    /* 시간표 수업은 이름을 별도 필드로 보존(데모 정리 서명 등이 쓰던 정보) */
+    var _ttm=/^시간표 · (.*)$/.exec(note); if(_ttm&&t._isTt&&!t._ttName)t._ttName=_ttm[1];
+    if(!t.origin){ for(var i=0;i<TASK_SYSTEM_NOTE_ORIGIN.length;i++){ if(TASK_SYSTEM_NOTE_ORIGIN[i][0].test(note)){ t.origin=TASK_SYSTEM_NOTE_ORIGIN[i][1]; break; } } }
+    t.note=''; t.updatedAt=Date.now(); n++;
+  });
+  return n;
+}
 function generatedCanonicalType(t){
   if(!t)return '';
   if(t.sourceType==='repeat'||t.repeatRuleId||t._repeatOccurrence||(t.scheduleKey&&String(t.scheduleKey).indexOf('repeat:')===0))return 'repeat';
@@ -18161,7 +18190,7 @@ function buildRepeatExpected(rep, dkey){
       deadlineId:'',
       timeStart:rep.timeStart||'',
       timeEnd:rep.timeEnd||'',
-      note:rep.note||'반복 할일',
+      note:(typeof taskCleanSystemNote==='function')?taskCleanSystemNote(rep.note):String(rep.note||''),
       subs:[],
       prepItems:Array.isArray(rep.prepItems)?rep.prepItems:[]
     }
@@ -18193,7 +18222,7 @@ function buildRuleExpected(rule, occ, sourceTask, sourceTaskId){
       deadlineId:sourceTask?String(sourceTask.id):'',
       timeStart:'',
       timeEnd:'',
-      note:'활성 규칙으로 자동 생성됨',
+      note:'',
       subs:[]
     }
   };
@@ -18261,6 +18290,20 @@ function buildExpectedGeneratedMap(opts){
         var _oldKey=activeRuleGenerationKey(rule.id,String(src.id),due);
         if(exp&&!genSuppressions[exp.scheduleKey]&&!genSuppressions[_oldKey])expected[exp.scheduleKey]=exp;
       });
+      /* 반복 할일 회차(예: 매주 '물리 과제 제출')도 이름으로 감지해 준비를 만든다. 회차 id는 기기마다
+         달라질 수 있어, 원본 연결은 회차의 결정적 키(scheduleKey = repeat:<규칙>:<날짜>)로 건다 →
+         어느 기기에서 만들어도 같은 생성 키라 중복이 안 생긴다. deadlineId는 이 기기의 회차 id로
+         (재조정 때마다 맞춰짐) 연결 표시·달력 화살표에 쓰인다. 규칙이 만든 할일은 원본에서 제외(연쇄 방지). */
+      Object.keys(expected).forEach(function(rk){
+        var re=expected[rk]; if(!re||re.type!=='repeat'||!re.task)return;
+        if(String(re.task.text||'').indexOf(key)<0&&String(re.task.note||'').indexOf(key)<0)return;
+        var anchorR=taskDateKeyLocal(re.occurrenceDate); if(!anchorR||anchorR<from)return;
+        var dueR=taskAddDaysKey(anchorR,-offset);
+        if(!ruleDateInRange(rule,dueR))return;
+        var occTask=(tasks||[]).find(function(x){ return x&&!x._travelOnly&&generatedTaskKey(x)===re.scheduleKey; })||Object.assign({id:''},re.task);
+        var expR=buildRuleExpected(rule,dueR,occTask,re.scheduleKey);
+        if(expR&&!genSuppressions[expR.scheduleKey])expected[expR.scheduleKey]=expR;
+      });
     }else if(type==='weekday'){
       var days=repeatWeekdays(rule);
       if(!days.length)return;
@@ -18304,6 +18347,15 @@ function expectedForExistingGenerated(t, expectedMap){
         var due=taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
         if(!ruleDateInRange(rule,due))return null;
         return buildRuleExpected(rule,due,null,sourceTaskId);
+      }
+      /* 반복 회차가 원본인 준비(sourceTaskId = repeat:<규칙>:<날짜>) — 회차가 남아 있을 때만 유지 */
+      if(sourceTaskId.indexOf('repeat:')===0){
+        var occ=(tasks||[]).find(function(x){ return x&&!x._travelOnly&&generatedTaskKey(x)===sourceTaskId; });
+        if(!occ)return null;
+        var anchorR=taskDateKeyLocal(occ.date||sourceTaskId.split(':').pop());
+        var dueR=taskAddDaysKey(anchorR,-(parseInt(rule.offsetDays,10)||0));
+        if(!ruleDateInRange(rule,dueR))return null;
+        return buildRuleExpected(rule,dueR,occ,sourceTaskId);
       }
       var src=sourceById[sourceTaskId];
       if(src){
@@ -18352,6 +18404,8 @@ function reconcileGeneratedTasks(opts){
   var expected=buildExpectedGeneratedMap(opts);
   var genSuppressions=loadGeneratedTaskSuppressions();
   var changed=0, seen={}, next=[];
+  /* 메모에 남은 시스템 문구 정리(다른 기기 옛 버전이 쓴 것도 동기화 후 여기서 걷힘) */
+  try{ if(typeof taskMigrateSystemNotes==='function')changed+=taskMigrateSystemNotes(tasks); }catch(_e){}
   /* 규칙의 원본(비생성) 할일이 이미 어떤 occurrence 날짜에 있으면 그 슬롯에
      생성본을 또 만들지 않는다 — 매년(생일) 반복에서 원본+생성본이 같은 날 겹치는
      중복을 막는다. monthly/weekly에도 동일하게 적용되는 보수적 중복 제거. */
@@ -19272,7 +19326,7 @@ function _planInboxTriage(id, opts){
   function close(){ commitText(); ov.remove(); refresh(); }
   function markProcessed(){ it.unread=false; if(typeof saveInboxItems==='function')saveInboxItems(); }
   function finish(msg){ ov.remove(); if(typeof showToast==='function')showToast(msg); refresh(); }
-  function mkTask(extra){ return Object.assign({ id:Date.now()+Math.floor(Math.random()*100000), inboxId:String(it.id), text:it.text||'할일', catId:'etc', date:_planToday(), priority:'', done:false, timeStart:'', timeEnd:'', deadlineDate:'', deadlineId:'', note:'인박스 정리', subs:[], createdAt:Date.now(), updatedAt:Date.now() }, extra||{}); }
+  function mkTask(extra){ return Object.assign({ id:Date.now()+Math.floor(Math.random()*100000), inboxId:String(it.id), text:it.text||'할일', catId:'etc', date:_planToday(), priority:'', done:false, timeStart:'', timeEnd:'', deadlineDate:'', deadlineId:'', note:'', origin:'inbox', subs:[], createdAt:Date.now(), updatedAt:Date.now() }, extra||{}); }
   function activeProjects(){ var arr=(typeof projects!=='undefined'&&Array.isArray(projects))?projects.slice():[]; return arr.sort(function(a,b){ var ax=a.status==='archived'?1:0, bx=b.status==='archived'?1:0; return ax-bx; }); }
   var previewHtml='<div class="plan-triage-preview">'+esc((it.text||'(내용 없음)')).slice(0,120)+((it.text&&it.text.length>120)?'…':'')+'</div>';
   /* 맨 위 편집칸: 내용 고치기 + ♥ + (인박스에서 연 경우) 분류 */
@@ -19404,13 +19458,13 @@ function _planSchedule(kind,pid,sm){
     if(typeof showToast==='function')showToast('“'+(t.text||'할일')+'” '+ts+' 배치');
   } else if(kind==='inbox'){
     var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(pid);}); if(!it)return;
-    var nt={ id:Date.now()+Math.floor(Math.random()*100000), inboxId:String(it.id), text:it.text||'할일', catId:'etc', date:dd, priority:'', done:false, timeStart:ts, timeEnd:te, deadlineDate:'', deadlineId:'', note:'인박스에서 계획', subs:[], createdAt:Date.now(), updatedAt:Date.now() };
+    var nt={ id:Date.now()+Math.floor(Math.random()*100000), inboxId:String(it.id), text:it.text||'할일', catId:'etc', date:dd, priority:'', done:false, timeStart:ts, timeEnd:te, deadlineDate:'', deadlineId:'', note:'', origin:'inbox', subs:[], createdAt:Date.now(), updatedAt:Date.now() };
     tasks.unshift(nt); it.unread=false;
     if(typeof saveTaskData==='function')saveTaskData(); if(typeof saveInboxItems==='function')saveInboxItems();
     if(typeof showToast==='function')showToast('인박스를 '+ts+' 일정으로');
   } else if(kind==='deadline'||kind==='link'){
     var dt=(tasks||[]).find(function(x){return String(x.id)===String(pid);}); if(!dt)return;
-    var pt={ id:Date.now()+Math.floor(Math.random()*100000), text:'준비: '+String(dt.text||'').slice(0,20), catId:dt.catId||'etc', date:dd, priority:'', done:false, timeStart:ts, timeEnd:te, deadlineDate:dt.deadlineDate||'', deadlineId:String(dt.id), sourceTaskId:String(dt.id), note:'마감 준비 · 계획', subs:[], createdAt:Date.now(), updatedAt:Date.now() };
+    var pt={ id:Date.now()+Math.floor(Math.random()*100000), text:'준비: '+String(dt.text||'').slice(0,20), catId:dt.catId||'etc', date:dd, priority:'', done:false, timeStart:ts, timeEnd:te, deadlineDate:dt.deadlineDate||'', deadlineId:String(dt.id), sourceTaskId:String(dt.id), note:'', origin:'planner', subs:[], createdAt:Date.now(), updatedAt:Date.now() };
     tasks.unshift(pt); if(typeof saveTaskData==='function')saveTaskData();
     if(typeof showToast==='function')showToast('마감 준비 '+ts+' 배치');
   }
@@ -20398,7 +20452,7 @@ function renderHomeTimeBlocks(){
         var ttSlotKey=tt.id+'|'+s.title+'|'+s.timeStart;
         var ttPrep=String(s.prep||'').split(/[,;]\s*/).map(function(x){return {text:x.trim(),done:false};}).filter(function(p){return p.text;});
         ttPrepApplyChecks(ttSlotKey, todayKey, ttPrep);
-        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'시간표',travelMin:parseInt(s.travel,10)||0,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep};
+        var pseudo={id:'tt_'+tt.id+'_'+s.title,text:s.title,catId:'schedule',date:todayKey,timeStart:s.timeStart,timeEnd:s.timeEnd,done:false,_isTt:true,note:'',travelMin:parseInt(s.travel,10)||0,_ttSlotKey:ttSlotKey,_ttDate:todayKey,prepItems:ttPrep};
         if (!tasks.some(function(t){return t.date===todayKey && t.text===s.title && t.timeStart===s.timeStart;})) {
           makeBlock(pseudo, mins(s.timeStart), mins(s.timeEnd), 'vblk-sched', 'TT');
         }
@@ -20769,7 +20823,7 @@ function homeCapture(raw){
     var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
     var _nl = captureParseNL(text, (typeof TK!=='undefined'?TK:''));
     var _body = _nl.text || text || '사진';
-    tasks.unshift({id:Date.now(),imgs:(_imgs.length?_imgs:undefined),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    tasks.unshift({id:Date.now(),imgs:(_imgs.length?_imgs:undefined),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'',origin:'capture',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     /* 활성 규칙 연결 할일을 지금 바로 생성('오늘 상황'이 방금 담은 마감을 '연결 안 됨'으로
        표시하던 문제 수정). applyActiveTaskRules는 생성 시 스스로 saveTaskData+상황 갱신. */
     try{ if(typeof applyActiveTaskRules==='function') applyActiveTaskRules(); }catch(e){}
@@ -21177,7 +21231,7 @@ function _commitCaptureTask(parsed){
     priority:defPrio, done:false,
     deadlineDate:parsed.deadlineDate||'', deadlineId:'',
     timeStart:parsed.timeStart||'', timeEnd:parsed.timeEnd||'',
-    note:parsed.note||'홈 빠른 캡처 (AI)',
+    note:parsed.note||'', origin:'capture',
     subs:[], _ruleId:'', _repeat:false,
     createdAt:Date.now(), updatedAt:Date.now()
   });
@@ -21195,7 +21249,7 @@ function _commitCaptureTask(parsed){
       priority:defPrio, done:false,
       deadlineDate:parsed.deadlineDate||'', deadlineId:String(mainId),
       timeStart:'', timeEnd:'',
-      note:'자연어 캡처 · 연결 할일', subs:[],
+      note:'', origin:'capture', subs:[],
       sourceTaskId:String(mainId), _ruleId:'', _repeat:false,
       createdAt:Date.now(), updatedAt:Date.now()
     });
@@ -24583,7 +24637,7 @@ function inboxToTodayTask(item){
   var catId=item.cat==='urgent'?'etc':item.cat;
   if(typeof CATS==='undefined'||!CATS.some(function(c){return c.id===catId;}))catId='etc';
   var prio=(item.cat==='urgent'||inboxLikeCount(item)>=3)?'high':(typeof getCatDefaultPriority==='function'?getCatDefaultPriority(catId):'');
-  var t={id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환'+(inboxLikeCount(item)?' · ♥'+inboxLikeCount(item):''),subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+  var t={id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'',origin:'inbox',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
   if(Array.isArray(item.imgs)&&item.imgs.length)t.imgs=item.imgs.slice();
   tasks.unshift(t);
   if(typeof saveTaskData==='function')saveTaskData();
@@ -24749,7 +24803,7 @@ function convertToTask(item, el) {
     if(!CATS.some(function(c){return c.id===catId;})) catId='etc';
     var prio = item.cat==='urgent' ? 'high'
              : (typeof getCatDefaultPriority==='function' ? getCatDefaultPriority(catId) : '');
-    var _t={id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'인박스에서 전환',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
+    var _t={id:Date.now(),text:item.text,catId:catId,date:TK,priority:prio,done:false,deadlineDate:'',deadlineId:'',timeStart:'',timeEnd:'',note:'',origin:'inbox',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()};
     if(Array.isArray(item.imgs)&&item.imgs.length)_t.imgs=item.imgs.slice();
     tasks.unshift(_t);
     if (typeof saveTaskData === 'function') saveTaskData();
@@ -25951,7 +26005,8 @@ function _isDemoTimetableTask(t, demoTtIds, realTtIds){
   var ttId=(t._ttId!=null)?String(t._ttId):'';
   if(ttId&&demoTtIds&&demoTtIds[ttId])return true;
   if(ttId&&realTtIds&&realTtIds[ttId])return false; /* 실제 시간표 소속 수업은 절대 안 지움 */
-  if(String(t.note||'')!=='시간표 · '+DEMO_TT_NAME)return false;
+  /* 수업 서명: 시간표 이름(예전엔 메모 '시간표 · 이름', 지금은 _ttName — 메모는 사용자 것) */
+  if(String(t.note||'')!=='시간표 · '+DEMO_TT_NAME && String(t._ttName||'')!==DEMO_TT_NAME)return false;
   var d=String(t.date||'');
   if(!(d>=DEMO_TT_START&&d<=DEMO_TT_END))return false;
   var dt=new Date(d+'T00:00'); if(isNaN(dt.getTime()))return false;
@@ -26070,10 +26125,10 @@ var tasks = [
   {id:4,text:'팀 미팅',        catId:'schedule',date:TK,priority:'',  done:false,deadlineDate:'',              deadlineId:'',timeStart:'10:00',timeEnd:'11:00',note:'회의실 B',subs:[],_ruleId:'',_repeat:false,_isTt:false},
   {id:5,text:'참고문헌 최종 정리',catId:'uni', date:TK, priority:'mid', done:false,deadlineDate:dk(tasksAddDays(TODAY,2)),deadlineId:'1',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false},
   {id:6,text:'독서 — 아토믹 해빗',catId:'life',date:TK, priority:'low', done:false,deadlineDate:dk(tasksAddDays(TODAY,7)),deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false},
-  {id:7,text:'발표 자료 준비',  catId:'uni',   date:dk(tasksAddDays(TODAY,3)),priority:'high',done:false,deadlineDate:dk(tasksAddDays(TODAY,5)),deadlineId:'',timeStart:'',timeEnd:'',note:'활성 규칙으로 자동 생성됨',subs:[],_ruleId:'rule2',_ruleGen:true,_repeat:false},
+  {id:7,text:'발표 자료 준비',  catId:'uni',   date:dk(tasksAddDays(TODAY,3)),priority:'high',done:false,deadlineDate:dk(tasksAddDays(TODAY,5)),deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'rule2',_ruleGen:true,_repeat:false},
   {id:8,text:'월별 지출 정리',  catId:'life',  date:dk(tasksAddDays(TODAY,5)),priority:'',  done:false,deadlineDate:'',              deadlineId:'',timeStart:'',timeEnd:'',note:'',subs:[],_ruleId:'',_repeat:false},
-  {id:9,text:'수업 — 데이터베이스',catId:'schedule',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'14:00',timeEnd:'16:00',note:'시간표',subs:[],_ruleId:'',_repeat:false,_isTt:true},
-  {id:10,text:'수업 — 알고리즘',  catId:'schedule',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'09:00',timeEnd:'10:30',note:'시간표',subs:[],_ruleId:'',_repeat:false,_isTt:true},
+  {id:9,text:'수업 — 데이터베이스',catId:'schedule',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'14:00',timeEnd:'16:00',note:'',subs:[],_ruleId:'',_repeat:false,_isTt:true},
+  {id:10,text:'수업 — 알고리즘',  catId:'schedule',date:TK,priority:'',done:false,deadlineDate:'',deadlineId:'',timeStart:'09:00',timeEnd:'10:30',note:'',subs:[],_ruleId:'',_repeat:false,_isTt:true},
 ];
 try {
   var storedTasks = JSON.parse(localStorage.getItem('task_items_v1') || 'null');
@@ -26230,8 +26285,9 @@ function buildTimetableExpectedTasks(ttList){
           done:false,
           deadlineDate:'',
           deadlineId:'',
-          note:'시간표 · '+(tt.name||''),
+          note:'',
           _isTt:true,
+          _ttName:tt.name||'',
           _ttId:String(tt.id),
           _ttSlotId:slotId,
           _ttSlotKey:timetableLegacySlotKey(s,idx),
@@ -26305,11 +26361,12 @@ function reconcileTimetableTasks(opts){
       }
       var exp=expected[key];
       if(!t.userModifiedDate){
-        ['text','catId','date','timeStart','timeEnd','priority','deadlineDate','deadlineId','note','travelMin'].forEach(function(prop){
+        /* note(메모)는 사용자 것 — 시간표에서 덮어쓰지 않는다(예전엔 '시간표 · 이름'으로 매번 덮여 메모가 사라졌다) */
+        ['text','catId','date','timeStart','timeEnd','priority','deadlineDate','deadlineId','travelMin'].forEach(function(prop){
           if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
         });
       }
-      ['_ttId','_ttSlotId','_ttSlotKey','generationKey','sourceType','occurrenceDate'].forEach(function(prop){
+      ['_ttId','_ttName','_ttSlotId','_ttSlotKey','generationKey','sourceType','occurrenceDate'].forEach(function(prop){
         if(t[prop]!==exp[prop]){t[prop]=exp[prop];changed++;}
       });
       if(exp.prepItems){
@@ -29036,7 +29093,7 @@ function syncTaskRepeatItem(task){
   item.timeEnd=task.timeEnd||'';
   item.travelMin=parseInt(task.travelMin,10)||0;
   item.prepItems=Array.isArray(task.prepItems)?task.prepItems:[];
-  item.note=task.note||'반복 할일';
+  item.note=(typeof taskCleanSystemNote==='function')?taskCleanSystemNote(task.note):String(task.note||'');
   item.updatedAt=Date.now(); /* 크로스기기 union-merge LWW 기준 */
   saveRepeatItems(repeats);
   /* 시작일이 할일 날짜보다 미래면 그 시점부터 스캔해 즉시 생성되게 한다(먼 미래 시작일 대응). */
@@ -30379,13 +30436,13 @@ function checkinEditTask(i) {
   if (!txt) return;
   var pri = i===0 ? 'high' : (i===1 ? 'mid' : '');
   if (typeof tasksOpenNewModal === 'function') {
-    tasksOpenNewModal({ text:txt, priority:pri, note:'체크인에서 담음',
+    tasksOpenNewModal({ text:txt, priority:pri, note:'',
       date:(typeof TK!=='undefined'?TK:'') });
   } else if (typeof tasks !== 'undefined') {
     /* Fallback: if the task modal isn't available, add directly. */
     tasks.push({ id:Date.now()+Math.random(), text:txt, catId:'etc',
       date:(typeof TK!=='undefined'?TK:''), priority:pri, done:false,
-      note:'체크인에서 담음', subs:[], createdAt:Date.now(), updatedAt:Date.now() });
+      note:'', origin:'checkin', subs:[], createdAt:Date.now(), updatedAt:Date.now() });
     if (typeof saveTaskData === 'function') saveTaskData();
     if (typeof showToast === 'function') showToast('오늘 할일로 담았어요');
   }
