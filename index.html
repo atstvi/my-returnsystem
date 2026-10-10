@@ -2922,6 +2922,14 @@ html.pjb-fs-lock{overflow:hidden}
    buttons on mobile — the old overflow that clipped the right-side icons. */
 .capture-inp { flex:1; min-width:0; font-size:var(--text-md); color:var(--fg); background:transparent; height:100%; }
 .capture-inp::placeholder { color:var(--fg-4); }
+/* 빠른 입력에 붙여 둔 사진(Ctrl/Cmd+V) */
+.capture-thumbs{display:inline-flex;align-items:center;gap:4px;flex:none}
+.capture-thumbs[hidden]{display:none}
+.cap-thumb{position:relative;width:26px;height:26px;border-radius:7px;overflow:hidden;flex:none;box-shadow:0 0 0 1px var(--border)}
+.cap-thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.cap-thumb-x{position:absolute;inset:0;border:none;background:rgba(0,0,0,.45);color:#fff;font-size:13px;line-height:1;opacity:0;cursor:pointer;transition:opacity var(--t-snap)}
+.cap-thumb:hover .cap-thumb-x,.cap-thumb-x:focus{opacity:1}
+@media (hover:none){.cap-thumb-x{opacity:.85;background:rgba(0,0,0,.35)}}
 /* Inbox/Task as one compact segmented control on the right (repositioned) */
 .capture-modes { flex-shrink:0; display:inline-flex; align-items:center; gap:2px; padding:2px; background:var(--bg-raised); border-radius:var(--r-full); }
 .capture-type {
@@ -10154,6 +10162,7 @@ to{opacity:1;transform:translateY(0)}}
       <div class="capture-bar topbar-capture cap-inbox">
         <div class="capture-inner">
           <span class="capture-lead" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></span>
+          <span class="capture-thumbs" id="capture-thumbs" hidden></span>
           <input class="capture-inp" id="capture-inp" type="text" aria-label="빠른 캡처" placeholder="" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" name="return-capture-noac">
           <div class="capture-modes" role="tablist" aria-label="캡처 대상">
             <button class="capture-type active" id="capture-inbox-btn" type="button" role="tab">Inbox</button>
@@ -14503,12 +14512,14 @@ document.addEventListener('keydown', function(e) { if (e.key === 'Escape') close
 /* ── Capture ── */
 var cinp = document.getElementById('capture-inp');
 if (cinp) {
+  cinp.addEventListener('paste', function(e){ if(typeof captureHandlePaste==='function')captureHandlePaste(e); });
   cinp.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter' && !e.shiftKey && cinp.value.trim()) {
+    var _hasImg = (typeof captureHasImgs==='function') && captureHasImgs();
+    if (e.key === 'Enter' && !e.shiftKey && (cinp.value.trim() || _hasImg)) {
       e.preventDefault();
       var val = cinp.value.trim();
       cinp.value = '';
-      homeCaptureAI(val);
+      if (val) homeCaptureAI(val); else homeCapture(''); /* 사진만 → 바로 첨부해 담기 */
     }
     if (e.key === 'Escape') _closeCapturePreview();
   });
@@ -14516,9 +14527,10 @@ if (cinp) {
 var csend = document.querySelector('.capture-send');
 if (csend && cinp) csend.addEventListener('click', function(){
   var val = cinp.value.trim();
-  if(!val) return;
+  var _hasImg = (typeof captureHasImgs==='function') && captureHasImgs();
+  if(!val && !_hasImg) return;
   cinp.value = '';
-  homeCaptureAI(val);
+  if (val) homeCaptureAI(val); else homeCapture('');
 });
 document.getElementById('topbar-settings-btn') && document.getElementById('topbar-settings-btn').addEventListener('click', function(){ if(typeof goPage==='function') goPage('settings'); });
 document.getElementById('topbar-music-btn') && document.getElementById('topbar-music-btn').addEventListener('click', function(){ if(typeof goPage==='function') goPage('music'); });
@@ -20644,9 +20656,55 @@ function captureParseNL(input, todayDate){
   return out;
 }
 window.captureParseNL=captureParseNL;
+/* ── 상단 빠른 입력: Ctrl/Cmd+V로 사진 붙이기 ──
+   붙인 사진은 입력칸 앞에 작은 썸네일로 대기했다가, 보낼 때 대상에 첨부된다:
+   Inbox → 인박스 항목 사진(imgs) · Task → 할일 메모 사진(task.imgs) · Log → 프로젝트 로그 사진(log.imgs).
+   압축 후 MediaStore(IndexedDB + 동기화 채널)에 넣고 참조(return-media:)만 들고 있다 — 인박스가
+   쓰는 것과 같은 경로. 문서 전체 붙여넣기(인박스로 이동)보다 먼저 가로채 이동하지 않게 한다. */
+var _capTopImgs=[];
+function captureHasImgs(){ return _capTopImgs.length>0; }
+function captureTakeImgs(){ var a=_capTopImgs.slice(); _capTopImgs=[]; _capPaintThumbs(); return a; }
+function _capPaintThumbs(){
+  var host=document.getElementById('capture-thumbs'); if(!host)return;
+  if(!_capTopImgs.length){ host.hidden=true; host.innerHTML=''; var b0=document.querySelector('.topbar-capture'); if(b0)b0.classList.remove('has-imgs'); return; }
+  host.hidden=false;
+  var esc=function(v){ return String(v==null?'':v).replace(/[&<>"]/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
+  host.innerHTML=_capTopImgs.map(function(ref,i){
+    var disp=(typeof isReturnDisplayableImageUrl==='function'&&isReturnDisplayableImageUrl(ref))?ref:((typeof MediaStore!=='undefined'&&MediaStore.resolveSync)?MediaStore.resolveSync(ref):'');
+    return '<span class="cap-thumb"><img '+(disp?'src="'+esc(disp)+'"':'data-media="'+esc(ref)+'"')+' alt=""><button type="button" class="cap-thumb-x" data-capimg="'+i+'" aria-label="사진 빼기" onmousedown="event.preventDefault()">×</button></span>';
+  }).join('');
+  host.querySelectorAll('img[data-media]').forEach(function(img){ if(typeof returnMediaResolveUrl==='function')returnMediaResolveUrl(img.getAttribute('data-media')).then(function(u){ if(u)img.src=u; }); });
+  host.querySelectorAll('[data-capimg]').forEach(function(b){ b.addEventListener('click',function(e){ e.stopPropagation(); _capTopImgs.splice(Number(b.getAttribute('data-capimg')),1); _capPaintThumbs(); }); });
+  var bar=document.querySelector('.topbar-capture'); if(bar)bar.classList.add('has-imgs');
+}
+function captureIngestImage(file){
+  if(!file||!/^image\//.test(file.type||''))return;
+  var r=new FileReader();
+  r.onload=function(ev){
+    var raw=ev.target.result;
+    var comp=(typeof __compressDataUrl==='function')?__compressDataUrl(raw,1600,0.82):Promise.resolve(raw);
+    comp.then(function(dataUrl){
+      var role=(typeof homeCaptureType!=='undefined'&&homeCaptureType)?('capture-'+homeCaptureType):'capture';
+      return (typeof MediaStore!=='undefined'&&MediaStore.put)?MediaStore.put(dataUrl,{role:role,type:file.type}):dataUrl;
+    }).then(function(ref){ if(!ref)return; _capTopImgs.push(ref); _capPaintThumbs(); })
+      .catch(function(){ if(typeof showToast==='function')showToast('사진을 붙이지 못했어요'); });
+  };
+  r.readAsDataURL(file);
+}
+function captureHandlePaste(e){
+  var items=(e.clipboardData&&e.clipboardData.items)||[], files=[];
+  for(var i=0;i<items.length;i++){ var it=items[i]; if(it&&it.kind==='file'&&it.type&&it.type.indexOf('image/')===0){ var f=it.getAsFile(); if(f)files.push(f); } }
+  if(!files.length)return false; /* 글자만 붙여넣기는 그대로 */
+  e.preventDefault(); e.stopPropagation(); /* 문서 전체 붙여넣기(인박스로 이동) 막기 */
+  files.forEach(captureIngestImage);
+  var lbl={inbox:'인박스 항목',task:'할일 메모',log:'로그'}[(typeof homeCaptureType!=='undefined'&&homeCaptureType)||'inbox']||'항목';
+  if(typeof showToast==='function')showToast('사진 '+files.length+'장 붙였어요 · 보내면 '+lbl+'에 첨부돼요');
+  return true;
+}
 function homeCapture(raw){
   var text = String(raw || '').trim();
-  if (!text) return;
+  if (!text && !captureHasImgs()) return;
+  var _imgs = captureTakeImgs(); /* 붙여 둔 사진 — 대상에 첨부 */
   if (homeCaptureType === 'task' && typeof tasks !== 'undefined') {
     /* AI natural language parse is handled by homeCaptureAI — this plain path
        is only reached when AI is skipped or unavailable. 로컬 파서로 시간·날짜를
@@ -20654,8 +20712,8 @@ function homeCapture(raw){
     var defCat = 'etc';
     var defPrio = getCatDefaultPriority ? getCatDefaultPriority(defCat) : '';
     var _nl = captureParseNL(text, (typeof TK!=='undefined'?TK:''));
-    var _body = _nl.text || text;
-    tasks.unshift({id:Date.now(),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
+    var _body = _nl.text || text || '사진';
+    tasks.unshift({id:Date.now(),imgs:(_imgs.length?_imgs:undefined),text:_body,catId:defCat,date:(_nl.date||TK),priority:defPrio,done:false,deadlineDate:(_nl.deadlineDate||''),deadlineId:'',timeStart:(_nl.timeStart||''),timeEnd:(_nl.timeEnd||''),note:'홈 빠른 캡처',subs:[],_ruleId:'',_repeat:false,createdAt:Date.now(),updatedAt:Date.now()});
     /* 활성 규칙 연결 할일을 지금 바로 생성('오늘 상황'이 방금 담은 마감을 '연결 안 됨'으로
        표시하던 문제 수정). applyActiveTaskRules는 생성 시 스스로 saveTaskData+상황 갱신. */
     try{ if(typeof applyActiveTaskRules==='function') applyActiveTaskRules(); }catch(e){}
@@ -20664,7 +20722,7 @@ function homeCapture(raw){
     renderHomeTasks();
     homeToast('할일로 추가했어요');
   } else if (homeCaptureType === 'log') {
-    quickAddLog(text);
+    quickAddLog(text || '사진', _imgs);
   } else if (typeof window.ib2QuickCapture === 'function') {
     /* Route through the inbox module so the item lands in the SAME column the
        chooser shows (project or 미분류), with projectId set correctly. */
@@ -20673,14 +20731,14 @@ function homeCapture(raw){
     if (!colId || !list.some(function(c){return c.id===colId;})) {
       colId = (typeof window.ib2GuessCat==='function') ? window.ib2GuessCat(text) : '_uncat';
     }
-    var made = window.ib2QuickCapture(text, colId);
+    var made = window.ib2QuickCapture(text, colId, _imgs);
     var lbl = (list.find(function(c){return c.id===(made?made.cat:colId);})||{}).label || '';
     homeToast('인박스' + (lbl ? ' · ' + lbl : '') + '에 담았어요');
   } else if (typeof inboxItems !== 'undefined') {
     /* Legacy fallback (inbox module not loaded): keep old INBOX_CATS behavior. */
     var validCat = homeCaptureInboxCat && (typeof INBOX_CATS==='undefined' || INBOX_CATS.some(function(c){return c.id===homeCaptureInboxCat;})) ? homeCaptureInboxCat : null;
     var cat = validCat || (typeof inferInboxCat === 'function' ? inferInboxCat(text) : 'memo');
-    inboxItems.unshift({id:Date.now(),text:text,cat:cat,ts:Date.now(),done:false,unread:true});
+    inboxItems.unshift({id:Date.now(),text:text,cat:cat,ts:Date.now(),done:false,unread:true,imgs:(_imgs.length?_imgs:undefined)});
     if (typeof saveInboxItems === 'function') saveInboxItems();
     if (typeof renderFeed === 'function') renderFeed();
     homeToast('인박스에 담았어요');
@@ -20690,15 +20748,18 @@ function homeCapture(raw){
 /* Global quick-add → 프로젝트 작업 로그. Adds to the active project if one is
    open, else auto-picks when there is a single project, else asks which one.
    Reuses the project log shape/save path (see openProjectLogEditor). */
-function quickAddLog(text){
-  text = String(text||'').trim(); if(!text) return;
+function quickAddLog(text, imgs){
+  text = String(text||'').trim(); imgs = Array.isArray(imgs) ? imgs : [];
+  if(!text && !imgs.length) return;
   if (typeof loadProjects === 'function') { try{ loadProjects(); }catch(e){} }
   var all = (typeof projects !== 'undefined' && Array.isArray(projects)) ? projects.filter(function(p){return p && p.status!=='archived';}) : [];
   if (!all.length) { homeToast('먼저 프로젝트를 만들어 주세요'); return; }
   function add(p){
     if(!p) return;
     p.logs = Array.isArray(p.logs) ? p.logs : [];
-    p.logs.unshift({ id:'log_'+Date.now(), title:'', text:text, createdAt:Date.now(), updatedAt:Date.now() });
+    var _log = { id:'log_'+Date.now(), title:'', text:text, createdAt:Date.now(), updatedAt:Date.now() };
+    if (imgs.length) _log.imgs = imgs.slice(); /* 빠른 입력에 붙인 사진 */
+    p.logs.unshift(_log);
     p.updatedAt = Date.now();
     if (typeof saveProjects === 'function') saveProjects();
     if (typeof renderProjects === 'function') { try{ renderProjects(); }catch(e){} }
@@ -21053,8 +21114,9 @@ function _commitCaptureTask(parsed){
   if(!parsed||typeof tasks==='undefined') return;
   var defPrio = (parsed.priority) || (getCatDefaultPriority ? getCatDefaultPriority(parsed.catId||'etc') : '');
   var mainId = Date.now();
+  var _capImgs = (typeof captureTakeImgs==='function') ? captureTakeImgs() : []; /* 붙여 둔 사진 → 할일 메모 사진 */
   tasks.unshift({
-    id:mainId, text:parsed.text||'새 할일',
+    id:mainId, text:parsed.text||'새 할일', imgs:(_capImgs.length?_capImgs:undefined),
     catId:parsed.catId||'etc', date:parsed.date||TK,
     priority:defPrio, done:false,
     deadlineDate:parsed.deadlineDate||'', deadlineId:'',
@@ -25556,10 +25618,11 @@ function _initInbox(){
      the 상단 빠른 입력창 can drop items into the SAME categories the board uses. */
   window.ib2Cats=cats;
   window.ib2GuessCat=guessCat;
-  window.ib2QuickCapture=function(text,colId){
-    text=String(text||'').trim(); if(!text)return null;
+  window.ib2QuickCapture=function(text,colId,imgs){
+    text=String(text||'').trim(); imgs=Array.isArray(imgs)?imgs.filter(Boolean):[];
+    if(!text&&!imgs.length)return null;
     if(!colId||!cats().some(function(c){return c.id===colId;}))colId='_uncat';
-    var it=newItem(text,colId); inboxItems.unshift(it); saveInboxItems(); renderFeed(); return it;
+    var it=newItem(text,colId); if(imgs.length)it.imgs=imgs.slice(); inboxItems.unshift(it); saveInboxItems(); renderFeed(); return it;
   };
   /* 빠른 담기 스레드 항목 편집 시트 — 정리 보드 카드와 동일한 조작을 챗 버블에서도. */
   /* ⋯ → 계획창 '인박스 정리'와 같은 창(+내용 편집·분류·보드 카드로). 정리 창이 없으면 예전 시트로. */
