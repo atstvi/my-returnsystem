@@ -30,7 +30,7 @@ const t = runner('반복 시작일');
 // 3) syncTaskRepeatItem이 rep.startDate를 규칙 item.startDate로 우선 반영
 {
   const i = html.indexOf('function syncTaskRepeatItem(');
-  const seg = i >= 0 ? html.slice(i, i + 2400) : '';
+  const seg = i >= 0 ? html.slice(i, i + 3000) : '';
   t.ok('신규 규칙 생성 시 rep.startDate 사용',
     /if\(!item\)\{item=\{id:id,startDate:rep\.startDate\|\|task\.date\|\|TK(,createdAt:Date\.now\(\))?\};/.test(seg));
   t.ok('기존 규칙에도 rep.startDate 우선',

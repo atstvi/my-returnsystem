@@ -9,7 +9,7 @@ const html = readIndex();
 const t = runner('캡처 → 활성 규칙 연결 즉시 생성');
 
 // 홈 빠른 캡처(로컬 NL)
-t.ok('homeCapture: 추가 직후 applyActiveTaskRules 호출', /note:'홈 빠른 캡처'[\s\S]{0,400}?try\{ if\(typeof applyActiveTaskRules==='function'\) applyActiveTaskRules\(\); \}catch\(e\)\{\}/.test(html));
+t.ok('homeCapture: 추가 직후 applyActiveTaskRules 호출', /note:'',origin:'capture'[\s\S]{0,400}?try\{ if\(typeof applyActiveTaskRules==='function'\) applyActiveTaskRules\(\); \}catch\(e\)\{\}/.test(html));
 // AI 캡처 확정
 t.ok('_commitCaptureTask: 추가 직후 applyActiveTaskRules 호출', /function _commitCaptureTask\(parsed\)\{[\s\S]*?try\{ if\(typeof applyActiveTaskRules==='function'\) applyActiveTaskRules\(\); \}catch\(e\)\{\}\s*if\(typeof saveTaskData==='function'\) saveTaskData\(\);/.test(html));
 
