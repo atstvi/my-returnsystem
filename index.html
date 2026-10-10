@@ -18409,7 +18409,8 @@ document.getElementById('capture-inp') && document.getElementById('capture-inp')
 function scrollHomeTimeBlockToNow(force){
   var body=document.getElementById('htb-body');
   if(!body)return;
-  var pref=getHomeTimeBlockPrefs();
+  /* 렌더가 넓힌 실제 범위(오늘 할일이 설정 범위 밖이면 넓어짐)를 우선 */
+  var pref=window._htbRange||getHomeTimeBlockPrefs();
   var START=pref.start, END=pref.end, SLOT_H=pref.slotH;
   var n=new Date(), mins=n.getHours()*60+n.getMinutes();
   if(mins<START*60||mins>END*60)return;
@@ -18445,6 +18446,10 @@ function getHomeTimeBlockPrefs(){
   try{pref=Object.assign(pref,JSON.parse(localStorage.getItem('home_timeblock_prefs_v1')||'{}'));}catch(e){}
   pref.start=Math.max(0,Math.min(23,parseInt(pref.start,10)||0));
   pref.end=Math.max(pref.start+1,Math.min(24,parseInt(pref.end,10)||24));
+  /* 너무 좁은 범위(3시간 미만)는 거의 항상 '끝 시각에 자정 넘긴 시각(예: 1시)'을 넣어
+     시작+1시간으로 잘려 저장된 것 — 그러면 타임블록이 06:00 한 칸만 남고 할일이 전부
+     안 보였다. 자정(24시)까지로 복구한다. */
+  if(pref.end-pref.start<3)pref.end=24;
   pref.slotH=Math.max(28,Math.min(56,parseInt(pref.slotH,10)||40));
   return pref;
 }
@@ -18487,11 +18492,13 @@ function openHomeTimeBlockPrefs(){
   if(typeof openFormDialog==='function'){
     openFormDialog('타임블록 범위',[
       {key:'start',label:'시작 시각',type:'number',value:pref.start,min:0,max:23},
-      {key:'end',label:'끝 시각',type:'number',value:pref.end,min:1,max:24},
+      {key:'end',label:'끝 시각 (최대 24 = 자정)',type:'number',value:pref.end,min:1,max:24},
       {key:'slotH',label:'한 시간 높이',type:'number',value:pref.slotH,min:28,max:56}
     ],function(v){
-      var next={start:parseInt(v.start,10)||0,end:parseInt(v.end,10)||24,slotH:parseInt(v.slotH,10)||40};
-      if(next.end<=next.start)next.end=next.start+1;
+      var next={start:Math.max(0,Math.min(23,parseInt(v.start,10)||0)),end:parseInt(v.end,10)||24,slotH:parseInt(v.slotH,10)||40};
+      /* 끝이 시작보다 이르면(자정 넘김 의도) 타임블록은 하루치라 자정까지로. 예전엔 시작+1시간으로
+         잘려 한 칸만 보이고 할일이 다 사라졌다. */
+      if(next.end<=next.start||next.end>24){ next.end=24; if(typeof showToast==='function')showToast('나 탭 타임블록은 자정(24시)까지 보여요 · 자정 넘김은 계획창 범위에서'); }
       saveHomeTimeBlockPrefs(next);
       renderHomeTimeBlocks();
       scrollHomeTimeBlockToNow(true);
@@ -19697,6 +19704,20 @@ function renderHomeTimeBlocks(){
   if (!slots || !allday) return;
   var pref=getHomeTimeBlockPrefs();
   var START = pref.start, END = pref.end, SLOT_H = pref.slotH;
+  /* 오늘 시간 지정 할일·수업이 범위 밖이면 보이는 범위를 넓힌다(저장된 설정은 그대로) —
+     범위를 좁게 잡아 두면 할일이 있는데도 '시간 계획 없음'으로 텅 비어 보이던 문제. */
+  try{
+    var _hm=function(v){ var m=/^(\d{1,2}):(\d{2})$/.exec(String(v||'')); return m?(+m[1]*60 + +m[2]):null; };
+    var _tkey=homeTodayKey(), _lo=null, _hi=null;
+    var _consider=function(x){ var s=_hm(x.timeStart); if(s==null)return; var e=_hm(x.timeEnd); if(e==null||e<=s)e=s+45;
+      var lead=(parseInt(x.travelMin,10)||0)+((parseInt(x.prepMin,10)||0)||((typeof taskPrepList==='function'&&taskPrepList(x).some(function(p){return p&&p.text&&!p.done;}))?20:0));
+      s=Math.max(0,s-lead); if(_lo==null||s<_lo)_lo=s; if(_hi==null||e>_hi)_hi=e; };
+    homeTodayTasks(true).forEach(_consider);
+    if(typeof twvTtByDate==='function'){ (twvTtByDate([new Date(_tkey+'T00:00')])[_tkey]||[]).forEach(_consider); }
+    if(_lo!=null&&Math.floor(_lo/60)<START)START=Math.floor(_lo/60);
+    if(_hi!=null&&Math.ceil(_hi/60)>END)END=Math.min(24,Math.ceil(_hi/60));
+  }catch(_e){}
+  window._htbRange={start:START,end:END,slotH:SLOT_H};
   /* 2-분할 타임라인: 할일은 왼쪽 절반, 집중 기록은 오른쪽 절반. 기본은 숨김(할일 전체
      폭)이고, 헤더의 '집중' 토글로 켜면 오른쪽에 집중 기록 열이 나타난다. */
   var _htbSplit = htbFocusColOn();
