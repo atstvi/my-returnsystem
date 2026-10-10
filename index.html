@@ -15049,11 +15049,13 @@ function returnDeadlineRadar(o){
   /* 타임그리드에서 더 뒤 주를 볼 때는 그 주 끝까지 점검 범위를 넓힌다 */
   var until=(o.untilKey&&o.untilKey>nextEnd)?o.untilKey:nextEnd, lookAhead=_radarAdd(TKK,30); if(until>lookAhead)lookAhead=until;
   var all=(o.tasks||[]).filter(function(t){ return t&&typeof t==='object'&&!t._travelOnly&&!t.canceled; });
-  var byId={}; all.forEach(function(t){ byId[String(t.id)]=t; });
+  var byId={}, bySched={}; all.forEach(function(t){ byId[String(t.id)]=t; var sk=t.scheduleKey||t.generationKey||t._generationKey; if(sk)bySched[String(sk)]=t; });
   function isTt(t){ return !!t._isTt||t.sourceType==='timetable'||!!t._ttKey; }
   /* 이 할일이 어떤 대상의 '준비 할일'인지(정방향 링크) */
   function prepTargetId(t){
     var s=String(t.sourceTaskId||t._ruleSourceId||'');
+    /* 반복 회차 원본(repeat:<규칙>:<날짜>) → 그 회차 할일 */
+    if(s.indexOf('repeat:')===0){ var occ=bySched[s]; if(occ)return String(occ.id); if(t.deadlineId&&byId[String(t.deadlineId)])return String(t.deadlineId); return ''; }
     if(s&&s!==String(t.id))return s;
     if(t.deadlineId&&t.catId!=='schedule'&&String(t.deadlineId)!==String(t.id)&&byId[String(t.deadlineId)])return String(t.deadlineId);
     return '';
@@ -15092,7 +15094,10 @@ function returnDeadlineRadar(o){
     return '';
   }
   function isTarget(t){
-    if(nested(t)||isTt(t)||prepTargetId(t))return false;
+    if(nested(t)||prepTargetId(t))return false;
+    /* 시간표 수업은 보통 마감이 아니지만, 활성 규칙(키워드)이 이름을 보고 준비 할일을 연결했다면
+       그 준비를 챙겨야 하므로 대상으로 본다(예: '화학 실험' → '실험 예비보고서' 2일 전). */
+    if(isTt(t))return !!(t.date&&prepsOf[String(t.id)]);
     if(t.deadlineDate)return true;
     if(!t.date)return false;
     if(t.catId==='schedule')return true;
@@ -15160,7 +15165,7 @@ function returnDeadlineRadar(o){
   var usedGroups={};
   all.forEach(function(t){
     if(!isTarget(t))return;
-    var due=t.deadlineDate||t.date, kind=(!t.deadlineDate&&t.catId==='schedule')?'schedule':'deadline';
+    var due=t.deadlineDate||t.date, kind=(!t.deadlineDate&&(t.catId==='schedule'||isTt(t)))?'schedule':'deadline';
     var tDone=isDone(t);
     var work=(prepsOf[String(t.id)]||[]).filter(function(p){ return p.date&&!nested(p); }).map(function(p){ return {task:p,date:p.date,done:isDone(p)}; });
     if(kind==='deadline'&&t.date&&t.date<due)work.push({task:t,date:t.date,done:tDone,self:true});
@@ -18261,6 +18266,20 @@ function buildExpectedGeneratedMap(opts){
         var _oldKey=activeRuleGenerationKey(rule.id,String(src.id),due);
         if(exp&&!genSuppressions[exp.scheduleKey]&&!genSuppressions[_oldKey])expected[exp.scheduleKey]=exp;
       });
+      /* 반복 할일 회차(예: 매주 '물리 과제 제출')도 이름으로 감지해 준비를 만든다. 회차 id는 기기마다
+         달라질 수 있어, 원본 연결은 회차의 결정적 키(scheduleKey = repeat:<규칙>:<날짜>)로 건다 →
+         어느 기기에서 만들어도 같은 생성 키라 중복이 안 생긴다. deadlineId는 이 기기의 회차 id로
+         (재조정 때마다 맞춰짐) 연결 표시·달력 화살표에 쓰인다. 규칙이 만든 할일은 원본에서 제외(연쇄 방지). */
+      Object.keys(expected).forEach(function(rk){
+        var re=expected[rk]; if(!re||re.type!=='repeat'||!re.task)return;
+        if(String(re.task.text||'').indexOf(key)<0&&String(re.task.note||'').indexOf(key)<0)return;
+        var anchorR=taskDateKeyLocal(re.occurrenceDate); if(!anchorR||anchorR<from)return;
+        var dueR=taskAddDaysKey(anchorR,-offset);
+        if(!ruleDateInRange(rule,dueR))return;
+        var occTask=(tasks||[]).find(function(x){ return x&&!x._travelOnly&&generatedTaskKey(x)===re.scheduleKey; })||Object.assign({id:''},re.task);
+        var expR=buildRuleExpected(rule,dueR,occTask,re.scheduleKey);
+        if(expR&&!genSuppressions[expR.scheduleKey])expected[expR.scheduleKey]=expR;
+      });
     }else if(type==='weekday'){
       var days=repeatWeekdays(rule);
       if(!days.length)return;
@@ -18304,6 +18323,15 @@ function expectedForExistingGenerated(t, expectedMap){
         var due=taskAddDaysKey(anchor,-(parseInt(rule.offsetDays,10)||0));
         if(!ruleDateInRange(rule,due))return null;
         return buildRuleExpected(rule,due,null,sourceTaskId);
+      }
+      /* 반복 회차가 원본인 준비(sourceTaskId = repeat:<규칙>:<날짜>) — 회차가 남아 있을 때만 유지 */
+      if(sourceTaskId.indexOf('repeat:')===0){
+        var occ=(tasks||[]).find(function(x){ return x&&!x._travelOnly&&generatedTaskKey(x)===sourceTaskId; });
+        if(!occ)return null;
+        var anchorR=taskDateKeyLocal(occ.date||sourceTaskId.split(':').pop());
+        var dueR=taskAddDaysKey(anchorR,-(parseInt(rule.offsetDays,10)||0));
+        if(!ruleDateInRange(rule,dueR))return null;
+        return buildRuleExpected(rule,dueR,occ,sourceTaskId);
       }
       var src=sourceById[sourceTaskId];
       if(src){
