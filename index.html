@@ -1183,6 +1183,28 @@ div.sit-now-title{cursor:default}
 .sq-btn.ok{color:var(--success,#3a9a6a)}
 .sit-queue .k-must .sq-tag.danger ~ * .sq-title{color:var(--fg)}
 .sq-link{margin-left:auto;border:none;background:none;color:var(--fg-4);font-size:var(--text-2xs);cursor:pointer;font-family:inherit;padding:2px 4px}
+/* 오늘 계획 짜기(자동 배치) — 버튼 한 줄 + 미리보기 */
+.sit-autoplan{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.sap-btn{display:inline-flex;align-items:center;gap:6px;border:1px solid color-mix(in srgb,var(--accent) 45%,var(--border));background:color-mix(in srgb,var(--accent) 9%,var(--bg-card));color:var(--fg);border-radius:var(--r-full);padding:6px 14px;font-size:var(--text-xs);font-weight:var(--fw-bold);cursor:pointer;font-family:inherit;white-space:nowrap}
+.sap-btn:hover{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 15%,var(--bg-card))}
+.sap-btn b{font-weight:var(--fw-bold);color:var(--accent);font-variant-numeric:tabular-nums}
+.sap-sub{flex:1;min-width:0;font-size:var(--text-2xs);color:var(--fg-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-help{font-size:var(--text-xs);color:var(--fg-3);margin-bottom:var(--sp-3);line-height:1.5}
+.ap-sec{font-size:var(--text-2xs);font-weight:var(--fw-bold);color:var(--fg-4);letter-spacing:.3px;margin:var(--sp-4) 0 var(--sp-1)}
+.ap-row{display:flex;align-items:center;gap:var(--sp-3);padding:7px 0;border-top:.5px solid var(--border-subtle);min-width:0;cursor:pointer}
+.ap-row:first-child{border-top:none}
+.ap-row.fixed{cursor:default;opacity:.62}
+.ap-row input{flex-shrink:0;margin:0;accent-color:var(--accent);width:16px;height:16px}
+.ap-row.fixed .ap-dot{flex-shrink:0;width:16px;text-align:center;color:var(--fg-4);font-size:11px}
+.ap-time{flex-shrink:0;min-width:84px;font-size:var(--text-2xs);font-weight:var(--fw-semibold);color:var(--fg-3);font-variant-numeric:tabular-nums}
+.ap-t{flex:1;min-width:0;font-size:var(--text-sm);font-weight:var(--fw-semibold);color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-row.fixed .ap-t{font-weight:var(--fw-regular,400)}
+.ap-row.off .ap-t{color:var(--fg-4);text-decoration:line-through}
+.ap-tag{flex-shrink:0;font-size:10px;font-weight:var(--fw-bold);padding:2px 7px;border-radius:var(--r-full);background:var(--bg-raised);color:var(--fg-3);white-space:nowrap}
+.ap-tag.danger{background:color-mix(in srgb,var(--danger) 13%,transparent);color:var(--danger)}
+.ap-tag.warn{background:color-mix(in srgb,var(--warning,#c98a2b) 15%,transparent);color:var(--warning,#c98a2b)}
+.ap-over{display:flex;align-items:center;gap:var(--sp-2);margin-top:var(--sp-2);font-size:var(--text-xs);color:var(--fg-3);cursor:pointer}
+.ap-over input{margin:0;accent-color:var(--accent)}
 .sq-link:hover{color:var(--fg)}
 /* 레이더 한 줄 — 오늘 상황(꼭 챙길 것·하나씩 정리)과 마감 레이더 카드 공용 */
 .radar-row{display:flex;align-items:flex-start;gap:var(--sp-3);padding:var(--sp-3) 0;border-top:.5px solid var(--border-subtle)}
@@ -10350,6 +10372,7 @@ to{opacity:1;transform:translateY(0)}}
           <div class="sit-load" id="sit-load" style="display:none" role="status"></div>
           <div class="sit-now" id="sit-now" aria-label="지금 할 일"></div>
           <div class="sit-queue" id="sit-queue" aria-label="다음 차례 — 꼭 챙길 것·놓친 일·정리를 하나씩" style="display:none"></div>
+          <div class="sit-autoplan" id="sit-autoplan" style="display:none"></div>
           <div class="sit-signals" aria-label="그 밖에"></div>
           <div class="sit-motto" id="sit-motto" style="display:none"></div>
         </div>
@@ -15464,6 +15487,70 @@ function homeBriefPlan(o){
   };
 }
 window.homeBriefPlan=homeBriefPlan;
+/* ── 오늘 계획 짜기(자동 배치) — 오늘 상황이 추천하는 순서 그대로 남은·밀린 할 일을 오늘 빈 시간에
+   차례로 놓는다. 순수 함수(입력 → 배치안)라 테스트로 고정한다.
+   - 순서: 지금 할 일·다른 거 후보(추천 순) → 꼭 챙길 것(마감 준비) → 놓친 일·밀린 일 → 남은 시간 미정 오늘 할 일(중요 먼저)
+   - 고정(피함): 오늘 아직 안 끝난 '시간 있는' 일 전부 — 일정·수업은 이동·준비물 챙길 시간까지 앞에 비워 둔다
+   - 지금(5분 단위 올림)부터 하루 마감(설정 dayEnd, 기본 22:00)까지만. 순서는 뒤집지 않는다(앞 순위가 뒤로 밀리지 않게).
+   - 길이: 원래 시간 길이(15~240분), 없으면 30분 · 사이 쉬는 틈 5분
+   - 앞날짜 할 일·일정·하위 할일·완료는 대상 아님. exclude(id 맵)로 사용자가 뺀 것은 건너뜀. */
+function homeAutoPlanDay(o){
+  o=o||{};
+  var TKK=o.todayKey, nowMin=+o.nowMin||0, P=o.prefs||{}, ex=o.exclude||{};
+  var isDone=o.isDone||function(t){ return !!t.done; };
+  var nested=o.isNested||function(){ return false; };
+  var prepOf=o.prepList||function(t){ return Array.isArray(t.prepItems)?t.prepItems.filter(function(p){return p&&p.text;}):[]; };
+  function toMin(hm){ var m=/^(\d{1,2}):(\d{2})$/.exec(String(hm||'')); return m?(parseInt(m[1],10)*60+parseInt(m[2],10)):null; }
+  var DAYEND=toMin(P.dayEnd)||22*60, BUF=+P.leaveBuffer||0, PER=(P.prepPerItem!=null&&!isNaN(+P.prepPerItem))?+P.prepPerItem:5;
+  var BRK=(o.breakMin!=null)?+o.breakMin:5, DEF=+o.defaultMin||30;
+  var START=Math.ceil(nowMin/5)*5;
+  function isEvent(t){ return t.catId==='schedule'||!!t._isTt||t.sourceType==='timetable'; }
+  function span(t){ var s=toMin(t.timeStart); if(s==null)return null; var e=toMin(t.timeEnd); if(e==null||e<=s)e=s+30; return {s:s,e:e}; }
+  var all=(o.tasks||[]).filter(function(t){ return t&&typeof t==='object'; });
+  /* 고정 블록 — 오늘, 아직 안 끝난, 시간 있는 것 */
+  var busy=[], fixed=[], fixedId={};
+  all.forEach(function(t){
+    if(t.date!==TKK||t.canceled||isDone(t))return;
+    var sp=span(t); if(!sp||sp.e<=START)return;
+    var pre=0;
+    if(isEvent(t)){ pre=(parseInt(t.travelMin||t.moveMin||0,10)||0)+(t.travelMin||t.moveMin?BUF:0)+prepOf(t).filter(function(p){ return !p.done; }).length*PER; }
+    busy.push({s:sp.s-pre,e:sp.e}); fixedId[String(t.id)]=1;
+    if(!t._travelOnly&&!nested(t)&&sp.s<DAYEND)fixed.push({task:t,s:sp.s,e:sp.e,event:isEvent(t)});
+  });
+  busy.sort(function(a,b){ return a.s-b.s; });
+  fixed.sort(function(a,b){ return a.s-b.s; });
+  function ok(t){ return !!t&&!t._travelOnly&&!t.canceled&&!isDone(t)&&!isEvent(t)&&!nested(t)&&(!t.date||t.date<=TKK)&&!fixedId[String(t.id)]; }
+  /* 추천 순서 */
+  var order=[], seen={};
+  function push(t,src){ if(!t)return; var k=String(t.id); if(seen[k])return; seen[k]=1; if(ok(t))order.push({task:t,src:src}); }
+  (o.cands||[]).forEach(function(c){
+    if(!c||!c.task)return;
+    if(c.kind==='guard'){ if(!(c.guard&&c.guard.state==='none'))push(c.task,'must'); }
+    else if(c.kind==='deadline')push(c.task,'deadline');
+    else if(c.kind==='missed')push(c.task,'missed');
+    else if(c.kind==='past')push(c.task,'past');
+    else if(c.kind==='untimed')push(c.task,'today');
+  });
+  (o.must||[]).forEach(function(g){ if(g&&g.state!=='none')push(g.focus||g.target,'must'); });
+  (o.missed||[]).forEach(function(m){ if(m&&m.task)push(m.task, m.kind==='today'?'missed':'past'); });
+  var PR={high:0,mid:1,'':2,low:3};
+  all.filter(function(t){ return t.date===TKK&&!span(t); })
+    .map(function(t,i){ return {t:t,i:i}; })
+    .sort(function(a,b){ var d=(PR[a.t.priority||'']!=null?PR[a.t.priority||'']:2)-(PR[b.t.priority||'']!=null?PR[b.t.priority||'']:2); return d||a.i-b.i; })
+    .forEach(function(x){ push(x.t,'today'); });
+  /* 배치 — 앞 순위부터, 앞 일이 끝난 뒤(쉬는 틈 포함) 처음 들어가는 빈 시간에 */
+  function fit(from,d){ var s=from; for(var i=0;i<busy.length;i++){ var b=busy[i]; if(b.e<=s)continue; if(b.s>=s+d)break; s=b.e; } return s; }
+  function dur(t){ var sp=span(t); return sp?Math.max(15,Math.min(240,sp.e-sp.s)):DEF; }
+  var cur=START, placed=[], over=[], excluded=[];
+  order.forEach(function(x){
+    if(ex[String(x.task.id)]){ excluded.push(x); return; }
+    var d=dur(x.task), s=fit(cur,d);
+    if(s+d>DAYEND){ over.push(x); return; }
+    placed.push({task:x.task,src:x.src,s:s,e:s+d}); cur=s+d+BRK;
+  });
+  return { start:START, end:DAYEND, placed:placed, over:over, excluded:excluded, fixed:fixed, count:order.length };
+}
+window.homeAutoPlanDay=homeAutoPlanDay;
 /* 브리핑 렌더 — '지금 할 일' 카드(행동 버튼) · 놓친 일(한 번에 처리) · 이따가 · 그 밖에. */
 var _sitAltIdx=0, _sitAltKey=''; var _sitQIdx=0, _sitQMust='';
 function _briefCandKey(c){ return c?(c.kind+':'+(c.task?String(c.task.id):'')):''; }
@@ -15514,6 +15601,64 @@ function _briefOpenTrim(L){
   }
   document.body.appendChild(ov);
   ov.addEventListener('click',function(e){ if(e.target===ov){ ov.remove(); _briefRerender(); } });
+  paint();
+}
+/* 오늘 계획 짜기 — homeAutoPlanDay에 현재 상태를 넣어 계산 */
+function _homeAutoPlanCompute(plan, radar, exclude){
+  var isDoneFn=function(t){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; };
+  return homeAutoPlanDay({ tasks:(typeof tasks!=='undefined'?tasks:[]), todayKey:TK, nowMin:_briefNowMin(),
+    prefs:(typeof loadBriefPrefs==='function')?loadBriefPrefs():{}, isDone:isDoneFn,
+    isNested:function(t){ return (typeof taskIsNested==='function')&&taskIsNested(t); },
+    prepList:(typeof taskPrepList==='function')?taskPrepList:null,
+    cands:[plan&&plan.now].concat((plan&&plan.alts)||[]).filter(Boolean), must:(radar&&radar.must)||[], missed:(plan&&plan.missedAll)||[],
+    exclude:exclude||{} });
+}
+/* 배치안을 실제 할일에 반영(한 번에 저장 → 상단 되돌리기 한 번으로 전부 취소) */
+function _homeAutoPlanApply(res, overToTomorrow){
+  var live=function(t){ return t&&((typeof _taskById==='function'&&_taskById(t.id))||t); };
+  var now=Date.now(), n=0, m=0, tm=_briefTomorrow();
+  function setDate(t,k){ if(t.date!==k&&typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,k); t.date=k; if(typeof isGeneratedTask==='function'&&isGeneratedTask(t))t.userModifiedDate=true; t.updatedAt=now; }
+  (res.placed||[]).forEach(function(p){ var t=live(p.task); if(!t||t.done)return; setDate(t,TK); t.timeStart=_briefHM(p.s); t.timeEnd=_briefHM(Math.min(p.e,1439)); n++; });
+  if(overToTomorrow)(res.over||[]).forEach(function(x){ var t=live(x.task); if(!t||t.done)return; setDate(t,tm); t.timeStart=''; t.timeEnd=''; m++; });
+  if((n||m)&&typeof saveTaskData==='function')saveTaskData();
+  return {placed:n, moved:m};
+}
+var AUTOPLAN_SRC={must:['꼭 챙길 것','danger'],deadline:['마감','danger'],missed:['놓친 일','warn'],past:['밀린 일','warn'],today:['오늘 할 일','']};
+function _homeAutoPlanOpen(plan, radar){
+  var esc=function(v){ return (typeof tEscHtml==='function')?tEscHtml(v):String(v==null?'':v); };
+  var excl={}, overTm=false;
+  var old=document.getElementById('autoplan-ov'); if(old)old.remove();
+  var ov=document.createElement('div'); ov.className='overlay open'; ov.id='autoplan-ov';
+  function close(){ ov.remove(); }
+  function tag(src){ var a=AUTOPLAN_SRC[src]||['','']; return '<span class="ap-tag '+a[1]+'">'+esc(a[0])+'</span>'; }
+  function paint(){
+    var res=_homeAutoPlanCompute(plan, radar, excl);
+    var rows=res.fixed.map(function(f){ return {s:f.s,html:'<div class="ap-row fixed"><span class="ap-dot">●</span><span class="ap-time">'+_briefHM(f.s)+'–'+_briefHM(f.e)+'</span><span class="ap-t">'+esc(f.task.text||'')+'</span><span class="ap-tag">'+(f.event?'일정':'고정')+'</span></div>'}; })
+      .concat(res.placed.map(function(p){ return {s:p.s,html:'<label class="ap-row"><input type="checkbox" checked data-ap="'+esc(p.task.id)+'"><span class="ap-time">'+_briefHM(p.s)+'–'+_briefHM(p.e)+'</span><span class="ap-t">'+esc(p.task.text||'할일')+'</span>'+tag(p.src)+'</label>'}; }))
+      .sort(function(a,b){ return a.s-b.s; });
+    var help=res.count
+      ?('지금부터 '+_briefHM(res.end)+'까지, 오늘 상황이 추천하는 순서대로 빈 시간에 넣었어요. 일정·수업은 이동·준비 시간까지 피했어요. 빼고 싶은 건 체크를 끄세요.')
+      :'오늘 배치할 남은 할 일이 없어요.';
+    var body='<div class="ap-help">'+esc(help)+'</div>'
+      +(rows.length?'<div>'+rows.map(function(r){ return r.html; }).join('')+'</div>':'')
+      +(res.over.length?'<div class="ap-sec">시간이 모자라 못 넣은 것 '+res.over.length+'</div><div>'+res.over.map(function(x){ return '<div class="ap-row fixed"><span class="ap-dot">–</span><span class="ap-t">'+esc(x.task.text||'할일')+'</span>'+tag(x.src)+'</div>'; }).join('')+'</div>'
+        +'<label class="ap-over"><input type="checkbox" id="ap-over-tm"'+(overTm?' checked':'')+'>못 넣은 '+res.over.length+'개는 내일로 옮기기</label>':'')
+      +(res.excluded.length?'<div class="ap-sec">뺀 것 '+res.excluded.length+'</div><div>'+res.excluded.map(function(x){ return '<label class="ap-row off"><input type="checkbox" data-ap="'+esc(x.task.id)+'"><span class="ap-time">그대로</span><span class="ap-t">'+esc(x.task.text||'할일')+'</span>'+tag(x.src)+'</label>'; }).join('')+'</div>':'');
+    ov.innerHTML='<div class="modal" style="max-width:460px"><div class="modal-head"><div class="modal-title">오늘 계획 짜기</div></div><div class="modal-body">'+body+'</div>'
+      +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="ap-cancel">취소</button>'
+      +'<button type="button" class="btn btn-primary" id="ap-apply"'+((res.placed.length||(overTm&&res.over.length))?'':' disabled')+'>'+(res.placed.length?res.placed.length+'개 배치하기':'배치하기')+'</button></div></div>';
+    ov.querySelector('#ap-cancel').addEventListener('click',close);
+    ov.querySelectorAll('[data-ap]').forEach(function(cb){ cb.addEventListener('change',function(){ var k=cb.getAttribute('data-ap'); if(cb.checked)delete excl[k]; else excl[k]=1; paint(); }); });
+    var ot=ov.querySelector('#ap-over-tm'); if(ot)ot.addEventListener('change',function(){ overTm=ot.checked; paint(); });
+    ov.querySelector('#ap-apply').addEventListener('click',function(){
+      var r=_homeAutoPlanApply(_homeAutoPlanCompute(plan, radar, excl), overTm);
+      close();
+      if(typeof showToast==='function')showToast(r.placed?('오늘 타임라인에 '+r.placed+'개 배치했어요'+(r.moved?' · '+r.moved+'개는 내일로':'')+' · 되돌리기는 상단 ↶'):(r.moved+'개를 내일로 옮겼어요'));
+      _briefRerender();
+    });
+  }
+  document.body.appendChild(ov);
+  ov.addEventListener('click',function(e){ if(e.target===ov)close(); });
   paint();
 }
 /* ── 마감 레이더 바로 해결 — 제안(fix)/대안(alt)을 실제 할일 변경으로 ── */
@@ -15804,6 +15949,17 @@ function _homeBriefRender(card, plan, ex){
         }
       }); });
     }
+  }
+  /* ── 오늘 계획 짜기 — 남은·밀린 할 일을 추천 순서대로 오늘 빈 시간에(미리보기 후 배치) ── */
+  var apEl=card.querySelector('#sit-autoplan');
+  if(apEl){
+    var apRes=null; try{ apRes=_homeAutoPlanCompute(plan, ex.radar); }catch(e){ console.warn('[autoplan]',e); }
+    if(apRes&&apRes.count&&apRes.start<apRes.end){
+      apEl.style.display='';
+      apEl.innerHTML='<button type="button" class="sap-btn" data-brief="autoplan">🗓 오늘 계획 짜기 <b>'+apRes.count+'</b></button>'
+        +'<span class="sap-sub">'+esc((apRes.over.length?'추천 순서대로 '+apRes.placed.length+'개가 '+_briefHM(apRes.end)+' 전에 들어가요':'남은·밀린 일을 추천 순서대로 빈 시간에'))+'</span>';
+      apEl.querySelector('[data-brief="autoplan"]').addEventListener('click',function(e){ e.stopPropagation(); _homeAutoPlanOpen(plan, ex.radar); });
+    }else{ apEl.style.display='none'; apEl.innerHTML=''; }
   }
   /* ── 그 밖에(조용한 한 줄) — 마감·인박스·연결은 위에서 하나씩 처리하므로 여기선 나머지만 ── */
   var sigEl=card.querySelector('.sit-signals');
