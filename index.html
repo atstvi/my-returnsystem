@@ -9949,6 +9949,15 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 취미 ══ */
+.hobby-banner-actions .icon-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.hob-check{position:relative}
+@media (pointer:coarse){
+  .hob-check::before{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;transform:translate(-50%,-50%)}
+  .hob-item{min-height:var(--row-min);touch-action:pan-y;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+  .hob-someday-chip{min-height:var(--ctl-h-sm);-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+}
+
 /* ══ 시간표 ══ */
 /* 학기 목록은 모든 크기에서 위쪽 한 줄(칩). 데스크톱: 표 | 과목 목록, 태블릿·폰: 위아래로 */
 .tt-page{display:grid;grid-template-columns:minmax(0,1fr) 280px;grid-template-rows:auto minmax(0,1fr);height:100%;overflow:hidden}
@@ -11336,8 +11345,8 @@ to{opacity:1;transform:translateY(0)}}
           <div class="hobby-banner-sub">의무가 아닌 즐거움의 공간.</div>
         </div>
         <div class="hobby-banner-actions">
-          <button class="icon-btn" title="배너 편집" id="btn-banner">🖼</button>
-          <button class="icon-btn" title="배너 위치 조정" id="btn-banner-pos">↔</button>
+          <button class="icon-btn" title="배너 편집" aria-label="배너 편집" id="btn-banner"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4.5" width="18" height="15" rx="2"/><circle cx="8.5" cy="10" r="1.6"/><path d="m21 16-5-5-8 8.5"/></svg></button>
+          <button class="icon-btn" title="배너 위치 조정" aria-label="배너 위치 조정" id="btn-banner-pos"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18M12 3l-3 3M12 3l3 3M12 21l-3-3M12 21l3-3M3 12l3-3M3 12l3 3M21 12l-3-3M21 12l-3 3"/></svg></button>
         </div>
       </div>
     </div>
@@ -32117,14 +32126,14 @@ function hobRenderSomeday(){
   });
   listEl.innerHTML='';
   if(!someday.length){
-    listEl.innerHTML='<div class="hob-someday-empty">날짜를 아직 모르는 활동을 여기에 담아두고, 정해지면 달력으로 끌어다 놓으세요.</div>';
+    listEl.innerHTML='<div class="hob-someday-empty">날짜를 아직 모르는 활동을 여기에 담아두고, 정해지면 달력으로 끌어다 놓거나 길게 눌러(우클릭) 날짜를 정하세요.</div>';
   } else {
     someday.forEach(function(it){
       var cat=hobGetCat(it.catId);
       var chip=document.createElement('div');
       chip.className='hob-someday-chip'+(it.done?' done':'');
       chip.style.borderLeft='3px solid '+cat.color;
-      chip.setAttribute('draggable','true');
+      chip.setAttribute('draggable',(typeof rdsIsTouch==='function'&&rdsIsTouch())?'false':'true');
       chip.setAttribute('data-id',it.id);
       chip.innerHTML='<span class="hob-sd-ic">'+cat.icon+'</span><span class="hob-sd-t">'+(it.done?'✓ ':'')+_hobEsc(it.text)+'</span>';
       chip.addEventListener('dragstart',function(e){ e.dataTransfer.setData('text/plain',it.id); e.dataTransfer.effectAllowed='move'; });
@@ -32195,7 +32204,7 @@ function hobBuildItemEl(it, idx) {
   el.className='hob-item'+(it.done?' done-item':'');
   el.style.borderLeftColor=cat.color;
   el.style.animationDelay=(idx*30)+'ms';
-  el.setAttribute('draggable','true');
+  el.setAttribute('draggable',(typeof rdsIsTouch==='function'&&rdsIsTouch())?'false':'true');
   el.setAttribute('data-id',it.id);
   el.addEventListener('dragstart',function(e){
     e.dataTransfer.setData('text/plain',it.id);
@@ -32607,6 +32616,50 @@ function hobDeleteItem(){
   closeItemModal();
   hobRenderCal();renderDayDetail();hobRenderCats();
 }
+
+/* ── 취미 항목 빠른 조작 (RDS v2) ──
+   끌어서 날짜 옮기기와 같은 일을 손가락·키보드로도: 길게 누르기·우클릭 = 메뉴,
+   오른쪽 밀기 = 완료, 왼쪽 밀기 = 다음 날로. 저장은 기존 saveItemsData 경로. */
+function hobItemById(id){ return items.find(function(x){ return String(x.id)===String(id); })||null; }
+function hobRefreshAll(){ hobRenderCal(); renderDayDetail(); hobRenderCats(); }
+function hobToggleDone(it){ if(!it)return; it.done=!it.done; it.updatedAt=Date.now(); saveItemsData(items); hobRefreshAll(); }
+function hobMoveDate(it, dk){
+  if(!it)return; it.date=dk||''; it.updatedAt=Date.now(); saveItemsData(items); hobRefreshAll();
+  if(typeof showToast==='function'){ if(!dk)showToast('언젠가로 옮겼어요'); else { var d=new Date(dk+'T00:00'); showToast((d.getMonth()+1)+'월 '+d.getDate()+'일로 옮겼어요'); } }
+}
+function hobNextDayKey(it){ var base=it&&it.date?new Date(it.date+'T00:00'):new Date(HOB_TODAY+'T00:00'); base.setDate(base.getDate()+1); return dateKey(base); }
+function hobPickDate(it){
+  if(!it||typeof openFormDialog!=='function')return;
+  openFormDialog('날짜 정하기',[{key:'date',label:'“'+String(it.text||'취미').slice(0,30)+'” 언제 할까요?',type:'date',value:it.date||hobSelDate||HOB_TODAY}],function(d){ if(d&&d.date&&d.date!==it.date)hobMoveDate(it,d.date); });
+}
+function hobDeleteOne(it){
+  if(!it)return;
+  if(it._repeatId){ editItemId=it.id; hobDeleteItem(); return; }
+  openConfirmDialog('취미 삭제','"'+(it.text||'')+'" 항목을 삭제할까요?',function(){
+    items=items.filter(function(x){ return x.id!==it.id; }); saveItemsData(items); hobRefreshAll();
+  });
+}
+function hobItemMenu(it, at){
+  if(!it)return;
+  var cat=hobGetCat(it.catId), sub=(cat.icon?cat.icon+' ':'')+(cat.name||'')+' · '+(it.date?(function(){ var d=new Date(it.date+'T00:00'); return (d.getMonth()+1)+'월 '+d.getDate()+'일'; })():'언젠가');
+  var items2=[];
+  if(it.date!==HOB_TODAY)items2.push({icon:'today',label:'오늘로',onClick:function(){ hobMoveDate(it,HOB_TODAY); }});
+  if(it.date)items2.push({icon:'folder',label:'언젠가로 (날짜 비우기)',onClick:function(){ hobMoveDate(it,''); }});
+  items2.push({sep:1},{icon:'open',label:'편집',onClick:function(){ openItemModal(it.id); }},{icon:'trash',label:'삭제',danger:true,onClick:function(){ hobDeleteOne(it); }});
+  rdsActionSheet({title:it.text||'취미',sub:sub,
+    quick:[{icon:it.done?'undo':'check',label:it.done?'완료 취소':'완료',onClick:function(){ hobToggleDone(it); }},
+           {icon:'tomorrow',label:it.date?'다음 날로':'내일로',onClick:function(){ hobMoveDate(it,hobNextDayKey(it)); }},
+           {icon:'date',label:it.date?'날짜 바꾸기':'날짜 정하기',onClick:function(){ hobPickDate(it); }}],
+    items:items2, at:at||null});
+}
+(function(){
+  var ROW={ idAttr:'data-id', get:hobItemById, menu:function(it,at){ hobItemMenu(it,at); } };
+  rdsBindRowGestures(document.getElementById('hob-items-list'),'.hob-item',{idAttr:'data-id', skip:'.hob-check,.hob-item-media',
+    get:hobItemById, menu:ROW.menu,
+    right:function(it){ hobToggleDone(it); }, rightLabel:function(it){ return it.done?'↩ 완료 취소':'✓ 완료'; },
+    left:function(it){ hobMoveDate(it,hobNextDayKey(it)); }, leftLabel:function(){ return '다음 날로 →'; }});
+  rdsBindRowGestures(document.getElementById('hob-someday-list'),'.hob-someday-chip',ROW);
+})();
 
 /* ── CAT MODAL ── */
 var selectedColor=CAT_COLORS[0];
