@@ -12,7 +12,9 @@ t.ok('트레이: 우클릭 pointerdown 가드', /item\.addEventListener\('pointe
 t.ok('종일 칩: 우클릭=빠른 처리, 롱프레스 미사용(드래그 우선)', /onContext:function\(\)\{ if\(typeof _planTaskQuick==='function'\)_planTaskQuick\(t\.id\); \}/.test(html));
 
 // 루틴 완료 칸
-t.ok('루틴 완료 칸: 우클릭 → 상태 메뉴', /btn\.addEventListener\('contextmenu',function\(e\)\{e\.preventDefault\(\);openStateMenu\(\);\}\);/.test(html));
+// 루틴 줄(완료 칸 포함): 우클릭·길게 누르기 → 공용 습관 메뉴(rtHabitActionMenu)
+t.ok('루틴 줄: 공용 제스처 바인딩', /rdsBindRowGestures\(root,'\.rt-habit',\{idAttr:'data-routine-habit'/.test(html));
+t.ok('루틴 완료 칸 길게 → 공용 습관 메뉴', /function openStateMenu\(\)\{ closeAll\(\); var row=btn\.closest\('\[data-routine-habit\]'\); if\(row\)rtHabitActionMenu\(/.test(html));
 
 // 집중 타이머 프리셋
 t.ok('집중 프리셋: 우클릭 → 삭제(askDelete)', /el\.addEventListener\('contextmenu',function\(e\)\{e\.preventDefault\(\);cancel\(\);askDelete\(\);\}\);/.test(html));

@@ -114,4 +114,16 @@ t.ok('보드에서 미분류 열 숨김(한 항목은 한 곳에)', /\.ib2-col\[
 t.ok('폰: 새로 담은 것 | 프로젝트 보드 전환', /data-ib2v="board"/.test(html) && /\.ib2\.ib2-v-board \.ib2-capture\{display:none\}/.test(css));
 t.ok('폰: 입력창이 아래 탭 막대 위에', /\.ib2-board\{display:flex;flex:1;min-height:0;padding:var\(--sp-4\) var\(--gutter\) calc\(96px \+ env\(safe-area-inset-bottom\)\)/.test(css));
 
+// 루틴
+t.ok('줄 제스처: 선택 skip 선택자 지원', /if\(ad\.skip&&e\.target\.closest\(ad\.skip\)\)return;/.test(html));
+t.ok('루틴 습관 줄: 길게·우클릭 = 습관 메뉴, 오른쪽 = 완료, 왼쪽 = 건너뜀', /rdsBindRowGestures\(root,'\.rt-habit',\{idAttr:'data-routine-habit', skip:'\.rt-check,\.rt-drag,\.menu-pop'/.test(html)
+  && /right:function\(o\)\{ rtSetHabitState\(o\.id,'done'\); \}/.test(html) && /left:function\(o\)\{ rtSetHabitState\(o\.id,'skip'\); \}/.test(html));
+t.ok('습관 메뉴: 상태 4개 + 강도 + 편집·순서·보관', /function rtHabitActionMenu\(id, at\)\{/.test(html) && /label:'선택 안 함',onClick:function\(\)\{ rtSetHabitState\(id,'clear'\); \}/.test(html)
+  && /label:'위로 한 칸'/.test(html) && /archiveRoutineHabit\(id\);/.test(html));
+t.ok('마우스: 습관 줄 ⋯ = 같은 메뉴(손가락에선 숨김)', /data-routine-more aria-label="습관 메뉴"/.test(html) && /rtHabitActionMenu\(btn\.closest\('\[data-routine-habit\]'\)\.getAttribute\('data-routine-habit'\),\{x:r\.left,y:r\.bottom\+4\}\)/.test(html) && /@media \(pointer:coarse\)\{ \.rt-more\{display:none\} \}/.test(css));
+t.ok('상태 변경은 완료 잠금 경유', /function rtSetHabitState\(id,next\)\{[^\n]*rtApplyCompletionLock\(id,l\[id\],ns\);/.test(html));
+t.ok('강도 슬라이더 트랙이 카드 위에서 보임', /\.stm-track\{background:color-mix\(in srgb,var\(--fg\) 10%,transparent\)\}/.test(css));
+t.ok('완료 칸 길게 누른 뒤 손 뗄 때 클릭이 시트 항목을 누르지 않음', /btn\.addEventListener\('pointerup',function\(\)\{ if\(longFired\)_rdsSuppressUntil=Date\.now\(\)\+600; \}\);/.test(html));
+t.ok('손가락: 완료 칸 44px 터치 영역', /\.rt-check::before\{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;/.test(css));
+
 t.done();
