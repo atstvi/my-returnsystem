@@ -59,8 +59,8 @@ check('9월 5일 세미나 (재확인)'.replace(' (재확인)',''), { date: '202
 // 소스 배선: 퀵캡처 task 경로가 파서를 사용
 t.ok('homeCapture가 captureParseNL 사용',
   /var _nl = captureParseNL\(text, \(typeof TK!=='undefined'\?TK:''\)\);/.test(html));
-t.ok('파싱된 제목·시간·날짜로 할일 생성',
-  /text:_body,catId:defCat,date:\(_nl\.date\|\|TK\)[^}]*timeStart:\(_nl\.timeStart\|\|''\),timeEnd:\(_nl\.timeEnd\|\|''\)/.test(html));
+t.ok('파싱된 제목·시간·날짜로 할일 생성(날짜 없으면 보고 있는 날)',
+  /text:_body,catId:defCat,date:\(_nl\.date\|\|_captureDefaultDate\(\)\)[^}]*timeStart:\(_nl\.timeStart\|\|''\),timeEnd:\(_nl\.timeEnd\|\|''\)/.test(html));
 t.ok('마감일(deadlineDate)도 반영', /deadlineDate:\(_nl\.deadlineDate\|\|''\)/.test(html));
 
 t.done();
