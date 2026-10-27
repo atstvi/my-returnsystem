@@ -19,7 +19,7 @@ t.ok('트레이가 공유 집합 사용', /var unlinked=\(typeof returnUnlinkedS
 t.ok('진행표: 정리할 것 N / 완료', /정리할 것 '\+remain\+'개/.test(html) && /오늘 정리 완료/.test(html));
 t.ok('완료 판정 remain===0', /var doneAll=\(remain===0\);/.test(html) && /remain=inbox\.length\+unlinked\.length\+overdue\.length;/.test(html));
 t.ok('분류 헤더 항상+빈 곳 ✓', /function section\(icon,label,count,bodyHtml,emptyMsg\)\{[\s\S]*?count>0\?'<span class="cnt">'\+count\+'<\/span>':'<span class="cnt ok">✓<\/span>'/.test(html));
-t.ok('4개 분류(마감·연결·인박스·지난)', /section\('⏳','다가오는 마감'[\s\S]*?section\('🔗','연결 필요'[\s\S]*?section\('📥','인박스'[\s\S]*?section\('↩︎','지난 할일'/.test(html));
+t.ok('4개 분류(마감·연결·인박스·지난)', /section\(PI\.clock,'다가오는 마감'[\s\S]*?section\(PI\.link,'연결 필요'[\s\S]*?section\(PI\.inbox,'인박스'[\s\S]*?section\(PI\.back,'지난 할일'/.test(html));
 t.ok('시간 미정 트레이 섹션 제거(종일 줄로 이동)', !/section\('🕘','시간 미정 할일'/.test(html));
 // 종일 할일: 탭=편집창, 길게=현재 조작창(빠른 처리), 드래그=시간 배치
 t.ok('_planBindTrayDrag가 onTap/onLongPress 옵션 지원', /function _planBindTrayDrag\(item, ?opts\)\{\s*opts=opts\|\|\{\};/.test(html));
@@ -29,7 +29,7 @@ t.ok('종일 칩: 탭→편집창, 우클릭→빠른 처리(롱프레스 없음
 t.ok('우클릭(contextmenu)=조작 진입(onContext 우선, 없으면 onLongPress)', /var _ctxFn=\(typeof opts\.onContext==='function'\)\?opts\.onContext:\(\(typeof opts\.onLongPress==='function'\)\?opts\.onLongPress:null\);\s*if\(_ctxFn\)\{ item\.addEventListener\('contextmenu',function\(e\)\{ e\.preventDefault\(\); _ctxFn\(\); \}\); \}/.test(html));
 t.ok('우클릭은 탭/드래그 로직 제외(버튼 가드)', /item\.addEventListener\('pointerdown',function\(e\)\{\s*if\(e\.button&&e\.button!==0\)return;/.test(html));
 t.ok('드래그 시작 임계값 4px(조금만 끌어도 배치)', /if\(!moved\)\{ if\(Math\.abs\(ev\.clientX-x0\)<=4&&Math\.abs\(ev\.clientY-y0\)<=4\)return;/.test(html));
-t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link)', /section\('🔗','연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('link',t\.id,'🔗'[\s\S]*?연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치/.test(html));
+t.ok('연결 필요 행: 탭 연결 + 끌어서 시간 배치(kind=link, 손가락은 탭 안내만)', /section\(PI\.link,'연결 필요',unlinked\.length,unlinked\.map\(function\(t\)\{[\s\S]*?item2\('link',t\.id,PI\.link[\s\S]*?연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치/.test(html));
 
 // ── 오늘 상황처럼 계획창에서도 인라인 '연결' (탭 → 이름·날짜 → homeMakeLinkedTask) ──
 t.ok('link 탭은 인라인 연결 시트로', /if\(kind==='link'\)\{ _planConnectSheet\(pid\); return; \}/.test(html));

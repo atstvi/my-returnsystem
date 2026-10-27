@@ -88,4 +88,22 @@ t.ok('폰 ＋ 시트와 같은 칩 렌더', /var chips=\(_mCapType==='task'\)\?c
 t.ok('담기 기본 날짜 = 할일 탭에서 보고 있는 날', (html.match(/_captureDefaultDate\(\)/g)||[]).length>=4 && /_currentPage==='tasks'&&typeof selDate!=='undefined'&&selDate\)return selDate;/.test(html));
 t.ok('폰 월 달력 칸 44px', /#page-task \.cal-day\{height:44px;/.test(css));
 
+// 계획창
+t.ok('폰 계획창 머리 두 줄(겹침 해소)', /\.plan-head\{flex-wrap:wrap;row-gap:var\(--sp-4\);/.test(css) && /\.plan-daypick\{order:3;flex:1 1 0;min-width:220px;/.test(css));
+t.ok('폰 트레이가 아래 탭 막대에 가려지지 않음', /\.plan-tray\{padding-bottom:calc\(104px \+ env\(safe-area-inset-bottom\)\)\}/.test(css));
+t.ok('손가락: 트레이 항목은 끌기 대신 탭(스크롤 우선)', /if\(e\.pointerType==='touch'\)\{\s*var tk=item\.getAttribute\('data-pkind'\)/.test(html) && /if\(ev\.type!=='pointerup'\|\|tmoved\|\|tlp\)return;/.test(html));
+t.ok("빠른 처리에 '시간 정해서 배치'", /opt\('ptq-time','🕒','시간 정해서 배치…'/.test(html) && /_planSchedule\('task',t\.id,sm\); \/\* planner-min은 보고 있는 날/.test(html));
+t.ok('트레이 분류 아이콘은 선 아이콘', /h\+=section\(PI\.clock,'다가오는 마감'/.test(html) && !/section\('⏳'/.test(html));
+t.ok('빈 타임라인 안내: 손가락·좁은 화면은 탭 안내', /아래 목록에서 할일을 탭해<br>시간에 배치해요/.test(html));
+// 유령 클릭 방지(전역)
+{
+  const i = html.indexOf('/* 유령 클릭 방지(전역)');
+  const seg = html.slice(i, i + 2200);
+  t.ok('유령 클릭 가드 존재', i > 0);
+  t.ok('손가락 뗀 시각 기록', /if\(e\.pointerType==='touch'\)_rdsLastTouchUp=Date\.now\(\);/.test(seg));
+  t.ok('창이 열린 시각 기록(MutationObserver)', /new MutationObserver\(/.test(seg));
+  t.ok('코드가 부른 click은 통과', /if\(!e\.isTrusted\)return;/.test(seg));
+  t.ok('뗀 뒤 열린 창 + 0.45초 안의 클릭만 버림', /box\._rdsOpenedAt>=_rdsLastTouchUp-30 && now-box\._rdsOpenedAt<450 && now-_rdsLastTouchUp<450/.test(seg));
+}
+
 t.done();

@@ -9949,6 +9949,39 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 계획창 ══ */
+/* 폰 머리: 1줄 = 닫기·날짜·‹ 오늘 ›, 2줄 = 1일/2일/3일/1주 · 범위 (겹치던 문제 해소) */
+@media (max-width:639px){
+  .plan-head{flex-wrap:wrap;row-gap:var(--sp-4);padding:var(--sp-4) var(--gutter)}
+  .plan-head-l{flex:1 1 auto;order:1;min-width:0}
+  .plan-head-c{display:contents}
+  .plan-nav{order:2}
+  .plan-head-c .plan-today{display:inline-flex;align-items:center}
+  .plan-daypick{order:3;flex:1 1 0;min-width:220px;display:grid;grid-template-columns:repeat(4,1fr)}
+  .plan-head-r{order:4}
+  .plan-dpb{font-size:var(--text-sm);height:auto}
+  .plan-dow{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 아래 탭 막대(＋ 포함)에 마지막 항목이 가려지지 않게 */
+  .plan-tray{padding-bottom:calc(104px + env(safe-area-inset-bottom))}
+}
+.plan-rangebtn,.plan-today{white-space:nowrap}
+.plan-dpb{font-size:var(--text-xs);height:30px;padding:0 var(--sp-5)}
+/* 트레이: 선 아이콘, 진행표는 아이콘 + 두 줄 */
+.pti-svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;vertical-align:-3px;color:var(--fg-3)}
+.pti-svg.dl{color:var(--danger)}
+.pti-svg.ok{color:var(--success,#4a9)}
+.plan-tray-h{font-size:var(--text-sm);color:var(--fg-2)}
+.plan-tray-progress{display:grid;grid-template-columns:auto minmax(0,1fr);column-gap:var(--sp-4);row-gap:2px;align-items:center}
+.plan-tray-progress .ptp-ic{grid-row:1/3;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:var(--r-md);background:var(--bg-card)}
+.plan-tray-progress .ptp-ic .pti-svg{width:19px;height:19px;color:var(--accent)}
+.plan-tray-progress .ptp-d{font-size:var(--text-xs)}
+@media (pointer:coarse){
+  .plan-tray-item{min-height:var(--row-min);cursor:pointer}
+  .plan-tray-item .pti-t{font-size:var(--text-base)}
+}
+/* 블록: 옅은 바탕 위 글자는 본문색, 시간은 한 단계 연하게 */
+.plan-block .plan-block-time{color:var(--fg-3);opacity:1}
+
 /* ── 할일 목록 구조: 분류 머리는 상자 대신 제목 줄, 빈 분류는 칩 한 줄, 프로젝트·목표 묶음 여백 통일 ── */
 #page-task .task-section{padding-top:var(--sp-10)}
 #page-task .task-section:first-child{padding-top:var(--sp-3)}
@@ -19242,8 +19275,9 @@ function _planBlockEl(o, START, SLOT_H){
   el.style.top=top+'px'; el.style.height=hgt+'px';
   el.style.left='calc('+(o.col/o.cols*100)+'% + 6px)'; el.style.width='calc('+(100/o.cols)+'% - 14px)'; el.style.right='auto';
   el.style.setProperty('--pbc',hex);
-  el.style.background=(typeof twvHexAlpha==='function')?twvHexAlpha(hex, done?0.2:0.92):hex;
-  el.style.color=done?'var(--fg-4)':((typeof twvTextColor==='function')?twvTextColor(hex):'#fff');
+  /* 카테고리색은 옅은 바탕 + 왼쪽 색 띠로, 글자는 본문색 — 나 탭 타임블록과 같은 차분한 표현(쨍한 원색 덩어리 X) */
+  el.style.background=done?((typeof twvHexAlpha==='function')?twvHexAlpha(hex,0.12):'var(--bg-raised)'):'color-mix(in srgb,'+hex+' 20%,var(--bg-card))';
+  el.style.color=done?'var(--fg-4)':'var(--fg)';
   if(_planEditId!=null && String(_planEditId)===String(t.id)){
     var inp=document.createElement('input'); inp.className='plan-block-input'; inp.type='text'; inp.value=(t.text&&t.text!=='새 일정')?t.text:''; inp.placeholder='일정 이름';
     el.appendChild(inp);
@@ -19673,6 +19707,18 @@ function _planBindTrayDrag(item, opts){
   if(_ctxFn){ item.addEventListener('contextmenu',function(e){ e.preventDefault(); _ctxFn(); }); }
   item.addEventListener('pointerdown',function(e){
     if(e.button&&e.button!==0)return; /* 우클릭은 contextmenu가 처리 — 탭/드래그 로직 제외 */
+    /* 손가락: 끌기 대신 탭 — 그냥 밀면 목록이 스크롤되고(끌기로 잡히지 않음), 탭하면 빠른 처리 시트.
+       (시간 배치는 시트의 '지금 배치'·'시간 정해서 배치'로) */
+    if(e.pointerType==='touch'){
+      var tk=item.getAttribute('data-pkind'), tp=item.getAttribute('data-pid'), tx=e.clientX, ty=e.clientY, tmoved=false, tlp=false, tTimer=null;
+      if(typeof opts.onLongPress==='function')tTimer=setTimeout(function(){ tTimer=null; if(!tmoved){ tlp=true; opts.onLongPress(); } },460);
+      var tmv=function(ev){ if(Math.abs(ev.clientX-tx)>10||Math.abs(ev.clientY-ty)>10){ tmoved=true; if(tTimer){ clearTimeout(tTimer); tTimer=null; } } };
+      var tend=function(ev){ document.removeEventListener('pointermove',tmv); document.removeEventListener('pointerup',tend); document.removeEventListener('pointercancel',tend); if(tTimer){ clearTimeout(tTimer); tTimer=null; }
+        if(ev.type!=='pointerup'||tmoved||tlp)return;
+        if(typeof opts.onTap==='function')opts.onTap(); else _planOpenTrayItem(tk,tp); };
+      document.addEventListener('pointermove',tmv); document.addEventListener('pointerup',tend); document.addEventListener('pointercancel',tend);
+      return;
+    }
     e.preventDefault();
     var kind=item.getAttribute('data-pkind'), pid=item.getAttribute('data-pid');
     var label=((item.querySelector('.pti-t')||{}).textContent)||'항목';
@@ -20002,12 +20048,26 @@ function _planTaskQuick(id){
     +'<div class="modal-body"><div class="plan-triage-preview">'+esc(t.text||'할일')+'</div>'
     +'<div class="plan-triage-opts">'
       +opt('ptq-now','🎯','오늘 지금 배치','오늘 현재 시각 타임블록으로')
+      +opt('ptq-time','🕒','시간 정해서 배치…','보고 있는 날 원하는 시각에 1시간 블록')
       +opt('ptq-tmr','⏭','내일로 미루기','날짜만 내일로 옮김')
       +opt('ptq-done','✅','완료','다 한 일로 표시')
     +'</div></div>'
     +'<div class="modal-foot"><button type="button" class="btn btn-ghost" id="ptq-open">열기</button><button type="button" class="btn btn-ghost" id="ptq-cancel">취소</button></div></div>';
   ov.querySelector('#ptq-now').addEventListener('click',function(){ var now=new Date(); var sm=Math.min(Math.round((now.getHours()*60+now.getMinutes())/15)*15,1425); var ts=_planHM(sm), te=_planHM(Math.min(sm+60,1440)); var td=_planToday(); if(t.date!==td && typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,td); t.date=td; t.timeStart=ts; t.timeEnd=te; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); _planDate=td; finish('오늘 '+ts+'에 배치했어요'); });
   ov.querySelector('#ptq-tmr').addEventListener('click',function(){ var d=new Date(_planToday()+'T00:00'); d.setDate(d.getDate()+1); var nd=dk(d); if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,nd); t.date=nd; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); finish('내일로 미뤘어요'); });
+  ov.querySelector('#ptq-time').addEventListener('click',function(){
+    close();
+    var now=new Date(), dm=Math.min(Math.ceil((now.getHours()*60+now.getMinutes())/30)*30,1410);
+    if(typeof openFormDialog!=='function')return;
+    openFormDialog('시간 정해서 배치',[{key:'time',label:'“'+String(t.text||'할일').slice(0,30)+'” 몇 시에 할까요?',type:'time',value:_planHM(dm)}],function(d){
+      var m=/^(\d{1,2}):(\d{2})$/.exec(String(d&&d.time||'')); if(!m)return;
+      var sm=parseInt(m[1],10)*60+parseInt(m[2],10);
+      var day=_planDate||_planToday();
+      _planSchedule('task',t.id,sm); /* planner-min은 보고 있는 날(_planDate) 기준 */
+      if(typeof showToast==='function')showToast((day===_planToday()?'오늘 ':day.slice(5).replace('-','/')+' ')+_planHM(sm)+'에 배치했어요');
+      try{ renderPlanner(); }catch(_e){}
+    });
+  });
   ov.querySelector('#ptq-done').addEventListener('click',function(){ if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=true; if(typeof saveTaskData==='function')saveTaskData(); } finish('완료로 표시했어요'); });
   ov.querySelector('#ptq-open').addEventListener('click',function(){ close(); if(typeof tasksOpenModal==='function')tasksOpenModal(t); });
   ov.querySelector('#ptq-cancel').addEventListener('click',close);
@@ -20037,6 +20097,13 @@ function _planRenderTray(){
      위 '종일' 줄로 옮겼으므로 트레이/카운트에서 제외. 실제 미처리는 인박스·연결 필요·지난. */
   var remain=inbox.length+unlinked.length+overdue.length;
   function esc(v){ return (typeof projectEsc==='function')?projectEsc(v):String(v==null?'':v); }
+  var PI={flag:'<svg viewBox="0 0 24 24" class="pti-svg dl"><path d="M5 21V4M5 4h11l-2 4 2 4H5"/></svg>',
+          link:'<svg viewBox="0 0 24 24" class="pti-svg"><path d="M9.5 14.5 14.5 9.5"/><path d="M11 6.5 12.5 5a3.5 3.5 0 0 1 5 5L16 11.5"/><path d="M13 17.5 11.5 19a3.5 3.5 0 0 1-5-5L8 12.5"/></svg>',
+          inbox:'<svg viewBox="0 0 24 24" class="pti-svg"><path d="M3.5 13.5 6 5h12l2.5 8.5v5a1 1 0 0 1-1 1h-15a1 1 0 0 1-1-1z"/><path d="M3.5 13.5h5l1 2h5l1-2h5"/></svg>',
+          back:'<svg viewBox="0 0 24 24" class="pti-svg"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>',
+          clock:'<svg viewBox="0 0 24 24" class="pti-svg"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>',
+          tray:'<svg viewBox="0 0 24 24" class="pti-svg"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M3.5 13h5l1.5 2h4l1.5-2h5"/></svg>',
+          ok:'<svg viewBox="0 0 24 24" class="pti-svg ok"><path d="m5 12.5 4.5 4.5L19 7"/></svg>'};
   function item(kind,id,ic,text,badge,bc){ return '<div class="plan-tray-item" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-t">'+esc(text)+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
   function item2(kind,id,ic,text,badge,sub,bc,subLink){ return '<div class="plan-tray-item two" data-pkind="'+kind+'" data-pid="'+esc(String(id))+'"><span class="pti-ic">'+ic+'</span><span class="pti-main"><span class="pti-t">'+esc(text)+'</span>'+(sub?'<span class="pti-sub'+(subLink?' link':'')+'">'+esc(sub)+'</span>':'')+'</span>'+(badge?'<span class="pti-b '+(bc||'')+'">'+esc(badge)+'</span>':'')+'</div>'; }
   function deadlineRow(x){
@@ -20048,21 +20115,21 @@ function _planRenderTray(){
         var pb=Math.round((new Date(dl.deadlineDate+'T00:00')-new Date(pp.date+'T00:00'))/86400000);
         var when=(pp.date===TKK?'오늘':(pp.date<TKK?'지남':(Number(pp.date.slice(5,7))+'/'+Number(pp.date.slice(8,10)))));
         var rel=(pb>0?('마감 '+pb+'일 전'):(pb===0?'마감 당일':'마감 지나 계획됨'));
-        sub='📌 준비: '+(pp.text||'준비')+' · '+rel+' ('+when+')'+(pp.date===TKK?'':' — 오늘로 끌기');
+        sub='준비: '+(pp.text||'준비')+' · '+rel+' ('+when+')'+(pp.date===TKK?'':' — 오늘로 끌기');
         subLink=(pp.date!==TKK);
-      } else { sub='📌 준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치'; }
+      } else { sub='준비: '+(pp.text||'준비')+' · 시간 미정 — 끌어서 오늘 배치'; }
       var more=(preps.length>1?(' +'+(preps.length-1)):'');
-      return item2('task',pp.id,'🚩',(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
+      return item2('task',pp.id,PI.flag,(dl.text||'마감')+more,dlBadge,sub,bc,subLink);
     }
     /* 별도 연결 할일이 있었으나 모두 완료된 경우 '연결 완료'. */
     if(_planLinkedFor(dl,true).length>0){
-      return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'✓ 연결 완료',bc);
+      return item2('deadline',dl.id,PI.flag,dl.text||'마감',dlBadge,'✓ 연결 완료',bc);
     }
     /* 별도 준비 할일이 없어도, 마감일이 있는 할일은 앱에서 이미 '마감일과 연결됨'으로 본다
        (모달의 일정 연결 표시와 일치). 이미 연결된 상태라 '끌어서 준비 추가' 안내는 오히려
        '왜 또 연결하라는 거지?' 혼란을 줬으므로 뺀다. 마감일과 연결됨만 담백하게 표시.
        (그래도 원하면 이 행을 끌어 별도 준비 할일을 추가하는 동작 자체는 유지.) */
-    return item2('deadline',dl.id,'🚩',dl.text||'마감',dlBadge,'📅 마감일과 연결됨',bc);
+    return item2('deadline',dl.id,PI.flag,dl.text||'마감',dlBadge,'마감일과 연결됨',bc);
   }
   /* 각 분류를 항상 헤더로 보여주고(빠짐없이 확인), 비었으면 ✓로 안심시킨다. */
   function section(icon,label,count,bodyHtml,emptyMsg){
@@ -20072,12 +20139,12 @@ function _planRenderTray(){
   var doneAll=(remain===0);
   var h='';
   h+='<div class="plan-tray-progress'+(doneAll?' done':'')+'">'+(doneAll
-      ? '<span class="ptp-ic">✓</span><span class="ptp-t">오늘 정리 완료</span><span class="ptp-d">놓친 것 없이 다 자리 잡았어요</span>'
-      : '<span class="ptp-ic">🗂️</span><span class="ptp-t">정리할 것 '+remain+'개</span><span class="ptp-d">하나씩 자리를 정해 비워보세요</span>')+'</div>';
-  h+=section('⏳','다가오는 마감',deadlines.length,deadlines.map(deadlineRow).join(''),'이번 주 마감 없음');
-  h+=section('🔗','연결 필요',unlinked.length,unlinked.map(function(t){var d2=Math.round((new Date(t.date+'T00:00')-new Date(TKK+'T00:00'))/86400000);return item2('link',t.id,'🔗',t.text||'일정',(d2===0?'오늘':(d2<0?'지남':'D-'+d2)),'연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치',(d2<=1?'due':''),true);}).join(''),'연결 필요 없음');
-  h+=section('📥','인박스',inbox.length,inbox.map(function(i){ var n=(typeof inboxLikeCount==='function')?inboxLikeCount(i):0; return item('inbox',i.id,'•',i.text||'항목',n?('♥'+n):'',n?'like':''); }).join(''),'처리할 인박스 없음');
-  h+=section('↩︎','지난 할일',overdue.length,overdue.map(function(t){var d3=Math.round((new Date(TKK+'T00:00')-new Date(t.date+'T00:00'))/86400000);return item('task',t.id,'○',t.text||'할일','D+'+d3,'due');}).join(''),'밀린 할일 없음');
+      ? '<span class="ptp-ic">'+PI.ok+'</span><span class="ptp-t">오늘 정리 완료</span><span class="ptp-d">놓친 것 없이 다 자리 잡았어요</span>'
+      : '<span class="ptp-ic">'+PI.tray+'</span><span class="ptp-t">정리할 것 '+remain+'개</span><span class="ptp-d">'+(rdsIsTouch()?'탭해서 하나씩 자리를 정해요':'끌어서 시간에 놓거나 탭해서 정리해요')+'</span>')+'</div>';
+  h+=section(PI.clock,'다가오는 마감',deadlines.length,deadlines.map(deadlineRow).join(''),'이번 주 마감 없음');
+  h+=section(PI.link,'연결 필요',unlinked.length,unlinked.map(function(t){var d2=Math.round((new Date(t.date+'T00:00')-new Date(TKK+'T00:00'))/86400000);return item2('link',t.id,PI.link,t.text||'일정',(d2===0?'오늘':(d2<0?'지남':'D-'+d2)),rdsIsTouch()?'연결 할일 없음 — 탭해서 연결':'연결 할일 없음 — 탭해서 연결 · 끌어서 시간 배치',(d2<=1?'due':''),true);}).join(''),'연결 필요 없음');
+  h+=section(PI.inbox,'인박스',inbox.length,inbox.map(function(i){ var n=(typeof inboxLikeCount==='function')?inboxLikeCount(i):0; return item('inbox',i.id,'•',i.text||'항목',n?('♥'+n):'',n?'like':''); }).join(''),'처리할 인박스 없음');
+  h+=section(PI.back,'지난 할일',overdue.length,overdue.map(function(t){var d3=Math.round((new Date(TKK+'T00:00')-new Date(t.date+'T00:00'))/86400000);return item('task',t.id,'○',t.text||'할일','D+'+d3,'due');}).join(''),'밀린 할일 없음');
   host.innerHTML=h;
   host.querySelectorAll('.plan-tray-item').forEach(function(it){ _planBindTrayDrag(it); });
 }
@@ -20110,7 +20177,7 @@ function _planRenderMulti(){
     var lines=''; for(var hr2=START;hr2<END;hr2++){ lines+='<div class="planm-hline" style="top:'+((hr2-START)*SLOT_H)+'px"></div>'; }
     var now=''; if(isT){ var nm=new Date(); var nmin=nm.getHours()*60+nm.getMinutes(); if(nmin>=START*60&&nmin<=END*60){ now='<div class="planm-now" style="top:'+((nmin/60-START)*SLOT_H)+'px"></div>'; } }
     var blocks=(typeof twvLayoutBlocks==='function')?twvLayoutBlocks(_planDayTimed(key),{start:START,end:END}):[];
-    var bH=blocks.map(function(b){ var t=b.t; var sm=Math.max(b.sm,START*60), em=Math.min(b.em,END*60); var y=(sm/60-START)*SLOT_H; var hgt=Math.max((em-sm)/60*SLOT_H-2,20); var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280'; var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; var bg=(typeof twvHexAlpha==='function')?twvHexAlpha(hex,done?0.2:0.92):hex; var tc=done?'var(--fg-4)':((typeof twvTextColor==='function')?twvTextColor(hex):'#fff'); var lp=(b.col/b.totalCols*100), wp=(100/b.totalCols); var lock=t._isTt||!t.id;
+    var bH=blocks.map(function(b){ var t=b.t; var sm=Math.max(b.sm,START*60), em=Math.min(b.em,END*60); var y=(sm/60-START)*SLOT_H; var hgt=Math.max((em-sm)/60*SLOT_H-2,20); var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280'; var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; var bg=done?((typeof twvHexAlpha==='function')?twvHexAlpha(hex,0.12):'var(--bg-raised)'):'color-mix(in srgb,'+hex+' 22%,var(--bg-card))'; var tc=done?'var(--fg-4)':'var(--fg)'; var lp=(b.col/b.totalCols*100), wp=(100/b.totalCols); var lock=t._isTt||!t.id;
       /* 블록 위로 이동 → 준비 순으로 쌓는 띠(최소 14px, 격자 위 끝에서 잘림) */
       var leads='', edge=y, _tv=parseInt(t.travelMin||t.moveMin||t.travelMinutes||0,10)||0;
       var _pa=(typeof taskPrepList==='function')?taskPrepList(t):[], _pl=_pa.filter(function(x){return x&&!x.done;}), _pm=parseInt(t.prepMin,10)||0;
@@ -20166,7 +20233,7 @@ function renderPlanner(){
     dowEl.innerHTML='<span>'+days[d.getDay()]+'요일</span>'+(isToday?'<span class="plan-today-dot">· 오늘</span>':'')+sum;
   }
   /* 빈 하루면 만드는 법을 안내(발견성). */
-  if(!laid.length){ var hint=document.createElement('div'); hint.className='plan-empty-hint'; hint.style.top=Math.max(20,((((isToday&&nowMin!=null)?nowMin:9*60)-START*60)/60*SLOT_H)+16)+'px'; hint.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/><path d="M12 12v5M9.5 14.5h5"/></svg><div>빈 곳을 끌어 일정을 만들거나<br>오른쪽에서 할일을 끌어오세요</div>'; grid.appendChild(hint); }
+  if(!laid.length){ var hint=document.createElement('div'); hint.className='plan-empty-hint'; hint.style.top=Math.max(20,((((isToday&&nowMin!=null)?nowMin:9*60)-START*60)/60*SLOT_H)+16)+'px'; hint.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9h16M8 3v4M16 3v4"/><path d="M12 12v5M9.5 14.5h5"/></svg><div>'+(rdsIsTouch()||window.innerWidth<1024?'아래 목록에서 할일을 탭해<br>시간에 배치해요':'빈 곳을 끌어 일정을 만들거나<br>오른쪽에서 할일을 끌어오세요')+'</div>'; grid.appendChild(hint); }
   /* 맨 위 '종일' 줄: 일정/종일 항목 + 시간 미정 할일(다른 타임블록의 종일 줄처럼 위로).
      시간 미정 할일 칩은 끌어서 타임라인에 시간 배치(_planBindTrayDrag)하거나, 탭하면
      빠른 처리(_planTaskQuick). */
@@ -29287,6 +29354,29 @@ document.getElementById('btn-sel-mode').addEventListener('click',function(){
    세로로 움직이면 그냥 스크롤(아무 것도 안 함). 데스크톱: 우클릭 = 같은 메뉴.
    할일 탭 목록과 나 탭 '오늘 할일'이 같은 동작을 쓰도록 한 곳에서 묶는다(호스트에 한 번만). */
 var _rdsSuppressUntil=0, _rdsLastTouch=0;
+/* 유령 클릭 방지(전역): 손가락을 뗄 때(pointerup) 열린 창·시트에, 같은 탭의 뒤따르는 클릭이 떨어져
+   버튼이 눌리던 문제(폰에선 창이 아래 시트라 손가락 바로 밑에 열림). 창이 '그 손가락을 뗀 뒤'에 열렸고
+   아직 0.45초가 안 지났다면 그 안의 클릭은 버린다 — 새로 다시 탭하면(새 pointerup) 정상 동작. */
+var _rdsLastTouchUp=0;
+document.addEventListener('pointerup',function(e){ if(e.pointerType==='touch')_rdsLastTouchUp=Date.now(); },true);
+(function(){
+  var SEL='.overlay.open,.rds-sheet,.m-sheet:not([hidden]),.menu-pop';
+  function stamp(el){ if(el&&!el._rdsOpenedAt)el._rdsOpenedAt=Date.now(); }
+  try{
+    new MutationObserver(function(muts){
+      muts.forEach(function(m){
+        if(m.type==='attributes'){ var t=m.target; if(t.matches&&t.matches(SEL)&&!(m.oldValue||'').match(/\bopen\b/))t._rdsOpenedAt=Date.now(); return; }
+        m.addedNodes&&m.addedNodes.forEach(function(n){ if(n.nodeType!==1)return; if(n.matches&&n.matches(SEL))n._rdsOpenedAt=Date.now(); if(n.querySelectorAll)n.querySelectorAll(SEL).forEach(stamp); });
+      });
+    }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','hidden'],attributeOldValue:true});
+  }catch(_e){}
+  document.addEventListener('click',function(e){
+    if(!e.isTrusted)return; /* 코드가 부른 click()은 유령 클릭이 아님 */
+    var box=e.target&&e.target.closest&&e.target.closest(SEL); if(!box||!box._rdsOpenedAt)return;
+    var now=Date.now();
+    if(box._rdsOpenedAt>=_rdsLastTouchUp-30 && now-box._rdsOpenedAt<450 && now-_rdsLastTouchUp<450){ e.stopPropagation(); e.preventDefault(); try{ if(document.activeElement&&box.contains(document.activeElement))document.activeElement.blur(); }catch(_e){} }
+  },true);
+})();
 document.addEventListener('click',function(e){ if(Date.now()<_rdsSuppressUntil){ e.stopPropagation(); e.preventDefault(); } },true); /* 길게 누르기·밀기 뒤 브라우저가 보내는 클릭은 버린다 — 막 열린 시트의 항목/배경이 눌리지 않게(문서 전체에서) */
 function rdsBindTaskGestures(host, rowSel){
   if(!host||host._rdsBound)return; host._rdsBound=true;

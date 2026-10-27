@@ -51,7 +51,7 @@ t.ok('트레이 드래그로 시간 배치', /function _planBindTrayDrag\(item, 
 t.ok('배치: task/inbox/deadline 각각 처리', /function _planSchedule\(kind,pid,sm\)\{[\s\S]*?kind==='task'[\s\S]*?kind==='inbox'[\s\S]*?kind==='deadline'/.test(html));
 t.ok('인박스 배치 시 처리됨 표시', /it\.unread=false;/.test(html));
 t.ok('마감 배치 시 연결 준비 할일', /deadlineId:String\(dt\.id\), ?sourceTaskId:String\(dt\.id\)/.test(html));
-t.ok('생성/이동/트레이 색은 twv 대비 규칙', /twvHexAlpha\(hex, ?done\?0\.2:0\.92\)/.test(html) && /twvTextColor\(hex\)/.test(html));
+t.ok('블록 색: 카테고리색 옅은 바탕 + 본문색 글자 + 왼쪽 색 띠', /el\.style\.background=done\?[^;]*:'color-mix\(in srgb,'\+hex\+' 20%,var\(--bg-card\)\)';/.test(html) && /el\.style\.color=done\?'var\(--fg-4\)':'var\(--fg\)';/.test(html) && /el\.style\.setProperty\('--pbc',hex\);/.test(html));
 
 /* ── 다듬기: 컨텍스트 메뉴·날짜 이동·길이 프리셋·시간대 밴드·모바일 롱프레스 ── */
 t.ok('블록 컨텍스트 메뉴(완료·타이머·복제·삭제)', /function _planBlockMenu\(t, ?x, ?y\)\{[\s\S]*?data-act="done"[\s\S]*?data-act="timer"[\s\S]*?data-act="dup"[\s\S]*?data-act="del"/.test(html));
