@@ -9949,6 +9949,36 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 인박스 ══ */
+/* 말풍선: 분홍 바탕+분홍 글자 → 카드 바탕 + 본문색 글자(읽기 쉽게), 분류 라벨만 강조색 */
+.ib2-bubble.text{background:var(--bg-card);border:1px solid var(--border-subtle);box-shadow:var(--elev-1)}
+.ib2-bubble.text .ib2-bub-text{color:var(--fg)}
+.ib2-bubble.text .ib2-bub-meta{color:var(--fg-4)}
+.ib2-bubble.text .ib2-bub-cat{color:var(--fg-3);background:var(--bg-raised)}
+.ib2-new-count{margin-left:6px;font-size:var(--text-xs);font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}
+.ib2-new-count:empty{display:none}
+.ib2-showdone{align-self:center;border:none;background:none;color:var(--fg-4);font:inherit;font-size:var(--text-xs);padding:6px 10px;border-radius:var(--r-full);cursor:pointer}
+.ib2-showdone:hover{background:var(--bg-raised);color:var(--fg-2)}
+/* '미분류' 열은 왼쪽 '새로 담은 것'과 같은 내용이라 보드에서 뺀다(한 항목은 한 곳에만) */
+.ib2-col[data-col="_uncat"]{display:none}
+.ib2-tabs{display:none}
+@media (max-width:639px){
+  .ib2{display:flex;flex-direction:column;height:100%}
+  .ib2-tabs{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:var(--sp-4) var(--gutter) 0;padding:3px;border-radius:12px;background:var(--bg-raised)}
+  .ib2-tabs button{min-height:38px;border:none;border-radius:9px;background:none;color:var(--fg-3);font:inherit;font-size:var(--text-sm);font-weight:600;cursor:pointer}
+  .ib2-tabs button.on{background:var(--bg-card);color:var(--fg);box-shadow:var(--elev-1)}
+  .ib2-tabs b{color:var(--accent);font-weight:700}
+  .ib2-board{display:flex;flex:1;min-height:0;padding:var(--sp-4) var(--gutter) calc(96px + env(safe-area-inset-bottom));gap:var(--sp-4)}
+  .ib2-capture{flex:1 1 100%;width:100%}
+  .ib2:not(.ib2-v-board) .ib2-col,.ib2:not(.ib2-v-board) .ib2-addcol{display:none}
+  .ib2.ib2-v-board .ib2-addcol{flex:0 0 60%;scroll-snap-align:center}
+  .ib2.ib2-v-board .ib2-capture{display:none}
+  .ib2.ib2-v-board .ib2-board{overflow-x:auto;scroll-snap-type:x mandatory}
+  .ib2.ib2-v-board .ib2-col:not([data-col="_uncat"]){display:flex;flex:0 0 86%;scroll-snap-align:center}
+  .ib2-ta{font-size:16px} /* iOS 확대 방지 */
+}
+@media (pointer:coarse){ .ib2-bubble[data-jump]{touch-action:pan-y;-webkit-touch-callout:none} .ib2-send,.ib2-attach{min-width:44px;min-height:44px} }
+
 /* ══ 계획창 ══ */
 /* 폰 머리: 1줄 = 닫기·날짜·‹ 오늘 ›, 2줄 = 1일/2일/3일/1주 · 범위 (겹치던 문제 해소) */
 @media (max-width:639px){
@@ -13105,7 +13135,7 @@ function goPage(slug) {
   /* 일기 기능 제거: 일기로 가려는 모든 경로를 홈으로 돌린다(잔여 링크·해시 안전망). */
   if (slug === 'diary') slug = 'home';
   if (_currentPage === slug) return;
-  try{ var _tt=document.getElementById('topbar-title'); if(_tt)_tt.textContent=RDS_PAGE_TITLES[slug]||''; }catch(_e){}
+  try{ var _tt=document.getElementById('topbar-title'); if(_tt)_tt.textContent=RDS_PAGE_TITLES[slug]||''; document.body.setAttribute('data-page',slug); }catch(_e){}
   try{ if(typeof pjbExitFullscreen==='function') pjbExitFullscreen(); }catch(e){}
   document.querySelectorAll('.page-container,.page-scroll').forEach(function(p){
     p.classList.remove('active');
@@ -13166,7 +13196,11 @@ function mNavGo(slug){
 /* FAB — 빠른 담기: 전용 바텀시트를 연다. 담기 로직은 기존 homeCapture/homeCaptureAI를
    그대로 재사용(submitGlobalCapture와 동일 경로). */
 var _mCapType='task';
-function mCapture(){ mCapOpen(); }
+function mCapture(){
+  /* 인박스 화면에선 그 화면의 입력창(사진·링크 담기 지원)이 곧 '담기' — ＋는 그 입력창으로 */
+  if(typeof _currentPage!=='undefined'&&_currentPage==='inbox'){ var ta=document.getElementById('ib2-ta'); if(ta){ var r=document.getElementById('ib2'); if(r){ r.classList.remove('ib2-v-board'); r.querySelectorAll('[data-ib2v]').forEach(function(x){ x.classList.toggle('on',x.getAttribute('data-ib2v')==='new'); }); } ta.focus(); return; } }
+  mCapOpen();
+}
 function mCapOpen(){
   var d=document.getElementById('m-cap-dim'), s=document.getElementById('m-cap-sheet'), inp=document.getElementById('m-cap-input');
   if(!s)return;
@@ -25980,9 +26014,11 @@ function _initInbox(){
     if(!root){
       root=document.createElement('div'); root.id='ib2'; root.className='ib2';
       root.innerHTML=
+        /* 폰: 한 번에 한 화면 — 새로 담은 것 | 프로젝트 보드 */
+        '<div class="ib2-tabs" role="tablist" aria-label="인박스 보기"><button type="button" class="on" data-ib2v="new" role="tab">새로 담은 것 <b id="ib2-tab-new-n"></b></button><button type="button" data-ib2v="board" role="tab">프로젝트 보드</button></div>'+
         '<div class="ib2-board">'+
           '<section class="ib2-capture">'+
-            '<div class="ib2-cap-head"><span class="ib2-cap-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13l2.3-7.3A1 1 0 0 1 6.25 5h11.5a1 1 0 0 1 .95.7L21 13v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 13h5l1.4 2.2h5.2L16 13h5"/></svg>빠른 담기</span><button type="button" class="ib2-clear-done" id="ib2-clear-done" title="완료된 항목 모두 삭제"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12"/><path d="M10 11v6M14 11v6"/></svg>완료 비우기</button><span class="ib2-cap-to">나에게</span></div>'+
+            '<div class="ib2-cap-head"><span class="ib2-cap-title"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13l2.3-7.3A1 1 0 0 1 6.25 5h11.5a1 1 0 0 1 .95.7L21 13v5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M3 13h5l1.4 2.2h5.2L16 13h5"/></svg>새로 담은 것<span class="ib2-new-count" id="ib2-new-count"></span></span><button type="button" class="ib2-clear-done" id="ib2-clear-done" title="완료된 항목 모두 삭제"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12"/><path d="M10 11v6M14 11v6"/></svg>완료 비우기</button></div>'+
             '<div class="ib2-thread" id="ib2-thread"></div>'+
             '<div class="ib2-composer" id="ib2-composer">'+
               '<div class="ib2-cap-cats" id="ib2-cap-cats"></div>'+
@@ -25998,6 +26034,7 @@ function _initInbox(){
           '<div class="ib2-cols" id="ib2-cols"></div>'+
         '</div>';
       pg.appendChild(root);
+      root.querySelectorAll('[data-ib2v]').forEach(function(b){ b.addEventListener('click',function(){ var v=b.getAttribute('data-ib2v'); root.classList.toggle('ib2-v-board',v==='board'); root.querySelectorAll('[data-ib2v]').forEach(function(x){ x.classList.toggle('on',x===b); }); }); });
       var ta=root.querySelector('#ib2-ta'), send=root.querySelector('#ib2-send'), attach=root.querySelector('#ib2-attach'), composer=root.querySelector('#ib2-composer');
       function autosize(){ ta.style.height='auto'; ta.style.height=Math.min(ta.scrollHeight,110)+'px'; }
       ta.addEventListener('input',autosize);
@@ -26081,6 +26118,8 @@ function _initInbox(){
       }).catch(function(){ autoBtn.disabled=false; autoBtn.textContent='✨ 자동'; });
     });
   }
+  var _ib2ShowDone=false;
+  function _ib2BindShowDone(host){ var b=host.querySelector('#ib2-showdone'); if(b)b.addEventListener('click',function(e){ e.stopPropagation(); _ib2ShowDone=!_ib2ShowDone; paintThread(); }); }
   function _ib2DayLabel(ts){
     if(!ts)return '';
     var d=new Date(ts); d.setHours(0,0,0,0); var t=new Date(); t.setHours(0,0,0,0);
@@ -26096,8 +26135,16 @@ function _initInbox(){
   function paintThread(){
     var host=document.getElementById('ib2-thread'); if(!host)return;
     function _ts(it){ return it.ts || (typeof it.id==='number'?it.id:0); } /* fall back to id (~ creation ms) so ts-less items don't get mis-sorted/dropped */
-    var items=inboxItems.slice().sort(function(a,b){return _ts(a)-_ts(b);}).slice(-80);
-    if(!items.length){ host.innerHTML='<div class="ib2-thread-empty">아직 담은 게 없어요.<br>아래에 뭐든 툭 던져보세요.</div>'; return; }
+    /* 왼쪽 = '새로 담은 것'(아직 프로젝트로 보내지 않은 것)만 — 프로젝트로 보낸 것은 오른쪽 보드에만 있어
+       같은 항목이 두 번 보이지 않는다. 처리(완료)한 것은 '완료 N개 보기'로 펼칠 때만. */
+    var uns=inboxItems.filter(function(it){ return colIdOf(it)==='_uncat'; });
+    var doneN=uns.filter(function(it){ return it.done; }).length;
+    var openN=uns.length-doneN;
+    var cnt=document.getElementById('ib2-new-count'); if(cnt)cnt.textContent=openN?String(openN):'';
+    var tabCnt=document.getElementById('ib2-tab-new-n'); if(tabCnt)tabCnt.textContent=openN?String(openN):'';
+    var items=uns.filter(function(it){ return _ib2ShowDone||!it.done; }).sort(function(a,b){return _ts(a)-_ts(b);}).slice(-80);
+    var doneBar=doneN?('<button type="button" class="ib2-showdone" id="ib2-showdone">'+(_ib2ShowDone?'처리한 것 숨기기':'처리한 것 '+doneN+'개 보기')+'</button>'):'';
+    if(!items.length){ host.innerHTML='<div class="ib2-thread-empty">'+(inboxItems.length?'새로 담은 건 모두 정리했어요 ✓<br>떠오르는 건 아래에 바로 담아요.':'아직 담은 게 없어요.<br>아래에 뭐든 툭 던져보세요.')+'</div>'+doneBar; _ib2BindShowDone(host); return; }
     var lastDay='', html='';
     items.forEach(function(it){
       var ts=_ts(it);
@@ -26107,7 +26154,7 @@ function _initInbox(){
       var hasImg=Array.isArray(it.imgs)&&it.imgs.length;
       var url=ib2FirstUrl(it);
       /* category shown HERE in the chat (kanban cards drop it — they're already under it) */
-      var meta='<div class="ib2-bub-meta"><button type="button" class="ib2-bub-cat" data-catpick="'+ibEsc(it.id)+'" title="분류 바꾸기">'+ibEsc((c.emoji||'')+' '+c.label)+'</button><span>'+ibEsc(_ib2Time(ts))+'</span>'+(typeof inboxLikeHtml==='function'?inboxLikeHtml(it):'')+'<button type="button" class="ib2-bub-more" data-more="'+ibEsc(it.id)+'" title="편집 · 완료 · 삭제" aria-label="항목 편집">⋯</button></div>';
+      var meta='<div class="ib2-bub-meta"><button type="button" class="ib2-bub-cat" data-catpick="'+ibEsc(it.id)+'" title="프로젝트로 보내기">'+ibEsc(c.id==='_uncat'?'프로젝트로 →':((c.emoji||'')+' '+c.label))+'</button><span>'+ibEsc(_ib2Time(ts))+'</span>'+(typeof inboxLikeHtml==='function'?inboxLikeHtml(it):'')+'<button type="button" class="ib2-bub-more" data-more="'+ibEsc(it.id)+'" title="편집 · 완료 · 삭제" aria-label="항목 편집">⋯</button></div>';
       var t=String(it.text||'').trim();
       var imgHtml=hasImg?cardCoverHtml(it).replace('ib2-card-imgwrap','ib2-bub-img'):'';
       /* Strip the raw URL out of the shown text (a link chip renders it nicely). */
@@ -26124,8 +26171,15 @@ function _initInbox(){
         imgHtml+textHtml+linkHtml+meta+'</div>';
       html+=body;
     });
-    host.innerHTML=html;
+    host.innerHTML=doneBar+html;
+    _ib2BindShowDone(host);
     ib2ResolveMedia(host);
+    /* 말풍선: 길게 누르기·우클릭 = 빠른 처리 시트(⋯와 같음), 오른쪽 밀기 = 처리 완료 */
+    rdsBindRowGestures(host,'.ib2-bubble',{idAttr:'data-jump',
+      get:function(id){ return inboxItems.find(function(x){return String(x.id)===String(id);}); },
+      menu:function(it){ openInboxItemSheet(it); },
+      right:function(it){ it.done=!it.done; if(it.done)it.unread=false; it.updatedAt=Date.now(); saveInboxItems(); renderFeed(); if(typeof showToast==='function')showToast(it.done?'처리했어요 ✓':'다시 처리할 것으로'); },
+      rightLabel:function(it){ return it.done?'↩ 되돌리기':'✓ 처리 완료'; }});
     if(typeof inboxBindLikes==='function')inboxBindLikes(host);
     host.querySelectorAll('[data-more]').forEach(function(b){b.addEventListener('click',function(e){ e.stopPropagation(); var it=inboxItems.find(function(x){return String(x.id)===String(b.getAttribute('data-more'));}); if(it)openInboxItemSheet(it); });});
     /* 분류 라벨 클릭 → 바로 카테고리 다시 선택 */
@@ -29378,8 +29432,20 @@ document.addEventListener('pointerup',function(e){ if(e.pointerType==='touch')_r
   },true);
 })();
 document.addEventListener('click',function(e){ if(Date.now()<_rdsSuppressUntil){ e.stopPropagation(); e.preventDefault(); } },true); /* 길게 누르기·밀기 뒤 브라우저가 보내는 클릭은 버린다 — 막 열린 시트의 항목/배경이 눌리지 않게(문서 전체에서) */
-function rdsBindTaskGestures(host, rowSel){
+/* 할일용 어댑터 — 할일 탭·나 탭 오늘 할일·목표 하위 줄 */
+var RDS_TASK_ROW={
+  get:function(id){ return _taskById(id); },
+  menu:function(t,at){ taskActionMenu(t,at); },
+  right:function(t){ _taskToggleDone(t); },
+  rightLabel:function(t){ var d=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; return t.canceled?'↩ 되돌리기':(d?'↩ 완료 취소':'✓ 완료'); },
+  left:function(t){ _taskMoveDate(t,_taskPostponeKey(t)); },
+  leftLabel:function(t){ return _taskDayLabel(_taskPostponeKey(t))+'로 →'; }
+};
+function rdsBindTaskGestures(host, rowSel){ rdsBindRowGestures(host, rowSel, RDS_TASK_ROW); }
+/* 줄 제스처 공용: ad = {idAttr?, get(id), menu(item,at), right(item), rightLabel(item), left?(item), leftLabel?(item)} */
+function rdsBindRowGestures(host, rowSel, ad){
   if(!host||host._rdsBound)return; host._rdsBound=true;
+  var IDA=ad.idAttr||'data-id';
   var st=null, LP_MS=460;
   function lim(row){ return Math.min(120,row.offsetWidth*0.32); }
   function clear(s){
@@ -29387,18 +29453,18 @@ function rdsBindTaskGestures(host, rowSel){
     var row=s.row; row.classList.remove('rds-pressed','rds-swiping','rds-armed'); row.removeAttribute('data-swipe'); row.removeAttribute('data-swipe-label');
     if(s.mode==='swipe'){ row.classList.add('rds-settling'); row.style.removeProperty('--rds-dx'); setTimeout(function(){ row.classList.remove('rds-settling'); },220); }
   }
-  function rowOf(e){ var r=e.target.closest&&e.target.closest(rowSel); return (r&&host.contains(r)&&r.getAttribute('data-id'))?r:null; }
+  function rowOf(e){ var r=e.target.closest&&e.target.closest(rowSel); return (r&&host.contains(r)&&r.getAttribute(IDA))?r:null; }
   host.addEventListener('pointerdown',function(e){
     if(e.pointerType!=='touch'||(typeof selMode!=='undefined'&&selMode))return;
     _rdsLastTouch=Date.now();
     var row=rowOf(e); if(!row)return;
-    if(e.target.closest('.task-children,.task-prep-list,.ti-quick'))return;
-    st={row:row,id:row.getAttribute('data-id'),x:e.clientX,y:e.clientY,dx:0,mode:''};
+    if(e.target.closest('.task-children,.task-prep-list,.ti-quick,a,textarea,input'))return;
+    st={row:row,id:row.getAttribute(IDA),x:e.clientX,y:e.clientY,dx:0,mode:''};
     var s=st;
     s.lp=setTimeout(function(){
       if(st!==s||s.mode)return; s.mode='lp'; s.row.classList.add('rds-pressed');
       try{ if(navigator.vibrate)navigator.vibrate(12); }catch(_e){}
-      var t=_taskById(s.id); if(t)taskActionMenu(t,null);
+      var t=ad.get(s.id); if(t)ad.menu(t,null);
     },LP_MS);
   },{passive:true});
   host.addEventListener('pointermove',function(e){
@@ -29406,16 +29472,16 @@ function rdsBindTaskGestures(host, rowSel){
     var dx=e.clientX-st.x, dy=e.clientY-st.y;
     if(!st.mode){
       if(Math.abs(dy)>10&&Math.abs(dy)>=Math.abs(dx)){ clear(st); st=null; return; }
-      if(Math.abs(dx)>14&&Math.abs(dx)>Math.abs(dy)*1.5){ st.mode='swipe'; clearTimeout(st.lp); st.row.classList.add('rds-swiping'); }
+      if(Math.abs(dx)>14&&Math.abs(dx)>Math.abs(dy)*1.5&&(dx>0||ad.left)){ st.mode='swipe'; clearTimeout(st.lp); st.row.classList.add('rds-swiping'); }
       else return;
     }
     if(st.mode!=='swipe')return;
-    var t=_taskById(st.id); if(!t)return;
-    var w=st.row.offsetWidth; st.dx=Math.max(-w*0.55,Math.min(w*0.55,dx));
+    var t=ad.get(st.id); if(!t)return;
+    var w=st.row.offsetWidth; st.dx=Math.max(ad.left?-w*0.55:0,Math.min(w*0.55,dx));
     st.row.style.setProperty('--rds-dx',st.dx+'px');
-    var right=st.dx>0, isDone=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
+    var right=st.dx>0;
     st.row.setAttribute('data-swipe',right?'done':'later');
-    st.row.setAttribute('data-swipe-label',right?(t.canceled?'↩ 되돌리기':(isDone?'↩ 완료 취소':'✓ 완료')):(_taskDayLabel(_taskPostponeKey(t))+'로 →'));
+    st.row.setAttribute('data-swipe-label',right?ad.rightLabel(t):(ad.leftLabel?ad.leftLabel(t):''));
     st.row.classList.toggle('rds-armed',Math.abs(st.dx)>=lim(st.row));
   },{passive:true});
   function end(e){
@@ -29424,15 +29490,15 @@ function rdsBindTaskGestures(host, rowSel){
     if(s.mode)_rdsSuppressUntil=Date.now()+(s.mode==='lp'?600:450);
     clear(s);
     if(!armed)return;
-    var t=_taskById(s.id); if(!t)return;
-    if(s.dx>0)_taskToggleDone(t); else _taskMoveDate(t,_taskPostponeKey(t));
+    var t=ad.get(s.id); if(!t)return;
+    if(s.dx>0)ad.right(t); else if(ad.left)ad.left(t);
   }
   host.addEventListener('pointerup',end); host.addEventListener('pointercancel',end);
   host.addEventListener('contextmenu',function(e){
     var row=rowOf(e); if(!row)return;
     e.preventDefault();
     if(Date.now()-_rdsLastTouch<1500||(typeof selMode!=='undefined'&&selMode))return; /* 손가락 길게 누르기는 위에서 처리 */
-    var t=_taskById(row.getAttribute('data-id')); if(t)taskActionMenu(t,{x:e.clientX,y:e.clientY});
+    var t=ad.get(row.getAttribute(IDA)); if(t)ad.menu(t,{x:e.clientX,y:e.clientY});
   });
 }
 rdsBindTaskGestures(document.getElementById('task-sections'),'.task-item,.gti-sub');

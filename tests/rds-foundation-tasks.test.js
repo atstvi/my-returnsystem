@@ -34,7 +34,7 @@ t.ok('마우스 줄 빠른 버튼', /qa\.className='ti-quick'/.test(html));
 // 할일 탭 — 제스처 안전장치
 {
   const i = html.indexOf('/* 할일 줄 제스처(손가락)');
-  const seg = html.slice(i, i + 5600);
+  const seg = html.slice(i, i + 9000);
   t.ok('제스처 블록 존재', i > 0);
   t.ok('손가락만(pointerType touch)', /if\(e\.pointerType!=='touch'\|\|\(typeof selMode!=='undefined'&&selMode\)\)return;/.test(seg));
   t.ok('세로로 움직이면 아무 것도 안 함(스크롤)', /if\(Math\.abs\(dy\)>10&&Math\.abs\(dy\)>=Math\.abs\(dx\)\)\{ clear\(st\); st=null; return; \}/.test(seg));
@@ -42,7 +42,7 @@ t.ok('마우스 줄 빠른 버튼', /qa\.className='ti-quick'/.test(html));
   t.ok('충분히 민 뒤 손을 뗐을 때만 실행(취소 제외)', /var armed=s\.mode==='swipe'&&Math\.abs\(s\.dx\)>=lim\(s\.row\)&&e\.type==='pointerup';/.test(seg));
   t.ok('길게 누르기·밀기 뒤 클릭은 문서 전체에서 버림', /document\.addEventListener\('click',function\(e\)\{ if\(Date\.now\(\)<_rdsSuppressUntil\)/.test(seg));
   t.ok('할일 탭·나 탭 오늘 할일이 같은 제스처', /rdsBindTaskGestures\(document\.getElementById\('task-sections'\),'\.task-item,\.gti-sub'\);\s*rdsBindTaskGestures\(document\.getElementById\('home-eisen-grid'\),'\.eisen-item'\);\s*rdsBindTaskGestures\(document\.getElementById\('home-task-list'\),'\.task-item'\);/.test(seg));
-  t.ok('하위·준비물 영역에선 제스처 시작 안 함', /e\.target\.closest\('\.task-children,\.task-prep-list,\.ti-quick'\)/.test(seg));
+  t.ok('하위·준비물 영역에선 제스처 시작 안 함', /e\.target\.closest\('\.task-children,\.task-prep-list,\.ti-quick,a,textarea,input'\)/.test(seg));
 }
 // 할일 탭 — 키보드
 {
@@ -105,5 +105,13 @@ t.ok('빈 타임라인 안내: 손가락·좁은 화면은 탭 안내', /아래 
   t.ok('코드가 부른 click은 통과', /if\(!e\.isTrusted\)return;/.test(seg));
   t.ok('뗀 뒤 열린 창 + 0.45초 안의 클릭만 버림', /box\._rdsOpenedAt>=_rdsLastTouchUp-30 && now-box\._rdsOpenedAt<450 && now-_rdsLastTouchUp<450/.test(seg));
 }
+
+// 인박스
+t.ok('줄 제스처 공용화(어댑터)', /function rdsBindRowGestures\(host, rowSel, ad\)\{/.test(html) && /function rdsBindTaskGestures\(host, rowSel\)\{ rdsBindRowGestures\(host, rowSel, RDS_TASK_ROW\); \}/.test(html));
+t.ok('인박스 말풍선: 길게 누르기·우클릭 = 빠른 처리, 오른쪽 밀기 = 처리 완료', /rdsBindRowGestures\(host,'\.ib2-bubble',\{idAttr:'data-jump'/.test(html));
+t.ok("왼쪽은 '새로 담은 것'(프로젝트로 안 보낸 것)만", /var uns=inboxItems\.filter\(function\(it\)\{ return colIdOf\(it\)==='_uncat'; \}\);/.test(html));
+t.ok('보드에서 미분류 열 숨김(한 항목은 한 곳에)', /\.ib2-col\[data-col="_uncat"\]\{display:none\}/.test(css));
+t.ok('폰: 새로 담은 것 | 프로젝트 보드 전환', /data-ib2v="board"/.test(html) && /\.ib2\.ib2-v-board \.ib2-capture\{display:none\}/.test(css));
+t.ok('폰: 입력창이 아래 탭 막대 위에', /\.ib2-board\{display:flex;flex:1;min-height:0;padding:var\(--sp-4\) var\(--gutter\) calc\(96px \+ env\(safe-area-inset-bottom\)\)/.test(css));
 
 t.done();

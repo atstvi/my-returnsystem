@@ -19,7 +19,7 @@ t.ok('Enter로 담기, Esc로 닫기', /if\(event\.key==='Enter'\)\{event\.preve
 t.ok('미리보기 컨테이너 + 담기 버튼', /id="m-cap-preview"/.test(html) && /id="m-cap-send"[^>]*onclick="mCapSubmit\(\)"/.test(html));
 
 // ── JS: 기존 캡처 재사용 ──
-t.ok('mCapture가 시트 오픈', /function mCapture\(\)\{ mCapOpen\(\); \}/.test(html));
+t.ok('mCapture가 시트 오픈(인박스 화면에선 그 화면 입력창으로)', /function mCapture\(\)\{[\s\S]*?_currentPage==='inbox'[\s\S]*?mCapOpen\(\);\s*\}/.test(html));
 t.ok('미리보기는 로컬 파서(captureParseNL) 사용', /function mCapPreview\(\)\{[\s\S]*?captureParseNL\(text, \(typeof TK!=='undefined'\?TK:''\)\)/.test(html));
 t.ok('할일 담기는 기존 homeCaptureAI 재사용(있으면)', /if\(_mCapType==='task' && typeof homeCaptureAI==='function'\)\{[\s\S]*?await homeCaptureAI\(text\)/.test(html));
 t.ok('메모/기록 담기는 기존 homeCapture 재사용', /if\(typeof homeCapture==='function'\)homeCapture\(text\);/.test(html));

@@ -28,7 +28,7 @@ t.ok('더보기: 프로필', /onclick="mMoreClose\(\);openProfileSettings\(\)"/.
 t.ok('mNavGo가 goPage 재사용', /function mNavGo\(slug\)\{[\s\S]*?goPage\(slug\)/.test(html));
 t.ok('goPage가 모바일 네비 활성 동기화', /if\(typeof syncMobileNav==='function'\) syncMobileNav\(slug\)/.test(html));
 t.ok('syncMobileNav 활성 토글', /b\.classList\.toggle\('on', b\.getAttribute\('data-mslug'\)===slug\)/.test(html));
-t.ok('mCapture가 담기 시트 오픈', /function mCapture\(\)\{ mCapOpen\(\); \}/.test(html));
+t.ok('mCapture가 담기 시트 오픈(인박스 화면에선 그 화면 입력창으로)', /function mCapture\(\)\{[\s\S]*?_currentPage==='inbox'[\s\S]*?ta\.focus\(\); return;[\s\S]*?mCapOpen\(\);\s*\}/.test(html));
 t.ok('mMoreOpen/Close 정의', /function mMoreOpen\(\)\{/.test(html) && /function mMoreClose\(\)\{/.test(html));
 
 // ── CSS: 데스크톱 숨김, 모바일에서만 표시, 사이드바 대체 ──
