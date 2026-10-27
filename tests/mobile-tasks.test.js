@@ -13,8 +13,8 @@ t.ok('달력 접기 토글 버튼', /id="m-cal-toggle"[^>]*onclick="mCalToggle\(
 
 // ── JS: 토글 + 상태 저장/복원 ──
 t.ok('mCalToggle이 m-cal-collapsed 토글', /function mCalToggle\(\)\{[\s\S]*?classList\.toggle\('m-cal-collapsed'\)/.test(html));
-t.ok('토글 상태를 localStorage에 저장', /localStorage\.setItem\('m_cal_collapsed', on\?'1':'0'\)/.test(html));
-t.ok('mCalApply가 저장된 상태 복원(기본은 주간 줄=접힘)', /function mCalApply\(\)\{[\s\S]*?var on=true; try\{ var _mv=localStorage\.getItem\('m_cal_collapsed'\); if\(_mv!==null\)on=_mv==='1'; \}/.test(html));
+t.ok('토글 상태를 localStorage에 저장(m_cal_view)', /localStorage\.setItem\('m_cal_view', on\?'week':'month'\)/.test(html));
+t.ok('mCalApply가 저장된 상태 복원(기본은 주간 줄)', /function mCalApply\(\)\{[\s\S]*?var on=true; try\{ var _mv=localStorage\.getItem\('m_cal_view'\); if\(_mv\)on=_mv!=='month'; \}/.test(html));
 t.ok('로드시 mCalApply 적용', /try\{ mCalApply\(\); \}catch\(e\)\{\}/.test(html));
 
 // ── CSS ──
