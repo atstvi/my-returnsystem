@@ -21,7 +21,7 @@ t.ok('이동 블록도 분할 레인 폭 유지', /if\(isTravel\)\{[\s\S]*?if\(!
 t.ok('planm 블록 글자 10px(--text-micro: 데스크톱 10px · 폰 11px)', /\.planm-bt\{font-size:var\(--text-micro\);/.test(html) && /--text-micro:10px;/.test(html));
 t.ok('twvTextColor 대비 글자색 헬퍼', /function twvTextColor\(hex\)\{[\s\S]*?var L=\(0\.299\*r\+0\.587\*g\+0\.114\*b\)\/255;[\s\S]*?return L<0\.62\?'#ffffff':'#1c1c1c';/.test(html));
 t.ok('여러날 블록 최소 높이 20', /var hgt=Math\.max\(\(em-sm\)\/60\*SLOT_H-2,20\);/.test(html));
-t.ok('여러날 배경 거의 불투명 + 대비 글자색', /var bg=\(typeof twvHexAlpha==='function'\)\?twvHexAlpha\(hex,done\?0\.2:0\.92\):hex;[\s\S]*?var tc=done\?'var\(--fg-4\)':\(\(typeof twvTextColor==='function'\)\?twvTextColor\(hex\):'#fff'\);/.test(html));
+t.ok('여러날 블록: 카테고리색 옅은 바탕 + 본문색 글자(나 탭 타임블록과 같은 표현)', /var bg=done\?\(\(typeof twvHexAlpha==='function'\)\?twvHexAlpha\(hex,0\.12\):'var\(--bg-raised\)'\):'color-mix\(in srgb,'\+hex\+' 22%,var\(--bg-card\)\)'; var tc=done\?'var\(--fg-4\)':'var\(--fg\)';/.test(html));
 t.ok('여러날 style에 배경/글자색 반영', /background:'\+bg\+';color:'\+tc\+';border-left/.test(html));
 t.ok('할일탭 twv 뷰 제거됨(#task-week-view 없음)', !/id="task-week-view"/.test(html) && !/function renderTaskWeekView/.test(html));
 

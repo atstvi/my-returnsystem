@@ -47,7 +47,7 @@ t.ok('_taskIsLinkPrep: 목표 자신은 준비 아님', ctx2._taskIsLinkPrep(ctx
 
 // ── 소스 배선 ──
 t.ok('_planPrepFor는 _planLinkedFor(미완료)', /function _planPrepFor\(dt\)\{ return _planLinkedFor\(dt,false\); \}/.test(html));
-t.ok('연결 있는데 미완료 준비 없으면 연결 완료 표시', /if\(_planLinkedFor\(dl,true\)\.length>0\)\{\s*return item2\('deadline',dl\.id,'🚩',dl\.text\|\|'마감',dlBadge,'✓ 연결 완료'/.test(html));
+t.ok('연결 있는데 미완료 준비 없으면 연결 완료 표시', /if\(_planLinkedFor\(dl,true\)\.length>0\)\{\s*return item2\('deadline',dl\.id,PI\.flag,dl\.text\|\|'마감',dlBadge,'✓ 연결 완료'/.test(html));
 t.ok('마감은 미처리 개수에서 제외(마감일과 연결됨)', /remain=inbox\.length\+unlinked\.length\+overdue\.length;/.test(html) && !/\+dlNoPrep/.test(html));
 t.ok('달력 마감칩: dlOnly면 준비 제외', /!\(dlOnly&&_taskIsLinkPrep\(t\)\)/.test(html));
 t.ok('마감만 뷰: 할일/목표 pill(dayItems) 숨김', /dayItems\.forEach\(function\(it\)\{\s*if\(dlOnly\)return;/.test(html));
