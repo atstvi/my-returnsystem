@@ -139,6 +139,34 @@ deleted data from resurrecting. See `docs/STAGE6_DESIGN.md` for the full design 
 `docs/STAGE9_VERIFICATION.md` for the manual two-device verification matrix that must pass before
 flipping `RETURN_SYNC_MODEL` from `'legacy'` to `'entity'` in production.
 
+## UI / design rules (apply to every UI change, even when not asked)
+
+The owner wants every tab to feel like one professional productivity app, on any device. Treat these
+as defaults for *any* UI work — a bug fix, a new button, a whole tab — without being reminded.
+Source of truth: `docs/design-system.md` (see its "RDS v2" section) + the `RDS v2` CSS block at the
+end of the main `<style>` in `index.html`.
+
+- **Size classes only:** phone `<640` · tablet `640–1023` · desktop `≥1024`. Don't add new ad-hoc
+  breakpoints; when touching a tab, fold its old breakpoints into these three. Check the change at
+  360, 390, 768, 1024, 1280 and 1920 px wide.
+- **Use the tokens, never raw values:** sizes `--tap` / `--ctl-h` / `--ctl-h-sm` / `--row-min`, text
+  `--text-*` (plus `--text-micro` / `--text-mini` instead of 9–11.5px), titles `--title-size`, spacing
+  `--sp-*` / `--gutter`, colors and radii from the existing tokens (Theme Studio must keep working).
+- **Touch first:** on `pointer:coarse` every tap target is ≥44px (or has a 44px hit area); nothing
+  important depends on hover or on HTML drag. Every drag action needs a tap / long-press alternative.
+- **One interaction vocabulary:** row quick actions go through `rdsActionSheet` (sheet on phones,
+  menu at the cursor on desktop), opened the same way everywhere — long-press (touch), right-click
+  and an `⋯` button (mouse). Swipe right = complete, swipe left = postpone. Modals become bottom
+  sheets on phones. Keyboard shortcuts are ignored while typing or while a dialog is open.
+- **Consistency over novelty:** reuse existing components and patterns before inventing new ones;
+  the same thing looks and behaves the same in every tab (titles, buttons, chips, segmented controls,
+  empty states). Prefer line SVG icons over emoji in UI chrome (user-chosen category emoji stay).
+- **No horizontal overflow** at any of the widths above; no text below 11px on phones.
+- **Verify like a user:** before/after screenshots at phone/tablet/desktop with Playwright, exercise
+  the real gestures (touch long-press/swipe, right-click, keys), and confirm no console errors.
+- Redesigning a tab = same functions, simpler and clearer presentation. Never drop a feature or
+  move where data lives as a side effect of a visual change.
+
 ## Working in this codebase
 
 - **One change at a time.** This file is large and interconnected; isolate each fix/feature so
