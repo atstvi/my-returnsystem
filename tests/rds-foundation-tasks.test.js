@@ -33,14 +33,15 @@ t.ok('마우스 줄 빠른 버튼', /qa\.className='ti-quick'/.test(html));
 
 // 할일 탭 — 제스처 안전장치
 {
-  const i = html.indexOf('/* 할일 목록 제스처(손가락)');
-  const seg = html.slice(i, i + 5200);
+  const i = html.indexOf('/* 할일 줄 제스처(손가락)');
+  const seg = html.slice(i, i + 5600);
   t.ok('제스처 블록 존재', i > 0);
-  t.ok('손가락만(pointerType touch)', /if\(e\.pointerType!=='touch'\|\|selMode\)return;/.test(seg));
+  t.ok('손가락만(pointerType touch)', /if\(e\.pointerType!=='touch'\|\|\(typeof selMode!=='undefined'&&selMode\)\)return;/.test(seg));
   t.ok('세로로 움직이면 아무 것도 안 함(스크롤)', /if\(Math\.abs\(dy\)>10&&Math\.abs\(dy\)>=Math\.abs\(dx\)\)\{ clear\(st\); st=null; return; \}/.test(seg));
   t.ok('가로 의도가 분명할 때만 밀기', /Math\.abs\(dx\)>14&&Math\.abs\(dx\)>Math\.abs\(dy\)\*1\.5/.test(seg));
   t.ok('충분히 민 뒤 손을 뗐을 때만 실행(취소 제외)', /var armed=s\.mode==='swipe'&&Math\.abs\(s\.dx\)>=lim\(s\.row\)&&e\.type==='pointerup';/.test(seg));
-  t.ok('길게 누르기·밀기 뒤 클릭은 문서 전체에서 버림', /document\.addEventListener\('click',function\(e\)\{ if\(Date\.now\(\)<suppressUntil\)/.test(seg));
+  t.ok('길게 누르기·밀기 뒤 클릭은 문서 전체에서 버림', /document\.addEventListener\('click',function\(e\)\{ if\(Date\.now\(\)<_rdsSuppressUntil\)/.test(seg));
+  t.ok('할일 탭·나 탭 오늘 할일이 같은 제스처', /rdsBindTaskGestures\(document\.getElementById\('task-sections'\),'\.task-item'\);\s*rdsBindTaskGestures\(document\.getElementById\('home-eisen-grid'\),'\.eisen-item'\);\s*rdsBindTaskGestures\(document\.getElementById\('home-task-list'\),'\.task-item'\);/.test(seg));
   t.ok('하위·준비물 영역에선 제스처 시작 안 함', /e\.target\.closest\('\.task-children,\.task-prep-list,\.ti-quick'\)/.test(seg));
 }
 // 할일 탭 — 키보드
@@ -64,5 +65,14 @@ t.ok('마우스 줄 빠른 버튼', /qa\.className='ti-quick'/.test(html));
   t.ok('월 넘김', ctx._taskPostponeKey({ date: '2026-10-31' }) === '2026-11-01');
   t.ok('라벨: 오늘/내일/날짜', ctx._taskDayLabel('2026-10-27') === '오늘' && ctx._taskDayLabel('2026-10-28') === '내일' && ctx._taskDayLabel('2026-11-03') === '11/03');
 }
+
+// 나 탭
+t.ok('나 탭 오늘 할일 줄에 data-id(제스처·메뉴 대상)', /it\.setAttribute\('data-id', t\.id\);\s*it\.setAttribute\('draggable', rdsIsTouch\(\)\?'false':'true'\);/.test(html) && /row\.setAttribute\('data-id', t\.id\);/.test(html));
+t.ok('빈 사분면 표시', /box\.classList\.add\('is-empty'\);/.test(html) && /\.eisen-box\.is-empty\{flex-direction:row;/.test(css));
+t.ok('레이더 주간 그리드: 폰은 하루 84px + 가로 밀기', /if \(_tgNarrow\) cw = Math\.max\(cw, COLS \* 84 \+ PAD_X \* 2\);/.test(html) && /layer\.style\.width = _tgNarrow \? cw \+ 'px' : '';/.test(html));
+t.ok('위젯 카드가 남는 높이를 채우지 않음', /\.home-col > \.home-widget-card:last-child\{flex:0 0 auto!important;min-height:0!important\}/.test(css));
+t.ok('사진 없으면 사진 꽉 채움 모드 아님', /card\.classList\.toggle\('hw-photo-mode',type==='photo'&&!!localStorage\.getItem\('home_widget_photo'\)\)/.test(html));
+t.ok('오늘 상황 주 버튼 = 테마 색', /\.sit-now-btn\.primary\{background:var\(--accent\);border-color:var\(--accent\);color:#fff\}/.test(css));
+t.ok('카드 제목 공통(또렷한 제목)', /\.sec-label\{font-size:var\(--text-base\);font-weight:700;color:var\(--fg\);letter-spacing:-\.01em;text-transform:none\}/.test(css));
 
 t.done();
