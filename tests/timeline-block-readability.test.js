@@ -18,7 +18,7 @@ t.ok('이동 블록: htb-travel 클래스 + 슬림 라벨 + 조기 반환', /if\
 t.ok('이동 블록도 분할 레인 폭 유지', /if\(isTravel\)\{[\s\S]*?if\(!_htbSplit\)\{ el\.style\.left='var\(--sp-6\)'; el\.style\.right='var\(--sp-6\)'; \}/.test(html));
 
 /* 계획창 여러날 overview 블록 가독성 */
-t.ok('planm 블록 글자 10px', /\.planm-bt\{font-size:10px;/.test(html));
+t.ok('planm 블록 글자 10px(--text-micro: 데스크톱 10px · 폰 11px)', /\.planm-bt\{font-size:var\(--text-micro\);/.test(html) && /--text-micro:10px;/.test(html));
 t.ok('twvTextColor 대비 글자색 헬퍼', /function twvTextColor\(hex\)\{[\s\S]*?var L=\(0\.299\*r\+0\.587\*g\+0\.114\*b\)\/255;[\s\S]*?return L<0\.62\?'#ffffff':'#1c1c1c';/.test(html));
 t.ok('여러날 블록 최소 높이 20', /var hgt=Math\.max\(\(em-sm\)\/60\*SLOT_H-2,20\);/.test(html));
 t.ok('여러날 배경 거의 불투명 + 대비 글자색', /var bg=\(typeof twvHexAlpha==='function'\)\?twvHexAlpha\(hex,done\?0\.2:0\.92\):hex;[\s\S]*?var tc=done\?'var\(--fg-4\)':\(\(typeof twvTextColor==='function'\)\?twvTextColor\(hex\):'#fff'\);/.test(html));

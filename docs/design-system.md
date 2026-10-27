@@ -962,3 +962,24 @@ to solve a secondary problem.
 **H. Reconcile this doc, both directions.** When the pass lands, update §3–§5 so the doc matches
 what shipped (new component → add it here; "flagged" → "fixed"; intent → done-record). The doc and
 the code must never drift — that reconciliation is itself a step, not optional.
+
+---
+
+## RDS v2 — 공통 기반 · 공통 프레임 (2026-10)
+
+모든 탭이 같은 기준을 쓰도록 하는 층. 코드는 `index.html` 메인 `<style>` 맨 끝 `RDS v2` 블록과
+`rdsActionSheet`/`taskActionMenu` 등(할일 탭 섹션)에 있다.
+
+- **크기 클래스:** 폰 `<640` · 태블릿 `640–1023` · 데스크톱 `≥1024` (앱 셸의 640 기준점과 같음).
+  새 레이아웃 규칙은 이 세 구간만 쓴다(기존 ~40개 임의 기준점은 탭별 개편 때 이 셋으로 흡수).
+- **조작 크기:** `--tap`/`--ctl-h`(마우스 32 · 손가락 44), `--ctl-h-sm`(28 · 38), `--row-min`(40 · 52).
+  아주 작은 인라인 조작(♥·개수·＋)은 모양은 두고 `::after`로 눌리는 영역만 44px.
+- **글자:** 폰에서 `--text-2xs…--text-md`를 한 단계 올림(테마 스튜디오 크기 설정에도 같은 규칙,
+  '큰 글씨'는 제외). 9~11.5px 하드코딩 대신 `--text-micro`(10→폰 11)·`--text-mini`(11→폰 12).
+- **페이지 제목:** `--title-size`(22 · 데스크톱 24), 굵기 700 — 모든 탭 동일.
+- **창:** 폰에서 `.overlay .modal`은 아래에서 올라오는 시트.
+- **빠른 조작 메뉴:** `rdsActionSheet({title, sub, quick, items, at})` — 폰은 시트, 마우스는 커서 옆 메뉴.
+  같은 동작 목록을 길게 누르기·우클릭·⋯ 어디서 열어도 똑같이.
+- **할일 탭(첫 적용):** 주간 줄 기본(월 달력은 펼침), '보기' 메뉴로 토글 통합, 길게 누르기=빠른 메뉴,
+  오른쪽 밀기=완료, 왼쪽 밀기=하루 미루기, 우클릭·줄 위 빠른 버튼, 단축키 N · / · T · ←/→ · ?.
+- **검증:** 7개 화면 크기(360~1920) × 14개 탭 감사 스크립트로 작은 조작 비율·작은 글자·가로 넘침을 잰다.
