@@ -156,4 +156,11 @@ t.ok('옮기기·완료는 updatedAt 갱신 후 saveItemsData', /function hobMov
 t.ok('완료 동그라미 44px 터치 영역', /\.hob-check::before\{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;/.test(css));
 t.ok('배너 버튼: 이모지 → 선 아이콘', html.indexOf('id="btn-banner">🖼</button>')<0 && /id="btn-banner"><svg/.test(html));
 
+// 음악
+t.ok('플레이리스트·곡 카드: 길게·우클릭 = 같은 메뉴(카드 안 기존 버튼으로 동작)', /rdsBindRowGestures\(page,'\.music-playlist-card\[data-pl-id\]'/.test(html) && /rdsBindRowGestures\(inner,'\.music-song-row\[data-song-id\],\.music-song-card-v5\[data-song-id\]'/.test(html) && /press\(base\+'\[data-cover-pl\]'\)/.test(html));
+t.ok('카드 id는 렌더 후 표시(MutationObserver)', /new MutationObserver\(stamp\)\.observe\(page,\{childList:true,subtree:true\}\)/.test(html));
+t.ok('em 글자 → 토큰(폰 11px 이상)', /#page-music :is\(\.music-v9-reco-label,\.music-v9-reco-ctx,\.music-v8-songs-caret,\.music-v8-count\)\{font-size:var\(--text-micro\)\}/.test(css));
+t.ok('손가락: 카드 버튼 항상 보이고 32px+, 커버 버튼은 메뉴로', /#page-music \.music-pl-card-btns\{opacity:1!important\}/.test(css) && /#page-music \.music-cover-edit-btn\{display:none\}/.test(css));
+t.ok('썸네일 실패 시 깨진 그림 숨김', /page\.addEventListener\('error',function\(e\)\{ var im=e\.target; if\(im&&im\.tagName==='IMG'\)im\.style\.display='none'; \},true\);/.test(html));
+
 t.done();

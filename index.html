@@ -9949,6 +9949,22 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 음악 ══ */
+/* em으로 줄여 9~10px까지 내려가던 글자 → 토큰(폰 11px 이상) */
+#page-music :is(.music-v9-reco-label,.music-v9-reco-ctx,.music-v8-songs-caret,.music-v8-count){font-size:var(--text-micro)}
+#page-music :is(.music-v9-reco-reason,.music-view-seg,.music-cover-edit-btn){font-size:var(--text-xs)}
+#page-music :is(.music-v8-sec-title,.music-v8-add-btn){font-size:var(--text-xs)!important} /* 인라인 style(.72rem)을 이기려면 필요 */
+#page-music .music-pl-card-btns .set-btn{font-size:var(--text-xs)!important}
+#page-music .music-v9-reco-play-btn{font-size:var(--text-sm);min-height:var(--ctl-h-sm)}
+#page-music :is(.music-playlist-card,.music-song-row,.music-song-card-v5){-webkit-touch-callout:none}
+@media (pointer:coarse){
+  #page-music .music-pl-card-btns{opacity:1!important}
+  #page-music .music-pl-card-btns .set-btn{height:var(--ctl-h-sm)!important;padding:0 var(--sp-4)!important}
+  #page-music :is(.music-v8-add-btn,.music-view-seg){min-height:var(--ctl-h-sm)}
+  #page-music .music-cover-edit-btn{display:none}
+  #page-music :is(.music-playlist-card,.music-song-row,.music-song-card-v5){-webkit-user-select:none;user-select:none}
+}
+
 /* ══ 취미 ══ */
 .hobby-banner-actions .icon-btn svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .hob-check{position:relative}
@@ -29314,7 +29330,8 @@ var RDS_ICO={
   plus:'<path d="M12 5v14M5 12h14"/>',
   note:'<path d="M8 7h11M8 12h11M8 17h7M4 7h.01M4 12h.01M4 17h.01"/>',
   inbox:'<path d="M3 13l2.5-8h13L21 13M3 13v5a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-5M3 13h5l1.5 2.5h5L16 13h5"/>',
-  flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'
+  flag:'<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
+  play:'<path d="M7 4.5v15l12-7.5z"/>'
 };
 function rdsIco(k){ return '<svg viewBox="0 0 24 24" aria-hidden="true">'+(RDS_ICO[k]||'')+'</svg>'; }
 var _rdsOpen=null;
@@ -57081,6 +57098,48 @@ focusTimerLoadLog();
 focusCatLoad();
 focusPresetLoad();
 focusTimerSetTarget();
+
+/* ── 음악: 카드 공용 메뉴 (RDS v2) ──
+   플레이리스트·곡 카드: 길게 누르기·우클릭 = 같은 시트/메뉴. 동작은 카드 안 기존 버튼을
+   그대로 눌러서(재생 · 담기 · 관리/수정 · 커버) — 여러 겹 덮어쓴 렌더러를 건드리지 않는다.
+   손가락에선 마우스 올리기로만 보이던 '커버' 버튼도 여기서 열린다. */
+(function(){
+  var page=document.getElementById('page-music'), inner=page&&page.querySelector('.music-page'); if(!page||!inner)return;
+  function stamp(){
+    page.querySelectorAll('.music-playlist-card:not([data-pl-id])').forEach(function(c){ var b=c.querySelector('[data-music-playlist-play]'); if(b)c.setAttribute('data-pl-id',b.getAttribute('data-music-playlist-play')); });
+    page.querySelectorAll('.music-song-row:not([data-song-id]),.music-song-card-v5:not([data-song-id])').forEach(function(c){ var b=c.querySelector('[data-music-song-play]'); if(b)c.setAttribute('data-song-id',b.getAttribute('data-music-song-play')); });
+  }
+  try{ new MutationObserver(stamp).observe(page,{childList:true,subtree:true}); }catch(_e){}
+  stamp();
+  function press(sel){ var b=document.querySelector(sel); if(b)b.click(); }
+  function q(v){ return String(v).replace(/"/g,''); }
+  function plMenu(id, at){
+    var card=page.querySelector('.music-playlist-card[data-pl-id="'+q(id)+'"]'); if(!card)return;
+    var t=card.querySelector('.music-card-title'), sub=card.querySelector('.music-note');
+    var base='.music-playlist-card[data-pl-id="'+q(id)+'"] ';
+    rdsActionSheet({title:t?t.textContent:'플레이리스트',sub:sub?sub.textContent:'',
+      quick:[{icon:'play',label:'재생',onClick:function(){ press(base+'[data-music-playlist-play]'); }},
+             {icon:'plus',label:'곡 담기',onClick:function(){ press(base+'[data-music-playlist-add]'); }},
+             {icon:'open',label:'관리',onClick:function(){ press(base+'[data-music-playlist-edit]'); }}],
+      items:[{icon:'grid',label:'커버 바꾸기',onClick:function(){ press(base+'[data-cover-pl]'); }}], at:at||null});
+  }
+  function songMenu(id, at){
+    var row=page.querySelector('[data-song-id="'+q(id)+'"]'); if(!row)return;
+    var t=row.querySelector('.music-card-title'), base='[data-song-id="'+q(id)+'"] ';
+    rdsActionSheet({title:t?t.textContent:'곡',
+      quick:[{icon:'play',label:'재생',onClick:function(){ press(base+'[data-music-song-play]'); }},
+             {icon:'plus',label:'플레이리스트에',onClick:function(){ press(base+'[data-music-song-add]'); }},
+             {icon:'open',label:'수정',onClick:function(){ press(base+'[data-music-song-edit]'); }}],
+      items:[{icon:'grid',label:'커버 바꾸기',onClick:function(){ press(base+'[data-cover-song]'); }},
+             {icon:'select',label:'선택',onClick:function(){ press(base+'.music-song-select-cb'); }}], at:at||null});
+  }
+  rdsBindRowGestures(page,'.music-playlist-card[data-pl-id]',{idAttr:'data-pl-id', skip:'.music-pl-play-btn,.music-cover-edit-btn',
+    get:function(id){ return {id:id}; }, menu:function(o,at){ plMenu(o.id,at); }});
+  rdsBindRowGestures(inner,'.music-song-row[data-song-id],.music-song-card-v5[data-song-id]',{idAttr:'data-song-id', skip:'.music-song-playicon,.music-song-check,.music-cover-edit-btn',
+    get:function(id){ return {id:id}; }, menu:function(o,at){ songMenu(o.id,at); }});
+  /* 썸네일을 못 불러오면(삭제된 영상·오프라인) 깨진 그림 대신 기본 음표 배경 */
+  page.addEventListener('error',function(e){ var im=e.target; if(im&&im.tagName==='IMG')im.style.display='none'; },true);
+})();
 </script>
 <script>
 /* ══════════ 머니 (가계부 · 구독 · 예산) 탭 ══════════════════════════════════
