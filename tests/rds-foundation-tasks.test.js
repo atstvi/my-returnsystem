@@ -136,4 +136,15 @@ t.ok('새 프로젝트 타일은 비었을 때만(머리 버튼과 중복 제거
 t.ok('카드는 프로젝트 아이콘 · 진행 중 칩 생략', /p\.icon\?'<span class="pj-fic-emoji">'/.test(html) && /projectStageOf\(p\)!=='inprogress'/.test(html));
 t.ok('폰: 카드 → 한 줄 목록, 상세 머리 줄바꿈', /\.pj-folder\{display:grid;grid-template-columns:40px minmax\(0,1fr\) auto;/.test(css) && /\.pjd-actions\{flex:1 1 100%;justify-content:flex-end\}/.test(css));
 
+// 시간표
+t.ok('학기 목록은 위쪽 한 줄 칩(모든 크기)', /\.tt-left\{grid-column:1\/-1;grid-row:1;width:auto;flex-direction:row;/.test(css) && /\.tt-left \.tt-sem-list\{display:flex;flex-direction:row;/.test(css));
+t.ok('데스크톱: 표 | 과목 목록, 태블릿·폰: 위아래 + 페이지 한 번에 스크롤', /\.tt-page\{display:grid;grid-template-columns:minmax\(0,1fr\) 280px;/.test(css) && /#page-schedule\{overflow-y:auto;/.test(css) && /\.tt-page\{flex:1 1 auto;align-self:flex-start;/.test(css));
+t.ok('머리: 학기 이름·기간 + ＋ 수업 + ⋯(편집·할일 생성·삭제)', /id="tt-add-slot" onclick="ttAddSlot\(\)"/.test(html) && /function ttMenu\(at\)\{/.test(html) && /label:'할일 생성 \(수업 일정을 할일로\)'/.test(html) && !/onclick="saveTt\(\)"/.test(html));
+t.ok('학기 이름·기간 입력값은 숨겨 두고 saveTt가 그대로 읽음', /<div class="tt-meta-inputs" hidden>/.test(html) && /function ttEditMeta\(\)\{[\s\S]{0,700}saveTt\(\);/.test(html));
+t.ok('항상 보이던 빠른 추가 폼 숨김(＋ 수업과 중복)', /\.tt-slot-panel \.qa-form\{display:none\}/.test(css));
+t.ok('폰: 하루 보기(요일 칩 + 그날 수업) 기본, 주간 전환은 기기별', /var _ttView=\(function\(\)\{ try\{ return localStorage\.getItem\('tt_view_v1'\)==='week'\?'week':'day';/.test(html) && /\.tt-v-day \.tt-dayview\{display:block\}/.test(css));
+t.ok('수업 줄·표 블록·과목 줄: 길게·우클릭 = 같은 수업 메뉴', /rdsBindRowGestures\(document\.getElementById\('tt-grid-container'\),'\.tt-dv-row,\.tt-block',TT_ROW\);/.test(html) && /rdsBindRowGestures\(document\.getElementById\('tt-slot-list'\),'\.session-row'/.test(html) && /block\.setAttribute\('data-slot-idx', si\);/.test(html));
+t.ok('표 머리 날짜 9px → 토큰', /<span class="tt-dh-date">/.test(html) && html.indexOf("font-size:9px;opacity:.6\">' + colDate")<0);
+t.ok('renderGrid 끝에서 하루 보기도 갱신', /try\{ ttRenderDayView\(tt\); \}catch\(_e\)\{\}\n\}/.test(html));
+
 t.done();
