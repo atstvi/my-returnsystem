@@ -47,7 +47,7 @@ t.ok('프로젝트 편집에 Area 선택 필드', /\{key:'areaId',label:'Area \(
 t.ok('저장 시 areaId 반영', /project\.areaId=data\.areaId\|\|'';/.test(html) && /areaId:data\.areaId\|\|'',status:'active'/.test(html));
 t.ok('폴더 대시보드 Area 그룹 모드', /_pjFolderGroupMode==='area'|Area별로 묶어 보기/.test(html));
 t.ok('Area 섹션(정렬된 Area + 미분류)', /areasSorted\(\)\.forEach\(function\(a\)\{ _secs\.push/.test(html) && /_secs\.push\(\{id:'_uncat',name:'미분류'/.test(html));
-t.ok('그룹 토글 3단 순환(area→stage→flat)', /_pjFolderGroupMode==='area'\?'stage':\(_pjFolderGroupMode==='stage'\?'flat':'area'\)/.test(html));
+t.ok('묶어보기 세그먼트(Area · 상태 · 전체 한 번에)', /\['area','stage','flat'\]\.map\(function\(m\)\{ var on=\(_pjFolderGroupMode===m\);/.test(html) && /_pjFolderGroupMode=b\.getAttribute\('data-fgroup'\);/.test(html));
 t.ok('＋ Area 버튼 + Area 편집 액션', /id="pj-area-new"/.test(html) && /function openAreaActions\(area\)\{/.test(html));
 t.ok('상세에 Area 칩 + 피커', /id="pjd-area"/.test(html) && /function openProjectAreaPicker\(project\)\{/.test(html));
 t.ok('삭제 시 프로젝트는 미분류로(삭제 아님)', /function deleteAreaSafely\(area\)\{[\s\S]*?p\.areaId=''/.test(html));
