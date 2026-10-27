@@ -126,4 +126,14 @@ t.ok('강도 슬라이더 트랙이 카드 위에서 보임', /\.stm-track\{back
 t.ok('완료 칸 길게 누른 뒤 손 뗄 때 클릭이 시트 항목을 누르지 않음', /btn\.addEventListener\('pointerup',function\(\)\{ if\(longFired\)_rdsSuppressUntil=Date\.now\(\)\+600; \}\);/.test(html));
 t.ok('손가락: 완료 칸 44px 터치 영역', /\.rt-check::before\{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;/.test(css));
 
+// Area(프로젝트)
+t.ok('줄 제스처: 밀기는 어댑터에 그 동작이 있을 때만', /&&\(dx>0\?!!ad\.right:!!ad\.left\)\)\{/.test(html));
+t.ok('프로젝트 카드: 길게·우클릭 = 프로젝트 메뉴(밀기 없음)', /rdsBindRowGestures\(host,'\.pj-folder\[data-open\]',\{idAttr:'data-open', skip:'\[data-pj-more\]',[\s\S]{0,200}menu:function\(pr,at\)\{ projectActionMenu\(pr,at,true\); \}\}\);/.test(html));
+t.ok('프로젝트 메뉴: 할일·메모·로그 + 열기·편집·상태·Area·보관·삭제', /function projectActionMenu\(p, at, fromCard\)\{/.test(html) && /label:'파일로 보관하고 비우기'/.test(html) && /deleteProjectSafely\(p\); \}\}\);/.test(html));
+t.ok('상세 머리: ⋯ + 담기(편집·보관·삭제 버튼 줄임)', /id="project-more"/.test(html) && /projectCaptureMenu\(p,\{x:r\.left,y:r\.bottom\+4\}\)/.test(html) && html.indexOf('<div class="pjd-actions"><button class="btn btn-ghost pjd-icon-btn" id="project-delete"')<0);
+t.ok('담기 하나로: 할일 · 메모 · 작업 로그', /function projectCaptureMenu\(p, at\)\{/.test(html) && /bind\('project-inbox-add',function\(\)\{ projectQuickInbox\(p\); \}\);/.test(html));
+t.ok('새 프로젝트 타일은 비었을 때만(머리 버튼과 중복 제거)', /var _newTile=vis\.length\?'':_pjNewFolderBtn;/.test(html));
+t.ok('카드는 프로젝트 아이콘 · 진행 중 칩 생략', /p\.icon\?'<span class="pj-fic-emoji">'/.test(html) && /projectStageOf\(p\)!=='inprogress'/.test(html));
+t.ok('폰: 카드 → 한 줄 목록, 상세 머리 줄바꿈', /\.pj-folder\{display:grid;grid-template-columns:40px minmax\(0,1fr\) auto;/.test(css) && /\.pjd-actions\{flex:1 1 100%;justify-content:flex-end\}/.test(css));
+
 t.done();
