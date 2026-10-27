@@ -147,4 +147,13 @@ t.ok('수업 줄·표 블록·과목 줄: 길게·우클릭 = 같은 수업 메�
 t.ok('표 머리 날짜 9px → 토큰', /<span class="tt-dh-date">/.test(html) && html.indexOf("font-size:9px;opacity:.6\">' + colDate")<0);
 t.ok('renderGrid 끝에서 하루 보기도 갱신', /try\{ ttRenderDayView\(tt\); \}catch\(_e\)\{\}\n\}/.test(html));
 
+// 취미
+t.ok('취미 항목: 길게·우클릭 = 메뉴, 오른쪽 = 완료, 왼쪽 = 다음 날로', /rdsBindRowGestures\(document\.getElementById\('hob-items-list'\),'\.hob-item',\{idAttr:'data-id', skip:'\.hob-check,\.hob-item-media',/.test(html) && /left:function\(it\)\{ hobMoveDate\(it,hobNextDayKey\(it\)\); \}/.test(html));
+t.ok('언젠가 칩: 길게·우클릭 = 같은 메뉴(끌기 없이 날짜 정하기)', /rdsBindRowGestures\(document\.getElementById\('hob-someday-list'\),'\.hob-someday-chip',ROW\);/.test(html) && /function hobPickDate\(it\)\{/.test(html));
+t.ok('메뉴: 완료·다음 날로·날짜 + 오늘로·언젠가로·편집·삭제', /function hobItemMenu\(it, at\)\{/.test(html) && /label:'언젠가로 \(날짜 비우기\)'/.test(html) && /function hobDeleteOne\(it\)\{/.test(html));
+t.ok('손가락에선 HTML 끌기 끔(길게 누르기와 충돌 방지)', (html.match(/setAttribute\('draggable',\(typeof rdsIsTouch==='function'&&rdsIsTouch\(\)\)\?'false':'true'\)/g)||[]).length===2);
+t.ok('옮기기·완료는 updatedAt 갱신 후 saveItemsData', /function hobMoveDate\(it, dk\)\{\s*if\(!it\)return; it\.date=dk\|\|''; it\.updatedAt=Date\.now\(\); saveItemsData\(items\);/.test(html));
+t.ok('완료 동그라미 44px 터치 영역', /\.hob-check::before\{content:"";position:absolute;left:50%;top:50%;width:44px;height:44px;/.test(css));
+t.ok('배너 버튼: 이모지 → 선 아이콘', html.indexOf('id="btn-banner">🖼</button>')<0 && /id="btn-banner"><svg/.test(html));
+
 t.done();
