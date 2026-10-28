@@ -169,4 +169,10 @@ t.ok('삭제는 기존 확인 흐름(deleteActivity)', /onClick:function\(\)\{ e
 t.ok('편집 버튼 인라인 스타일 → 클래스, 손가락에선 메뉴로', /editBtn\.className = 'rc-edit-btn';/.test(html) && /#page-recharge \.rc-edit-btn\{display:none\}/.test(css));
 t.ok('손가락: + 추가·+ 기록 32px+, × 44px 터치 영역', /#page-recharge \.section-add-btn\{min-height:var\(--ctl-h-sm\)/.test(css) && /\.reflect-del-btn::after,\.log-del::after\{content:"";position:absolute;inset:-12px\}/.test(css));
 
+// 기록
+t.ok('폰: ＋ 메모(왼쪽 입력창이 없어 메모를 못 남기던 문제)', /onclick="recMemoNew\(\)">＋ 메모<\/button>/.test(html) && /@media \(max-width:639px\)\{ \.rec-memo-new\{display:inline-flex\} \}/.test(css) && /function recMemoNew\(\)\{[\s\S]{0,700}memosCommit\(\); renderMemos\(\);/.test(html));
+t.ok('메모 카드: 길게·우클릭 = 편집·깨달음/메모·복사·삭제', /rdsBindRowGestures\(document\.getElementById\('memo-timeline'\),'\.memo-card\[data-memo-idx\]'/.test(html) && /function recMemoMenu\(idx, at\)\{/.test(html));
+t.ok('편집·종류 바꾸기는 updatedAt 갱신 후 memosCommit', /m\.text=t; m\.updatedAt=Date\.now\(\); memosCommit\(\);/.test(html) && /m\.type=isIns\?'memo':'insight'; m\.updatedAt=Date\.now\(\); memosCommit\(\);/.test(html));
+t.ok('손가락: 마우스 올리기로만 보이던 ✕ → 메뉴, 지표 버튼 32px+', /#page-records \.memo-del\{display:none\}/.test(css) && /#page-records \.trend-ctrl-btn\{height:var\(--ctl-h-sm\)/.test(css));
+
 t.done();
