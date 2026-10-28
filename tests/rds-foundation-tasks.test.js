@@ -175,4 +175,8 @@ t.ok('메모 카드: 길게·우클릭 = 편집·깨달음/메모·복사·삭�
 t.ok('편집·종류 바꾸기는 updatedAt 갱신 후 memosCommit', /m\.text=t; m\.updatedAt=Date\.now\(\); memosCommit\(\);/.test(html) && /m\.type=isIns\?'memo':'insight'; m\.updatedAt=Date\.now\(\); memosCommit\(\);/.test(html));
 t.ok('손가락: 마우스 올리기로만 보이던 ✕ → 메뉴, 지표 버튼 32px+', /#page-records \.memo-del\{display:none\}/.test(css) && /#page-records \.trend-ctrl-btn\{height:var\(--ctl-h-sm\)/.test(css));
 
+// 타이머
+t.ok('집중 기록: 전용 작은 창 → 공용 시트/메뉴, 우클릭도 같은 메뉴', /function focusTimerRecordMenu\(id, at\)\{[\s\S]{0,400}rdsActionSheet\(/.test(html) && html.indexOf("ov.id='ft-rec-menu'")<0 && /function _ftWireRecordMenu\(el\)\{[\s\S]{0,400}addEventListener\('contextmenu'/.test(html));
+t.ok('오늘 패널·주간 기록 둘 다 같은 연결', (html.match(/forEach\(_ftWireRecordMenu\)/g)||[]).length===2);
+
 t.done();
