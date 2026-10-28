@@ -163,4 +163,10 @@ t.ok('em 글자 → 토큰(폰 11px 이상)', /#page-music :is\(\.music-v9-reco-
 t.ok('손가락: 카드 버튼 항상 보이고 32px+, 커버 버튼은 메뉴로', /#page-music \.music-pl-card-btns\{opacity:1!important\}/.test(css) && /#page-music \.music-cover-edit-btn\{display:none\}/.test(css));
 t.ok('썸네일 실패 시 깨진 그림 숨김', /page\.addEventListener\('error',function\(e\)\{ var im=e\.target; if\(im&&im\.tagName==='IMG'\)im\.style\.display='none'; \},true\);/.test(html));
 
+// 충전
+t.ok('충전·방전 카드: 길게·우클릭 = 메뉴(오늘 기록 · 기록 보기 · 편집 / 삭제)', /rdsBindRowGestures\(document\.getElementById\('charge-items'\),'\.activity-card\[data-rc\]',AD\);/.test(html) && /rdsBindRowGestures\(document\.getElementById\('drain-items'\),'\.activity-card\[data-rc\]',AD\);/.test(html) && /function rcActMenu\(type, idx, at\)\{/.test(html));
+t.ok('삭제는 기존 확인 흐름(deleteActivity)', /onClick:function\(\)\{ editType=type; editIdx=idx; deleteActivity\(\); \}/.test(html));
+t.ok('편집 버튼 인라인 스타일 → 클래스, 손가락에선 메뉴로', /editBtn\.className = 'rc-edit-btn';/.test(html) && /#page-recharge \.rc-edit-btn\{display:none\}/.test(css));
+t.ok('손가락: + 추가·+ 기록 32px+, × 44px 터치 영역', /#page-recharge \.section-add-btn\{min-height:var\(--ctl-h-sm\)/.test(css) && /\.reflect-del-btn::after,\.log-del::after\{content:"";position:absolute;inset:-12px\}/.test(css));
+
 t.done();

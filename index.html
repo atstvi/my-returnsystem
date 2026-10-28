@@ -9949,6 +9949,20 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 충전 ══ */
+.rc-edit-btn{font-size:var(--text-xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md)}
+.rc-edit-btn:hover{color:var(--fg-2);background:var(--bg-hover)}
+.reflect-del-btn{position:relative}
+#page-recharge .activity-card{-webkit-touch-callout:none}
+@media (pointer:coarse){
+  #page-recharge .section-add-btn{min-height:var(--ctl-h-sm);padding:0 var(--sp-4)}
+  #page-recharge .log-btn{min-height:var(--ctl-h-sm);padding:0 var(--sp-4)}
+  #page-recharge .rc-edit-btn{display:none} /* 편집은 카드 길게 누르기 메뉴로 */
+  #page-recharge .activity-card{-webkit-user-select:none;user-select:none}
+  .reflect-del-btn::after,.log-del::after{content:"";position:absolute;inset:-12px}
+  .log-del{position:relative}
+}
+
 /* ══ 음악 ══ */
 /* em으로 줄여 9~10px까지 내려가던 글자 → 토큰(폰 11px 이상) */
 #page-music :is(.music-v9-reco-label,.music-v9-reco-ctx,.music-v8-songs-caret,.music-v8-count){font-size:var(--text-micro)}
@@ -34176,6 +34190,7 @@ function rcRenderList(type) {
 function buildCard(type, item, idx) {
   var card = document.createElement('div');
   card.className = 'activity-card ' + type;
+  card.setAttribute('data-rc', type + ':' + idx);
   card.style.animationDelay = (idx * 40) + 'ms';
 
   var main = document.createElement('div');
@@ -34221,7 +34236,7 @@ function buildCard(type, item, idx) {
   })(type, idx);
 
   var editBtn = document.createElement('button');
-  editBtn.style.cssText = 'font-size:var(--text-xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md)';
+  editBtn.className = 'rc-edit-btn';
   editBtn.textContent = '편집';
   (function(t, i) {
     editBtn.addEventListener('click', function(e) { e.stopPropagation(); openActModal(t, i); });
@@ -34267,6 +34282,24 @@ function buildCard(type, item, idx) {
   card.appendChild(logPanel);
   return card;
 }
+
+/* ── 활동 카드 빠른 조작 (RDS v2): 길게 누르기·우클릭 = 같은 시트/메뉴 ── */
+function rcActMenu(type, idx, at){
+  var item=(rewardData[type]||[])[idx]; if(!item)return;
+  var logs=item.logs||[], isC=type==='charge';
+  rdsActionSheet({title:(item.emoji?item.emoji+' ':'')+item.name, sub:(isC?'충전':'방전')+' · '+(logs.length?logs.length+'회 기록':'기록 없음'),
+    quick:[{icon:'plus',label:isC?'오늘 했어':'오늘 겪었어',onClick:function(){ openLogModal(type,idx); }},
+           {icon:'note',label:'기록 보기',onClick:function(){ var p=document.getElementById(type+'-log-'+idx); if(p)p.classList.toggle('open'); }},
+           {icon:'open',label:'편집',onClick:function(){ openActModal(type,idx); }}],
+    items:[{icon:'trash',label:'삭제',danger:true,onClick:function(){ editType=type; editIdx=idx; deleteActivity(); }}], at:at||null});
+}
+(function(){
+  var AD={ idAttr:'data-rc', skip:'.log-panel,.activity-actions',
+    get:function(id){ var q=String(id).split(':'); return (rewardData[q[0]]&&rewardData[q[0]][+q[1]])?{t:q[0],i:+q[1]}:null; },
+    menu:function(o,at){ rcActMenu(o.t,o.i,at); } };
+  rdsBindRowGestures(document.getElementById('charge-items'),'.activity-card[data-rc]',AD);
+  rdsBindRowGestures(document.getElementById('drain-items'),'.activity-card[data-rc]',AD);
+})();
 
 /* ── ACTIVITY MODAL ── */
 function openActModal(type, idx) {
