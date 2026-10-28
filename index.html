@@ -9949,6 +9949,19 @@ to{opacity:1;transform:translateY(0)}}
 .hw-photo:not(.has-image){flex:0 0 auto;min-height:64px}
 .hw-photo.has-image{flex:0 0 auto;aspect-ratio:4/3;min-height:0}
 
+/* ══ 기록 ══ */
+.rec-memo-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--sp-4)}
+.rec-memo-new{display:none;flex:none}
+#page-records .memo-card{-webkit-touch-callout:none}
+@media (max-width:639px){ .rec-memo-new{display:inline-flex} } /* 폰엔 왼쪽 입력창이 없음 */
+@media (pointer:coarse){
+  #page-records .memo-del{display:none} /* 마우스 올리기로만 보이던 ✕ → 길게 누르기 메뉴 */
+  #page-records .memo-card{-webkit-user-select:none;user-select:none}
+  #page-records .trend-ctrl-btn{height:var(--ctl-h-sm);padding:0 var(--sp-4)}
+  #page-records .trend-log-btn{min-height:var(--ctl-h-sm)}
+  #page-records .rec-capture-btn{min-height:var(--ctl-h-sm)}
+}
+
 /* ══ 충전 ══ */
 .rc-edit-btn{font-size:var(--text-xs);color:var(--fg-4);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md)}
 .rc-edit-btn:hover{color:var(--fg-2);background:var(--bg-hover)}
@@ -11992,9 +12005,12 @@ to{opacity:1;transform:translateY(0)}}
 
       <!-- MEMOS panel -->
       <div class="rec-panel" id="panel-memos">
-        <div class="panel-header">
-          <div class="panel-title">깨달음 · 메모</div>
-          <div class="panel-sub">생각, 깨달음, 기록된 순간들이 시간 순으로 쌓여요.</div>
+        <div class="panel-header rec-memo-head">
+          <div>
+            <div class="panel-title">깨달음 · 메모</div>
+            <div class="panel-sub">생각, 깨달음, 기록된 순간들이 시간 순으로 쌓여요.</div>
+          </div>
+          <button class="btn btn-primary rec-memo-new" type="button" onclick="recMemoNew()">＋ 메모</button>
         </div>
         <div id="memo-timeline"></div>
       </div>
@@ -35790,6 +35806,41 @@ function saveMemo() {
   renderMemos();
 }
 
+/* ── 메모 빠른 조작 (RDS v2) ──
+   폰엔 왼쪽 입력창이 없어 메모를 못 남기고, 삭제(✕)도 마우스 올리기로만 보여 못 지웠다.
+   ＋ 메모(폰) · 카드 길게 누르기·우클릭 = 편집 · 깨달음/메모 바꾸기 · 복사 · 삭제. */
+function recMemoNew(){
+  if(typeof openFormDialog!=='function')return;
+  openFormDialog('메모 · 깨달음',[{key:'text',label:'지금 떠오르는 생각',type:'textarea',rows:4,value:''},
+    {key:'type',label:'종류',type:'select',value:'memo',options:[{value:'memo',label:'메모'},{value:'insight',label:'깨달음'}]}],function(d){
+    var t=(d.text||'').trim(); if(!t)return;
+    memos.unshift({ id:'m_'+Date.now()+'_'+Math.floor(Math.random()*9999), text:t, ts:Date.now(), type:d.type==='insight'?'insight':'memo' });
+    memosCommit(); renderMemos();
+  });
+}
+function recMemoEdit(idx){
+  var m=memos[idx]; if(!m||typeof openFormDialog!=='function')return;
+  openFormDialog('메모 편집',[{key:'text',label:'내용',type:'textarea',rows:4,value:m.text||''}],function(d){
+    var t=(d.text||'').trim(); if(!t||t===m.text)return; m.text=t; m.updatedAt=Date.now(); memosCommit(); renderMemos();
+  });
+}
+function recMemoMenu(idx, at){
+  var m=memos[idx]; if(!m)return;
+  var isIns=m.type==='insight';
+  rdsActionSheet({title:String(m.text||'').slice(0,40)+(String(m.text||'').length>40?'…':''), sub:(isIns?'깨달음':'메모')+' · '+tsToDate(m.ts),
+    quick:[{icon:'open',label:'편집',onClick:function(){ recMemoEdit(idx); }},
+           {icon:'bolt',label:isIns?'메모로':'깨달음으로',onClick:function(){ m.type=isIns?'memo':'insight'; m.updatedAt=Date.now(); memosCommit(); renderMemos(); }},
+           {icon:'link',label:'복사',onClick:function(){ try{ navigator.clipboard.writeText(m.text||''); if(typeof showToast==='function')showToast('복사했어요'); }catch(_e){} }}],
+    items:[{icon:'trash',label:'삭제',danger:true,onClick:function(){
+      var run=function(){ deleteMemo(memos.indexOf(m)); };
+      if(typeof openConfirmDialog==='function')openConfirmDialog('메모 삭제','“'+String(m.text||'').slice(0,40)+'” 메모를 삭제할까요?',run,{danger:true,confirmText:'삭제'}); else run();
+    }}], at:at||null});
+}
+(function(){
+  rdsBindRowGestures(document.getElementById('memo-timeline'),'.memo-card[data-memo-idx]',{idAttr:'data-memo-idx', skip:'.memo-del',
+    get:function(id){ return memos[+id]?{i:+id}:null; }, menu:function(o,at){ recMemoMenu(o.i,at); }});
+})();
+
 function deleteMemo(idx) {
   var target=memos[idx];
   var key=memosKey(target);
@@ -35810,7 +35861,7 @@ function renderMemos() {
   allItems.sort(function(a, b){ return b.ts - a.ts; });
 
   if (!allItems.length) {
-    container.innerHTML = '<div class="rec-empty"><span class="rec-empty-icon">'+_recIco('memo')+'</span>아직 기록된 메모가 없어요.<br>왼쪽 입력창에 지금 떠오르는 생각을 적어보세요.</div>';
+    container.innerHTML = '<div class="rec-empty"><span class="rec-empty-icon">'+_recIco('memo')+'</span>아직 기록된 메모가 없어요.<br>지금 떠오르는 생각을 적어보세요.</div>';
     return;
   }
 
@@ -35843,6 +35894,7 @@ function renderMemos() {
 function buildMemoCard(item, idx) {
   var card = document.createElement('div');
   card.className = 'memo-card';
+  card.setAttribute('data-memo-idx', idx);
 
   var dot = document.createElement('div');
   dot.className = 'memo-dot';
