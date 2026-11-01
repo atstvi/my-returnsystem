@@ -179,4 +179,9 @@ t.ok('손가락: 마우스 올리기로만 보이던 ✕ → 메뉴, 지표 버�
 t.ok('집중 기록: 전용 작은 창 → 공용 시트/메뉴, 우클릭도 같은 메뉴', /function focusTimerRecordMenu\(id, at\)\{[\s\S]{0,400}rdsActionSheet\(/.test(html) && html.indexOf("ov.id='ft-rec-menu'")<0 && /function _ftWireRecordMenu\(el\)\{[\s\S]{0,400}addEventListener\('contextmenu'/.test(html));
 t.ok('오늘 패널·주간 기록 둘 다 같은 연결', (html.match(/forEach\(_ftWireRecordMenu\)/g)||[]).length===2);
 
+// 설정 + 전체 점검
+t.ok('설정: 스티커 지우기 버튼은 따로 한 줄(폰에서 화면 밖으로 밀리던 문제), 한국어 라벨', /class="set-row set-row-sticker-clear"/.test(html) && html.indexOf('Remove all stickers')<0 && /onclick="clearAllGlobalStickers\(\)">전체<\/button>/.test(html));
+t.ok('설정: 폰 컨트롤 줄바꿈 허용', /@media \(max-width:639px\)\{ #page-settings \.set-row-ctrl\{max-width:100%;flex-wrap:wrap\} \}/.test(css));
+t.ok('손가락: 브리핑 간격 칩·설정 메뉴 버튼·지금 상황 이전/다음·할일 분류 칩', /#page-settings \.interval-chip\{min-height:var\(--ctl-h-sm\)/.test(css) && /\.set-mob-toggle\{min-width:var\(--ctl-h\);min-height:var\(--ctl-h\)\}/.test(css) && /\.sq-nav button::after\{content:"";position:absolute;inset:-10px\}/.test(css) && /#page-task \.cat-chip\{min-height:var\(--ctl-h-sm\)\}/.test(css));
+
 t.done();
