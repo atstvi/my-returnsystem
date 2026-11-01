@@ -32872,7 +32872,6 @@ function initHobbyBanner(){
     }
   } catch(e) { bannerDebugLog('hobby:render-error',{error:String(e&&e.message||e)}); }
   var btn = document.getElementById('btn-banner');
-  if (btn) btn.innerHTML = '&#128444;&#65039;';
   if (btn && !btn._hobBannerHooked) {
     btn._hobBannerHooked = true;
     btn.addEventListener('click', function(){
@@ -42562,6 +42561,11 @@ var _fbLastPushedSnapshot=null;
    contents rarely change. Only re-write after this interval (ms). */
 var _fbCloudSettingsLastSavedMs=0;
 var _FB_CLOUD_SETTINGS_INTERVAL=120000;
+/* settings/main에 마지막으로 '맞춘' 값(적용했거나 올린 값) — 이 기기가 실제로 바꾼 설정만
+   올리기 위한 기준. settings/main은 키별 시각이 없고 로그인 때 한 번만 읽어서, 켜 둔 다른
+   기기가 저장할 때마다(2분 간격) 자기 '옛' 테마 모드·색을 통째로 다시 올려 방금 바꾼
+   테마를 되돌렸다. null = 이번 세션에 아직 클라우드 설정을 못 봄(그땐 덮어쓰지 않음). */
+var _fbCloudSettingsSeen=null;
 var FB_CLIENT_ID=(function(){var k='return_fb_client_id',v=localStorage.getItem(k);if(!v){v='client_'+Date.now()+'_'+Math.random().toString(36).slice(2);try{localStorage.setItem(k,v);}catch(e){}}return v;})();
 var DEFAULT_FB_CONFIG={apiKey:'AIzaSyA5zb3HtI4yZj0hJ9I66OMqpc7CPRuEVRY',authDomain:'my-return-system.firebaseapp.com',projectId:'my-return-system',storageBucket:'my-return-system.firebasestorage.app'};
 /* NOTE: fb_config is intentionally NOT a cloud setting. Syncing the Firebase
@@ -43599,7 +43603,7 @@ function fbHasLocalCloudSettings(){
   return CLOUD_SETTING_KEYS.some(function(k){return localStorage.getItem(k)!=null;}) || !!localStorage.getItem('diary_notion_cfg') || !!localStorage.getItem('gcal_cfg_v1');
 }
 function fbApplyCloudSettings(doc){
-  if(!doc||!doc.settings)return 0;
+  if(!doc||!doc.settings){ if(doc&&!_fbCloudSettingsSeen)_fbCloudSettingsSeen={}; return 0; }
   var n=0;
   Object.keys(doc.settings).forEach(function(k){
     var v=doc.settings[k];
@@ -43639,6 +43643,7 @@ function fbApplyCloudSettings(doc){
       else console.warn('[fb] fbApplyCloudSettings: write failed for key',k);
     }catch(e){console.warn('settings apply failed',k,e);}
   });
+try{ _fbCloudSettingsSeen=fbCollectCloudSettings().settings; }catch(_se){}
 try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof loadHabitNotionConfig==='function')loadHabitNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioResetColorsOnce==='function')themeStudioResetColorsOnce();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
   return n;
 }
@@ -43651,13 +43656,22 @@ async function fbLoadCloudSettings(ref){
   }
   if(fbHasLocalCloudSettings()){
     var ok=confirm('이 계정에 저장된 설정이 아직 없어요. 이 기기의 설정을 계정에 업로드할까요?');
-    if(ok){await fbSaveCloudSettings(ref);return {exists:false,uploaded:true,count:0};}
+    if(ok){await fbSaveCloudSettings(ref,{all:true});return {exists:false,uploaded:true,count:0};}
   }
+  _fbCloudSettingsSeen={}; /* 클라우드에 설정 문서가 없음 — 덮어쓸 남의 값이 없으니 다음 저장 때 이 기기 값을 올린다 */
   return {exists:false,count:0};
 }
-async function fbSaveCloudSettings(ref){
+async function fbSaveCloudSettings(ref,opts){
+  opts=opts||{};
   ref=ref||fbDb.collection('users').doc(fbUser.uid);
   var payload=fbCollectCloudSettings();
+  /* 이 기기가 바꾼 키만 올린다(merge:true라 안 보낸 키는 클라우드 값 그대로). */
+  if(!opts.all){
+    if(!_fbCloudSettingsSeen)return false; /* 아직 클라우드 설정을 못 봤으면 옛 값으로 덮지 않음 */
+    Object.keys(payload.settings).forEach(function(k){ if(_fbCloudSettingsSeen[k]===payload.settings[k])delete payload.settings[k]; });
+    if(!Object.keys(payload.settings).length)return false;
+  }
+  var _pushed=Object.assign({},payload.settings);
   try{
     var del=firebase.firestore.FieldValue.delete();
     MOVED_CLOUD_SETTING_KEYS.forEach(function(k){payload.settings[k]=del;});
@@ -43666,6 +43680,8 @@ async function fbSaveCloudSettings(ref){
     payload.settings.fb_config=del;
   }catch(e){}
   await ref.collection('settings').doc('main').set(payload,{merge:true});
+  _fbCloudSettingsSeen=Object.assign({},_fbCloudSettingsSeen||{},_pushed);
+  return true;
 }
 function fbDocIdForKey(k){return encodeURIComponent(k).replace(/\./g,'%2E');}
 function fbSplitValue(v){
@@ -50598,10 +50614,11 @@ function themeStudioEnsureIconsState(state){
 }
 function themeStudioSetIconValue(state,key,value,fallback){
   var icons=themeStudioEnsureIconsState(state);
+  var prev=icons[key]||'';
   icons[key]=value||'';
   state.iconFallbacks=state.iconFallbacks||{};
   if(fallback&&isReturnDisplayableImageUrl(fallback)&&fallback.length<700000)state.iconFallbacks[key]=fallback;
-  else if(!value)delete state.iconFallbacks[key];
+  else if(!value||prev!==(value||''))delete state.iconFallbacks[key]; /* 다른 아이콘으로 바뀌면 옛 아이콘 사본이 남아 대신 보이지 않게 */
 }
 function themeStudioSystemPresets(){
   return [
@@ -51157,7 +51174,7 @@ function themeStudioApplyBanner(state){
   try{
     var applyRef=function(ref){
       if(typeof loadHomeBanner==='function')loadHomeBanner();
-      if(typeof hbState==='object'){hbState.imgUrl=ref;hbState.syncDataUrl=(state.banner&&state.banner.syncDataUrl)||hbState.syncDataUrl||'';hbState.bgPos=(state.banner&&state.banner.position)||hbState.bgPos||{x:50,y:50};if(saveHomeBanner())renderHomeBanner();}
+      if(typeof hbState==='object'){var _hbSame=(hbState.imgUrl===ref);hbState.imgUrl=ref;hbState.syncDataUrl=(state.banner&&state.banner.syncDataUrl)||(_hbSame?hbState.syncDataUrl:'')||'';hbState.bgPos=(state.banner&&state.banner.position)||hbState.bgPos||{x:50,y:50};if(saveHomeBanner())renderHomeBanner();}
     };
     if(/^data:image/.test(String(img||'')))returnMediaStoreDataUrl(img,{role:'homeBanner',name:'Preset home banner'}).then(applyRef);
     else applyRef(img);
@@ -51169,8 +51186,10 @@ function themeStudioApplyHobbyBanner(state){
   if(!img||!(isReturnDisplayableImageUrl(img)||isReturnMediaRef(img))){bannerDebugLog('theme:apply-hobby-banner-invalid',{value:String(img||'').slice(0,40)});return;}
   try{
     var applyRef=function(ref){
+      var _prevHob=localStorage.getItem('hobby_banner_v1')||'';
       if(!setReturnStorageItem('hobby_banner_v1',ref)){if(typeof homeToast==='function')homeToast('이미지가 너무 커서 저장하지 못했어요. 더 작은 사진을 사용해 주세요.');return;}
       if(state.banner&&state.banner.hobbySyncDataUrl)setReturnStorageItem('hobby_banner_sync_v1',state.banner.hobbySyncDataUrl);
+      else if(_prevHob!==ref&&localStorage.getItem('hobby_banner_sync_v1'))setReturnStorageItem('hobby_banner_sync_v1',''); /* 옛 사진 사본이 새 배너 대신 보이지 않게 */
       if(!localStorage.getItem('hobby_banner_pos_v1'))setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
       if(typeof initHobbyBanner==='function')initHobbyBanner();
     };
@@ -51576,42 +51595,48 @@ function themeStudioEnsureMediaFallbacks(){
        they never render on other devices. For each such ref: resolve bytes
        from IDB, compress to a sync-safe size, register in the manifest, and
        write the inline fallback into the theme-state blob (synced to Firebase). */
+    /* 대상 목록은 상태 객체마다 같은 규칙으로 만든다 — 비동기 작업이 끝났을 때 '지금' 상태에
+       다시 만들어 그대로 적용하기 위해서다(아래 '옛 상태 덮어쓰기' 방지 참고). */
+    function buildTargets(st){
+      themeStudioEnsureIconsState(st);
+      var cd=themeStudioEnsureSkinState(st), out=[];
+      /* icons → iconFallbacks[k] */
+      Object.keys(st.icons||{}).forEach(function(k){
+        out.push({label:'icon:'+k,ref:st.icons[k],
+          get:function(){return (st.iconFallbacks&&st.iconFallbacks[k])||'';},
+          set:function(v){st.iconFallbacks=st.iconFallbacks||{};st.iconFallbacks[k]=v;}});
+      });
+      /* card skin resources → card.<key>SyncDataUrl */
+      ['background','frame','cornerTopLeft','cornerTopRight','cornerBottomLeft','cornerBottomRight','pattern'].forEach(function(k){
+        out.push({label:'card:'+k,ref:cd[k],
+          get:function(){return cd[k+'SyncDataUrl']||'';},
+          set:function(v){cd[k+'SyncDataUrl']=v;}});
+      });
+      /* full page background → background.syncDataUrl */
+      if(st.background){
+        out.push({label:'background',ref:st.background.image,
+          get:function(){return st.background.syncDataUrl||'';},
+          set:function(v){st.background.syncDataUrl=v;}});
+      }
+      /* home + hobby banners */
+      if(st.banner){
+        out.push({label:'banner',ref:st.banner.image,
+          get:function(){return st.banner.syncDataUrl||'';},
+          set:function(v){st.banner.syncDataUrl=v;}});
+        out.push({label:'hobbyBanner',ref:st.banner.hobbyImage,
+          get:function(){return st.banner.hobbySyncDataUrl||'';},
+          set:function(v){st.banner.hobbySyncDataUrl=v;}});
+      }
+      return out;
+    }
     var cur2=themeStudioGet();
-    themeStudioEnsureIconsState(cur2);
-    var card2=themeStudioEnsureSkinState(cur2);
-    var targets=[];
-    /* icons → iconFallbacks[k] */
-    Object.keys(cur2.icons||{}).forEach(function(k){
-      targets.push({label:'icon:'+k,ref:cur2.icons[k],
-        get:function(){return (cur2.iconFallbacks&&cur2.iconFallbacks[k])||'';},
-        set:function(v){cur2.iconFallbacks=cur2.iconFallbacks||{};cur2.iconFallbacks[k]=v;}});
-    });
-    /* card skin resources → card.<key>SyncDataUrl */
-    ['background','frame','cornerTopLeft','cornerTopRight','cornerBottomLeft','cornerBottomRight','pattern'].forEach(function(k){
-      targets.push({label:'card:'+k,ref:card2[k],
-        get:function(){return card2[k+'SyncDataUrl']||'';},
-        set:function(v){card2[k+'SyncDataUrl']=v;}});
-    });
-    /* full page background → background.syncDataUrl */
-    if(cur2.background){
-      targets.push({label:'background',ref:cur2.background.image,
-        get:function(){return cur2.background.syncDataUrl||'';},
-        set:function(v){cur2.background.syncDataUrl=v;}});
-    }
-    /* home + hobby banners */
-    if(cur2.banner){
-      targets.push({label:'banner',ref:cur2.banner.image,
-        get:function(){return cur2.banner.syncDataUrl||'';},
-        set:function(v){cur2.banner.syncDataUrl=v;}});
-      targets.push({label:'hobbyBanner',ref:cur2.banner.hobbyImage,
-        get:function(){return cur2.banner.hobbySyncDataUrl||'';},
-        set:function(v){cur2.banner.hobbySyncDataUrl=v;}});
-    }
+    var targets=buildTargets(cur2);
+    /* 바꿀 내용은 '연산'으로만 모은다: {label, ref, value} — value ''는 중복 인라인 사본 제거. */
+    var ops=[];
     /* Redundancy: any target that ALREADY has an inline fallback ≤220KB should
        also live in the synced manifest, so a device that receives the manifest
        (but not yet the full theme-state blob) can still render it. Same pattern
        as the asset loop above. */
-    var cur2dirty=false;
     targets.forEach(function(t){
       if(!isReturnMediaRef(t.ref))return;
       var inline=t.get();
@@ -51620,14 +51645,14 @@ function themeStudioEnsureMediaFallbacks(){
       }
       /* Now that the manifest carries it, drop the redundant inline copy — the
          manifest is the cross-device channel and rendering resolves through it. */
-      if(inline&&mediaSyncResolve(t.ref)){ t.set(''); cur2dirty=true; }
+      if(inline&&mediaSyncResolve(t.ref)){ ops.push({label:t.label,ref:t.ref,value:''}); }
     });
     /* Pending: targets that are media refs the manifest does NOT yet hold and that
        have no inline fallback — resolve bytes from IndexedDB, compress, and put in
        the manifest. Only fall back to an inline copy if the bytes are too large for
        the manifest (mediaSyncPut refused), so we don't re-bloat the theme blob. */
     var pending=targets.filter(function(t){return isReturnMediaRef(t.ref)&&!t.get()&&!mediaSyncResolve(t.ref);});
-    if(pending.length||cur2dirty){
+    if(pending.length||ops.length){
       var idbJobs=pending.map(function(t){
         var id=returnMediaRefId(t.ref);
         return returnMediaResolveUrl(t.ref).then(function(url){
@@ -51638,13 +51663,27 @@ function themeStudioEnsureMediaFallbacks(){
             try{mediaSyncPut(id,fb);}catch(_e){}
             /* Inline fallback only if the manifest could NOT take it (oversized) —
                this is then the sole cross-device channel for that image. */
-            if(!t.get()&&!mediaSyncResolve(t.ref)&&fb.length<700000)t.set(fb);
+            if(!mediaSyncResolve(t.ref)&&fb.length<700000)ops.push({label:t.label,ref:t.ref,value:fb});
           });
         }).catch(function(e){console.warn('idb fallback failed for',t.label,e&&e.message);});
       });
       Promise.all(idbJobs).then(function(){
-        themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,cur2);
-        themeStudioApply(cur2);
+        if(!ops.length)return;
+        /* 옛 상태 덮어쓰기 방지: 시작할 때 잡아 둔 cur2를 통째로 쓰면, IndexedDB 읽기·압축을
+           기다리는 사이 클라우드에서 들어온 '새 테마'를 '옛 테마'로 덮고(fbSaveAll로 방금 시각에
+           올려) 다른 기기까지 옛 테마로 되돌렸다. 지금 상태를 다시 읽고, 같은 이미지(ref)가 아직
+           그 자리에 있는 칸에만 대체 사본을 넣는다 — 그 외 테마 값은 건드리지 않는다. */
+        var live=themeStudioGet(), liveTargets=buildTargets(live), changed=false;
+        ops.forEach(function(op){
+          var t=liveTargets.filter(function(x){return x.label===op.label;})[0];
+          if(!t||t.ref!==op.ref)return;
+          if(op.value){ if(t.get())return; }
+          else if(!t.get()||!mediaSyncResolve(t.ref))return;
+          t.set(op.value); changed=true;
+        });
+        if(!changed)return;
+        themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,live);
+        themeStudioApply(live);
         try{if(typeof renderHomeSituation==='function')renderHomeSituation();}catch(_e){}
         try{
           if(typeof fbSaveCloudSettings==='function'&&fbDb&&fbUser)
@@ -52529,9 +52568,12 @@ function themeStudioSetColor(key,value){
 }
 function themeStudioSetMedia(kind,url){
   var cur=themeStudioGet();
-  if(kind==='background')cur.background=Object.assign({},cur.background||{}, {image:url||''});
-  if(kind==='banner')cur.banner=Object.assign({},cur.banner||{}, {image:url||''});
-  if(kind==='hobbyBanner')cur.banner=Object.assign({},cur.banner||{}, {hobbyImage:url||''});
+  /* 이미지가 바뀌면 그 칸의 대체 사본(syncDataUrl)도 비운다. 예전엔 Object.assign이 옛 사본을
+     남겨, 다른 기기에서 새 이미지를 못 불러오면 '예전 사진'이 대신 보였고, 사본이 이미 있다고
+     여겨 새 이미지의 사본도 영영 만들지 않았다. */
+  if(kind==='background'){ var _ob=cur.background||{}; cur.background=Object.assign({},_ob, {image:url||''}); if((_ob.image||'')!==(url||''))delete cur.background.syncDataUrl; }
+  if(kind==='banner'){ var _oh=cur.banner||{}; cur.banner=Object.assign({},_oh, {image:url||''}); if((_oh.image||'')!==(url||''))delete cur.banner.syncDataUrl; }
+  if(kind==='hobbyBanner'){ var _oy=cur.banner||{}; cur.banner=Object.assign({},_oy, {hobbyImage:url||''}); if((_oy.hobbyImage||'')!==(url||''))delete cur.banner.hobbySyncDataUrl; }
   themeStudioSet(cur);
   if(kind==='banner'&&!url)themeStudioClearHomeBannerImage();
   if(kind==='hobbyBanner'&&!url)themeStudioClearHobbyBannerImage();
@@ -52552,6 +52594,8 @@ function themeStudioStoreBannerMedia(kind,url){
       themeStudioAddMediaAssetRef(ref,'Home banner','Background','pageBanner','Banner Upload');
     }else if(kind==='hobbyBanner'){
       if(!setReturnStorageItem('hobby_banner_v1',ref))return false;
+      /* 새 배너의 사본으로 바꾼다 — 예전엔 옛 배너 사본이 남아 다른 기기에서 옛 사진이 보였다 */
+      setReturnStorageItem('hobby_banner_sync_v1',String(url||'').length<=HOME_BANNER_SYNC_MAX?url:'');
       if(!localStorage.getItem('hobby_banner_pos_v1'))setReturnStorageItem('hobby_banner_pos_v1',JSON.stringify({x:50,y:50}));
       if(typeof initHobbyBanner==='function')initHobbyBanner();
       themeStudioAddMediaAssetRef(ref,'Hobby banner','Background','hobbyBanner','Hobby Banner Upload');
