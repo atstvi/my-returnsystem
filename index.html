@@ -23944,6 +23944,38 @@ window.returnDedupById=returnDedupById;
      tombstone이 거름), 아니면 createdAt/ts가 baseline 이후인 것만(최근 추가).
    - opts.tombstones면 returnEntityFilterTombstoned로 삭제된 항목 되살림 방지.
    - 결과는 id/_eid로 dedup. 변경이 없으면 null 반환(호출부는 기존 동작 유지). */
+/* ── 자료 보드: 카드 단위 병합 ───────────────────────────────────────────────
+   프로젝트는 통째로(updatedAt 큰 쪽 + 최근 편집 유예) 고르는데 보드가 그 안에 들어 있어,
+   한 기기에서 링크·메모를 담는 사이 다른 기기가 같은 프로젝트를 고치면 한쪽 카드가 통째로
+   사라졌다("아이패드 공유로 저장한 링크가 다른 기기에도, 저장한 기기에도 없음").
+   이긴 쪽 프로젝트를 그대로 두고 보드 카드·연결선만 id로 합친다:
+   · 다른 쪽에만 있는 카드는 더한다(삭제 기록 board.del에 있으면 제외)
+   · 이긴 쪽에 있어도 삭제 기록에 있으면 뺀다(다른 기기에서 지운 것)
+   · 삭제 기록은 양쪽을 합쳐 전한다(90일 지나면 정리)
+   이 기록은 RETURN_BOARD_MERGE_SINCE부터 남으므로, 그 전에 만든 카드는 다른 쪽에만 있어도
+   더하지 않는다(그 전 삭제가 기록 없이 되살아나지 않게). */
+var RETURN_BOARD_MERGE_SINCE=1793750400000; /* 2026-11-04T00:00Z */
+function _boardIdCreatedMs(x){ var m=/^(?:bd|ed)_(\d{12,})/.exec(String(x&&x.id||'')); return m?Number(m[1]):0; }
+function returnBoardMergeInto(win, other){
+  if(!win||!other||typeof win!=='object'||typeof other!=='object')return false;
+  var ob=other.board; if(!ob||typeof ob!=='object')return false;
+  if(!win.board||typeof win.board!=='object')win.board={view:{tx:0,ty:0,scale:1},items:[],edges:[]};
+  var wb=win.board, changed=false, now=Date.now(), TTL=90*86400000;
+  var del={}; [wb.del,ob.del].forEach(function(d){ if(d&&typeof d==='object')Object.keys(d).forEach(function(id){ var t=Number(d[id])||0; if(now-t<TTL&&(!del[id]||t>del[id]))del[id]=t; }); });
+  var wd=wb.del||{}; if(Object.keys(del).length!==Object.keys(wd).length||Object.keys(del).some(function(id){return Number(wd[id]||0)!==del[id];}))changed=true;
+  function mergeList(wl,ol,ok){
+    wl=Array.isArray(wl)?wl:[]; ol=Array.isArray(ol)?ol:[];
+    var have={}, out=wl.filter(function(x){ if(!x||x.id==null)return true; if(del[String(x.id)]){changed=true;return false;} have[String(x.id)]=1; return true; });
+    ol.forEach(function(x){ if(!x||x.id==null)return; var id=String(x.id); if(have[id]||del[id])return; if(_boardIdCreatedMs(x)<RETURN_BOARD_MERGE_SINCE)return; if(ok&&!ok(x))return; out.push(x); have[id]=1; changed=true; });
+    return out;
+  }
+  var items=mergeList(wb.items,ob.items,null);
+  var ids={}; items.forEach(function(x){ if(x&&x.id!=null)ids[String(x.id)]=1; });
+  var edges=mergeList(wb.edges,ob.edges,function(e){ return ids[String(e.from)]&&ids[String(e.to)]; });
+  if(changed){ wb.items=items; wb.edges=edges; if(Object.keys(del).length)wb.del=del; else delete wb.del; }
+  return changed;
+}
+try{ window.returnBoardMergeInto=returnBoardMergeInto; }catch(_e){}
 function returnSyncArrayMerge(cloudStr, localStr, opts){
   opts=opts||{};
   var cloud, local;
@@ -37676,6 +37708,7 @@ function openLinkCaptureDialog(url,title){
       +'<img src="'+projectEsc(boardFavicon(url))+'" alt="" style="width:28px;height:28px;border-radius:6px;flex:0 0 auto" onerror="this.style.visibility=\'hidden\'">'
       +'<div style="min-width:0"><div style="font-weight:600;font-size:var(--text-sm);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+projectEsc(title||host)+'</div>'
       +'<div style="font-size:var(--text-xs);color:var(--fg-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+projectEsc(url)+'</div></div></div>'
+    +((typeof fbUser!=='undefined'&&fbUser)?'':'<div class="lc-warn" style="font-size:var(--text-xs);line-height:1.5;color:var(--danger);background:color-mix(in srgb,var(--danger) 8%,transparent);border-radius:var(--radius-md);padding:var(--sp-3)">이 창은 로그인되어 있지 않아 <b>이 브라우저에만</b> 저장돼요. 다른 기기·홈 화면 앱에서도 보려면 먼저 로그인해 주세요.</div>')
     +'<div><label style="display:block;font-size:var(--text-sm);font-weight:600;margin-bottom:var(--sp-2)">프로젝트</label>'
       +'<select id="lc-project" style="width:100%;padding:var(--sp-3);border:1px solid var(--border);border-radius:var(--radius-md);background:var(--bg-surface);color:var(--fg-1);font-size:var(--text-sm)">'
       +ordered.map(function(p){return '<option value="'+projectEsc(p.id)+'">'+projectEsc((p.icon||'🗂️')+' '+p.title)+(p.status==='archived'?' (보관)':'')+'</option>';}).join('')+'</select></div>'
@@ -38048,7 +38081,7 @@ function projectBoardBind(detail,project){
   root.addEventListener('click',function(e){
     /* connector edge delete (normal mode) */
     var eh=e.target.closest('[data-edge]');
-    if(eh&&!_linkMode){ var eid=eh.getAttribute('data-edge'); var run=function(){ b.edges=(b.edges||[]).filter(function(x){return String(x.id)!==String(eid);}); save(); paintEdges(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('연결 삭제','이 연결선을 지울까요?',run):run()); return; }
+    if(eh&&!_linkMode){ var eid=eh.getAttribute('data-edge'); var run=function(){ b.del=b.del||{}; b.del[String(eid)]=Date.now(); b.edges=(b.edges||[]).filter(function(x){return String(x.id)!==String(eid);}); save(); paintEdges(); }; (typeof openConfirmDialog==='function'?openConfirmDialog('연결 삭제','이 연결선을 지울까요?',run):run()); return; }
     /* link mode: pick two items to connect */
     if(_linkMode){ var itEl=e.target.closest('.pjb-item'); if(itEl)handleLinkPick(itEl.getAttribute('data-bd-item')); return; }
     var ctl=e.target.closest('[data-bd-ctl]'); if(!ctl)return;
@@ -38058,7 +38091,7 @@ function projectBoardBind(detail,project){
     e.preventDefault();
     if(!it)return;
     if(kind==='fav'){ it.fav=!it.fav; save(); repaint(); }
-    else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); b.edges=(b.edges||[]).filter(function(ed){return String(ed.from)!==String(id)&&String(ed.to)!==String(id);}); save(); repaint(); } }
+    else if(kind==='del'){ (typeof openConfirmDialog==='function'?openConfirmDialog('삭제','이 항목을 보드에서 삭제할까요?',doDel):doDel()); function doDel(){ b.del=b.del||{}; b.del[String(id)]=Date.now(); (b.edges||[]).forEach(function(ed){ if(String(ed.from)===String(id)||String(ed.to)===String(id))b.del[String(ed.id)]=Date.now(); }); b.items=b.items.filter(function(x){return String(x.id)!==String(id);}); b.edges=(b.edges||[]).filter(function(ed){return String(ed.from)!==String(id)&&String(ed.to)!==String(id);}); save(); repaint(); } }
     else if(kind==='edit'){ projectBoardEditItem(project,it,repaint,save); }
   });
   /* 칸반(프레임 그룹) — 카드를 다른 프레임 칸으로 끌어다 놓으면 그 프레임 안 좌표로
@@ -44040,7 +44073,9 @@ function fbApplyData(data){
                    the grace window (clock-skew-proof anti-revert). Mark changed so
                    the kept-local value is pushed back; a plain equal-stamp echo is
                    left to cloud to avoid a needless re-push. */
-                if(_luA>_cuA||_recentA){ _lwwChanged=true; return lt; }
+                if(_luA>_cuA||_recentA){ _lwwChanged=true; if(k==='projects_v1')returnBoardMergeInto(lt,ct); return lt; }
+                /* 클라우드가 이겨도 이 기기에서만 담은 보드 카드는 살린다(합쳐지면 다시 올림). */
+                if(k==='projects_v1'&&returnBoardMergeInto(ct,lt))_lwwChanged=true;
                 return ct;
               });
               /* For tasks/projects: createdAt; for inbox: ts */
@@ -45014,7 +45049,8 @@ async function fbSaveNow(opts){
                 if(!ct||ct.id==null)return ct;
                 var lt=_snLocalById[String(ct.id)];
                 if(!lt)return ct;
-                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)||((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid)))||((typeof returnPendingEditUnconfirmed==='function')&&returnPendingEditUnconfirmed(ct))){_snLwwChanged=true;return lt;}
+                if(Number(lt.updatedAt||0)>Number(ct.updatedAt||0)||((typeof returnIsRecentLocalEdit==='function')&&(returnIsRecentLocalEdit(ct.id)||returnIsRecentLocalEdit(ct._eid)))||((typeof returnPendingEditUnconfirmed==='function')&&returnPendingEditUnconfirmed(ct))){_snLwwChanged=true;if(k==='projects_v1')returnBoardMergeInto(lt,ct);return lt;}
+                if(k==='projects_v1'&&returnBoardMergeInto(ct,lt))_snLwwChanged=true; /* 보드 카드 단위 병합 */
                 return ct;
               });
               var _snLocalOnly=_snOursArr.filter(function(t){
