@@ -1,7 +1,7 @@
 'use strict';
 /* 모바일 리디자인 ②: 빠른 담기 바텀시트(FAB).
    담기 로직은 새로 만들지 않고 기존 homeCapture/homeCaptureAI를 그대로 재사용
-   (submitGlobalCapture와 동일 경로). 시트는 할일/메모/기록 세그먼트 + 로컬 파서
+   (submitGlobalCapture와 동일 경로). 시트는 인박스/할일/작업 로그 세그먼트 + 카테고리 칩 + 로컬 파서
    기반 시간·날짜·마감 미리보기(표시 전용) + 담기 버튼. 이 테스트는 DOM/CSS/JS
    배선과 '기존 캡처 재사용'을 회귀로 고정한다. */
 const { readIndex, runner } = require('./lib');
@@ -10,7 +10,7 @@ const t = runner('모바일 빠른 담기 시트');
 
 // ── DOM ──
 t.ok('담기 시트/딤 존재', /<div id="m-cap-dim"[^>]*onclick="mCapClose\(\)"/.test(html) && /<div id="m-cap-sheet"/.test(html));
-t.ok('세그먼트 3종(할일/메모/기록)',
+t.ok('세그먼트 3종(인박스/할일/작업 로그)',
   /data-mtype="task"[^>]*onclick="mCapSetType\('task'\)"/.test(html) &&
   /data-mtype="inbox"[^>]*onclick="mCapSetType\('inbox'\)"/.test(html) &&
   /data-mtype="log"[^>]*onclick="mCapSetType\('log'\)"/.test(html));
