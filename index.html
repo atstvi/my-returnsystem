@@ -15569,7 +15569,7 @@ function _fmtMinsLeft(m){
 function _homePrepToggle(t,idx){
   if(!t)return;
   var pi=Array.isArray(t.prepItems)?t.prepItems.filter(function(p){return p&&p.text;}):[];
-  if(pi.length && pi[idx]){ pi[idx].done=!pi[idx].done; }
+  if(pi.length && pi[idx]){ pi[idx].done=!pi[idx].done; delete pi[idx]._autoDone; }
   else {
     var su=Array.isArray(t.subs)?t.subs.filter(function(p){return p&&p.text;}):[];
     if(su[idx]) su[idx].done=!su[idx].done;
@@ -17035,8 +17035,9 @@ function renderHomeTasks(){
       ck.setAttribute('aria-label', t.done ? '완료 취소' : '완료 표시');
       ck.addEventListener('click', function(e){
         e.stopPropagation();
-        t.done = !t.done; t.updatedAt = Date.now();
-        if (typeof saveTaskData === 'function') saveTaskData();
+        /* 공통 체크 경로 — 취소된 할일 되돌리기 · 하위 할일 · 준비물까지 같이 */
+        if (typeof taskCheckToggle === 'function') taskCheckToggle(t);
+        else { t.done = !t.done; t.updatedAt = Date.now(); if (typeof saveTaskData === 'function') saveTaskData(); }
         renderHomeTasks();
         if (typeof renderHomeTimeBlocks === 'function') renderHomeTimeBlocks();
         if (typeof renderHomeSituation === 'function') renderHomeSituation();
@@ -27126,7 +27127,9 @@ function mergeGeneratedChecklist(existing, expected){
   return expected.map(function(item){
     var plain=item&&item.text?stripPrepEmoji(item.text):'';
     var keep=(item&&item.id&&byId[item.id])||(plain&&byText[plain]);
-    return Object.assign({},item,{done:keep?!!keep.done:!!item.done});
+    var out=Object.assign({},item,{done:keep?!!keep.done:!!item.done});
+    if(keep&&keep._autoDone&&out.done)out._autoDone=1;
+    return out;
   });
 }
 /* Resolve the canonical prep-item list for a task. `prepItems` is the modern
@@ -27515,12 +27518,28 @@ function syncParentCompletions(){
    syncParentCompletions(양방향)와 짝을 이뤄, 상위 체크를 눌러도 하위와 어긋나지 않게 한다.
    취소된 하위는 건드리지 않는다. */
 function taskCascadeDoneToChildren(task){
-  if(!task||typeof taskChildren!=='function')return;
+  if(!task)return;
+  if(!task.canceled&&taskCascadeDoneToPrep(task))task.updatedAt=Date.now(); /* 할일 완료/해제 → 준비물도 */
+  if(typeof taskChildren!=='function')return;
   taskChildren(task.id).forEach(function(k){
     if(!k||k.canceled)return;
     if(!!k.done!==!!task.done){ k.done=!!task.done; k.updatedAt=Date.now(); }
     taskCascadeDoneToChildren(k);
   });
+}
+/* 할일을 완료하면 준비물도 모두 챙긴 것으로 체크한다. 이때 '자동으로 체크한 것'만 _autoDone
+   으로 표시해 두고, 완료를 취소하면 그것만 되돌린다(완료 전에 직접 체크해 둔 준비물은 그대로).
+   준비물을 직접 누르거나 체크리스트를 저장하면 표시가 지워져 그 상태가 그대로 남는다.
+   반환: 바뀐 게 있으면 true. */
+function taskCascadeDoneToPrep(task){
+  if(!task||!Array.isArray(task.prepItems)||!task.prepItems.length)return false;
+  var changed=false;
+  task.prepItems.forEach(function(p){
+    if(!p||!p.text)return;
+    if(task.done){ if(!p.done){ p.done=true; p._autoDone=1; changed=true; } }
+    else if(p._autoDone){ p.done=false; delete p._autoDone; changed=true; }
+  });
+  return changed;
 }
 function taskEffectiveDone(task){
   if(!task)return false;
@@ -29389,7 +29408,7 @@ function buildTaskEl(task){
       pr.appendChild(pc);pr.appendChild(pt);
       pr.addEventListener('click',function(e){
         e.stopPropagation();
-        pp.done=!pp.done;
+        pp.done=!pp.done; delete pp._autoDone;
         pc.classList.toggle('done',pp.done);
         pr.classList.toggle('done',pp.done);
         if(typeof saveTaskData==='function')saveTaskData();
@@ -29878,8 +29897,8 @@ function rdsTaskGestureHint(){
 }
 
 
-function bulkDone(){tasks.forEach(function(t){if(selIds.has(t.id))t.done=true;});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
-function bulkUndone(){tasks.forEach(function(t){if(selIds.has(t.id))t.done=false;});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
+function bulkDone(){tasks.forEach(function(t){if(selIds.has(t.id)&&!t.done){t.done=true;t.updatedAt=Date.now();if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(t);}});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
+function bulkUndone(){tasks.forEach(function(t){if(selIds.has(t.id)&&t.done&&!t.canceled){t.done=false;t.updatedAt=Date.now();if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(t);}});if(typeof saveTaskData==='function')saveTaskData();exitSelMode();renderCal();}
 function moveAllPast(){
   var n=0;
   tasks.forEach(function(t){
@@ -30689,7 +30708,7 @@ function tasksOpenModal(task){
 
   var mc=document.getElementById('modalCheck');
   mc.className='modal-check'+(task.done?' done':'');
-  mc.onclick=function(){task.done=!task.done;if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task);mc.className='modal-check'+(task.done?' done':'');};
+  mc.onclick=function(){task.done=!task.done;if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task);mc.className='modal-check'+(task.done?' done':'');if(typeof setTaskPrepSummary==='function')setTaskPrepSummary(task.prepItems||[]);};
 
   /* Priority buttons */
   document.querySelectorAll('.prio-btn').forEach(function(btn){
@@ -40532,7 +40551,7 @@ function notifItemDone(kind, refId, snoozeId){
   if(kind==='task'||kind==='deadline'||kind==='snooze'){
     try{
       var t=(typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(refId);});
-      if(t){ t.done=true; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); try{renderList&&renderList();renderCal&&renderCal();renderHomeTasks&&renderHomeTasks();}catch(e){} }
+      if(t){ t.done=true; t.updatedAt=Date.now(); if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(t); if(typeof saveTaskData==='function')saveTaskData(); try{renderList&&renderList();renderCal&&renderCal();renderHomeTasks&&renderHomeTasks();}catch(e){} }
     }catch(e){}
   }
   notifUpdateBadge(); renderNotifCenter();
@@ -56160,7 +56179,7 @@ function _wsPopClick(e){
   var b=e.target.closest&&e.target.closest('[data-ws]'); if(!b)return;
   var a=b.getAttribute('data-ws'), t=_wsLive(); if(!t)return;
   if(a==='done'){ _wsPopFlushNote(); if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; t.updatedAt=Date.now(); _wsPopSaveTasks(); } }
-  else if(a==='item'){ var L=_wsPopChecklist(t).filter(function(p){ return p&&p.text; }), it=L[Number(b.getAttribute('data-i'))]; if(it){ it.done=!it.done; t.updatedAt=Date.now(); _wsPopSaveTasks(); } }
+  else if(a==='item'){ var L=_wsPopChecklist(t).filter(function(p){ return p&&p.text; }), it=L[Number(b.getAttribute('data-i'))]; if(it){ it.done=!it.done; delete it._autoDone; t.updatedAt=Date.now(); _wsPopSaveTasks(); } }
   else if(a==='mode'){ _wsPop.mode=b.getAttribute('data-mode'); }
   else if(a==='start'){
     var m=_wsPop.mode||focusTimerState.mode||'stopwatch';
