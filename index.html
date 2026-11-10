@@ -2873,6 +2873,27 @@ html.pjb-fs-lock{overflow:hidden}
 .project-mini-row:hover{background:var(--bg-raised);border-color:var(--accent)}
 
 .project-search{width:100%;height:34px;border-radius:var(--r-md);background:var(--bg-raised);padding:0 var(--sp-4);color:var(--fg);margin-bottom:var(--sp-4)}
+/* 기존 할일 담기(프로젝트) */
+.pjd-tl-acts{display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;justify-content:flex-end}
+.ptl-modal{max-width:560px}
+.ptl-modal .modal-head{display:flex;align-items:center;justify-content:space-between;gap:var(--sp-3)}
+.ptl-sub{font-size:var(--text-sm);color:var(--fg-3);margin-bottom:var(--sp-3)}
+.ptl-bar{display:flex;align-items:center;gap:var(--sp-3);margin-bottom:var(--sp-3)}
+.ptl-bar .project-search{flex:1;min-width:0;margin:0;height:var(--ctl-h)}
+.ptl-seg{flex:none}
+.ptl-list{display:flex;flex-direction:column;gap:2px;max-height:min(56dvh,520px);overflow-y:auto;overscroll-behavior:contain}
+.ptl-row{display:flex;align-items:center;gap:var(--sp-3);width:100%;min-height:var(--row-min);padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md);background:transparent;border:none;text-align:left;color:var(--fg);cursor:pointer;font:inherit}
+.ptl-row:hover{background:var(--bg-raised)}
+.ptl-row.on{background:var(--accent-light)}
+.ptl-ck{flex:none;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--border);display:inline-flex;align-items:center;justify-content:center;font-size:var(--text-xs);color:var(--n-0)}
+.ptl-row.on .ptl-ck{background:var(--accent);border-color:var(--accent)}
+.ptl-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ptl-txt{font-size:var(--text-sm);font-weight:var(--fw-medium);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptl-row.done .ptl-txt{text-decoration:line-through;color:var(--fg-4)}
+.ptl-meta{font-size:var(--text-xs);color:var(--fg-4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ptl-act{flex:none;font-size:var(--text-xs);font-weight:var(--fw-semibold);color:var(--accent)}
+.ptl-row.on .ptl-act{color:var(--fg-3)}
+.ptl-more{font-size:var(--text-xs);color:var(--fg-4);text-align:center;padding:var(--sp-3)}
 .chart-axis-label{font-family:var(--font-mono);font-size:7px;fill:var(--fg-4)}
 
 @media(max-width:900px){
@@ -15679,6 +15700,8 @@ window.returnTaskStats=returnTaskStats; window.returnTodayLoad=returnTodayLoad;
    잡아 둔 자기 자신)을 모아 상태를 판정한다.
      overdue 마감 지남 · behind 준비를 못 하고 날짜가 지남 · none 준비 일정 없음 ·
      tight 준비가 마감 직전(여유 prepMarginDays 미만)에 잡힘 · planned 계획됨 · ready 준비 끝 · done 완료
+   일부러 직전에 잡아 둔 준비는 '당길 필요 없음'으로 표시(task.prepTimingOk = '<준비날>><마감날>')해
+   촉박으로 보지 않는다. 준비 날짜나 마감 날짜가 바뀌면 표시는 저절로 무효(다시 점검).
    미리 해 두는 걸 선호하므로 제안 날짜는 '마감 prepLeadDays일 전'과 그 전날 중 덜 바쁜 날(같으면 이른 날) —
    늦추는 방향으로는 고르지 않는다. 오늘보다 앞일 수 없고, 여유(prepMarginDays)를 넘길 수 없다. */
 var RADAR_DEADLINE_RE=/(과제|제출|마감|시험|퀴즈|중간고사|기말|발표|레포트|리포트|보고서|원고|신청|접수|deadline|due)/i;
@@ -15688,6 +15711,9 @@ function _radarAdd(k,n){ var d=new Date(k+'T00:00'); d.setDate(d.getDate()+n); r
 function _radarDiff(a,b){ return Math.round((new Date(a+'T00:00')-new Date(b+'T00:00'))/86400000); }
 function radarDayLabel(k){ if(!k)return ''; var d=new Date(k+'T00:00'); return RADAR_WD[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate(); }
 function radarDdayText(n){ return n<0?('D+'+(-n)):(n===0?'D-day':('D-'+n)); }
+/* '당길 필요 없음' — 이 준비를 이 날짜(prepDate)에, 이 마감(due) 직전에 두는 게 일부러인지 */
+function radarTimingKey(prepDate, due){ return String(prepDate||'')+'>'+String(due||''); }
+function radarTimingKept(t, prepDate, due){ return !!(t&&t.prepTimingOk&&t.prepTimingOk===radarTimingKey(prepDate,due)); }
 function returnDeadlineRadar(o){
   o=o||{};
   var TKK=o.todayKey, P=o.prefs||{};
@@ -15766,8 +15792,8 @@ function returnDeadlineRadar(o){
   function build(base){
     var due=base.due, d=_radarDiff(due,TKK), work=base.work.slice().sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
     var limit=_radarAdd(due,-MARGIN);
-    work.forEach(function(w){ w.late=!w.done&&w.date<TKK; w.tight=!w.done&&!w.late&&w.date>limit; });
-    var open=work.filter(function(w){ return !w.done; }), late=open.filter(function(w){ return w.late; }), tight=open.filter(function(w){ return w.tight; });
+    work.forEach(function(w){ w.late=!w.done&&w.date<TKK; w.kept=!w.done&&!w.late&&w.date>limit&&radarTimingKept(w.task,w.date,due); w.tight=!w.done&&!w.late&&w.date>limit&&!w.kept; });
+    var open=work.filter(function(w){ return !w.done; }), late=open.filter(function(w){ return w.late; }), tight=open.filter(function(w){ return w.tight; }), kept=open.filter(function(w){ return w.kept; });
     var st;
     if(base.done)st='done';
     else if(d<0)st='overdue';
@@ -15802,10 +15828,11 @@ function returnDeadlineRadar(o){
       msg='준비가 '+(base.kind==='schedule'?'일정':'마감')+' 직전('+radarDayLabel(first.date)+')';
       if(sd2>=first.date||d===0){ fix={type:'doNowWork',task:first.task}; }
       else fix={type:'pull',tasks:tight.map(function(w){ return w.task; }),date:sd2};
-      alt={type:'skip'};
+      alt={type:'keep',tasks:tight.map(function(w){ return w.task; })}; /* 일부러 직전에 둔 것 — 당기라고 안 함 */
     }
     else if(st==='ready'){ msg=base.kind==='schedule'?'준비 끝':'준비 끝 · 제출만'; if(d===0&&base.target)fix={type:'done'}; }
-    else if(st==='planned'){ msg='준비: '+open.map(function(w){ return radarDayLabel(w.date); }).filter(function(v,i,a){ return a.indexOf(v)===i; }).join(', ')+(base.prepItems?' · 준비물 '+base.prepItems.done+'/'+base.prepItems.total:''); }
+    else if(st==='planned'){ msg='준비: '+open.map(function(w){ return radarDayLabel(w.date); }).filter(function(v,i,a){ return a.indexOf(v)===i; }).join(', ')+(kept.length?' · 직전으로 둠':'')+(base.prepItems?' · 준비물 '+base.prepItems.done+'/'+base.prepItems.total:'');
+      if(kept.length)alt={type:'unkeep',tasks:kept.map(function(w){ return w.task; })}; }
     else if(st==='skipped')msg='준비 필요 없음';
     else if(st==='done')msg='완료';
     /* 활성 규칙이 만든 준비가 있으면 표시(반복 🔁과 구분해 ⚙) — 키워드·요일 규칙 모두 */
@@ -15997,7 +16024,7 @@ function homeBriefPlan(o){
   function guardCand(g){
     var t=g.focus||g.target; if(!t)return null;
     var title=g.state==='none'?(g.title+(g.kind==='schedule'?' 준비 할일 만들기':' 미리 하기')):(g.state==='behind'||g.state==='tight'?String(t.text||g.title):g.title);
-    var acts=(g.state==='behind'||g.state==='tight')?['startNow','guardFix']:['guardFix','guardAlt'];
+    var acts=g.state==='behind'?['startNow','guardFix']:(g.state==='tight'?['startNow','guardFix','guardAlt']:['guardFix','guardAlt']);
     if(g.state==='tight'&&g.fix&&g.fix.type==='doNowWork')acts=['startNow','guardAlt'];
     return {kind:'guard',tone:g.sev>=4?'danger':'warn',task:t,guard:g,eyebrow:(GUARD_EYE[g.state]||'마감')+' · '+dday(g.days),title:title,reason:g.msg,actions:acts};
   }
@@ -16309,6 +16336,8 @@ function radarFixLabel(fx){
     case 'doneWork': return '✓ 했어요';
     case 'open': return '열기';
     case 'skip': return '필요 없음';
+    case 'keep': return '당길 필요 없음';
+    case 'unkeep': return '다시 점검';
   }
   return '';
 }
@@ -16340,6 +16369,17 @@ function _radarApply(it, fx){
     case 'done': if(T&&!T.done&&typeof taskCheckToggle==='function'){ taskCheckToggle(T); toast('완료했어요 ✓'); } break;
     case 'doneWork': var D=live(fx.task); if(D&&!D.done&&typeof taskCheckToggle==='function'){ taskCheckToggle(D); toast('했어요 ✓'); } break;
     case 'open': var O=T||live(it.focus); if(O&&typeof tasksOpenModal==='function')tasksOpenModal(O); return;
+    case 'keep':
+      var kn=0;
+      (fx.tasks||[]).forEach(function(t){ var l=live(t); if(!l||l.done||!l.date)return; l.prepTimingOk=radarTimingKey(l.date,it.due); l.updatedAt=Date.now(); kn++; });
+      if(kn&&typeof saveTaskData==='function')saveTaskData();
+      toast(kn?('“'+it.title+'” 준비는 지금 날짜 그대로 둘게요 · 당기라고 안 할게요'):'바꿀 준비가 없어요');
+      break;
+    case 'unkeep':
+      (fx.tasks||[]).forEach(function(t){ var l=live(t); if(!l||!l.prepTimingOk)return; delete l.prepTimingOk; l.updatedAt=Date.now(); });
+      if(typeof saveTaskData==='function')saveTaskData();
+      toast('“'+it.title+'” 준비 일정을 다시 점검해요');
+      break;
     case 'skip':
       var sk=homeSkippedDeadlineLinks(); sk[it.skipKey||String(it.target&&it.target.id)]=Date.now();
       setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(sk));
@@ -29603,6 +29643,44 @@ function _taskDeleteConfirm(t){
     saveTaskData(); _taskRefreshViews();
   },{danger:true,confirmText:'삭제'});
 }
+/* 할일을 프로젝트에 담기/빼기 — 할일 메뉴('프로젝트로…')와 프로젝트 화면('기존 할일 담기')이 같이 쓴다.
+   담으면 카테고리도 '프로젝트'(편집 창과 같은 규칙), 원래 카테고리는 _catBeforeProject에 두었다가
+   빼면 되돌린다. 다른 프로젝트의 목표(goalId)에 들어 있었으면 목표는 푼다. updatedAt을 갱신해
+   기기 간 동기화(per-item LWW)에서 묻히지 않게. 반환: 바뀌었으면 true. */
+function taskProjectChoices(cur){
+  if(typeof loadProjects==='function'&&(typeof projects==='undefined'||!Array.isArray(projects)||!projects.length)){ try{ loadProjects(); }catch(_e){} }
+  var arr=(typeof projects!=='undefined'&&Array.isArray(projects))?projects:[];
+  return arr.filter(function(p){ return p&&(p.status!=='archived'||String(p.id)===String(cur||'')); });
+}
+function taskSetProject(t, pid){
+  if(!t)return false;
+  pid=(pid==null||pid==='')?'':String(pid);
+  if(String(t.projectId||'')===pid)return false;
+  if(pid){
+    if(t.catId!=='project'){ t._catBeforeProject=t.catId||'etc'; t.catId='project'; }
+    t.projectId=pid;
+    if(t.goalId){ var g=(typeof findGoal==='function')?findGoal(t.goalId):null; if(!g||String(g.project&&g.project.id)!==pid)delete t.goalId; }
+  } else {
+    delete t.projectId; delete t.goalId;
+    if(t.catId==='project'){ t.catId=t._catBeforeProject||'etc'; }
+    delete t._catBeforeProject;
+  }
+  t.updatedAt=Date.now();
+  if(typeof saveTaskData==='function')saveTaskData();
+  return true;
+}
+function taskProjectPicker(task, at){
+  var t=_taskById(task&&task.id)||task; if(!t)return;
+  var list=taskProjectChoices(t.projectId);
+  if(!list.length){ if(typeof showToast==='function')showToast('먼저 Area에서 프로젝트를 만들어 주세요'); return; }
+  function done(msg){ _taskRefreshViews(); try{ if(typeof renderProjects==='function'&&_currentPage==='projects')renderProjects(); }catch(_e){} if(typeof showToast==='function')showToast(msg); }
+  var items=list.map(function(p){
+    var on=String(t.projectId||'')===String(p.id);
+    return {icon:'folder',label:(p.icon?p.icon+' ':'')+(p.title||'프로젝트'),on:on,onClick:function(){ if(on)return; taskSetProject(t,p.id); done('“'+(p.title||'프로젝트')+'”에 담았어요'); }};
+  });
+  if(t.projectId)items.push({sep:1},{icon:'trash',label:'프로젝트에서 빼기',onClick:function(){ taskSetProject(t,''); done('프로젝트에서 뺐어요'); }});
+  rdsActionSheet({title:'어느 프로젝트에 담을까요?',sub:t.text||'',items:items,at:at||null});
+}
 function taskActionMenu(task, at){
   var t=_taskById(task&&task.id)||task; if(!t)return;
   var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
@@ -29616,6 +29694,8 @@ function taskActionMenu(task, at){
   ];
   var items=[{icon:'open',label:'열기 · 편집',hint:at?'Enter':'',onClick:function(){ tasksOpenModal(t); }}];
   if(t.date!==TK&&t.date!==tm)items.push({icon:'tomorrow',label:'내일로',onClick:function(){ _taskMoveDate(t,tm); }});
+  var _tp=t.projectId?taskProjectChoices(t.projectId).filter(function(p){ return String(p.id)===String(t.projectId); })[0]:null;
+  items.push({icon:'folder',label:_tp?('프로젝트 · '+(_tp.icon?_tp.icon+' ':'')+(_tp.title||'프로젝트')):'프로젝트로…',onClick:function(){ taskProjectPicker(t,at); }});
   items.push({sep:1},
     {icon:'up',label:'위로 한 칸',onClick:function(){ _taskNudge(t,-1); }},
     {icon:'down',label:'아래로 한 칸',onClick:function(){ _taskNudge(t,1); }},
@@ -38620,36 +38700,56 @@ function bindProjectWeekTimeline(detail){
   if(typeof window.bindProjectTimelineDrag==='function')window.bindProjectTimelineDrag(detail,_pjdTlKeys,function(id){return (typeof tasks!=='undefined'?tasks:[]).find(function(x){return String(x.id)===String(id);});},function(){ if(typeof saveTaskData==='function')saveTaskData(); renderProjects(); },function(dir){ _pjdTlWeek+=dir; renderProjects(); });
 }
 openProjectTaskLinker=function(project){
+  /* 이미 있는 할일을 이 프로젝트에 담기/빼기. 기본은 안 끝난 할일, '전체'나 검색이면 끝난 것도. */
   var old=document.getElementById('project-task-linker'); if(old)old.remove();
   var ov=document.createElement('div'); ov.className='overlay open'; ov.id='project-task-linker';
-  ov.innerHTML='<div class="modal" style="max-width:760px"><div class="modal-head"><div class="modal-title">할일 연결</div></div><div class="modal-body"><input class="project-search" id="ptl-search" placeholder="할일 이름으로 검색"><div class="field-help">누르면 연결/해제됩니다.</div><div id="ptl-list" class="project-task-timeline"></div></div><div class="modal-foot"><button class="btn btn-primary" id="ptl-close">닫기</button></div></div>';
+  ov.innerHTML='<div class="modal ptl-modal" role="dialog" aria-modal="true" aria-label="기존 할일 담기"><div class="modal-head"><div class="modal-title">기존 할일 담기</div><button class="modal-close" type="button" id="ptl-x" aria-label="닫기">×</button></div>'
+    +'<div class="modal-body"><div class="ptl-sub">'+projectEsc((project.icon?project.icon+' ':'')+(project.title||'프로젝트'))+'에 담을 할일을 누르세요. 다시 누르면 빠져요.</div>'
+    +'<div class="ptl-bar"><input class="project-search" id="ptl-search" type="search" placeholder="할일 이름으로 검색" autocomplete="off">'
+    +'<div class="pjb-seg ptl-seg" role="tablist" aria-label="보기"><button type="button" class="pjb-seg-btn on" data-ptl="open" role="tab">안 끝난</button><button type="button" class="pjb-seg-btn" data-ptl="all" role="tab">전체</button></div></div>'
+    +'<div id="ptl-list" class="ptl-list"></div></div>'
+    +'<div class="modal-foot"><button class="btn btn-primary" id="ptl-close" type="button">완료</button></div></div>';
   document.body.appendChild(ov);
-  var listEl=ov.querySelector('#ptl-list');
-  function close(){ov.remove();}
+  var listEl=ov.querySelector('#ptl-list'), mode='open', changed=false;
+  var pname=function(id){ var p=taskProjectChoices(id).filter(function(x){ return String(x.id)===String(id); })[0]; return p?((p.icon?p.icon+' ':'')+(p.title||'프로젝트')):''; };
+  function close(){ ov.remove(); if(changed){ try{ _taskRefreshViews(); }catch(_e){} renderProjects(); } }
   function paint(){
     var q=(ov.querySelector('#ptl-search').value||'').trim().toLowerCase();
-    var list=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){return !t._travelOnly && (!q || String(t.text||'').toLowerCase().indexOf(q)>=0);});
-    var groups=projectGroupTasksByDate(list);
-    listEl.innerHTML=Object.keys(groups).map(function(date){
-      return '<div class="project-task-day"><div class="project-task-date">'+projectEsc(date)+'</div><div class="project-task-line">'+groups[date].map(function(t){
-        var active=String(t.projectId||'')===String(project.id);
-        var cat=getCat(t.catId||'etc');
-        return '<button type="button" class="project-task-pill '+(t.done?'done':'')+' '+(active?'selected':'')+'" data-id="'+t.id+'"><span>'+projectEsc((cat.emoji?cat.emoji+' ':'')+t.text)+'<small style="display:block;color:var(--fg-4);margin-top:2px">'+projectEsc((t.timeStart||'')+(t.deadlineDate?' · 마감 '+t.deadlineDate:''))+'</small></span><span class="chip">'+(active?'연결 해제':'연결')+'</span></button>';
-      }).join('')+'</div></div>';
-    }).join('') || '<div class="project-empty">검색 결과가 없어요.</div>';
+    var pid=String(project.id);
+    var list=(typeof tasks!=='undefined'?tasks:[]).filter(function(t){
+      if(!t||t._travelOnly||t._isTt)return false;
+      var mine=String(t.projectId||'')===pid;
+      if(q)return String(t.text||'').toLowerCase().indexOf(q)>=0;
+      return mine||mode==='all'||!t.done;
+    });
+    list.sort(function(a,b){ var am=String(a.projectId||'')===pid?0:1, bm=String(b.projectId||'')===pid?0:1; if(am!==bm)return am-bm; return String(a.date||'9999').localeCompare(String(b.date||'9999')); });
+    var more=list.length>200; list=list.slice(0,200);
+    listEl.innerHTML=list.map(function(t){
+      var mine=String(t.projectId||'')===pid, cat=getCat(t.catId||'etc');
+      var meta=[]; if(t.date)meta.push(typeof _taskDayLabel==='function'?_taskDayLabel(t.date):t.date); if(t.deadlineDate)meta.push('마감 '+t.deadlineDate.slice(5).replace('-','/'));
+      if(t.projectId&&!mine){ var on=pname(t.projectId); if(on)meta.push('지금 '+on); }
+      return '<button type="button" class="ptl-row'+(mine?' on':'')+(t.done?' done':'')+'" data-id="'+projectEsc(t.id)+'" aria-pressed="'+mine+'">'
+        +'<span class="ptl-ck" aria-hidden="true">'+(mine?'✓':'')+'</span>'
+        +'<span class="ptl-main"><span class="ptl-txt">'+projectEsc((!mine&&cat.emoji?cat.emoji+' ':'')+(t.text||'할일'))+'</span>'+(meta.length?'<span class="ptl-meta">'+projectEsc(meta.join(' · '))+'</span>':'')+'</span>'
+        +'<span class="ptl-act">'+(mine?'빼기':'담기')+'</span></button>';
+    }).join('') + (more?'<div class="ptl-more">검색해서 더 찾아보세요</div>':'') || '<div class="project-empty">'+(q?'검색 결과가 없어요.':'담을 할일이 없어요.')+'</div>';
   }
   paint();
   ov.addEventListener('click',function(e){
     if(e.target===ov){close();return;}
-    var btn=e.target.closest('[data-id]'); if(!btn)return;
-    var task=(typeof tasks!=='undefined'?tasks:[]).find(function(t){return String(t.id)===String(btn.dataset.id);});
+    var seg=e.target.closest('[data-ptl]'); if(seg){ mode=seg.getAttribute('data-ptl'); ov.querySelectorAll('[data-ptl]').forEach(function(x){ x.classList.toggle('on',x===seg); }); paint(); return; }
+    var btn=e.target.closest('.ptl-row[data-id]'); if(!btn)return;
+    var task=(typeof tasks!=='undefined'?tasks:[]).find(function(t){return String(t.id)===String(btn.getAttribute('data-id'));});
     if(!task)return;
-    if(String(task.projectId||'')===String(project.id)) delete task.projectId; else task.projectId=project.id;
-    if(typeof saveTaskData==='function')saveTaskData();
-    paint(); renderProjects();
+    var mine=String(task.projectId||'')===String(project.id);
+    if(taskSetProject(task, mine?'':project.id))changed=true;
+    paint();
   });
   ov.querySelector('#ptl-search').addEventListener('input',paint);
   ov.querySelector('#ptl-close').addEventListener('click',close);
+  ov.querySelector('#ptl-x').addEventListener('click',close);
+  ov.addEventListener('keydown',function(e){ if(e.key==='Escape'){ e.stopPropagation(); close(); } });
+  setTimeout(function(){ var i=ov.querySelector('#ptl-search'); if(i&&!(window.matchMedia&&matchMedia('(pointer:coarse)').matches))i.focus(); },30);
 };
 function openProjectRecordLinker(project){
   var old=document.getElementById('project-record-linker'); if(old)old.remove();
@@ -39284,7 +39384,7 @@ renderProjects=function(){
         +'<section class="section-card pjd-logcol"><div class="project-section-head">'+_sl('feed','작업 로그')+'<span class="pjd-subtle">'+logN+'개</span></div>'+logsHtml+'</section>'
       +'</aside>'
     +'</div>'
-    +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div>'+tasksHtml+'</section>'
+    +'<section class="section-card pjd-tl-section"><div class="project-section-head">'+_sl('cal','할일 타임라인')+'<div class="pjd-tl-acts"><button class="btn btn-ghost" id="project-link-task" type="button">기존 할일 담기</button><button class="btn btn-primary" id="project-add-task">＋ 할일 추가</button></div></div>'+tasksHtml+'</section>'
     +'<section class="section-card pjb-section"><div class="project-section-head">'+_sl('board','자료 보드')+'</div>'+projectBoardHtml(p)+'</section>'
   +'</div>';
   function bind(id,fn){var el=detail.querySelector('#'+id);if(el)el.addEventListener('click',fn);}
