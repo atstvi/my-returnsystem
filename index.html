@@ -15679,6 +15679,8 @@ window.returnTaskStats=returnTaskStats; window.returnTodayLoad=returnTodayLoad;
    잡아 둔 자기 자신)을 모아 상태를 판정한다.
      overdue 마감 지남 · behind 준비를 못 하고 날짜가 지남 · none 준비 일정 없음 ·
      tight 준비가 마감 직전(여유 prepMarginDays 미만)에 잡힘 · planned 계획됨 · ready 준비 끝 · done 완료
+   일부러 직전에 잡아 둔 준비는 '당길 필요 없음'으로 표시(task.prepTimingOk = '<준비날>><마감날>')해
+   촉박으로 보지 않는다. 준비 날짜나 마감 날짜가 바뀌면 표시는 저절로 무효(다시 점검).
    미리 해 두는 걸 선호하므로 제안 날짜는 '마감 prepLeadDays일 전'과 그 전날 중 덜 바쁜 날(같으면 이른 날) —
    늦추는 방향으로는 고르지 않는다. 오늘보다 앞일 수 없고, 여유(prepMarginDays)를 넘길 수 없다. */
 var RADAR_DEADLINE_RE=/(과제|제출|마감|시험|퀴즈|중간고사|기말|발표|레포트|리포트|보고서|원고|신청|접수|deadline|due)/i;
@@ -15688,6 +15690,9 @@ function _radarAdd(k,n){ var d=new Date(k+'T00:00'); d.setDate(d.getDate()+n); r
 function _radarDiff(a,b){ return Math.round((new Date(a+'T00:00')-new Date(b+'T00:00'))/86400000); }
 function radarDayLabel(k){ if(!k)return ''; var d=new Date(k+'T00:00'); return RADAR_WD[d.getDay()]+' '+(d.getMonth()+1)+'/'+d.getDate(); }
 function radarDdayText(n){ return n<0?('D+'+(-n)):(n===0?'D-day':('D-'+n)); }
+/* '당길 필요 없음' — 이 준비를 이 날짜(prepDate)에, 이 마감(due) 직전에 두는 게 일부러인지 */
+function radarTimingKey(prepDate, due){ return String(prepDate||'')+'>'+String(due||''); }
+function radarTimingKept(t, prepDate, due){ return !!(t&&t.prepTimingOk&&t.prepTimingOk===radarTimingKey(prepDate,due)); }
 function returnDeadlineRadar(o){
   o=o||{};
   var TKK=o.todayKey, P=o.prefs||{};
@@ -15766,8 +15771,8 @@ function returnDeadlineRadar(o){
   function build(base){
     var due=base.due, d=_radarDiff(due,TKK), work=base.work.slice().sort(function(a,b){ return a.date<b.date?-1:(a.date>b.date?1:0); });
     var limit=_radarAdd(due,-MARGIN);
-    work.forEach(function(w){ w.late=!w.done&&w.date<TKK; w.tight=!w.done&&!w.late&&w.date>limit; });
-    var open=work.filter(function(w){ return !w.done; }), late=open.filter(function(w){ return w.late; }), tight=open.filter(function(w){ return w.tight; });
+    work.forEach(function(w){ w.late=!w.done&&w.date<TKK; w.kept=!w.done&&!w.late&&w.date>limit&&radarTimingKept(w.task,w.date,due); w.tight=!w.done&&!w.late&&w.date>limit&&!w.kept; });
+    var open=work.filter(function(w){ return !w.done; }), late=open.filter(function(w){ return w.late; }), tight=open.filter(function(w){ return w.tight; }), kept=open.filter(function(w){ return w.kept; });
     var st;
     if(base.done)st='done';
     else if(d<0)st='overdue';
@@ -15802,10 +15807,11 @@ function returnDeadlineRadar(o){
       msg='준비가 '+(base.kind==='schedule'?'일정':'마감')+' 직전('+radarDayLabel(first.date)+')';
       if(sd2>=first.date||d===0){ fix={type:'doNowWork',task:first.task}; }
       else fix={type:'pull',tasks:tight.map(function(w){ return w.task; }),date:sd2};
-      alt={type:'skip'};
+      alt={type:'keep',tasks:tight.map(function(w){ return w.task; })}; /* 일부러 직전에 둔 것 — 당기라고 안 함 */
     }
     else if(st==='ready'){ msg=base.kind==='schedule'?'준비 끝':'준비 끝 · 제출만'; if(d===0&&base.target)fix={type:'done'}; }
-    else if(st==='planned'){ msg='준비: '+open.map(function(w){ return radarDayLabel(w.date); }).filter(function(v,i,a){ return a.indexOf(v)===i; }).join(', ')+(base.prepItems?' · 준비물 '+base.prepItems.done+'/'+base.prepItems.total:''); }
+    else if(st==='planned'){ msg='준비: '+open.map(function(w){ return radarDayLabel(w.date); }).filter(function(v,i,a){ return a.indexOf(v)===i; }).join(', ')+(kept.length?' · 직전으로 둠':'')+(base.prepItems?' · 준비물 '+base.prepItems.done+'/'+base.prepItems.total:'');
+      if(kept.length)alt={type:'unkeep',tasks:kept.map(function(w){ return w.task; })}; }
     else if(st==='skipped')msg='준비 필요 없음';
     else if(st==='done')msg='완료';
     /* 활성 규칙이 만든 준비가 있으면 표시(반복 🔁과 구분해 ⚙) — 키워드·요일 규칙 모두 */
@@ -15997,7 +16003,7 @@ function homeBriefPlan(o){
   function guardCand(g){
     var t=g.focus||g.target; if(!t)return null;
     var title=g.state==='none'?(g.title+(g.kind==='schedule'?' 준비 할일 만들기':' 미리 하기')):(g.state==='behind'||g.state==='tight'?String(t.text||g.title):g.title);
-    var acts=(g.state==='behind'||g.state==='tight')?['startNow','guardFix']:['guardFix','guardAlt'];
+    var acts=g.state==='behind'?['startNow','guardFix']:(g.state==='tight'?['startNow','guardFix','guardAlt']:['guardFix','guardAlt']);
     if(g.state==='tight'&&g.fix&&g.fix.type==='doNowWork')acts=['startNow','guardAlt'];
     return {kind:'guard',tone:g.sev>=4?'danger':'warn',task:t,guard:g,eyebrow:(GUARD_EYE[g.state]||'마감')+' · '+dday(g.days),title:title,reason:g.msg,actions:acts};
   }
@@ -16309,6 +16315,8 @@ function radarFixLabel(fx){
     case 'doneWork': return '✓ 했어요';
     case 'open': return '열기';
     case 'skip': return '필요 없음';
+    case 'keep': return '당길 필요 없음';
+    case 'unkeep': return '다시 점검';
   }
   return '';
 }
@@ -16340,6 +16348,17 @@ function _radarApply(it, fx){
     case 'done': if(T&&!T.done&&typeof taskCheckToggle==='function'){ taskCheckToggle(T); toast('완료했어요 ✓'); } break;
     case 'doneWork': var D=live(fx.task); if(D&&!D.done&&typeof taskCheckToggle==='function'){ taskCheckToggle(D); toast('했어요 ✓'); } break;
     case 'open': var O=T||live(it.focus); if(O&&typeof tasksOpenModal==='function')tasksOpenModal(O); return;
+    case 'keep':
+      var kn=0;
+      (fx.tasks||[]).forEach(function(t){ var l=live(t); if(!l||l.done||!l.date)return; l.prepTimingOk=radarTimingKey(l.date,it.due); l.updatedAt=Date.now(); kn++; });
+      if(kn&&typeof saveTaskData==='function')saveTaskData();
+      toast(kn?('“'+it.title+'” 준비는 지금 날짜 그대로 둘게요 · 당기라고 안 할게요'):'바꿀 준비가 없어요');
+      break;
+    case 'unkeep':
+      (fx.tasks||[]).forEach(function(t){ var l=live(t); if(!l||!l.prepTimingOk)return; delete l.prepTimingOk; l.updatedAt=Date.now(); });
+      if(typeof saveTaskData==='function')saveTaskData();
+      toast('“'+it.title+'” 준비 일정을 다시 점검해요');
+      break;
     case 'skip':
       var sk=homeSkippedDeadlineLinks(); sk[it.skipKey||String(it.target&&it.target.id)]=Date.now();
       setReturnStorageItem('home_skipped_deadline_links', JSON.stringify(sk));
