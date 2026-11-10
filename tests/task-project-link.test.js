@@ -41,7 +41,7 @@ t.ok('고를 수 있는 프로젝트: 보관된 건 빼되, 지금 담긴 프로
 /* 배선 */
 t.ok('할일 메뉴에 "프로젝트로…"(담겨 있으면 "프로젝트 · 이름")', /label:_tp\?\('프로젝트 · '[\s\S]{0,80}:'프로젝트로…',onClick:function\(\)\{ taskProjectPicker\(t,at\); \}/.test(html));
 t.ok('프로젝트 고르기는 공용 액션 시트 + 빼기', /function taskProjectPicker\(task, at\)\{[\s\S]*?label:'프로젝트에서 빼기'[\s\S]*?rdsActionSheet\(\{title:'어느 프로젝트에 담을까요\?'/.test(html));
-t.ok('프로젝트 화면: "기존 할일 담기" 버튼이 다시 보임', /<button class="btn btn-ghost" id="project-link-task" type="button">기존 할일 담기<\/button><button class="btn btn-primary" id="project-add-task">/.test(html) && /bind\('project-link-task',function\(\)\{openProjectTaskLinker\(p\);\}\)/.test(html));
+t.ok('프로젝트 화면: "기존 할일 담기" 버튼이 다시 보임', /id="pjt-section"><div class="project-section-head">'\+_sl\('feed','할일'\)\+'<div class="pjd-tl-acts"><button class="btn btn-ghost" id="project-link-task" type="button">기존 할일 담기<\/button>/.test(html) && /bind\('project-link-task',function\(\)\{openProjectTaskLinker\(p\);\}\)/.test(html));
 t.ok('기존 할일 담기 창도 taskSetProject 사용', /openProjectTaskLinker=function\(project\)\{[\s\S]*?taskSetProject\(task, mine\?'':project\.id\)/.test(html));
 
 t.done();
