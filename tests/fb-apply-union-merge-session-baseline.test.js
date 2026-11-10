@@ -35,6 +35,8 @@ const vm = require('vm');
 const html = readIndex();
 const dedupBlock = sliceBlock(html, 'function returnDedupById(arr){', '\nwindow.returnDedupById=returnDedupById;');
 const fbApplyBlock = sliceBlock(html, 'function fbApplyData(data){', '\nfunction fbStatusTime(');
+/* hobby_items_v2/memos_v5는 이제 항목별 병합(returnSyncArrayMerge)을 거친다 — 실제 함수를 함께 싣는다. */
+const arrayMergeBlock = sliceBlock(html, 'function returnSyncArrayMerge(cloudStr, localStr, opts){', '\nwindow.returnSyncArrayMerge=returnSyncArrayMerge;');
 
 function makeSandbox(initialStore, sessionLoadMs) {
   const written = Object.assign({}, initialStore || {});
@@ -61,6 +63,7 @@ function makeSandbox(initialStore, sessionLoadMs) {
   };
   vm.createContext(sb);
   vm.runInContext(dedupBlock, sb);
+  vm.runInContext(arrayMergeBlock, sb);
   vm.runInContext(fbApplyBlock, sb);
   return { sb, written, win };
 }

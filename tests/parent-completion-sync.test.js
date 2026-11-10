@@ -29,10 +29,22 @@ function P(id,ex){ return Object.assign({id:id,text:'t'+id,done:false,updatedAt:
 }
 // 2) 하위 하나 재오픈 → 상위 미완료(양방향)
 {
-  var ctx=mk([P(1,{done:true}),P(2,{parentId:1,done:true}),P(3,{parentId:1,done:true})]);
-  ctx.tasks.find(x=>x.id===2).done=false;
+  var ctx=mk([P(1,{done:true,updatedAt:100}),P(2,{parentId:1,done:true,updatedAt:100}),P(3,{parentId:1,done:true,updatedAt:100})]);
+  var k2=ctx.tasks.find(x=>x.id===2); k2.done=false; k2.updatedAt=200;   /* 체크 해제는 updatedAt을 올린다(taskCheckToggle) */
   ctx.syncParentCompletions();
   t.ok('하위 재오픈 → 상위 미완료', ctx.tasks.find(x=>x.id===1).done===false);
+}
+// 2-1) 완료 풀림 버그: 상위를 직접 완료(하위 하나 미완료) → 저장할 때마다 되돌리던 것
+{
+  var ctx=mk([P(1,{done:true,updatedAt:500}),P(2,{parentId:1,done:true,updatedAt:100}),P(3,{parentId:1,done:false,updatedAt:100})]);
+  ctx.syncParentCompletions();
+  t.ok('상위를 완료한 뒤 하위는 그대로 → 상위 완료 유지', ctx.tasks.find(x=>x.id===1).done===true);
+  var ctx2=mk([P(1,{done:true,updatedAt:500}),P(2,{parentId:1,done:false})]);
+  ctx2.syncParentCompletions();
+  t.ok('예전에 완료해 둔 상위(하위 미완료·수정 시각 없음)도 유지', ctx2.tasks.find(x=>x.id===1).done===true);
+  var ctx3=mk([P(1,{done:true,updatedAt:500}),P(2,{parentId:1,done:true,updatedAt:100}),P(9,{parentId:1,done:false,createdAt:900,updatedAt:900})]);
+  ctx3.syncParentCompletions();
+  t.ok('완료 뒤 새 하위가 생기면 → 상위 미완료', ctx3.tasks.find(x=>x.id===1).done===false);
 }
 // 3) cascade: 상위 완료 → 하위 모두 완료 / 해제 → 하위 모두 해제
 {

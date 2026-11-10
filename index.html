@@ -27642,7 +27642,14 @@ function syncParentCompletions(){
       if(!kids.length)return;
       var allDone=kids.every(function(k){return taskEffectiveDone(k);});
       if(allDone && !p.done){ p.done=true; p.updatedAt=Date.now(); changed=true; }
-      else if(!allDone && p.done){ p.done=false; p.updatedAt=Date.now(); changed=true; }
+      /* 상위를 미완료로 되돌리는 건 '상위를 완료한 뒤에' 하위가 다시 열렸거나 새로 생겼을 때만.
+         예전엔 하위 하나라도 미완료면 저장할 때마다 무조건 되돌려서, 상위를 직접 완료한 것·
+         이 동기화가 생기기 전에 완료해 둔 상위가 다시 미완료로 풀렸다("예전에 완료한 할일이 풀림"). */
+      else if(!allDone && p.done){
+        var pAt=Number(p.updatedAt)||0;
+        var reopened=kids.some(function(k){ return !taskEffectiveDone(k) && (Number(k.updatedAt)||Number(k.createdAt)||0)>pAt; });
+        if(reopened){ p.done=false; p.updatedAt=Date.now(); changed=true; }
+      }
     });
     if(!changed)break;
   }
@@ -32193,6 +32200,24 @@ function loadItems() {
   return [];
 }
 function saveItemsData(items) {
+  /* 바뀐 항목만 updatedAt을 찍는다(+ _eid · 지운 항목 tombstone) — 기기 간 항목별 병합의 근거.
+     예전엔 완료 체크가 updatedAt을 안 바꿔, 두 기기가 비슷한 때 취미를 고치면 클라우드의
+     예전(미완료) 사본이 이겨 완료가 풀렸다.
+     비교 기준은 '마지막으로 저장된 값'(다른 기기에서 받아 쓴 것 포함) — 그래서 처음 켠 기기에서도
+     전부가 아니라 지금 실제로 바뀐 항목만 찍힌다(전부 찍으면 옛 사본이 통째로 이기게 된다). */
+  try{
+    if(typeof returnEntityPrepareForSave==='function'){
+      try{
+        var _prev=JSON.parse(localStorage.getItem('hobby_items_v2')||'[]');
+        if(Array.isArray(_prev)&&typeof _entityPayloadHash==='function'){
+          var _sh={};
+          _prev.forEach(function(e){ if(!e||typeof e!=='object')return; var eid=e._eid||((e.id!=null&&String(e.id)!=='')?'hob_'+String(e.id):null); if(eid)_sh[eid]=_entityPayloadHash(e); });
+          setReturnStorageItem('__eid_shadow_hobby', JSON.stringify(_sh));
+        }
+      }catch(_p){}
+      returnEntityPrepareForSave('hobby', items, 'hob_', {autoTombstone:true});
+    }
+  }catch(_e){}
   var ok=setReturnStorageItem('hobby_items_v2',JSON.stringify(items));
   if(!ok)console.error('[hobby] hobby_items_v2 save failed');
 }
@@ -44657,27 +44682,16 @@ function fbApplyData(data){
            hobby items use createdAt; memos use ts. Items without a creation
            timestamp are treated as pre-sync and are not re-added if missing. */
         if(k==='hobby_items_v2'||k==='memos_v5'){
+          /* 항목별 병합: 같은 항목은 updatedAt이 큰 쪽(같으면 클라우드), 이 세션에 새로 만든
+             로컬 전용 항목은 보존, 지운 항목(tombstone)은 되살리지 않음. 예전엔 새 항목만 지키고
+             나머지는 클라우드 값으로 통째로 덮어, 이 기기의 완료 체크·편집이 사라질 수 있었다. */
           try{
-            var _hobIsArray=k==='hobby_items_v2';
-            var _hmCloud=JSON.parse(data.keys[k]||'[]')||[];
-            var _hmLocal=JSON.parse(localStorage.getItem(k)||'[]')||[];
-            if(Array.isArray(_hmCloud)&&Array.isArray(_hmLocal)){
-              var _hmCloudIds={};
-              _hmCloud.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_hmCloudIds[String(t.id!=null?t.id:t.ts)]=true;});
-              var _hmLocalOnly=_hmLocal.filter(function(t){
-                if(!t)return false;
-                var key=t.id!=null?t.id:t.ts;
-                if(key==null)return false;
-                if(_hmCloudIds[String(key)])return false;
-                var created=Number(t.createdAt||t.ts||0);
-                return created>_returnSessionLoadMs;
-              });
-              if(_hmLocalOnly.length){
-                _fbWriter(k,JSON.stringify(_hmCloud.concat(_hmLocalOnly)));
-                if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
-                taskUnionMergeAfterFbApply=true;
-                return;
-              }
+            var _hmMerged=returnSyncArrayMerge(data.keys[k]||'[]', localStorage.getItem(k)||'[]', {baseline:_returnSessionLoadMs, tombstones:true});
+            if(_hmMerged!=null){
+              _fbWriter(k,JSON.stringify(_hmMerged));
+              if(window._idbCache&&Object.prototype.hasOwnProperty.call(window._idbCache,k))_idbDelete(k);
+              taskUnionMergeAfterFbApply=true;
+              return;
             }
           }catch(_hm){}
         }
@@ -45603,27 +45617,8 @@ async function fbSaveNow(opts){
             }
           }catch(_supp2){}
         }
-        if(k==='hobby_items_v2'||k==='memos_v5'){
-          try{
-            var _snCloudHM=JSON.parse(cloud.fullValue||'[]')||[];
-            var _snOursHM=JSON.parse(ours||'[]')||[];
-            if(Array.isArray(_snCloudHM)&&Array.isArray(_snOursHM)&&localApplyBaseline>0){
-              var _snCloudHMIds={};
-              _snCloudHM.forEach(function(t){if(t&&(t.id!=null||t.ts!=null))_snCloudHMIds[String(t.id!=null?t.id:t.ts)]=true;});
-              var _snLocalOnlyHM=_snOursHM.filter(function(t){
-                if(!t)return false;
-                var key=t.id!=null?t.id:t.ts;
-                if(key==null)return false;
-                if(_snCloudHMIds[String(key)])return false;
-                var created=Number(t.createdAt||t.ts||0);
-                return created>localApplyBaseline;
-              });
-              if(_snLocalOnlyHM.length){
-                valueToAbsorb=JSON.stringify(_snCloudHM.concat(_snLocalOnlyHM));
-              }
-            }
-          }catch(_hm2){}
-        }
+        /* hobby_items_v2/memos_v5는 위 returnSyncArrayMerge(항목별 LWW + 이 세션 새 항목 보존)가
+           이미 처리한다 — 예전엔 여기서 '클라우드 + 새 로컬 항목'으로 다시 덮어 그 병합(로컬 편집)을 버렸다. */
         try {
           var prev = null;
           try { prev = localStorage.getItem(k); } catch(e){}
