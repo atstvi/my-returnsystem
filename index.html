@@ -6525,6 +6525,20 @@ to{opacity:1;transform:translateY(0)}}
 .pji-assign{flex:none;font-size:var(--text-mini);font-weight:var(--fw-semibold);color:var(--accent);background:var(--accent-light);border:none;border-radius:var(--r-full);padding:5px 10px;cursor:pointer;transition:background var(--t-snap)}
 .pji-assign:hover{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 .pji-dismissall:hover{color:var(--success);border-color:var(--success)}
+.pji-head .pjd-badge{margin-left:var(--sp-2)}
+.pji-unf-toggle{margin-left:auto;display:inline-flex;align-items:center;gap:var(--sp-2);min-height:var(--ctl-h-sm);padding:0 var(--sp-3) 0 var(--sp-4);border-radius:var(--r-full);border:1px solid var(--border-subtle);background:var(--bg-card);color:var(--fg-2);font:inherit;font-size:var(--text-xs);font-weight:var(--fw-semibold);cursor:pointer;transition:background var(--t-snap),color var(--t-snap),border-color var(--t-snap)}
+.pji-unf-toggle:hover{color:var(--accent);border-color:var(--accent)}
+.pji-unf-toggle.on{background:var(--accent-light);color:var(--accent);border-color:transparent}
+.pji-unf-caret{display:inline-flex;width:12px;height:12px;transition:transform var(--t-snap)}
+.pji-unf-caret svg{width:12px;height:12px}
+.pji-unf-toggle.on .pji-unf-caret{transform:rotate(90deg)}
+.pji-unf-panel{margin-top:var(--sp-5);padding:var(--sp-5);border-radius:var(--r-lg);background:var(--bg-sunken);display:flex;flex-direction:column;gap:var(--sp-3)}
+.pji-unf-head{display:flex;align-items:baseline;gap:var(--sp-3);flex-wrap:wrap;font-size:var(--text-xs);color:var(--fg-4)}
+.pji-unf-head b{font-size:var(--text-sm);color:var(--fg-2);font-weight:var(--fw-semibold)}
+.pji-unf-panel .pji-list{max-height:360px;overflow-y:auto}
+.pji-unf-panel .pji-item{background:var(--bg-card)}
+@media (pointer:coarse){ .pji-assign{min-height:var(--ctl-h-sm);padding:0 var(--sp-4)} .pji-grip{display:none} .pji-unfiled{cursor:default}
+  .pji-assign,.pji-unf-toggle{position:relative} .pji-assign::after,.pji-unf-toggle::after{content:'';position:absolute;left:0;right:0;top:50%;height:var(--tap);transform:translateY(-50%)} }
 .pjd-inboxcol.pji-drop-target{outline:2px dashed var(--accent);outline-offset:-3px;background:var(--accent-light)}
 @media(max-width:860px){.pjd-split{grid-template-columns:1fr}.pjd-inboxcol .pji-list{max-height:none}.pjd-unfiledcol{min-height:0}.pjd-unfiledcol .pji-list{flex:none}}
 .pji-list{display:flex;flex-direction:column;gap:6px}
@@ -39437,6 +39451,7 @@ function projectInboxHtml(project){
 /* 미분류 인박스 — 아직 어떤 프로젝트에도 담기지 않은(projectId 없는) 인박스 항목.
    위쪽 "처리할 인박스" 카드로 드래그해 놓으면 이 프로젝트로 분류된다. */
 var _pjDragInboxId=null;
+var _pjUnfiledOpen={};
 /* 이 프로젝트에서 "확인 완료"로 숨긴 미분류 항목인가? — it.pjDismiss(프로젝트 id 배열)에
    해당 프로젝트가 들어 있으면 그 프로젝트 미분류 목록에서 제외(다른 프로젝트/인박스 탭엔
    그대로). 새로 등록되는 항목은 pjDismiss가 없어 다시 나타나므로 중복 확인이 필요 없다. */
@@ -39526,6 +39541,8 @@ renderProjects=function(){
   var color=p.color||'#BE727A';
   var doneN=linked.filter(function(t){return (typeof taskEffectiveDone==='function')?taskEffectiveDone(t):t.done;}).length;
   var inboxN=projectInboxItems(p).length;
+  /* 미분류(아직 프로젝트 없는) 인박스는 버튼을 눌렀을 때만 이 카드 안에 펼친다 — 프로젝트마다 기억(이 세션) */
+  var unfN=projectUnfiledInboxItems(p).length, unfOpen=!!_pjUnfiledOpen[String(p.id)];
   var resN=(function(){ try{ return (projectBoardEnsure(p).items||[]).length; }catch(e){ return (p.resources||[]).length; } })();
   var logN=(p.logs||[]).length;
   function _sl(kind,text){
@@ -39552,10 +39569,11 @@ renderProjects=function(){
     +'<div class="pjd-work">'
       +'<div class="pjd-flow">'
         +'<section class="section-card pjt-section" id="pjt-section"><div class="project-section-head">'+_sl('feed','할일')+'<div class="pjd-tl-acts"><button class="btn btn-ghost" id="project-link-task" type="button">기존 할일 담기</button></div></div>'+projectTaskListHtml(p)+'</section>'
-        +'<div class="pjd-inboxrow">'
-          +'<section class="section-card pjd-inboxcol" id="pjd-inboxcol"><div class="project-section-head">'+_sl('inbox','처리할 인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span></div>'+projectInboxHtml(p)+'</section>'
-          +'<section class="section-card pjd-unfiledcol"><div class="project-section-head">'+_sl('inbox','미분류 인박스')+'<span class="pjd-subtle">드래그해서 분류</span></div>'+projectUnfiledInboxHtml(p)+'</section>'
-        +'</div>'
+        +'<section class="section-card pjd-inboxcol" id="pjd-inboxcol"><div class="project-section-head pji-head">'+_sl('inbox','인박스')+'<span class="pjd-badge'+(inboxN?'':' zero')+'">'+inboxN+'</span>'
+          +(unfN?'<button type="button" class="pji-unf-toggle'+(unfOpen?' on':'')+'" id="pji-unf-toggle" aria-expanded="'+unfOpen+'" aria-controls="pji-unf-panel" title="아직 프로젝트가 없는 인박스 항목 보기">미분류 '+unfN+'<span class="pji-unf-caret" aria-hidden="true">'+(typeof CARET_SVG_R!=='undefined'?CARET_SVG_R:'›')+'</span></button>':'')+'</div>'
+          +projectInboxHtml(p)
+          +((unfOpen&&unfN)?'<div class="pji-unf-panel" id="pji-unf-panel"><div class="pji-unf-head"><b>미분류 인박스</b><span>이 프로젝트 것만 → 담기'+(rdsIsTouch()?'':' · 끌어다 놓아도 돼요')+'</span></div>'+projectUnfiledInboxHtml(p)+'</div>':'')
+        +'</section>'
         +'<section class="section-card pjd-goals-section"><div class="project-section-head">'+_sl('goal','목표')+'<button class="btn btn-ghost" id="project-add-goal">＋ 목표</button></div>'+goalsHtml+'</section>'
       +'</div>'
       +'<aside class="pjd-side">'
@@ -39610,6 +39628,7 @@ renderProjects=function(){
   bind('project-add-resource',function(){openProjectResourceEditor(p);}); bind('project-add-resource-empty',function(){openProjectResourceEditor(p);});
   bind('project-add-goal',function(){openGoalEditor(p,null);}); bind('project-add-goal-empty',function(){openGoalEditor(p,null);});
   bind('project-inbox-add',function(){ projectQuickInbox(p); });
+  bind('pji-unf-toggle',function(){ var k=String(p.id); _pjUnfiledOpen[k]=!_pjUnfiledOpen[k]; renderProjects(); });
   detail.querySelectorAll('[data-pji-sheet]').forEach(function(b){b.addEventListener('click',function(e){e.stopPropagation();
     var it=(typeof inboxItems!=='undefined'?inboxItems:[]).find(function(x){return String(x.id)===String(b.getAttribute('data-pji-sheet'));});
     if(it&&typeof openProjectInboxSheet==='function')openProjectInboxSheet(p,it);
