@@ -14,7 +14,7 @@ ctx.taskEffectiveDone = (x) => !!x.done;
 ctx._wsPopSaveTasks = () => { ctx.saves++; };
 vm.createContext(ctx);
 vm.runInContext(sliceBlock(html, 'function _wsStepOwner(t){', '\n/* 작업대를 다른 할일로'), ctx);
-vm.runInContext(sliceBlock(html, 'function _wsAddStep(owner, text){', '\nfunction _wsPopKey(e){'), ctx);
+vm.runInContext(sliceBlock(html, 'function _wsAddStep(owner, text){', "\n/* 하위 할일이면 '2/4'"), ctx);
 vm.runInContext(sliceBlock(html, 'function _wsStepsHtml(t, esc){', '\nfunction _wsPopRender(){'), ctx);
 const esc = (v) => String(v == null ? '' : v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
