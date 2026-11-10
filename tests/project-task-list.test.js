@@ -56,12 +56,37 @@ vm.runInContext(sliceBlock(html, "var _pjtFilter='open';", 'function projectWeek
   t.ok('빈 입력은 무시', ctx.projectQuickAddTask({ id: 'p9' }, '   ') === null);
 }
 
+/* 다듬기: 많은 묶음은 8개까지 + 더 보기 · 묶음 접기 · 목표별 묶기 */
+{
+  ctx.tasks = []; for (let i = 0; i < 11; i++) ctx.tasks.push({ id: 100 + i, projectId: 'p', text: 't' + i, date: '2026-11-10', goalId: i < 3 ? 'g1' : undefined });
+  ctx._pjtFilter = 'open'; ctx._pjtGroup = 'date'; ctx._pjtCollapsed = {}; ctx._pjtShowAll = {};
+  let h = ctx.projectTaskListHtml({ id: 'p', goals: [{ id: 'g1', title: '1장' }] });
+  t.ok('한 묶음은 8개까지 + "3개 더 보기"', (h.match(/class="pjt-row[ "]/g) || []).length === 8 && /data-pjt-moreg="d:today">＋ 3개 더 보기/.test(h));
+  ctx._pjtShowAll = { 'd:today': 1 };
+  h = ctx.projectTaskListHtml({ id: 'p', goals: [{ id: 'g1', title: '1장' }] });
+  t.ok('더 보기 → 전부', (h.match(/class="pjt-row[ "]/g) || []).length === 11);
+  ctx._pjtCollapsed = { 'd:today': 1 };
+  h = ctx.projectTaskListHtml({ id: 'p', goals: [{ id: 'g1', title: '1장' }] });
+  t.ok('접은 묶음은 머리만', !/class="pjt-row[ "]/.test(h) && /pjt-group collapsed/.test(h) && /aria-expanded="false"/.test(h));
+  ctx._pjtCollapsed = {}; ctx._pjtGroup = 'goal';
+  h = ctx.projectTaskListHtml({ id: 'p', goals: [{ id: 'g1', title: '1장' }] });
+  t.ok('목표별 묶기: 목표 → 목표 없음, 날짜/목표 전환 버튼', /◎ 1장<span class="pjt-gn">3</.test(h) && /목표 없음<span class="pjt-gn">8</.test(h) && /data-pjt-grp="goal" role="tab" aria-selected="true"/.test(h));
+  h = ctx.projectTaskListHtml({ id: 'p', goals: [] });
+  t.ok('목표가 없는 프로젝트는 날짜로, 전환 버튼 없음', !/data-pjt-grp/.test(h) && /오늘<span class="pjt-gn">/.test(h));
+  ctx._pjtGroup = 'date'; ctx._pjtShowAll = {};
+}
+
 /* 배선 */
 t.ok('할일 칸이 상세 맨 위(흐름 첫 칸)', /'<div class="pjd-flow">'\s*\+'<section class="section-card pjt-section" id="pjt-section">/.test(html));
 t.ok('줄 제스처는 할일 탭과 같은 공용 어댑터', /rdsBindTaskGestures\(document\.getElementById\('project-detail'\),'\.pjt-row'\);/.test(html) && /@media \(pointer:coarse\)\{ \.pjt-row\{touch-action:pan-y;/.test(html));
 t.ok('다른 곳에서 할일을 바꿔도 열린 프로젝트에 반영(쓰는 중이면 건너뜀)', /_pg\.classList\.contains\('pj-detail-mode'\)[\s\S]{0,400}if\(inDet&&String\(ae\.value\|\|''\)\.trim\(\)\)return;/.test(html)
   && /function _taskRefreshViews\(\)\{ try\{ if\(typeof _currentPage!=='undefined'&&_currentPage==='projects'/.test(html));
 t.ok('폭: 최대 1680 · 여백은 --gutter(없는 토큰 제거)', /\.project-workspace\{width:100%;max-width:1680px;/.test(html) && /\.project-studio \.project-detail-pane\{max-width:none;margin:0;padding:var\(--sp-12\) var\(--gutter\) var\(--sp-16\);/.test(html));
+t.ok('묶기·접기는 기기에 기억', /localStorage\.setItem\('pj_task_group',_pjtGroup\)/.test(html) && /localStorage\.setItem\('pj_task_collapsed',JSON\.stringify\(_pjtCollapsed\)\)/.test(html));
+t.ok('입력 중 미리보기(상단 빠른 추가와 같은 칩) · Esc 지우기', /captureNLChipsHtml\(pin\.value\)/.test(html) && /if\(e\.key==='Escape'\)\{ e\.stopPropagation\(\); pin\.value='';/.test(html));
+t.ok('마우스 빠른 버튼(오늘/내일 · 날짜) — 할일 탭과 같은 동작', /data-pjt-q="move"/.test(html) && /_taskMoveDate\(t,toTm\?_taskTomorrowKey\(\):TK,toTm\?'내일':'오늘'\); \} else _taskPickDate\(t\);/.test(html));
+t.ok('없는 토큰 연결: --r-2xl(카드 둥글기 0이던 것) · --shadow-1', /--r-2xl:var\(--r-xl\); --shadow-1:var\(--elev-1\);/.test(html));
+t.ok('Area 묶음 머리: 괄호 모양 왼쪽 선 제거 · 묶음 사이 구분선', /\.pj-stage-shead,\.pj-area-sec \.pj-stage-shead\{border-left:0;/.test(html) && /\.pj-stage-sec\+\.pj-stage-sec\{border-top:\.5px solid var\(--border-subtle\);padding-top:var\(--sp-10\)\}/.test(html));
 t.ok('상세 화면에선 빈 상태 테두리 제거', /detail\.classList\.remove\('project-empty'\);/.test(html) && /if\(!p\)\{detail\.classList\.add\('project-empty'\);/.test(html));
 
 t.done();
