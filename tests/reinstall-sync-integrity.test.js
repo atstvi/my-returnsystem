@@ -166,9 +166,9 @@ t.ok('키워드 규칙 과거 마감 생성 차단', /var anchor=taskDateKeyLoca
 })();
 
 // ── 4b) 배선: 인바운드 선병합 + 캐시 무효화, 아웃바운드 병합·푸시, cloud-only 흡수 무효화 ──
-t.ok('인바운드: 키 순회 전에 tombstone 선병합', /var _fbApplySkip = \{'return_sync_model': true\};\s*[\s\S]{0,700}?returnTombstoneMergeStr\(data\.keys\['return_tombstones_v1'\], localStorage\.getItem\('return_tombstones_v1'\)\)[\s\S]{0,700}?returnTombstoneInvalidate\(\);[\s\S]{0,1500}?Object\.keys\(data\.keys\)\.forEach/.test(html));
+t.ok('인바운드: 키 순회 전에 tombstone 선병합', /var _fbApplySkip = \{'return_sync_model': true\};\s*[\s\S]{0,1600}?returnTombstoneMergeStr\(data\.keys\['return_tombstones_v1'\], localStorage\.getItem\('return_tombstones_v1'\)\)[\s\S]{0,700}?returnTombstoneInvalidate\(\);[\s\S]{0,1500}?Object\.keys\(data\.keys\)\.forEach/.test(html));
 t.ok('인바운드: 원시 덮어쓰기 루프에서 제외', /_fbApplySkip\['return_tombstones_v1'\]=true;/.test(html));
-t.ok('아웃바운드: absorb 병합', /if\(k==='return_tombstones_v1'&&typeof returnTombstoneMergeStr==='function'\)\{\s*try\{ var _snTb=returnTombstoneMergeStr\(cloud\.fullValue, ours\); if\(_snTb\)valueToAbsorb=_snTb\.value; \}catch\(_tb2\)\{\}/.test(html));
+t.ok('아웃바운드: absorb 병합', /if\(k==='return_tombstones_v1'&&typeof returnTombstoneMergeStr==='function'\)\{\s*try\{ var _snTb=returnTombstoneMergeStr\(cloud\.fullValue, ours\); if\(_snTb\)valueToAbsorb=_snTb\.value; else _mergeFailed=true; \}catch\(_tb2\)\{ _mergeFailed=true; \}/.test(html));
 t.ok('아웃바운드: 병합 결과 푸시 목록', /k==='generated_task_suppressions_v1' \|\| k==='return_tombstones_v1' \|\| k==='hobby_items_v2'/.test(html));
 t.ok('아웃바운드/cloud-only 흡수 후 캐시 무효화(2곳)', (html.match(/if\(k==='return_tombstones_v1'&&typeof returnTombstoneInvalidate==='function'\)returnTombstoneInvalidate\(\);/g) || []).length === 2);
 t.ok('무효화 헬퍼', /function returnTombstoneInvalidate\(\)\{ _tombstones=null; \}/.test(html));

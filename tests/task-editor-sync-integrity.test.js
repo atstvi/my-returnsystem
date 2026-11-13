@@ -37,7 +37,7 @@ t.ok('중복 id 안전', dupOut[0] === X && dupOut[1] !== X && dupOut[1].text ==
 
 // 3) 배선
 t.ok('원격 적용 재적재가 제자리 갱신 사용', /tasks=returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(remoteTasks\)\);/.test(html));
-t.ok('버전 복원·부팅 재수화도 동일', (html.match(/tasks=\(typeof returnAdoptTasksInPlace==='function'\)\?returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(rt\)\):rt;/g) || []).length === 2);
+t.ok('버전 복원·부팅 재수화·저장 쪽 흡수 뒤 재적재도 동일', (html.match(/tasks=\(typeof returnAdoptTasksInPlace==='function'\)\?returnAdoptTasksInPlace\(tasks, returnSanitizeTaskArray\(rt\)\):rt;/g) || []).length === 3);
 const closeFn = sliceBlock(html, 'function tasksCloseModal(){', '\nfunction closeModal(){');
 t.ok('닫기(취소)는 저장소 값 기준으로 되돌림', /_persisted=\(JSON\.parse\(localStorage\.getItem\('task_items_v1'\)\|\|'\[\]'\)\|\|\[\]\)\.find\(/.test(closeFn) && /var _base=_persisted\|\|taskModalSnapshot/.test(closeFn));
 t.ok('되돌림도 제자리(참조 유지)', /returnAdoptValueInPlace\(_live,_base\)/.test(closeFn));

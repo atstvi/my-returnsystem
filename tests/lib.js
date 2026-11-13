@@ -66,4 +66,16 @@ function runner(title) {
   };
 }
 
-module.exports = { readIndex, sliceBlock, makeStore, assertSyntaxOk, runner, INDEX };
+/* fbApplyData/fbSaveNow가 쓰는 모듈 수준 동기화 헬퍼(병합·fail-closed 쓰기·되돌림 감지) 원문.
+   fbApplyData를 잘라 쓰는 테스트는 이걸 함께 실행해야 실제 병합 경로를 탄다 — 예전엔 헬퍼가 없으면
+   병합 분기가 ReferenceError로 실패하고 '일반 덮어쓰기'로 흘러 테스트가 우연히 통과했다(그 fail-open이
+   실제 데이터 롤백 원인이었다). */
+function syncHelpersSource(html) {
+  return [
+    sliceBlock(html, 'function returnDedupById(arr){', 'window.returnDedupById=returnDedupById;'),
+    sliceBlock(html, 'function returnSyncArrayMerge(cloudStr, localStr, opts){', 'window.returnSyncArrayMerge=returnSyncArrayMerge;'),
+    sliceBlock(html, '/* ════════ 동기화 데이터 보호', 'function returnFbStaleEcho(k, data){'),
+  ].join('\n');
+}
+
+module.exports = { readIndex, sliceBlock, makeStore, assertSyntaxOk, runner, INDEX, syncHelpersSource };
