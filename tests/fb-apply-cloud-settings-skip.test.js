@@ -19,7 +19,7 @@
    2. diary_notion_cfg / groq_api_key in data.keys → NOT written
    3. normal sync key (task_items_v1) in data.keys → IS written (unaffected)
    4. gcal_cfg_v1 not added to _fbLastPushedSnapshot */
-const { readIndex, sliceBlock, runner } = require('./lib');
+const { readIndex, sliceBlock, runner, syncHelpersSource } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
@@ -51,6 +51,7 @@ function makeSandbox(initialStore) {
   };
   vm.createContext(sb);
   vm.runInContext(shouldFbSyncKeyBlock, sb);
+  vm.runInContext(syncHelpersSource(html), sb);
   vm.runInContext(block, sb);
   return { sb, written, win };
 }

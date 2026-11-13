@@ -43,6 +43,8 @@ const again = JSON.parse(store.hobby_items_v2); ctx.saveItemsData(again);
 t.ok('그대로 다시 저장하면 다시 찍지 않음', JSON.parse(store.hobby_items_v2)[0].updatedAt === before);
 
 /* 배선 */
-t.ok('받을 때: 항목별 LWW(이 세션 새 항목 보존 · tombstone)', /if\(k==='hobby_items_v2'\|\|k==='memos_v5'\)\{[\s\S]{0,400}var _hmMerged=returnSyncArrayMerge\(data\.keys\[k\]\|\|'\[\]', localStorage\.getItem\(k\)\|\|'\[\]', \{baseline:_returnSessionLoadMs, tombstones:true\}\);/.test(html));
-t.ok('올릴 때: 항목별 병합 결과를 덮던 블록 제거', !/_snLocalOnlyHM/.test(html) && /var _hm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{baseline:localApplyBaseline\}\);/.test(html));
+/* 로컬 전용 항목은 세션과 무관하게 보존(지운 항목은 자동 tombstone이 거름) — 옛 클라우드 사본이 들어와도
+   지난 세션의 취미·기록 항목이 사라지지 않게(데이터 롤백 사고 대응). */
+t.ok('받을 때: 항목별 LWW(로컬 전용 보존 · tombstone)', /if\(k==='hobby_items_v2'\|\|k==='memos_v5'\)\{[\s\S]{0,900}var _hmMerged=returnSyncArrayMerge\(data\.keys\[k\]\|\|'\[\]', localStorage\.getItem\(k\)\|\|'\[\]', \{keepAllLocalOnly:true, tombstones:true, eidPrefix:RETURN_EID_PREFIX\[k\]\}\);/.test(html));
+t.ok('올릴 때: 항목별 병합 결과를 덮던 블록 제거 · 같은 보존 규칙', !/_snLocalOnlyHM/.test(html) && /var _hm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{keepAllLocalOnly:true, tombstones:true, eidPrefix:RETURN_EID_PREFIX\[k\]\}\);/.test(html));
 t.done();

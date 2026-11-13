@@ -26,10 +26,12 @@
    2. projects_v1: a SECOND stale snapshot (simulating the Firestore
       double-fire race) still preserves the same item.
    3. projects_v1: an item created BEFORE this session started, missing from
-      cloud → NOT resurrected (blind overwrite still applies to old data).
+      cloud → KEPT. (바뀐 규칙) 예전엔 '클라우드에 없으면 다른 기기가 지운 것'으로 보고 버렸는데,
+      실제로는 옛 클라우드 사본에 빠진 것이어서 한 달치 프로젝트·인박스가 사라졌다. 진짜 삭제는
+      자동 tombstone이 남으므로 3b처럼 tombstone된 항목만 버린다.
    4. memos_v5: same "this-session item survives two stale snapshots" check,
       keyed by `ts` instead of `id`. */
-const { readIndex, sliceBlock, runner } = require('./lib');
+const { readIndex, sliceBlock, runner, syncHelpersSource } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
@@ -37,6 +39,7 @@ const dedupBlock = sliceBlock(html, 'function returnDedupById(arr){', '\nwindow.
 const fbApplyBlock = sliceBlock(html, 'function fbApplyData(data){', '\nfunction fbStatusTime(');
 /* hobby_items_v2/memos_v5는 이제 항목별 병합(returnSyncArrayMerge)을 거친다 — 실제 함수를 함께 싣는다. */
 const arrayMergeBlock = sliceBlock(html, 'function returnSyncArrayMerge(cloudStr, localStr, opts){', '\nwindow.returnSyncArrayMerge=returnSyncArrayMerge;');
+const tombBlock = sliceBlock(html, "var RETURN_TOMBSTONE_KEY='return_tombstones_v1';", 'window.returnTombstoneMark=returnTombstoneMark;');
 
 function makeSandbox(initialStore, sessionLoadMs) {
   const written = Object.assign({}, initialStore || {});
@@ -62,8 +65,8 @@ function makeSandbox(initialStore, sessionLoadMs) {
     fbSaveAll: () => {},
   };
   vm.createContext(sb);
-  vm.runInContext(dedupBlock, sb);
-  vm.runInContext(arrayMergeBlock, sb);
+  vm.runInContext(syncHelpersSource(html), sb);
+  vm.runInContext(tombBlock, sb);
   vm.runInContext(fbApplyBlock, sb);
   return { sb, written, win };
 }
@@ -109,7 +112,18 @@ const SESSION_START = 1_000_000;
     updatedAtMs: SESSION_START + 100,
   });
   const saved = JSON.parse(written.projects_v1 || '[]');
-  t.ok('pre-session local-only item is not resurrected', !saved.some(p => p.id === 'project_old'), saved);
+  t.ok('pre-session local-only item is KEPT (stale cloud may lack it)', saved.some(p => p.id === 'project_old'), saved);
+}
+
+// ── 3b. …but a pre-session item that was deleted elsewhere (tombstone) is dropped ─
+{
+  const localProjects = JSON.stringify([{ id: 'project_old', _eid: 'p_project_old', title: '지운 프로젝트', createdAt: SESSION_START - 5000, updatedAt: SESSION_START - 5000 }]);
+  const tomb = JSON.stringify({ p_project_old: { deletedAt: SESSION_START - 100, collection: 'projects' } });
+  const { sb, written } = makeSandbox({ projects_v1: localProjects, return_tombstones_v1: tomb }, SESSION_START);
+  sb._lastRemoteApplyMs = SESSION_START - 10000;
+  sb.fbApplyData({ keys: { projects_v1: '[]' }, updatedAtMs: SESSION_START + 100 });
+  const saved = JSON.parse(written.projects_v1 || '[]');
+  t.ok('tombstoned pre-session item is dropped (real delete still propagates)', !saved.some(p => p.id === 'project_old'), saved);
 }
 
 // ── 4. memos_v5: this-session memo survives two stale snapshots ────────────

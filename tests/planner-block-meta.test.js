@@ -9,7 +9,7 @@ const t = runner('계획창 블록 완료·이동·준비물');
 
 // 완료 체크
 t.ok('블록에 완료 체크 버튼', /var ck=document\.createElement\('button'\);[\s\S]*?ck\.className='plan-block-check plan-block-ctl'\+\(done&&!canceled\?' done':''\)\+\(canceled\?' canceled':''\)/.test(html));
-t.ok('체크 탭 → taskCheckToggle 후 재렌더', /ck\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(typeof taskCheckToggle==='function'\)taskCheckToggle\(t\);[\s\S]*?renderPlanner\(\); \}\);/.test(html));
+t.ok('체크 탭 → 그날 몫 토글(taskDayToggle, 없으면 taskCheckToggle) 후 재렌더', /ck\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(typeof taskDayToggle==='function'\)taskDayToggle\(t,_dayKey\); else if\(typeof taskCheckToggle==='function'\)taskCheckToggle\(t\); renderPlanner\(\); \}\);/.test(html));
 
 // 이동시간 + 준비물
 t.ok('이동시간·준비물 값 계산(목표 대표 제외)', /var travelMin=parseInt\(t\.travelMin\|\|t\.moveMin\|\|t\.travelMinutes\|\|0,10\)\|\|0;\s*var prepAll=\(!isGoalRep&&typeof taskPrepList==='function'\)\?taskPrepList\(t\):\[\];/.test(html));
@@ -29,7 +29,7 @@ t.ok('메타/준비물 CSS', /\.plan-block-meta\{display:flex/.test(html) && /\.
 t.ok('_planWindowBlocks: 하위·목표 할일 collapse + 목표 대표 concat', /if\(typeof taskIsNested==='function' && taskIsNested\(t\)\)return;\s*if\(t\.goalId && typeof findGoal==='function' && findGoal\(t\.goalId\)\)return;[\s\S]*?return out\.concat\(_planGoalReps\(START,END\)\);/.test(html));
 t.ok('_planGoalReps: 오늘 소속 할일만(시간 유무 무관, 다른 날 제외)', /var today=all\.filter\(function\(x\)\{ return x&&!x\._travelOnly&&String\(x\.goalId\|\|''\)===gid && x\.date===_planDate; \}\);/.test(html));
 t.ok('_planGoalReps: 완료해도 안 사라짐(미완료 게이트 없음)', /var undone=today\.filter\(function\(x\)\{ return !_md\(x\); \}\);\s*\/\* 타임라인에 놓으려면/.test(html) && !/if\(!undone\.length\)return;/.test(html));
-t.ok('목표 대표 완료 판정(소속 다 완료면 done — 흐리게 남김)', /var _grDone = !!t\._planGoalRep && Number\(t\._repTotal\)>0 && Number\(t\._repDone\|\|0\)>=Number\(t\._repTotal\);\s*var done=t\._planGoalRep \? _grDone :/.test(html));
+t.ok('목표 대표 완료 판정(소속 다 완료면 done — 흐리게 남김)', /var _grDone = !!t\._planGoalRep && Number\(t\._repTotal\)>0 && Number\(t\._repDone\|\|0\)>=Number\(t\._repTotal\);\s*var _dayKey=t\.date\|\|_planDate;\s*var done=t\._planGoalRep \? _grDone :/.test(html));
 t.ok('_planGoalReps: 시간 있는 멤버로 위치·높이(완료 포함) + 90~180분 상한', /var timed=today\.filter\(_timed\);\s*if\(!timed\.length\)return;[\s\S]*?timed\.forEach\(function\(m\)\{[\s\S]*?var dur=Math\.max\(90, Math\.min\(\(eMax-sMin\), 180\)\);/.test(html));
 t.ok('_planGoalReps: 진행 정보 저장(_repDone/_repTotal)', /_repMembers:today, _repDone:\(today\.length-undone\.length\), _repTotal:today\.length/.test(html));
 t.ok('대표 목록: 목표=미완료만, 일반=하위 전체', /var repChildren = isGoalRep \? repAll\.filter\(function\(x\)\{return !_effDone\(x\);\}\) : repAll;/.test(html));

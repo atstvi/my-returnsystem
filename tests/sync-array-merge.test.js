@@ -40,8 +40,8 @@ t.ok('baseline 이후 추가만 보존', r5&&r5.some(function(x){return x.id==='
 
 // ── 소스 배선 ──
 t.ok('헬퍼 정의', /function returnSyncArrayMerge\(cloudStr, localStr, opts\)\{/.test(html));
-t.ok('routine 인바운드 union-merge', /if\(k==='routine_habits_v1'\|\|k==='routine_bundles_v1'\)\{[\s\S]*?returnSyncArrayMerge\(data\.keys\[k\], localStorage\.getItem\(k\), \{keepAllLocalOnly:true, tombstones:true\}\)/.test(html));
-t.ok('routine 아웃바운드 union-merge', /var _rm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{keepAllLocalOnly:true, tombstones:true\}\); if\(_rm!=null\)valueToAbsorb=JSON\.stringify\(_rm\);/.test(html));
-t.ok('memos/hobby 아웃바운드 union-merge', /var _hm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{baseline:localApplyBaseline\}\); if\(_hm!=null\)valueToAbsorb=JSON\.stringify\(_hm\);/.test(html));
+t.ok('routine 인바운드 union-merge', /if\(k==='routine_habits_v1'\|\|k==='routine_bundles_v1'\)\{[\s\S]*?returnSyncArrayMerge\(data\.keys\[k\], localStorage\.getItem\(k\), \{keepAllLocalOnly:true, tombstones:true, eidPrefix:RETURN_EID_PREFIX\[k\]\}\)/.test(html));
+t.ok('routine 아웃바운드 union-merge', /var _rm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{keepAllLocalOnly:true, tombstones:true, eidPrefix:RETURN_EID_PREFIX\[k\]\}\); if\(_rm!=null\)valueToAbsorb=JSON\.stringify\(_rm\);/.test(html));
+t.ok('memos/hobby 아웃바운드 union-merge(로컬 전용 보존 · tombstone)', /var _hm=returnSyncArrayMerge\(cloud\.fullValue, ours, \{keepAllLocalOnly:true, tombstones:true, eidPrefix:RETURN_EID_PREFIX\[k\]\}\); if\(_hm!=null\)valueToAbsorb=JSON\.stringify\(_hm\);/.test(html));
 
 t.done();

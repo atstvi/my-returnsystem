@@ -11,7 +11,7 @@
    3. _applyingFbData lock is set during apply, released on exit
    4. null/empty data → returns early without throw
    5. __noop flag → returns early, no writes */
-const { readIndex, sliceBlock, runner } = require('./lib');
+const { readIndex, sliceBlock, runner, syncHelpersSource } = require('./lib');
 const vm = require('vm');
 
 const html = readIndex();
@@ -50,6 +50,7 @@ function makeSandbox() {
     fbSaveAll: () => {},
   };
   vm.createContext(sb);
+  vm.runInContext(syncHelpersSource(html), sb);
   vm.runInContext(block, sb);
   return { sb, written, win };
 }
