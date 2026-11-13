@@ -12,7 +12,7 @@ t.ok('종일 base가 done을 제외하지 않음(완료도 표시)',
   /var _adBase=dayTasks\.filter\(function\(t\)\{return t&&!t\._travelOnly && _untimed\(t\) && !_isSchedLike\(t\) && !_nested\(t\);\}\);/.test(html));
 // 완료 판정 → ✓·done 클래스(기존 배선 유지)
 t.ok('종일 칩 완료 시 ✓·done',
-  /var _dqDone=\(typeof taskDayQuotaDone==='function'&&taskDayQuotaDone\(t,_planDate\)\)\|\|\(typeof taskEffectiveDone==='function'&&taskEffectiveDone\(t\)\);[\s\S]*?_dqDone\?'✓ ':'○ '/.test(html));
+  /var _dqDone=\(typeof taskShownDoneOn==='function'\)\?taskShownDoneOn\(t,_planDate\):!!t\.done;[\s\S]*?_dqDone\?'✓ ':'○ '/.test(html));
 
 // (2) _planSchedule: 생성 항목은 시간 배치 시 이 항목만(userModifiedDate) 표시
 t.ok("_planSchedule이 생성 항목을 '이 항목만'으로 표시",

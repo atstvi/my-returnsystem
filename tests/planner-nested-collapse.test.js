@@ -17,8 +17,9 @@ t.ok('_adUntimed = base + 상위',
   /var _adUntimed=_adBase\.concat\(_adParents\);/.test(html));
 
 // (3) 그날 완료 표시(✓ + done 클래스)
-t.ok('종일 칩 그날완료 판정(taskDayQuotaDone/taskEffectiveDone)',
-  /var _dqDone=\(typeof taskDayQuotaDone==='function'&&taskDayQuotaDone\(t,_planDate\)\)\|\|\(typeof taskEffectiveDone==='function'&&taskEffectiveDone\(t\)\);/.test(html));
+t.ok('종일 칩 그날완료 판정(taskShownDoneOn = taskEffectiveDone || taskDayQuotaDone, 계획창 블록과 공용)',
+  /var _dqDone=\(typeof taskShownDoneOn==='function'\)\?taskShownDoneOn\(t,_planDate\):!!t\.done;/.test(html)
+  && /return taskEffectiveDone\(task\) \|\| \(!task\.canceled && taskDayQuotaDone\(task,dateKey\)\);/.test(html));
 t.ok('종일 칩 done 클래스 + ✓ 접두',
   /c\.className='plan-allday-chip untimed'\+\(_dqDone\?' done':''\);[\s\S]*?sp\.textContent=\(_dqDone\?'✓ ':'○ '\)\+\(t\.text\|\|'할일'\);/.test(html));
 

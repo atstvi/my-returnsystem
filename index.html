@@ -19823,7 +19823,8 @@ function _planBlockEl(o, START, SLOT_H){
   var canceled=!!t.canceled;
   /* 목표 대표는 소속(오늘)이 다 완료면 '완료'로 본다 → 완료해도 사라지지 않고 흐리게 남는다. */
   var _grDone = !!t._planGoalRep && Number(t._repTotal)>0 && Number(t._repDone||0)>=Number(t._repTotal);
-  var done=t._planGoalRep ? _grDone : ((typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done);
+  var _dayKey=t.date||_planDate;
+  var done=t._planGoalRep ? _grDone : ((typeof taskShownDoneOn==='function')?taskShownDoneOn(t,_dayKey):!!t.done);
   var el=document.createElement('div'); el.className='plan-block'+(done?' done':'')+(canceled?' canceled':''); el.setAttribute('data-tid',String(t.id));
   var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280';
   el.style.top=top+'px'; el.style.height=hgt+'px';
@@ -19850,8 +19851,9 @@ function _planBlockEl(o, START, SLOT_H){
   var isGoalRep=!!t._planGoalRep;
   var isRealTask=!!(t.id && !String(t.id).startsWith('tt_') && !t._isTt && !isGoalRep);
   function _effDone(x){ return (typeof taskEffectiveDone==='function')?taskEffectiveDone(x):!!(x&&x.done); }
-  /* 대표 블록의 소속 목록: 목표 대표 → 오늘 소속 할일, 일반 할일 → 하위 할일(중첩). */
-  var repAll = isGoalRep ? (t._repMembers||[]) : ((typeof taskChildren==='function' && t.id!=null)?taskChildren(t.id):[]);
+  /* 대표 블록의 소속 목록: 목표 대표 → 오늘 소속 할일, 일반 할일 → 그날 하위 할일(중첩).
+     날짜가 다른 하위는 그 날짜 계획창(종일 줄의 상위 칩)에서 보인다. */
+  var repAll = isGoalRep ? (t._repMembers||[]) : ((typeof taskDayKids==='function' && t.id!=null)?taskDayKids(t,_dayKey):[]);
   var repDoneN = isGoalRep ? (t._repDone||0) : repAll.filter(_effDone).length;
   var repTotal = isGoalRep ? (t._repTotal||repAll.length) : repAll.length;
   /* 목표 대표 목록은 '미완료'만 보여준다(완료는 진행 뱃지로 요약) — 일감 남은 것만 깔끔히. */
@@ -19865,7 +19867,7 @@ function _planBlockEl(o, START, SLOT_H){
     var ck=document.createElement('button'); ck.type='button';
     ck.className='plan-block-check plan-block-ctl'+(done&&!canceled?' done':'')+(canceled?' canceled':'');
     ck.setAttribute('aria-label',canceled?'계획 취소됨 — 되돌리기':(done?'완료됨':'완료 표시'));
-    ck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); } renderPlanner(); });
+    ck.addEventListener('click',function(e){ e.stopPropagation(); if(typeof taskDayToggle==='function')taskDayToggle(t,_dayKey); else if(typeof taskCheckToggle==='function')taskCheckToggle(t); renderPlanner(); });
     head.appendChild(ck);
   }
   var title=document.createElement('div'); title.className='plan-block-title'; title.textContent=(isGoalRep?'🎯 ':(canceled?'🚫 ':''))+(t.text||'일정'); head.appendChild(title);
@@ -20017,7 +20019,8 @@ function _planBindGoalRep(el,t,o,START,SLOT_H){
 /* 블록 컨텍스트 메뉴 — 완료·타이머·길이·어제/내일·시간비우기·복제·삭제(4·5). */
 function _planBlockMenu(t, x, y){
   var old=document.getElementById('plan-blockmenu'); if(old)old.remove();
-  var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
+  var _dayKey=t.date||_planDate;
+  var done=(typeof taskShownDoneOn==='function')?taskShownDoneOn(t,_dayKey):!!t.done;
   var m=document.createElement('div'); m.className='plan-ctxmenu'; m.id='plan-blockmenu';
   m.innerHTML=''
     +'<button type="button" class="plan-ctx-row" data-act="done">'+(done?'↩ 완료 취소':'✓ 완료로')+'</button>'
@@ -20043,7 +20046,7 @@ function _planBlockMenu(t, x, y){
   setTimeout(function(){ document.addEventListener('pointerdown',onDoc,true); },0);
   function shiftDay(n){ var d=new Date(_planDate+'T00:00'); d.setDate(d.getDate()+n); var nd=dk(d); if(typeof markTaskDateManualChange==='function')markTaskDateManualChange(t,nd); t.date=nd; t.updatedAt=Date.now(); if(typeof saveTaskData==='function')saveTaskData(); }
   m.querySelectorAll('[data-act]').forEach(function(b){ b.addEventListener('click',function(){ var a=b.getAttribute('data-act');
-    if(a==='done'){ if(typeof taskCheckToggle==='function')taskCheckToggle(t); else { t.done=!t.done; if(typeof saveTaskData==='function')saveTaskData(); } }
+    if(a==='done'){ if(typeof taskDayToggle==='function')taskDayToggle(t,_dayKey); else if(typeof taskCheckToggle==='function')taskCheckToggle(t); }
     else if(a==='cancelplan'){ if(typeof setTaskCanceled==='function')setTaskCanceled(t, !t.canceled); if(typeof showToast==='function')showToast(t.canceled?'계획을 취소했어요(기록은 남아요)':'계획을 되돌렸어요'); }
     else if(a==='timer'){ if(typeof focusTimerStartForTask==='function')focusTimerStartForTask(t.id); }
     else if(a==='prevday'){ shiftDay(-1); if(typeof showToast==='function')showToast('어제로 옮겼어요'); }
@@ -20070,7 +20073,7 @@ function _planLeadEls(o, START, SLOT_H, blockEl){
   var prepMin=parseInt(t.prepMin,10)||0;
   var showPrep=prepMin>0||prepLeft.length>0;
   if(!travel&&!showPrep)return [];
-  var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done;
+  var done=(typeof taskShownDoneOn==='function')?taskShownDoneOn(t,t.date||_planDate):!!t.done;
   var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280';
   var out=[], travelEl=null, prepEl=null;
   function mk(cls){ var d=document.createElement('div'); d.className='plan-lead '+cls+(done?' done':''); d.setAttribute('data-lead-for',String(t.id)); d.style.setProperty('--pbc',hex); d.style.left='calc('+(o.col/o.cols*100)+'% + 10px)'; d.style.width='calc('+(100/o.cols)+'% - 22px)'; return d; }
@@ -20731,7 +20734,7 @@ function _planRenderMulti(){
     var lines=''; for(var hr2=START;hr2<END;hr2++){ lines+='<div class="planm-hline" style="top:'+((hr2-START)*SLOT_H)+'px"></div>'; }
     var now=''; if(isT){ var nm=new Date(); var nmin=nm.getHours()*60+nm.getMinutes(); if(nmin>=START*60&&nmin<=END*60){ now='<div class="planm-now" style="top:'+((nmin/60-START)*SLOT_H)+'px"></div>'; } }
     var blocks=(typeof twvLayoutBlocks==='function')?twvLayoutBlocks(_planDayTimed(key),{start:START,end:END}):[];
-    var bH=blocks.map(function(b){ var t=b.t; var sm=Math.max(b.sm,START*60), em=Math.min(b.em,END*60); var y=(sm/60-START)*SLOT_H; var hgt=Math.max((em-sm)/60*SLOT_H-2,20); var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280'; var done=(typeof taskEffectiveDone==='function')?taskEffectiveDone(t):!!t.done; var bg=done?((typeof twvHexAlpha==='function')?twvHexAlpha(hex,0.12):'var(--bg-raised)'):'color-mix(in srgb,'+hex+' 22%,var(--bg-card))'; var tc=done?'var(--fg-4)':'var(--fg)'; var lp=(b.col/b.totalCols*100), wp=(100/b.totalCols); var lock=t._isTt||!t.id;
+    var bH=blocks.map(function(b){ var t=b.t; var sm=Math.max(b.sm,START*60), em=Math.min(b.em,END*60); var y=(sm/60-START)*SLOT_H; var hgt=Math.max((em-sm)/60*SLOT_H-2,20); var hex=(typeof twvCatColor==='function')?twvCatColor(t.catId):'#6B7280'; var done=(typeof taskShownDoneOn==='function')?taskShownDoneOn(t,key):!!t.done; var bg=done?((typeof twvHexAlpha==='function')?twvHexAlpha(hex,0.12):'var(--bg-raised)'):'color-mix(in srgb,'+hex+' 22%,var(--bg-card))'; var tc=done?'var(--fg-4)':'var(--fg)'; var lp=(b.col/b.totalCols*100), wp=(100/b.totalCols); var lock=t._isTt||!t.id;
       /* 블록 위로 이동 → 준비 순으로 쌓는 띠(최소 14px, 격자 위 끝에서 잘림) */
       var leads='', edge=y, _tv=parseInt(t.travelMin||t.moveMin||t.travelMinutes||0,10)||0;
       var _pa=(typeof taskPrepList==='function')?taskPrepList(t):[], _pl=_pa.filter(function(x){return x&&!x.done;}), _pm=parseInt(t.prepMin,10)||0;
@@ -20812,13 +20815,14 @@ function renderPlanner(){
     var _adSeen={}; _adBase.forEach(function(t){_adSeen[String(t.id)]=1;});
     var _adParents=(typeof tasks!=='undefined'?tasks:[]).filter(function(p){
       if(!p||p._travelOnly||p.done||_adSeen[String(p.id)])return false;
-      if(!_untimed(p)||_isSchedLike(p)||_nested(p))return false;
+      if(_isSchedLike(p)||_nested(p))return false;
+      if(!_untimed(p)&&p.date===_planDate)return false; /* 그날 시간 블록으로 이미 보임 */
       var kids=(typeof taskChildren==='function')?taskChildren(p.id):[];
       return kids.some(function(k){return k&&k.date===_planDate;});
     });
     var _adUntimed=_adBase.concat(_adParents);
     _adSched.forEach(function(t){ var c=document.createElement('button'); c.className='plan-allday-chip'; c.type='button'; c.textContent=t.text||'일정'; c.addEventListener('click',function(){ if(typeof tasksOpenModal==='function')tasksOpenModal(t); }); alldayEl.appendChild(c); });
-    _adUntimed.forEach(function(t){ var c=document.createElement('div'); var _dqDone=(typeof taskDayQuotaDone==='function'&&taskDayQuotaDone(t,_planDate))||(typeof taskEffectiveDone==='function'&&taskEffectiveDone(t)); c.className='plan-allday-chip untimed'+(_dqDone?' done':''); c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent=(_dqDone?'✓ ':'○ ')+(t.text||'할일'); c.appendChild(sp);
+    _adUntimed.forEach(function(t){ var c=document.createElement('div'); var _dqDone=(typeof taskShownDoneOn==='function')?taskShownDoneOn(t,_planDate):!!t.done; c.className='plan-allday-chip untimed'+(_dqDone?' done':''); c.setAttribute('data-pkind','task'); c.setAttribute('data-pid',String(t.id)); var sp=document.createElement('span'); sp.className='pti-t'; sp.textContent=(_dqDone?'✓ ':'○ ')+(t.text||'할일'); c.appendChild(sp);
       /* 종일 할일: 탭=할일 편집창, 우클릭=현재 조작창(빠른 처리), 드래그=시간 배치.
          드래그가 주 동작이라 롱프레스는 걸지 않는다(드래그 배치가 안 잡히던 문제 해결). */
       if(typeof _planBindTrayDrag==='function')_planBindTrayDrag(c,{
@@ -27792,6 +27796,35 @@ function taskDayQuotaDone(task,dateKey){
   var kids=(typeof taskChildren==='function')?taskChildren(task.id):[];
   var dayKids=kids.filter(function(t){return t&&t.date===dateKey;});
   return dayKids.length>0 && dayKids.every(function(t){return taskEffectiveDone(t);});
+}
+/* 계획창의 상위 할일 블록 = '그날 몫'. 같은 상위라도 날짜가 다른 하위는 그 날짜에서만
+   보이고(목록의 날짜별 보기와 같음), 그날 하위를 다 끝내면 상위도 그날은 완료로 보인다
+   (전역 done은 그대로 — 다른 날 하위가 남아 있으면 그날 다시 열려 보인다). */
+function taskDayKids(task,dateKey){
+  if(!task||!dateKey)return [];
+  var kids=(typeof taskChildren==='function')?taskChildren(task.id):[];
+  return kids.filter(function(k){ return k&&k.date===dateKey; });
+}
+function taskShownDoneOn(task,dateKey){
+  if(!task)return false;
+  return taskEffectiveDone(task) || (!task.canceled && taskDayQuotaDone(task,dateKey));
+}
+/* 그날 상위 체크: 그날 하위가 있으면 그날 몫만 완료/해제(다른 날 하위는 그대로 — 예전엔
+   상위를 완료로 바꿔 모든 날의 하위가 한꺼번에 완료됐다). 그날 하위가 없거나 이미 전체
+   완료·계획 취소면 평소 완료 토글. 하위를 다 끝내면 상위 완료는 syncParentCompletions가. */
+function taskDayToggle(task,dateKey){
+  if(!task)return null;
+  var dayKids=(task.canceled||task.done)?[]:taskDayKids(task,dateKey).filter(function(k){ return !k.canceled; });
+  if(!dayKids.length)return (typeof taskCheckToggle==='function')?taskCheckToggle(task):null;
+  var allDone=dayKids.every(function(k){ return taskEffectiveDone(k); }), now=Date.now();
+  dayKids.forEach(function(k){
+    if(allDone){ if(!k.done)return; k.done=false; }
+    else { if(taskEffectiveDone(k))return; k.done=true; }
+    k.updatedAt=now;
+    if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(k);
+  });
+  if(typeof saveTaskData==='function')saveTaskData();
+  return allDone?'undone':'done';
 }
 function saveTaskData(){
   tasks=returnSanitizeTaskArray(tasks);
