@@ -29927,7 +29927,9 @@ function rdsActionSheet(opt){
   if(typeof window==='undefined'||!window.addEventListener)return;
   var downEl=null, swallowClick=null, bypass=null;
   function editable(el){ return !!el&&el.nodeType===1&&(el.isContentEditable||el.tagName==='TEXTAREA'||(el.tagName==='INPUT'&&!/^(button|submit|reset|checkbox|radio|range|color|file|hidden|image)$/i.test(el.type||''))); }
-  function val(el){ return el.isContentEditable?String(el.innerText||''):String(el.value||''); }
+  function val(el){ if(el.isContentEditable)return String(el.innerText||''); if(el.tagName==='INPUT'&&/^(checkbox|radio)$/i.test(el.type||''))return el.checked?'on':'off'; return String(el.value||''); }
+  /* 고르는 칸(날짜·시간·숫자·선택·체크)도 바꾸면 '쓴 내용'으로 본다 — 날짜를 고른 뒤 바탕을 눌러도 묻게. */
+  function pickable(el){ return !!el&&el.nodeType===1&&(el.tagName==='SELECT'||(el.tagName==='INPUT'&&/^(date|time|datetime-local|month|week|number|checkbox|radio)$/i.test(el.type||''))); }
   function isBackdrop(el){
     if(!el||el.nodeType!==1||el===document.body||el===document.documentElement)return false;
     if(el.classList&&el.classList.contains('rds-sheet-dim'))return false; /* 이 확인 시트 자신의 바탕 */
@@ -29937,14 +29939,15 @@ function rdsActionSheet(opt){
   }
   function dirtyIn(root){
     if(!root||!root.querySelectorAll)return null;
-    var list=root.querySelectorAll('input,textarea,[contenteditable="true"],[contenteditable=""]');
-    for(var i=0;i<list.length;i++){ var x=list[i]; if(x._rdsTyped!=null&&val(x)===x._rdsTyped&&val(x).trim()!==''&&x.getClientRects().length)return x; }
+    var list=root.querySelectorAll('input,textarea,select,[contenteditable="true"],[contenteditable=""]');
+    for(var i=0;i<list.length;i++){ var x=list[i]; if(x._rdsTyped!=null&&val(x)===x._rdsTyped&&(x._rdsPicked||val(x).trim()!=='')&&x.getClientRects().length)return x; }
     return null;
   }
   /* 바탕 안의 입력칸, 또는 dim이 형제 요소인 시트(빠르게 담기 등)의 입력칸 */
   function dirtyFor(bd){ return dirtyIn(bd)||(/dim|backdrop/i.test(String(bd.className||'')+' '+String(bd.id||''))?(dirtyIn(bd.nextElementSibling)||dirtyIn(bd.previousElementSibling)):null); }
   window.rdsBackdropDirty=function(bd){ return dirtyFor(bd); };
   window.addEventListener('input',function(e){ var el=e.target; if(editable(el))el._rdsTyped=val(el); },true);
+  window.addEventListener('change',function(e){ var el=e.target; if(pickable(el)){ el._rdsTyped=val(el); el._rdsPicked=true; } },true);
   /* 코드가 값을 바꾼 뒤(다른 할일로 다시 열기 등) 입력칸에 들어오면 예전 표시는 버린다 */
   window.addEventListener('focusin',function(e){ var el=e.target; if(el&&el._rdsTyped!=null&&val(el)!==el._rdsTyped)el._rdsTyped=null; },true);
   function stop(e){ e.preventDefault(); e.stopPropagation(); if(e.stopImmediatePropagation)e.stopImmediatePropagation(); }
@@ -29954,7 +29957,7 @@ function rdsActionSheet(opt){
       bypass=bd;
       try{ bd.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,cancelable:true})); bd.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true})); }catch(_e){}
       bypass=null;
-      var all=bd.querySelectorAll?bd.querySelectorAll('input,textarea,[contenteditable]'):[]; for(var i=0;i<all.length;i++)all[i]._rdsTyped=null;
+      var all=bd.querySelectorAll?bd.querySelectorAll('input,textarea,select,[contenteditable]'):[]; for(var i=0;i<all.length;i++){ all[i]._rdsTyped=null; all[i]._rdsPicked=false; }
       d._rdsTyped=null;
     };
     if(typeof rdsActionSheet!=='function'){ if(confirm('작성 중인 내용이 있어요. 창을 닫을까요?'))closeNow(); else reopen(); return; }
