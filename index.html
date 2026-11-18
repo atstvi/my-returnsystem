@@ -6245,6 +6245,7 @@ html.pjb-fs-lock{overflow:hidden}
 .wish-editmodal{max-width:560px;width:100%}
 .wish-imgpick{width:100%;aspect-ratio:16/10;border-radius:var(--r-md);border:1.5px dashed var(--border-strong,var(--border));background:var(--bg-sunken);cursor:pointer;overflow:hidden;margin-bottom:var(--sp-3);display:flex;align-items:center;justify-content:center}
 .wish-imgpick:hover{border-color:var(--accent)}
+.wish-thumbs.drop{outline:2px dashed var(--accent);outline-offset:4px;border-radius:var(--r-md)}
 .wish-imgpick-inner{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:var(--fg-4);font-size:var(--text-sm);width:100%;height:100%}
 .wish-imgpick-inner svg{width:32px;height:32px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .wish-imgpick-inner img{width:100%;height:100%;object-fit:cover}
@@ -59246,7 +59247,7 @@ function wishOpenEditor(item){
   var starBtns='';for(var s=1;s<=5;s++)starBtns+='<button type="button" class="wish-star'+((parseInt(draft.rating,10)||0)>=s?' on':'')+'" data-wishstar="'+s+'">★</button>';
   ov.innerHTML='<div class="modal wish-editmodal"><div class="modal-head"><div class="modal-title">'+(editing?'위시 편집':'위시 추가')+'</div></div>'
     +'<div class="modal-body">'
-    +'<div class="field"><label class="field-label">사진 <span class="wish-hint">첫 장이 대표 · 여러 장 담아 비교</span></label><div class="wish-thumbs" id="wish-thumbs"></div><input type="file" id="wish-imgfile" accept="image/*" multiple hidden><div class="wish-urlrow"><input class="wish-urlin" id="wish-imgurl" type="url" placeholder="이미지 주소(URL)로 추가 — 선택"><button type="button" class="btn btn-ghost wish-urladd" id="wish-imgurladd">추가</button></div></div>'
+    +'<div class="field"><label class="field-label">사진 <span class="wish-hint">첫 장이 대표 · 여러 장 담아 비교'+((typeof rdsIsTouch==='function'&&rdsIsTouch())?'':(' · 복사한 사진은 '+(/Mac|iPhone|iPad/.test(navigator.platform||'')?'⌘V':'Ctrl+V')+'로 바로'))+'</span></label><div class="wish-thumbs" id="wish-thumbs"></div><input type="file" id="wish-imgfile" accept="image/*" multiple hidden><div class="wish-urlrow"><input class="wish-urlin" id="wish-imgurl" type="url" placeholder="이미지 주소(URL)로 추가 — 선택"><button type="button" class="btn btn-ghost wish-urladd" id="wish-imgurladd">추가</button></div></div>'
     +'<div class="field"><label class="field-label">이름</label><input class="field-inp" id="wf-title" value="'+wishEsc(draft.title||'')+'" placeholder="예: 무선 헤드폰"></div>'
     +'<div class="wish-row2"><div class="field"><label class="field-label">분야</label><input class="field-inp" id="wf-cat" list="wish-catlist" value="'+wishEsc(draft.category||'')+'" placeholder="예: 전자기기"><datalist id="wish-catlist">'+cats+'</datalist></div>'
     +'<div class="field"><label class="field-label">상태</label><select class="field-select" id="wf-status">'+statusOpts+'</select></div></div>'
@@ -59280,10 +59281,34 @@ function wishOpenEditor(item){
     c.querySelectorAll('[data-mkrep]').forEach(function(b){b.addEventListener('click',function(){var i=Number(b.getAttribute('data-mkrep'));var im=draft.images.splice(i,1)[0];draft.images.unshift(im);renderThumbs();});});
   }
   renderThumbs();
+  function addImageFiles(files){
+    files=(files||[]).filter(function(f){ return f&&/^image\//.test(f.type||''); });
+    if(!files.length)return 0;
+    var i=0;(function next(){ if(i>=files.length){renderThumbs();return;} wishPrepImageFile(files[i++],function(im){ if(im)draft.images.push(im); next(); }); })();
+    return files.length;
+  }
   fileInput.addEventListener('change',function(){
     var files=Array.prototype.slice.call(this.files||[]); this.value='';
-    var i=0;(function next(){ if(i>=files.length){renderThumbs();return;} wishPrepImageFile(files[i++],function(im){ if(im)draft.images.push(im); next(); }); })();
+    addImageFiles(files);
   });
+  /* 복사한 사진 붙여넣기(Ctrl/⌘+V) — 편집창 어디에 포커스가 있든. 클립보드에 이미지가 있을 때만 가로채고
+     (글자만 있으면 입력칸에 그대로 붙음), 창이 닫히면 스스로 해제. 사진 칸엔 끌어다 놓기도. */
+  function onPaste(e){
+    if(!document.body.contains(ov)){ document.removeEventListener('paste',onPaste,true); return; }
+    var cd=e.clipboardData; if(!cd)return;
+    var files=[];
+    Array.prototype.forEach.call(cd.items||[],function(it){ if(it&&it.kind==='file'&&/^image\//.test(it.type||'')){ var f=it.getAsFile(); if(f)files.push(f); } });
+    if(!files.length&&cd.files&&cd.files.length)files=Array.prototype.slice.call(cd.files);
+    /* 받았으면 다른 붙여넣기 처리(인박스·일기 등 페이지 전역)로 같은 사진이 또 가지 않게 멈춘다. */
+    if(addImageFiles(files)){ e.preventDefault(); e.stopPropagation(); if(e.stopImmediatePropagation)e.stopImmediatePropagation(); if(typeof showToast==='function')showToast('사진 '+files.length+'장 붙였어요'); }
+  }
+  document.addEventListener('paste',onPaste,true);
+  var thumbsBox=ov.querySelector('#wish-thumbs');
+  if(thumbsBox){
+    thumbsBox.addEventListener('dragover',function(e){ if(e.dataTransfer&&Array.prototype.some.call(e.dataTransfer.types||[],function(t){return t==='Files';})){ e.preventDefault(); thumbsBox.classList.add('drop'); } });
+    thumbsBox.addEventListener('dragleave',function(){ thumbsBox.classList.remove('drop'); });
+    thumbsBox.addEventListener('drop',function(e){ thumbsBox.classList.remove('drop'); var fs=e.dataTransfer&&e.dataTransfer.files; if(fs&&fs.length){ e.preventDefault(); addImageFiles(Array.prototype.slice.call(fs)); } });
+  }
   var urlIn=ov.querySelector('#wish-imgurl'), urlAdd=ov.querySelector('#wish-imgurladd');
   function addUrl(){var u=(urlIn.value||'').trim();if(!u)return;if(typeof isReturnDisplayableImageUrl==='function'&&!isReturnDisplayableImageUrl(u)){if(typeof showToast==='function')showToast('이미지 주소가 올바르지 않아요');return;}draft.images.push({ref:u,sync:''});urlIn.value='';renderThumbs();}
   if(urlAdd)urlAdd.addEventListener('click',addUrl);
