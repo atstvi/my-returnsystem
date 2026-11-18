@@ -14804,6 +14804,9 @@ var MEDIA_SYNC_TOTAL_MAX=750000;    /* aggregate budget (chars ≈ 1.5MB on disk
 })();
 
 (function(){
+  /* 강조색의 단일 소스는 테마 스튜디오다. 저장된 테마가 있으면 옛 방식(프리셋 램프·색 오버라이드)을 주입하지
+     않는다 — 예전엔 지운 줄 알았던 옛 프리셋이 부팅마다 덮여 '예전 테마'가 보였다. */
+  try{ var _ts=JSON.parse(localStorage.getItem('return_theme_studio_state_v1')||'null'); if(_ts&&_ts.colors&&_ts.colors.accent)return; }catch(_e){}
   var pal=localStorage.getItem('return_theme_palette');
   if(pal&&pal!=='red'){
     var map={
@@ -23629,6 +23632,9 @@ function _idbMarkSettled(){ if(_idbInitSettled)return; _idbInitSettled=true; try
           /* Fix any overflowed synced collection the boot loaders read as empty,
              THEN allow pushes — order matters so we never push partial data. */
           try{ returnRehydrateOverflowedState(); }catch(_e){}
+          /* 테마도 IDB로 넘쳤으면(사진·배너가 큰 테마 — 저장공간 작은 아이패드) 부팅 때는 못 읽어 기본 테마로
+             그려졌고, IDB가 늦게 열리면 그 세션 내내 '기본값'으로 보였다. 준비되자마자 저장된 테마를 다시 적용. */
+          try{ if(Object.prototype.hasOwnProperty.call(_idbCache,'return_theme_studio_state_v1')&&typeof themeStudioApply==='function'&&typeof themeStudioGet==='function'){ themeStudioApply(themeStudioGet()); if(typeof renderThemeSwatches==='function')renderThemeSwatches(); } }catch(_e){}
           _idbMarkSettled();
         };
       } catch(e2){ console.warn('[idb] preload failed',e2); _idbMarkSettled(); }
@@ -24450,7 +24456,8 @@ function setReturnStorageItem(key,value){
      saves correctly. Non-synced keys (UI flags, device-local prefs) write as
      usual. Once settled (incl. IDB-unavailable/5s-fallback) this guard is inert. */
   if(typeof _idbInitSettled!=='undefined' && !_idbInitSettled &&
-     typeof RETURN_SYNC_COLLECTION_KEYS!=='undefined' && RETURN_SYNC_COLLECTION_KEYS.indexOf(key)>=0){
+     ((typeof RETURN_SYNC_COLLECTION_KEYS!=='undefined' && RETURN_SYNC_COLLECTION_KEYS.indexOf(key)>=0)
+      || key==='return_theme_studio_state_v1' || key==='return_theme_studio_presets_v1' || key==='return_theme_studio_assets_v1')){
     try{ if(typeof __storageHealthRecord==='function')__storageHealthRecord({key:key,mode:'deferred-preidb',ok:false}); }catch(_e){}
     try{ if(window.__SYNC_DEBUG) window.__SYNC_DEBUG.log('storage','skipped pre-IDB write to synced key',{key:key}); }catch(_e){}
     return false;
@@ -40305,7 +40312,6 @@ function applyThemePalette(id, silent) {
      반영해 --accent·theme-color 메타·파비콘·PWA 아이콘까지 일관되게 프리셋 색을 따르게 한다. */
   var _ov = document.getElementById('theme-override'); if (_ov) _ov.remove();
   setReturnStorageItem('return_theme_palette', preset.id);
-  localStorage.removeItem('return_theme_color');
   var accent = (preset.id === 'red')
     ? ((typeof THEME_STUDIO_DEFAULT !== 'undefined' && THEME_STUDIO_DEFAULT.colors && THEME_STUDIO_DEFAULT.colors.accent) || '#A75F66')
     : ((preset.vars && preset.vars['--a-400']) || '#A75F66');
@@ -40317,7 +40323,9 @@ function applyThemePalette(id, silent) {
 
 function applyThemeColor(hex) {
   if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return;
-  localStorage.removeItem('return_theme_palette');
+  /* 프리셋 해제는 빈 값으로 '저장'해야 다른 기기·클라우드에도 전해진다. 예전 removeItem은 동기화가 안 돼
+     다음 저장의 '클라우드에만 있는 키 흡수'가 곧바로 옛 프리셋을 되살렸다(앱을 켤 때마다 옛 프리셋 색이 덮임). */
+  setReturnStorageItem('return_theme_palette', '');
   /* 강조색은 테마 스튜디오(단일 소스)를 통해 반영한다. 이 경로만이 --accent와 함께
      theme-color 메타·파비콘·PWA 아이콘(=상단바/앱 로고)까지 갱신한다. 예전처럼
      #theme-override 스타일만 주입하면 나중에 붙는 #theme-studio-style에 덮여
@@ -40341,7 +40349,7 @@ function applyThemeColor(hex) {
 function resetTheme() {
   var el = document.getElementById('theme-override');
   if (el) el.remove();
-  localStorage.removeItem('return_theme_palette');
+  setReturnStorageItem('return_theme_palette', '');
   /* 강조색을 기본 로즈로 되돌린다 — 테마 스튜디오를 거쳐야 --accent와 함께
      theme-color 메타·파비콘·앱 로고까지 기본값으로 복귀한다. */
   var def = (typeof THEME_STUDIO_DEFAULT !== 'undefined' && THEME_STUDIO_DEFAULT.colors && THEME_STUDIO_DEFAULT.colors.accent) || '#A75F66';
@@ -44315,7 +44323,7 @@ function fbApplyCloudSettings(doc){
     }catch(e){console.warn('settings apply failed',k,e);}
   });
 try{ _fbCloudSettingsSeen=fbCollectCloudSettings().settings; }catch(_se){}
-try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof loadHabitNotionConfig==='function')loadHabitNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();if(typeof themeStudioResetColorsOnce==='function')themeStudioResetColorsOnce();if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
+try{loadThemeMode();loadFocusMode();loadDiaryNotionConfig();if(typeof loadHabitNotionConfig==='function')loadHabitNotionConfig();if(typeof scheduleDiaryAutoSync==='function')scheduleDiaryAutoSync();if(typeof queueDiaryNotionPull==='function')queueDiaryNotionPull(currentDate||TK,'cloudSettings',1800);if(typeof gcalLoadConfig==='function')gcalLoadConfig();if(typeof loadApiKeys==='function')loadApiKeys();fillFbInputs();/* (1회 색 초기화 자동 호출 제거 — 플래그 없는 테마를 기본색으로 되돌렸다) */if(typeof themeStudioApply==='function')themeStudioApply(themeStudioGet());if(typeof themeStudioEnsureMediaFallbacks==='function')themeStudioEnsureMediaFallbacks();if(typeof themeStudioRenderTimetablePalette==='function')themeStudioRenderTimetablePalette();if(typeof themeStudioRenderTaskPalette==='function')themeStudioRenderTaskPalette();if(typeof themeStudioRender==='function')themeStudioRender();}catch(e){}
   return n;
 }
 async function fbLoadCloudSettings(ref){
@@ -45290,7 +45298,9 @@ function _fbApplyRenderers(){
   safeCall('renderReflects');
   /* Theme: apply icon/color/skin state first (separate try so a crash in
      themeStudioRender doesn't prevent icon application). */
-  try { if(typeof themeStudioResetColorsOnce==='function') themeStudioResetColorsOnce(); if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); } catch(e){ console.warn('themeStudio apply failed:', e&&e.message); }
+  /* (예전엔 여기서 1회 색 초기화도 불렀다 — 받은 테마에 그 플래그가 없으면(테마 초기화·다른 기기 저장 등)
+     동기화를 받을 때마다 사용자 색을 기본값으로 되돌리고 다시 올렸다. 자동 실행 중단.) */
+  try { if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); if(typeof themeStudioEnsureMediaFallbacks==='function') themeStudioEnsureMediaFallbacks(); } catch(e){ console.warn('themeStudio apply failed:', e&&e.message); }
   /* Ensure stickers have a synced manifest copy so a device that uploaded a
      sticker registers it for cross-device rendering after the next sync. */
   try { if(typeof globalStickerEnsureMediaFallbacks==='function') globalStickerEnsureMediaFallbacks(); } catch(e){ console.warn('sticker fallback repair failed:', e&&e.message); }
@@ -51347,9 +51357,9 @@ function themeStudioResetColorsOnce(){
     themeStudioSet(state,true);
   }catch(e){ console.warn('themeStudioResetColorsOnce failed:',e&&e.message); }
 }
-/* Guaranteed one-time run on boot, slightly delayed so any Firebase cloud
-   settings have applied first (the reset then persists + syncs up the flag). */
-try{ setTimeout(function(){ try{ if(typeof themeStudioResetColorsOnce==='function'){ themeStudioResetColorsOnce(); if(typeof themeStudioApply==='function') themeStudioApply(themeStudioGet()); } }catch(_e){} }, 2500); }catch(_e){}
+/* (중단) 2026-09의 1회 색 초기화는 부팅 2.5초 뒤 자동으로 돌았다. 이미 모든 기기에서 끝났고, 그 뒤로는
+   '저장된 테마를 아직 못 읽은 순간'(IDB로 넘친 테마·느린 기기)이나 플래그가 빠진 상태(테마 초기화 후)에서
+   사용자 테마 색을 기본값으로 되돌리고 동기화까지 할 위험만 남아 자동 실행을 뺐다. 함수는 수동 복구용으로 둔다. */
 function themeStudioSet(state,skipRender){state=themeStudioNormalizeState(state);themeStudioWriteJSON(THEME_STUDIO_STATE_KEY,state);themeStudioApply(state);if(!skipRender)themeStudioRender();themeStudioQueueCloudSync();}
 function themeStudioQueueCloudSync(){
   try{themeStudioEnsureMediaFallbacks();}catch(e){}

@@ -28,7 +28,7 @@ t.ok('tasks 재수화(기존 객체 참조 유지)', /var rt=JSON\.parse\(localS
 
 // ── settle 처리 ──
 t.ok('_idbMarkSettled 정의 + 저장 플러시', /function _idbMarkSettled\(\)\{ if\(_idbInitSettled\)return; _idbInitSettled=true;[\s\S]*?fbSaveAll\(\)/.test(html));
-t.ok('IDB 준비 시 재수화 후 settle', /try\{ returnRehydrateOverflowedState\(\); \}catch\(_e\)\{\}\s*_idbMarkSettled\(\);/.test(html));
+t.ok('IDB 준비 시 재수화 후 settle', /try\{ returnRehydrateOverflowedState\(\); \}catch\(_e\)\{\}[\s\S]{0,700}?_idbMarkSettled\(\);/.test(html));
 t.ok('IDB 실패/미가용 시 settle', /req\.onerror = function\(e\)\{ console\.warn\('\[idb\] open failed', e\); _idbMarkSettled\(\); \};/.test(html));
 t.ok('IDB 미가용(catch) settle', /console\.warn\('\[idb\] indexedDB unavailable', e\); _idbMarkSettled\(\);/.test(html));
 t.ok('5초 폴백 settle', /if\(!_idbInitSettled\)\{[\s\S]*?_idbMarkSettled\(\);[\s\S]*?\}, 5000\)/.test(html));
@@ -38,6 +38,6 @@ t.ok('fbSaveNow가 settle 전엔 연기', /if\(typeof _idbInitSettled!=='undefin
 
 // ── 로컬 쓰기 스킵(settle 전, 동기화 키) ──
 t.ok('setReturnStorageItem이 settle 전 동기화 키 쓰기 스킵',
-  /if\(typeof _idbInitSettled!=='undefined' && !_idbInitSettled &&\s*typeof RETURN_SYNC_COLLECTION_KEYS!=='undefined' && RETURN_SYNC_COLLECTION_KEYS\.indexOf\(key\)>=0\)\{[\s\S]*?return false;/.test(html));
+  /if\(typeof _idbInitSettled!=='undefined' && !_idbInitSettled &&\s*\(\(typeof RETURN_SYNC_COLLECTION_KEYS!=='undefined' && RETURN_SYNC_COLLECTION_KEYS\.indexOf\(key\)>=0\)[\s\S]{0,200}?\)\)\{[\s\S]*?return false;/.test(html));
 
 t.done();
