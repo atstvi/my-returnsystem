@@ -5717,7 +5717,15 @@ html.pjb-fs-lock{overflow:hidden}
 .ftt-timedur{display:flex;align-items:center;gap:var(--sp-1);color:var(--fg-3);font-size:var(--text-sm);flex:1;min-width:120px}
 .ftt-timedur .ftt-input{flex:1;min-width:0}
 .ft-sheet-foot .btn[disabled]{opacity:.45;cursor:default}
-.ftu-tl-track{touch-action:pan-y}
+.ftu-tl-track{touch-action:pan-y;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;cursor:crosshair}
+.ftu-tl-track.ftu-tl-dragging{touch-action:none}
+.ftu-tl-now{position:absolute;left:0;right:0;height:0;border-top:1.5px solid var(--danger);z-index:1;pointer-events:none}
+.ftu-tl-now::before{content:'';position:absolute;left:-4px;top:-4.5px;width:7px;height:7px;border-radius:50%;background:var(--danger)}
+.ftu-tl-hint{font-size:var(--text-xs);color:var(--fg-4);margin:0 0 var(--sp-2);line-height:1.5}
+.ftu-tl-hint b{color:var(--fg-3);font-weight:var(--fw-semibold)}
+.ftu-tl-hint-touch{display:none}
+@media (pointer:coarse){ .ftu-tl-hint-touch{display:inline} .ftu-tl-track{cursor:default} }
+.ftu-rec-empty{font-size:var(--text-sm);color:var(--fg-4);padding:var(--sp-6) var(--sp-4);text-align:center;line-height:1.6}
 .ftu-tl-ghost{position:absolute;left:6px;right:8px;border-radius:var(--r-md);background:color-mix(in srgb,var(--accent) 20%,transparent);border:1.5px dashed var(--accent);color:var(--accent);font-size:var(--text-mini);font-weight:var(--fw-bold);padding:2px 6px;pointer-events:none;overflow:hidden;z-index:2}
 /* ── Zoned 오늘 view (Tasks-style): console zone | divider | 오늘의 집중 zone ── */
 .ftu-body{flex:1;min-height:0;display:flex;overflow:hidden}
@@ -21199,7 +21207,7 @@ function renderHomeTimeBlocks(){
     var bar=document.createElement('div');bar.className='htb-vbar';
     var ck=document.createElement('button');ck.className='task-check'+(t.done&&!t.canceled?' done':'')+(t.canceled?' canceled':'');ck.style.cssText='width:18px;height:18px;flex-shrink:0';
     ck.title=t.canceled?'계획 취소됨 — 되돌리기':(t.done?'완료됨':'완료 표시');
-    ck.addEventListener('click', function(e){ e.stopPropagation(); var _r=taskCheckToggle(t); renderHomeTimeBlocks(); renderHomeTasks(); if(_r==='done'&&typeof focusTimerOfferRecord==='function')focusTimerOfferRecord(t); });
+    ck.addEventListener('click', function(e){ e.stopPropagation(); taskCheckToggle(t); renderHomeTimeBlocks(); renderHomeTasks(); /* 집중 기록 제안은 taskCheckToggle 안에서 */ });
     var name=document.createElement('span');name.className='htb-vname';name.textContent=t.text;
     var badgeEl=document.createElement('span');badgeEl.className='htb-vbadge';badgeEl.textContent=badge || (cat.emoji || 'T');
     var travelInfo=parseInt(t.travelMin,10)||0;
@@ -27967,6 +27975,7 @@ function taskDayToggle(task,dateKey){
     if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(k);
   });
   if(typeof saveTaskData==='function')saveTaskData();
+  if(!allDone&&typeof focusTimerOfferRecord==='function'){ try{ focusTimerOfferRecord(task); }catch(_e){} } /* 그날 몫 완료도 제안 */
   return allDone?'undone':'done';
 }
 function saveTaskData(){
@@ -30266,6 +30275,9 @@ function taskCheckToggle(task){
   task.done=!task.done; task.updatedAt=Date.now();
   if(typeof taskCascadeDoneToChildren==='function')taskCascadeDoneToChildren(task); /* 상위 완료/해제 → 하위도 전파 */
   if(typeof saveTaskData==='function')saveTaskData();
+  /* 완료하면 '집중 기록으로 추가' 제안 — 예전엔 할일 목록 체크박스(toggleDone)에만 붙어 있어서
+     스와이프·⋯ 메뉴·홈·계획창·브리핑 등 이 공용 경로로 완료하면 안 떴다. */
+  if(task.done&&typeof focusTimerOfferRecord==='function'){ try{ focusTimerOfferRecord(task); }catch(_e){} }
   return task.done?'done':'undone';
 }
 window.taskIsCanceled=taskIsCanceled; window.setTaskCanceled=setTaskCanceled; window.toggleTaskCanceled=toggleTaskCanceled; window.taskCheckToggle=taskCheckToggle;
@@ -57803,17 +57815,13 @@ function focusTodayHtml(){
     '<div class="ftu-stat"><div class="ftu-stat-v">'+_fte(agg.count?focusFmtDur(agg.avgMs):'—')+'</div><div class="ftu-stat-l">평균</div></div>'+
     '<div class="ftu-stat"><div class="ftu-stat-v">🍅 '+agg.modeCounts.pomodoro+'</div><div class="ftu-stat-l">포모도로</div></div></div>';
   var legend='<div class="ftu-legend"><span><i style="background:var(--pom)"></i>포모도로</span><span><i style="background:var(--cd)"></i>카운트다운</span><span><i style="background:var(--sw)"></i>스톱워치</span></div>';
-  /* §3.8 — empty state uses the .hw-empty pattern (icon + line + one CTA) */
-  if(!agg.count){
-    var empty='<div class="hw-empty ftu-empty"><span class="hw-empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 13V9"/><path d="M9 2h6"/></svg></span>'+
-      '<span>아직 오늘 집중 기록이 없어요.<br>타이머를 돌리면 여기에 쌓이고, 직접 추가할 수도 있어요.</span>'+
-      '<button class="ftu-rec-add" id="ft-today-add" type="button">+ 기록 직접 추가</button></div>';
-    return '<div class="ftu-today">'+head+stats+empty+legend+'</div>';
-  }
+  /* 기록이 없어도 타임라인은 그대로 보여 준다 — 빈 시간을 끌어(폰은 길게 눌러 끌기) 바로 기록을 남길 수 있게. */
   /* Full-day grid (00–24) so no hour is clipped; it scrolls, and wireFocusToday
      scrolls it to the first session's hour on open. */
   var SLOT_H=56,pxPerMin=SLOT_H/60,rs=0,re=24,totalPx=(re-rs)*SLOT_H;
-  var scrollHour=Math.max(0,Math.min(23,agg.rangeStart));
+  var _nowD=new Date(),_nowMin=_nowD.getHours()*60+_nowD.getMinutes();
+  /* 기록이 있으면 첫 기록 시각, 없으면 지금 시각 근처로 스크롤 */
+  var scrollHour=agg.count?Math.max(0,Math.min(23,agg.rangeStart)):Math.max(0,Math.min(23,_nowD.getHours()-2));
   var axis='';for(var hr=rs;hr<re;hr++){axis+='<div class="ftu-tl-hour" style="height:'+SLOT_H+'px">'+(hr<10?'0':'')+hr+':00</div>';}
   var lines='';for(var h2=rs;h2<re;h2++){lines+='<div class="ftu-tl-line" style="top:'+((h2-rs)*SLOT_H)+'px"></div>';}
   var blocks=agg.sessions.map(function(s){
@@ -57828,7 +57836,9 @@ function focusTodayHtml(){
     var inner=durLine+(label?'<div class="t">'+_fte(label)+'</div>':'');
     return '<div class="ftu-tl-block" data-ftl-id="'+_fte(s.id)+'" title="'+_fte(focusFmtDur(s.durationMs)+(label?' · '+label:''))+'" style="top:'+top+'px;height:'+height+'px;background:'+bg+';border-left:3px solid '+col+'">'+inner+'</div>';
   }).join('');
-  var timeline='<div class="ftu-tl ftu-pane-body" data-slot="'+SLOT_H+'" data-scrollhour="'+scrollHour+'"><div class="ftu-tl-axis">'+axis+'</div><div class="ftu-tl-track" style="height:'+totalPx+'px">'+lines+blocks+'</div></div>';
+  var nowLine='<div class="ftu-tl-now" style="top:'+(_nowMin*pxPerMin)+'px" aria-hidden="true"></div>';
+  var hint='<div class="ftu-tl-hint">'+(agg.count?'':'아직 오늘 기록이 없어요 · ')+'빈 시간을 <b>끌거나 눌러서</b> 기록 추가<span class="ftu-tl-hint-touch"> (길게 누른 채 끌면 범위 지정)</span></div>';
+  var timeline=hint+'<div class="ftu-tl ftu-pane-body" data-slot="'+SLOT_H+'" data-scrollhour="'+scrollHour+'"><div class="ftu-tl-axis">'+axis+'</div><div class="ftu-tl-track" title="빈 시간을 끌거나 눌러서 기록 추가" style="height:'+totalPx+'px">'+lines+nowLine+blocks+'</div></div>';
   var recItems=agg.sessions.map(function(s){
     var col=s.categoryColor||_ftModeColor(s.mode);
     var name=s.categoryName?(s.categoryName+(s.taskText?' · '+s.taskText:'')):(s.taskText||(_ftModeLabel(s.mode)+(s.mode==='pomodoro'?' 집중':'')));
@@ -57836,7 +57846,7 @@ function focusTodayHtml(){
     var meta=_ftModeLabel(s.mode)+' · '+hhmm+' 완료';
     return '<div class="ftu-rec-item" data-ftl-id="'+_fte(s.id)+'"><span class="ftu-rec-dot" style="background:'+col+'"></span><div class="ftu-rec-main"><div class="ftu-rec-name">'+_fte(name)+'</div><div class="ftu-rec-meta">'+_fte(meta)+'</div></div><div class="ftu-rec-dur">'+_fte(focusFmtDur(s.durationMs))+'</div></div>';
   }).join('');
-  var records='<div class="ftu-rec ftu-pane-body">'+recItems+'</div>';
+  var records='<div class="ftu-rec ftu-pane-body">'+(recItems||'<div class="ftu-rec-empty">아직 오늘 집중 기록이 없어요. 타이머를 돌리거나 타임라인에서 끌어서 남겨요.</div>')+'</div>';
   /* Records hidden by default; the timeline gets the full height. A pane toggle
      swaps the same tall area to the record list on demand. */
   var paneBar='<div class="ftu-pane-bar"><div class="ftu-pane-tabs">'+
@@ -57847,46 +57857,93 @@ function focusTodayHtml(){
   return '<div class="ftu-today">'+head+stats+paneBar+pane+legend+'</div>';
 }
 /* Wire the 오늘 panel: 직접 추가 + tap-to-delete on blocks/records. */
-/* Drag on an empty part of the today timeline to sketch a time range, then the
-   add picker opens prefilled with that start/duration. Mouse/pen only — touch
-   keeps scrolling (use the + button there). */
+/* 오늘 타임라인 빈 곳에서 기록 추가.
+   - 마우스/펜: 끌어서 범위 지정 → 기록 추가 창(시작·길이 채워짐). 그냥 클릭하면 그 시각부터 30분.
+   - 터치: 길게 누르면(진동) 범위 지정 시작 → 끌어서 길이 조절, 손 떼면 추가 창. 짧게 탭하면 그 시각부터 30분.
+     길게 누르기 전에 움직이면 평소처럼 스크롤(타임라인 스크롤을 막지 않음).
+   블록 위는 제외(블록은 공용 메뉴). 위치→분 변환은 _ftTimelineRange(순수 함수). */
+function _ftTimelineRange(y0,y1,pxPerMin,tap){
+  var top=Math.max(0,Math.min(y0,y1)), h=Math.abs(y1-y0);
+  var startMin, durMin;
+  if(tap){ startMin=Math.floor((top/pxPerMin)/15)*15; durMin=30; }
+  else{
+    startMin=Math.max(0,Math.round((top/pxPerMin)/5)*5);
+    durMin=Math.max(5,Math.round((h/pxPerMin)/5)*5);
+  }
+  startMin=Math.max(0,Math.min(1435,startMin));
+  if(startMin+durMin>1440)durMin=1440-startMin;
+  return {startMin:startMin,durMin:durMin};
+}
 function _ftWireTimelineDrag(track){
   var tlEl=track.closest('.ftu-tl');
   var SLOT_H=parseInt(tlEl&&tlEl.getAttribute('data-slot'),10)||56,pxPerMin=SLOT_H/60;
-  var dragging=false,startY=0,ghost=null,pid=null;
-  function clean(){dragging=false;pid=null;if(ghost){ghost.remove();ghost=null;}}
+  var LONG_MS=380, MOVE_TOL=8;
+  var st=null; /* {pid,type,y0,x0,cy0,armed,dragging,moved,y1,timer} */
+  var ghost=null;
+  function relY(cy){ return cy-track.getBoundingClientRect().top; }
+  function showGhost(y0,y1){
+    if(!ghost){ ghost=document.createElement('div'); ghost.className='ftu-tl-ghost'; track.appendChild(ghost); }
+    var top=Math.max(0,Math.min(y0,y1)), h=Math.max(Math.abs(y1-y0),2);
+    ghost.style.top=top+'px'; ghost.style.height=h+'px';
+    ghost.textContent=_minToHHMM(top/pxPerMin)+' · '+focusFmtDur(Math.max(5,Math.round((h/pxPerMin)/5)*5)*60000);
+  }
+  function clean(){ if(st&&st.timer)clearTimeout(st.timer); st=null; if(ghost){ ghost.remove(); ghost=null; } track.classList.remove('ftu-tl-dragging'); }
+  function open(r){
+    var d=new Date(); d.setHours(0,0,0,0);
+    focusTimerOpenTargetPicker({drag:{startMin:r.startMin,durMin:r.durMin,dayMs:d.getTime()}});
+  }
   track.addEventListener('pointerdown',function(e){
-    if(e.pointerType==='touch')return;
     if(e.button&&e.button!==0)return;
-    if(e.target.closest('.ftu-tl-block'))return; /* a block = delete, not a drag */
-    dragging=true;pid=e.pointerId;
-    var r=track.getBoundingClientRect();startY=e.clientY-r.top;
-    ghost=document.createElement('div');ghost.className='ftu-tl-ghost';track.appendChild(ghost);
-    ghost.style.top=startY+'px';ghost.style.height='0px';
-    try{track.setPointerCapture(e.pointerId);}catch(_){}
-    e.preventDefault();
+    if(e.target.closest('.ftu-tl-block'))return; /* 블록 = 공용 메뉴 */
+    clean();
+    st={pid:e.pointerId,type:e.pointerType,y0:relY(e.clientY),x0:e.clientX,cy0:e.clientY,armed:false,dragging:false,moved:false,y1:0,timer:null};
+    if(e.pointerType==='touch'){
+      st.timer=setTimeout(function(){
+        if(!st)return; st.armed=true; st.dragging=true; st.timer=null;
+        track.classList.add('ftu-tl-dragging');
+        st.y1=st.y0+30*pxPerMin; showGhost(st.y0, st.y1);
+        try{ if(navigator.vibrate)navigator.vibrate(10); }catch(_e){}
+      },LONG_MS);
+    } else {
+      st.dragging=true;
+      try{ track.setPointerCapture(e.pointerId); }catch(_e){}
+      e.preventDefault();
+    }
   });
   track.addEventListener('pointermove',function(e){
-    if(!dragging||e.pointerId!==pid||!ghost)return;
-    var r=track.getBoundingClientRect(),y=e.clientY-r.top;
-    var top=Math.max(0,Math.min(startY,y)),h=Math.abs(y-startY);
-    ghost.style.top=top+'px';ghost.style.height=h+'px';
-    ghost.textContent=focusFmtDur(Math.max(0,Math.round(h/pxPerMin))*60000);
+    if(!st||e.pointerId!==st.pid)return;
+    if(st.type==='touch'&&!st.armed){
+      if(Math.abs(e.clientY-st.cy0)>MOVE_TOL||Math.abs(e.clientX-st.x0)>MOVE_TOL)clean(); /* 스크롤하려는 것 */
+      return;
+    }
+    if(!st.dragging)return;
+    var y=relY(e.clientY);
+    if(Math.abs(y-st.y0)>3)st.moved=true;
+    if(!st.moved)return;
+    st.y1=y; showGhost(st.y0,y);
   });
+  /* 길게 누른 뒤에는 손가락을 끌어도 스크롤 대신 범위 조절 */
+  track.addEventListener('touchmove',function(e){
+    if(!st||!st.armed)return;
+    e.preventDefault();
+    if(st.cancelled&&e.touches&&e.touches[0]){ var y=relY(e.touches[0].clientY); if(Math.abs(y-st.y0)>3)st.moved=true; if(st.moved){ st.y1=y; showGhost(st.y0,y); } }
+  },{passive:false});
+  /* 브라우저가 포인터를 취소해도(일부 기기) 손을 떼는 순간 마무리 */
+  track.addEventListener('touchend',function(){ if(st&&st.armed&&st.cancelled){ var s0=st; clean(); open(_ftTimelineRange(s0.y0,s0.y1,pxPerMin,false)); } });
+  track.addEventListener('contextmenu',function(e){ if(st&&st.type==='touch')e.preventDefault(); });
   track.addEventListener('pointerup',function(e){
-    if(!dragging||e.pointerId!==pid)return;
-    var r=track.getBoundingClientRect(),y=e.clientY-r.top;
-    var top=Math.max(0,Math.min(startY,y)),h=Math.abs(y-startY);
-    clean();
-    var durMin=Math.round(h/pxPerMin);
-    if(durMin<5)return; /* a click / tiny drag — ignore */
-    var startMin=Math.max(0,Math.round((top/pxPerMin)/5)*5);
-    durMin=Math.max(5,Math.round(durMin/5)*5);
-    if(startMin+durMin>1440)durMin=1440-startMin;
-    var d=new Date();d.setHours(0,0,0,0);
-    focusTimerOpenTargetPicker({drag:{startMin:startMin,durMin:durMin,dayMs:d.getTime()}});
+    if(!st||e.pointerId!==st.pid)return;
+    var s0=st; clean();
+    if(s0.type==='touch'){
+      if(s0.armed) open(_ftTimelineRange(s0.y0,s0.y1,pxPerMin,false)); /* 길게 눌러 끌기(안 끌었으면 30분) */
+      else open(_ftTimelineRange(s0.y0,s0.y0,pxPerMin,true));          /* 짧은 탭 */
+      return;
+    }
+    var y=relY(e.clientY);
+    var drag=s0.moved&&Math.abs(y-s0.y0)/pxPerMin>=5;
+    open(_ftTimelineRange(s0.y0,y,pxPerMin,!drag));
   });
-  track.addEventListener('pointercancel',clean);
+  track.addEventListener('pointercancel',function(e){ if(!st||e.pointerId!==st.pid)return; if(st.armed)st.cancelled=true; else clean(); });
 }
 function wireFocusToday(root){
   var tl=root.querySelector('.ftu-tl[data-scrollhour]');
