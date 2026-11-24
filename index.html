@@ -30009,8 +30009,45 @@ function rdsActionSheet(opt){
     for(var i=0;i<list.length;i++){ var x=list[i]; if(x._rdsTyped!=null&&val(x)===x._rdsTyped&&(x._rdsPicked||val(x).trim()!=='')&&x.getClientRects().length)return x; }
     return null;
   }
+  /* 3) 글자를 치지 않고 바꾼 것(사진 추가·붙여넣기·삭제, 별점 누르기, 칸 추가 등)도 '쓴 내용'으로.
+     열 때마다 새로 만들어 body에 붙이는 창(위시 편집 등)은, 사용자가 처음 손댈 때의 상태를 찍어 두고
+     바탕을 누를 때 지금 상태와 비교한다. 상태 = 입력칸 값(빈 값 제외)·체크 + 사진(img) 개수.
+     열어 두고 재사용하는 창(할일 편집 등)은 찍지 않는다(예전 열림의 상태와 비교하면 오탐). */
+  function formState(root){
+    if(!root||!root.querySelectorAll)return '';
+    var out=[], list=root.querySelectorAll('input,textarea,select');
+    for(var i=0;i<list.length;i++){ var x=list[i], ty=(x.type||'').toLowerCase();
+      if(/^(file|button|submit|reset|image)$/.test(ty))continue;
+      if(ty==='checkbox'||ty==='radio')out.push(x.checked?'1':'0');
+      else { var v=String(x.value||'').trim(); if(v)out.push(v); } }
+    out.push('img:'+root.querySelectorAll('img').length);
+    return out.join('\u0001');
+  }
+  function topOf(el){ while(el&&el.parentElement&&el.parentElement!==document.body)el=el.parentElement; return (el&&el.parentElement===document.body)?el:null; }
+  /* 닫혔다 다시 쓰는 창이면 예전 열림의 기록을 버린다(숨겨진 창의 기록은 매번 정리). */
+  var _rdsSnapped=[];
+  function hiddenEl(x){ if(!x.isConnected)return true; var cs; try{ cs=getComputedStyle(x); }catch(_e){ return true; } if(cs.display==='none'||cs.visibility==='hidden'||cs.pointerEvents==='none'||parseFloat(cs.opacity)===0)return true; var r=x.getBoundingClientRect(); return !r.width||!r.height; }
+  function snapOn(e){
+    if(_rdsSnapped.length)_rdsSnapped=_rdsSnapped.filter(function(x){ if(x._rdsSnap!=null&&hiddenEl(x)){ x._rdsSnap=null; return false; } return x._rdsSnap!=null; });
+    var r=topOf(e.target); if(r&&r._rdsBorn&&r._rdsSnap==null){ r._rdsSnap=formState(r); _rdsSnapped.push(r); }
+  }
+  function changedIn(root){
+    if(!root||root._rdsSnap==null)return null;
+    if(formState(root)===root._rdsSnap)return null;
+    return root.querySelector('input:not([type=hidden]):not([type=file]),textarea')||root;
+  }
+  if(typeof MutationObserver==='function'){
+    var _rdsMo=new MutationObserver(function(muts){ muts.forEach(function(m){ for(var i=0;i<m.addedNodes.length;i++){ var n=m.addedNodes[i]; if(n.nodeType===1)n._rdsBorn=true; } }); });
+    var _rdsMoStart=function(){ if(document.body)_rdsMo.observe(document.body,{childList:true}); };
+    if(document.body)_rdsMoStart(); else document.addEventListener('DOMContentLoaded',_rdsMoStart);
+  }
+  ['pointerdown','keydown','dragenter','paste'].forEach(function(t){ window.addEventListener(t,snapOn,true); });
   /* 바탕 안의 입력칸, 또는 dim이 형제 요소인 시트(빠르게 담기 등)의 입력칸 */
-  function dirtyFor(bd){ return dirtyIn(bd)||(/dim|backdrop/i.test(String(bd.className||'')+' '+String(bd.id||''))?(dirtyIn(bd.nextElementSibling)||dirtyIn(bd.previousElementSibling)):null); }
+  function dirtyFor(bd){
+    var sib=/dim|backdrop/i.test(String(bd.className||'')+' '+String(bd.id||''));
+    return dirtyIn(bd)||(sib?(dirtyIn(bd.nextElementSibling)||dirtyIn(bd.previousElementSibling)):null)
+      ||changedIn(topOf(bd))||(sib?(changedIn(bd.nextElementSibling)||changedIn(bd.previousElementSibling)):null);
+  }
   window.rdsBackdropDirty=function(bd){ return dirtyFor(bd); };
   window.addEventListener('input',function(e){ var el=e.target; if(editable(el))el._rdsTyped=val(el); },true);
   window.addEventListener('change',function(e){ var el=e.target; if(pickable(el)){ el._rdsTyped=val(el); el._rdsPicked=true; } },true);
@@ -30025,6 +30062,7 @@ function rdsActionSheet(opt){
       bypass=null;
       var all=bd.querySelectorAll?bd.querySelectorAll('input,textarea,select,[contenteditable]'):[]; for(var i=0;i<all.length;i++){ all[i]._rdsTyped=null; all[i]._rdsPicked=false; }
       d._rdsTyped=null;
+      var tr=topOf(bd); if(tr)tr._rdsSnap=null;
     };
     if(typeof rdsActionSheet!=='function'){ if(confirm('작성 중인 내용이 있어요. 창을 닫을까요?'))closeNow(); else reopen(); return; }
     rdsActionSheet({ title:'작성 중인 내용이 있어요', sub:'창을 닫으면 저장하지 않은 내용은 사라질 수 있어요.', items:[
