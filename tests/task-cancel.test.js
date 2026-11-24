@@ -70,7 +70,7 @@ t.ok('취소 체크 대각선 표시', /\.task-check\.canceled::after/.test(html
 t.ok('홈 빠른목록 체크 → taskCheckToggle', /if \(taskCheckToggle\(t\) === 'reverted'\) return;[\s\S]{0,80}renderHomeTasks\(\);/.test(html));
 t.ok('홈 빠른목록 canceled 클래스', /'task-item ti-' \+ \(t\.priority \|\| 'none'\) \+ \(t\.done&&!t\.canceled \? ' done' : ''\) \+ \(t\.canceled\?' canceled':''\)/.test(html));
 t.ok('나탭 타임라인 블록 canceled 클래스', /el\.className='htb-vblock ' \+ cls \+ \(t\.done&&!t\.canceled \? ' done' : ''\) \+ \(t\.canceled\?' htb-canceled':''\)/.test(html));
-t.ok('나탭 타임라인 체크 → taskCheckToggle', /var _r=taskCheckToggle\(t\); renderHomeTimeBlocks\(\); renderHomeTasks\(\); if\(_r==='done'/.test(html));
+t.ok('나탭 타임라인 체크 → taskCheckToggle', /e\.stopPropagation\(\); taskCheckToggle\(t\); renderHomeTimeBlocks\(\); renderHomeTasks\(\);/.test(html));
 t.ok('목표 하위 체크 → taskCheckToggle', /gti-subcheck'\)\.addEventListener\('click',function\(e\)\{ e\.stopPropagation\(\); if\(selMode\)\{toggleSel\(t\.id\);return;\} if\(taskCheckToggle\(t\)==='reverted'\)return;/.test(html));
 t.ok('칸반 하위 체크 → taskCheckToggle', /kck\.addEventListener\('click',function\(e\)\{e\.stopPropagation\(\);if\(taskCheckToggle\(ct\)==='reverted'\)return;/.test(html));
 t.ok('나탭 타임라인 취소 CSS', /\.htb-vblock\.htb-canceled\{opacity/.test(html));
